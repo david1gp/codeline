@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Bun package manager
+bun.lock
+bun.lockb
+
+# Build output
+dist/
+out/
+build/
+*.tgz
+
+# Tests and logs
+coverage/
+*.lcov
+logs/
+*.log
+
+# Local operating-system and editor files
+.DS_Store
+.idea/
+.vscode/
+*.iml
+
+# Dotenv secrets. Keep the distributable template tracked.
+.env
+.env.*
+!.env.example
+
+# Local application data and caches
+data/
+.cache/
+.turbo/
+*.tsbuildinfo
+.wrangler/
