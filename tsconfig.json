@@ -3,6 +3,17 @@
     "target": "ESNext",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+    "paths": {
+      "@adaptive-ds/solid-ui/static/badge/Badge": ["../solid-ui/ui/static/badge/Badge.tsx"],
+      "@adaptive-ds/solid-ui/static/badge/badgeCva": ["../solid-ui/ui/static/badge/badgeCva.tsx"],
+      "@adaptive-ds/solid-ui/utils/createSignalObject": ["../solid-ui/ui/utils/createSignalObject.ts"],
+      "#ui/*": ["../solid-ui/ui/*"],
+      "clsx": ["./node_modules/clsx/clsx.d.mts"],
+      "solid-js": ["./node_modules/solid-js/types/index.d.ts"],
+      "solid-js/jsx-runtime": ["./node_modules/solid-js/types/jsx.d.ts"],
+      "solid-js/*": ["./node_modules/solid-js/*"],
+      "tailwind-merge": ["./node_modules/tailwind-merge/dist/types.d.ts"]
+    },
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "types": ["bun"],
     "jsx": "preserve",

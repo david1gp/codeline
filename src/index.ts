@@ -1,5 +1,5 @@
-const packageName = "@adaptive-ds/codeline"
+import { serverStart } from "./server/serverStart.js"
 
 if (import.meta.main) {
-  console.log(`${packageName} repository bootstrap is ready; application work begins in task 3.`)
+  serverStart()
 }
