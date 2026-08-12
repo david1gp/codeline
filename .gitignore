@@ -10,6 +10,7 @@ dist/
 out/
 build/
 *.tgz
+ops/dev/zero-pkgs/
 
 # Tests and logs
 coverage/

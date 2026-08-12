@@ -10,13 +10,13 @@ The implemented foundation uses:
 - **TanStack AI** for the SSE conversion seam and streamed event shape used by the deterministic test stream.
 - **Valibot** for request validation and response contracts exercised by the UI and tests.
 
-PostgreSQL and Zero are planned persistence and synchronization foundations; they are not part of the current slice.
+Local PostgreSQL and Zero development services are defined under `ops/dev/`. PostgreSQL uses `postgres:18-alpine`; Zero uses a Podman-built image from the latest package generated from the pinned local `/home/david/opensource/zero` checkout. Drizzle owns the application schema and migrations; Zero consumes the same PostgreSQL database for synchronization.
 
 The planned provider targets are local CLIProxyAPI and Codex-LB configurations. Provider OAuth, Pi ecosystem integrations, MCP, full-text web search, and custom scrollbar behavior are outside the planned scope.
 
 ## Status
 
-The current increment is a runnable minimal Solid/Hono/Valibot/TanStack AI test slice, not a complete coding workspace. The Solid UI renders an empty workspace and checks `/api/health`. The Bun/Hono API exposes health, validation, deterministic error, and SSE test routes. The TanStack AI seam converts deterministic `StreamChunk` events to SSE; it does not execute a model or provide production AI behavior.
+The current increment is a runnable minimal Solid/Hono/Valibot/TanStack AI test slice plus local PostgreSQL/Zero service definitions, not a complete coding workspace. The Solid UI renders an empty workspace and checks `/api/health`. The Bun/Hono API exposes health, validation, deterministic error, and SSE test routes. The TanStack AI seam converts deterministic `StreamChunk` events to SSE; it does not execute a model or provide production AI behavior.
 
 ## Implemented Routes
 
@@ -27,14 +27,66 @@ The current increment is a runnable minimal Solid/Hono/Valibot/TanStack AI test 
 
 ## Local Development
 
-Requirements: Bun 1.3 or newer.
+Requirements: Bun 1.3 or newer, rootless Podman with a working Compose provider, and `git`.
+
+The Codeline wrapper uses Podman's default rootless storage and does not set project-specific `--root` or `--runroot` paths. On this development host those defaults are `/home/david/.local/share/containers/storage` and `/run/user/1001/containers`; no Codeline Podman state is created under `/tmp`.
 
 ```bash
 bun install
+cp .env.example .env
+chmod 600 .env
+# Replace the local password/admin placeholders in .env. Keep all real values there.
+./ops/dev/zero-link.sh setup
+./ops/dev/codeline-dev.sh config
+./ops/dev/codeline-dev.sh build
+./ops/dev/codeline-dev.sh up
+./ops/dev/codeline-dev.sh migrate
+./ops/dev/codeline-dev.sh status
 bun run dev
 ```
 
-The development command starts the Hono API on `http://127.0.0.1:3004` and the Vite Solid UI on `http://127.0.0.1:5173` when using the supplied `.env.example` values. The Vite server proxies `/api` to the API. No external provider credentials, database, or Zero service is required for this slice.
+The services use an isolated `codeline-dev` network and named volumes (`codeline-dev-postgres` and `codeline-dev-zero`). PostgreSQL is published at `127.0.0.1:5432`; Zero sync is published at `http://127.0.0.1:4848`. The Vite server proxies `/api` to the API at `http://127.0.0.1:3004`.
+
+The Postgres service starts with logical replication enabled (`wal_level=logical`, 10 replication slots, and 10 WAL senders). Zero waits for the Postgres health check, persists its SQLite replica in its named volume, and exposes `/` as its health check. The migration command is intentionally separate so schema changes remain owned by Drizzle.
+
+Set up or verify the local Zero link without using registry Zero:
+
+```bash
+./ops/dev/zero-link.sh setup
+./ops/dev/zero-link.sh verify
+```
+
+After cloning, developers must run `./ops/dev/zero-link.sh setup` from a Codeline checkout. `ZERO_CHECKOUT` in `.env` selects the pinned Zero checkout and defaults to `/home/david/opensource/zero`; the setup builds `packages/zero` with `pnpm@11.11.0`, registers that public package with Bun, and links `@rocicorp/zero` into Codeline. The setup and verify commands are idempotent. This is intentionally the latest local Zero workflow and is not reproducible from a clean clone or CI yet; that work is deferred. `ops/dev/zero-pkgs/` remains ignored for old local artifacts but is not used.
+
+CI is intentionally not viable for the full check suite until Zero dependency reproducibility is revisited. The workflow therefore runs only the clean-clone-safe format check; typecheck, tests, build, and database checks remain local commands after the Zero link is established.
+
+Service lifecycle commands:
+
+```bash
+./ops/dev/codeline-dev.sh up
+./ops/dev/codeline-dev.sh start
+./ops/dev/codeline-dev.sh stop
+./ops/dev/codeline-dev.sh status
+./ops/dev/codeline-dev.sh logs zero-cache
+./ops/dev/codeline-dev.sh down
+./ops/dev/codeline-dev.sh reset
+```
+
+`down` removes containers but keeps data. `reset` also removes both named volumes and is the destructive local reset. Run `migrate` after `up` and after any new migration generation:
+
+```bash
+./ops/dev/codeline-dev.sh migrate
+bun run db:generate
+./ops/dev/codeline-dev.sh migrate
+```
+
+Troubleshooting:
+
+- If configuration validation reports a missing variable, ensure `.env` exists and contains the required names from `.env.example`; the wrapper reports names only, never values.
+- If `podman compose` is unavailable, install/configure a Podman Compose provider and retry `./ops/dev/codeline-dev.sh config`.
+- If ports `5432` or `4848` are busy, change `POSTGRES_PORT` or `ZERO_PORT` in ignored `.env`, update the matching host port in `DATABASE_URL` or `ZERO_CACHE_URL`, then rerun `config` and `up`.
+- If Zero retains a stale replica after schema or database experiments, run `reset`, then `build`, `up`, and `migrate` again.
+- Inspect `./ops/dev/codeline-dev.sh logs postgres` and `./ops/dev/codeline-dev.sh logs zero-cache` for service diagnostics.
 
 Example route checks:
 
@@ -51,8 +103,10 @@ Useful commands:
 ```bash
 bun run format
 bun run format:check
+bun run typecheck
 bun run test
 bun run build
+bun run db:check
 bun run release
 ```
 

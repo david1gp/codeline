@@ -1,2 +1,5 @@
 [console]
 depth = 5
+
+[install]
+linkWorkspacePackages = true
