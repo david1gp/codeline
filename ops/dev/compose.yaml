@@ -46,11 +46,14 @@ services:
       ZERO_LOG_FORMAT: json
       ZERO_NUM_SYNC_WORKERS: 1
       ZERO_PORT: 4848
+      ZERO_MUTATE_URL: ${ZERO_MUTATE_URL:?ZERO_MUTATE_URL is required}
       ZERO_REPLICA_FILE: ${ZERO_REPLICA_FILE:?ZERO_REPLICA_FILE is required}
       ZERO_QUERY_URL: ${ZERO_QUERY_URL:?ZERO_QUERY_URL is required}
       ZERO_UPSTREAM_DB: ${ZERO_UPSTREAM_DB:?ZERO_UPSTREAM_DB is required}
       ZERO_UPSTREAM_MAX_CONNS: 6
       ZERO_CVR_MAX_CONNS: 6
+    extra_hosts:
+      - "preview.codeline.work:host-gateway"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:4848/"]
       interval: 5s
