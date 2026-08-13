@@ -1,5 +1,5 @@
-import { micromark } from "micromark"
+import { markdownHtmlRender } from "../../markdown/markdownHtmlRender.js"
 
 export function finalizedMessageHtmlRender(content: string) {
-  return micromark(content, { allowDangerousHtml: false, allowDangerousProtocol: false })
+  return markdownHtmlRender(content)
 }
