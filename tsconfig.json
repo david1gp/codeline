@@ -39,6 +39,6 @@
     "noFallthroughCasesInSwitch": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["src", "test"],
+  "include": ["src", "test", "scripts"],
   "exclude": [".github", ".idea", ".vscode", "build", "dist", "docs", "node_modules", "ops"]
 }

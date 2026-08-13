@@ -44,12 +44,15 @@ required_env=(
   POSTGRES_PORT
   POSTGRES_USER
   DATABASE_URL
+  PORT
+  UI_PORT
   ZERO_ADMIN_PASSWORD
   ZERO_APP_ID
   ZERO_CHANGE_DB
   ZERO_CVR_DB
   ZERO_PORT
   ZERO_REPLICA_FILE
+  ZERO_QUERY_URL
   ZERO_UPSTREAM_DB
 )
 for name in "${required_env[@]}"; do
@@ -76,10 +79,12 @@ Commands:
   migrate           Apply committed Drizzle migrations to local Postgres.
   link-zero         Build and link the pinned local Zero package into Codeline.
   reset             Remove containers and named volumes, deleting local service data.
+  reset-zero-cache  Remove only the managed Zero Cache container and replica volume.
   start             Start existing containers without recreating them.
   status            Show container status.
   stop              Stop containers without removing them.
   up                Start the local services in detached mode.
+  wait              Wait for a service health check to pass.
   verify-zero       Verify the linked local Zero package.
 EOF
 }
@@ -98,10 +103,73 @@ case "${1:-help}" in
     bash "$root/ops/dev/zero-link.sh" setup
     ;;
   reset) compose down --remove-orphans --volumes ;;
-  start) compose start ;;
+  reset-zero-cache)
+    container_id=$(compose ps -aq zero-cache 2>/dev/null || true)
+    if [[ -n "$container_id" ]]; then
+      podman rm --force "$container_id" >/dev/null
+    fi
+    podman volume rm codeline-dev-zero >/dev/null 2>&1 || true
+    ;;
+  start)
+    shift
+    compose start "$@"
+    ;;
   status) compose ps ;;
-  stop) compose stop ;;
-  up) compose up -d ;;
+  stop)
+    shift
+    compose stop "$@"
+    ;;
+  up)
+    shift
+    compose up -d "$@"
+    ;;
+  wait)
+    service=${2:-}
+    if [[ "$service" == api ]]; then
+      command -v curl >/dev/null 2>&1 || fail "curl is required to wait for $service"
+      url="http://127.0.0.1:${PORT:-6001}/api/ready"
+      deadline=$((SECONDS + 180))
+      while (( SECONDS < deadline )); do
+        if curl --fail --silent --show-error "$url" >/dev/null 2>&1; then
+          exit 0
+        fi
+        sleep 2
+      done
+      fail "$service did not become available"
+    fi
+    if [[ "$service" == ui ]]; then
+      command -v curl >/dev/null 2>&1 || fail "curl is required to wait for $service"
+      url="http://127.0.0.1:${UI_PORT:-6000}/"
+      deadline=$((SECONDS + 180))
+      while (( SECONDS < deadline )); do
+        if curl --fail --silent --show-error "$url" >/dev/null 2>&1; then
+          exit 0
+        fi
+        sleep 2
+      done
+      fail "$service did not become available"
+    fi
+    [[ "$service" == postgres || "$service" == zero-cache ]] || fail "usage: $0 wait {postgres|zero-cache|api|ui}"
+    deadline=$((SECONDS + 180))
+    while (( SECONDS < deadline )); do
+      container_id=$(compose ps -q "$service" 2>/dev/null || true)
+      if [[ -z "$container_id" ]]; then
+        sleep 2
+        continue
+      fi
+      read -r container_state health_state < <(
+        podman inspect "$container_id" --format '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}'
+      )
+      if [[ "$health_state" == healthy ]]; then
+        exit 0
+      fi
+      if [[ "$container_state" == exited || "$container_state" == dead || "$health_state" == unhealthy ]]; then
+        fail "$service health check failed"
+      fi
+      sleep 2
+    done
+    fail "$service did not become healthy"
+    ;;
   verify-zero) bash "$root/ops/dev/zero-link.sh" verify ;;
   *) usage >&2; exit 2 ;;
 esac

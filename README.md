@@ -101,7 +101,7 @@ chmod 600 .env
 bun run dev
 ```
 
-Services use an isolated `codeline-dev` network and named volumes (`codeline-dev-postgres` and `codeline-dev-zero`). PostgreSQL is published at `127.0.0.1:5432`; Zero sync is published at `http://127.0.0.1:4848`. The Vite server proxies `/api` to the API at `http://127.0.0.1:3004`.
+Services use an isolated `codeline-dev` network and named volumes (`codeline-dev-postgres` and `codeline-dev-zero`). The managed host listeners are UI `127.0.0.1:6000`, API `127.0.0.1:6001`, PostgreSQL `127.0.0.1:6002`, and Zero sync `http://127.0.0.1:6003`. PostgreSQL and Zero retain their upstream-required container ports `5432` and `4848`; the Vite server proxies `/api` to `http://127.0.0.1:6001`.
 
 Postgres starts with logical replication enabled (`wal_level=logical`, 10 replication slots, and 10 WAL senders). Zero waits for the Postgres health check, persists its SQLite replica in its named volume, and exposes `/` as its health check. Migrations stay on a separate command so schema changes remain owned by Drizzle.
 
@@ -138,23 +138,48 @@ bun run db:generate
 ./ops/dev/codeline-dev.sh migrate
 ```
 
+Seed deterministic local example data through the repository-owned command. It applies Drizzle migrations first, then reconciles the local-development user, one server and agent, two active sessions, one archived session, and finalized messages. Repeated default runs preserve unrelated rows; `--reset` removes and recreates only the known fixture-owned rows.
+
+```bash
+bun run db:seed
+bun run db:seed -- --reset
+```
+
+Use the managed systemd user target for database, Zero, API, and UI verification. Do not start replacement services for seeding or browser checks:
+
+```bash
+./ops/dev/systemd/codeline-dev-systemd.sh status
+systemctl --user restart codeline-dev.target
+bun run db:seed
+```
+
+For repository-managed development startup, install and enable the user target:
+
+```bash
+./ops/dev/systemd/codeline-dev-systemd.sh install
+systemctl --user enable --now codeline-dev.target
+./ops/dev/systemd/codeline-dev-systemd.sh status
+```
+
+The target starts PostgreSQL before Zero Cache, then the Bun/Hono API on port `6001`, and finally the Vite UI on port `6000`. It waits for dependency health, API readiness at `/api/ready`, and the UI root; Vite's strict port check makes a UI port conflict fail the managed UI unit. The services load the ignored `.env`, run from the repository root, and restart on failure. It uses the user's default rootless Podman storage; it does not create Codeline-specific `/tmp` or `--root`/`--runroot` paths. Stop or remove it with `systemctl --user stop codeline-dev.target` or `./ops/dev/systemd/codeline-dev-systemd.sh remove`.
+
 Troubleshooting:
 
 - If configuration validation reports a missing variable, ensure `.env` exists and contains the required names from `.env.example`. The wrapper reports names only, never values.
 - If `podman compose` is unavailable, install or configure a Podman Compose provider and retry `./ops/dev/codeline-dev.sh config`.
-- If ports `5432` or `4848` are busy, change `POSTGRES_PORT` or `ZERO_PORT` in ignored `.env`, update the matching host port in `DATABASE_URL` or `ZERO_CACHE_URL`, then rerun `config` and `up`.
+- If managed host ports `6000` through `6003` are busy, change the corresponding host variables in ignored `.env`, update `DATABASE_URL`, `ZERO_CACHE_URL`, `VITE_ZERO_CACHE_URL`, or `ZERO_QUERY_URL`, then reinstall/reload the user units.
 - If Zero retains a stale replica after schema or database experiments, run `reset`, then `build`, `up`, and `migrate` again.
 - Inspect `./ops/dev/codeline-dev.sh logs postgres` and `./ops/dev/codeline-dev.sh logs zero-cache` for service diagnostics.
 
 Example route checks:
 
 ```bash
-curl http://127.0.0.1:3004/health
-curl http://127.0.0.1:3004/api/sessions
-curl -X POST http://127.0.0.1:3004/api/testing/echo \
+curl http://127.0.0.1:6001/health
+curl http://127.0.0.1:6001/api/sessions
+curl -X POST http://127.0.0.1:6001/api/testing/echo \
   -H 'Content-Type: application/json' \
   -d '{"message":"hello"}'
-curl -N 'http://127.0.0.1:3004/api/testing/stream?scenario=normal'
+curl -N 'http://127.0.0.1:6001/api/testing/stream?scenario=normal'
 ```
 
 Useful commands:

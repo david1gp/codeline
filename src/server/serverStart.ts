@@ -54,7 +54,7 @@ export function serverStart(options: ServerStartOptions = {}): Server {
       : { success: true as const, data: options.database }
   if (!database.success) throw new Error(database.errorMessage)
 
-  const port = Number(Bun.env.PORT ?? 3000)
+  const port = Number(Bun.env.PORT ?? 6001)
   const hostname = Bun.env.HOST ?? "127.0.0.1"
   const createApp = options.appCreate ?? appCreate
   const server = (options.serve ?? (Bun.serve as Serve))({

@@ -10,7 +10,7 @@ import { databaseConnectionClose } from "../src/database/databaseConnectionClose
 import { serverStart } from "../src/server/serverStart.js"
 
 const configuration = runtimeConfigurationParse({
-  databaseUrl: "postgres://codeline:local@127.0.0.1:5432/codeline",
+  databaseUrl: "postgres://codeline:local@127.0.0.1:6002/codeline",
   developmentIdentity: {
     email: "developer@example.test",
     identityKey: "configured-developer",
@@ -21,7 +21,7 @@ const configuration = runtimeConfigurationParse({
 
 test("runtime configuration rejects missing development identity without exposing values", () => {
   const result = runtimeConfigurationParse({
-    databaseUrl: "postgres://secret:password@127.0.0.1:5432/codeline",
+    databaseUrl: "postgres://secret:password@127.0.0.1:6002/codeline",
     nodeEnv: "development",
   })
 

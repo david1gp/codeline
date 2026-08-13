@@ -1,0 +1,17 @@
+[Unit]
+Description=Codeline development Zero Cache
+Requires=codeline-dev-postgres.service
+After=codeline-dev-postgres.service
+PartOf=codeline-dev.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=@ROOT@
+ExecStartPre=@ROOT@/ops/dev/codeline-dev.sh reset-zero-cache
+ExecStart=@ROOT@/ops/dev/codeline-dev.sh up zero-cache
+ExecStartPost=@ROOT@/ops/dev/codeline-dev.sh wait zero-cache
+ExecStop=@ROOT@/ops/dev/codeline-dev.sh stop zero-cache
+RemainAfterExit=yes
+
+[Install]
+WantedBy=codeline-dev.target

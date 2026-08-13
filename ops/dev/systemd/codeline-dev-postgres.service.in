@@ -1,0 +1,14 @@
+[Unit]
+Description=Codeline development PostgreSQL
+PartOf=codeline-dev.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=@ROOT@
+ExecStart=@ROOT@/ops/dev/codeline-dev.sh up postgres
+ExecStartPost=@ROOT@/ops/dev/codeline-dev.sh wait postgres
+ExecStop=@ROOT@/ops/dev/codeline-dev.sh stop postgres
+RemainAfterExit=yes
+
+[Install]
+WantedBy=codeline-dev.target

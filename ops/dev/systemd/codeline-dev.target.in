@@ -1,0 +1,7 @@
+[Unit]
+Description=Codeline development dependencies
+Requires=codeline-dev-postgres.service codeline-dev-zero-cache.service codeline-dev-api.service codeline-dev-ui.service
+After=codeline-dev-postgres.service codeline-dev-zero-cache.service codeline-dev-api.service codeline-dev-ui.service
+
+[Install]
+WantedBy=default.target

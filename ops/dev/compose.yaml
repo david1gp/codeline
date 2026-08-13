@@ -25,6 +25,7 @@ services:
     networks:
       - codeline
     ports:
+      # Host port 6002 maps to Postgres's fixed container port 5432.
       - "127.0.0.1:${POSTGRES_PORT:?POSTGRES_PORT is required}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql
@@ -46,6 +47,7 @@ services:
       ZERO_NUM_SYNC_WORKERS: 1
       ZERO_PORT: 4848
       ZERO_REPLICA_FILE: ${ZERO_REPLICA_FILE:?ZERO_REPLICA_FILE is required}
+      ZERO_QUERY_URL: ${ZERO_QUERY_URL:?ZERO_QUERY_URL is required}
       ZERO_UPSTREAM_DB: ${ZERO_UPSTREAM_DB:?ZERO_UPSTREAM_DB is required}
       ZERO_UPSTREAM_MAX_CONNS: 6
       ZERO_CVR_MAX_CONNS: 6
@@ -58,6 +60,7 @@ services:
     networks:
       - codeline
     ports:
+      # Host port 6003 maps to Zero Cache's fixed container port 4848.
       - "127.0.0.1:${ZERO_PORT:?ZERO_PORT is required}:4848"
     volumes:
       - zero-data:/var/lib/zero
