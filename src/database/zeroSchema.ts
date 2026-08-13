@@ -48,10 +48,13 @@ const session = table("session")
     primaryAgentId: string().from("primary_agent_id"),
     title: string(),
     clientRequestId: string().from("client_request_id"),
+    metadata: json(),
+    archivedAt: number().from("archived_at").optional(),
     createdAt: number().from("created_at"),
     updatedAt: number().from("updated_at"),
   })
   .primaryKey("id")
+  .unique("userId", "clientRequestId")
 
 const message = table("message")
   .columns({

@@ -22,6 +22,7 @@ export const agentTable = pgTable(
   },
   (table) => [
     unique("agent_server_name_unique").on(table.serverId, table.name),
+    unique("agent_server_id_unique").on(table.serverId, table.id),
     check("agent_sort_order_nonnegative", sql`${table.sortOrder} >= 0`),
     index("agent_server_idx").on(table.serverId),
     index("agent_parent_idx").on(table.parentAgentId),
