@@ -1,0 +1,15 @@
+import * as v from "valibot"
+
+export const runtimeConfigurationSchema = v.object({
+  databaseUrl: v.pipe(v.string(), v.url()),
+  developmentIdentity: v.optional(
+    v.object({
+      email: v.optional(v.pipe(v.string(), v.email())),
+      identityKey: v.pipe(v.string(), v.minLength(1)),
+      displayName: v.pipe(v.string(), v.minLength(1)),
+    }),
+  ),
+  nodeEnv: v.picklist(["development", "test", "production"]),
+})
+
+export type RuntimeConfiguration = v.InferOutput<typeof runtimeConfigurationSchema>

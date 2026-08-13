@@ -1,13 +1,14 @@
 import { toServerSentEventsStream } from "@tanstack/ai"
 import { Hono } from "hono"
 import * as v from "valibot"
+import type { AppEnvironment } from "../appEnvironment.js"
 import type { ApiErrorResponse } from "../errors/apiErrorResponseSchema.js"
 import { testingEchoRequestSchema } from "./testingEchoRequestSchema.js"
 import type { TestingEchoResponse } from "./testingEchoResponseSchema.js"
 import { testingStreamCreate } from "./testingStreamCreate.js"
 import { testingStreamRequestSchema } from "./testingStreamRequestSchema.js"
 
-export function apiTestingRoutesAdd(api: Hono): void {
+export function apiTestingRoutesAdd(api: Hono<AppEnvironment>): void {
   api.post("/testing/echo", async (context) => {
     const body = await context.req.json<unknown>().catch(() => undefined)
     const parsed = v.safeParse(testingEchoRequestSchema, body)
