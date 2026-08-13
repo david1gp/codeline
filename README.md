@@ -116,7 +116,7 @@ After cloning, run `./ops/dev/zero-link.sh setup` from a Codeline checkout. `ZER
 
 This is intentionally the latest local Zero workflow. It is not reproducible from a clean clone or CI yet; that work is deferred. `ops/dev/zero-pkgs/` remains ignored for old local artifacts but is not used.
 
-CI is not viable for the full check suite until Zero dependency reproducibility is revisited. The workflow therefore runs only the clean-clone-safe format check. Typecheck, tests, build, and database checks remain local commands after the Zero link is established.
+GitHub Actions is used only to publish tagged releases, matching the other Adaptive packages. Full checks are not viable from a clean clone until Zero dependency reproducibility is revisited. Typecheck, tests, build, and database checks remain local commands after the Zero link is established.
 
 Service lifecycle:
 
