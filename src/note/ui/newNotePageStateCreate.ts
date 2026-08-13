@@ -4,6 +4,8 @@ import { useNavigate } from "@solidjs/router"
 import * as v from "valibot"
 import { zeroSchema } from "../../database/zeroSchema.js"
 import { type NoteMutationContext, noteMutators } from "../noteMutators.js"
+import { noteTitleStateCreate } from "./noteTitleStateCreate.js"
+import { noteViewModeStateCreate } from "./noteViewModeStateCreate.js"
 
 const draftKey = "codeline.note.new.content"
 
@@ -13,8 +15,12 @@ export function newNotePageStateCreate() {
   const storedDraft = v.safeParse(v.string(), localStorage.getItem(draftKey))
   const content = createSignalObject(storedDraft.success ? storedDraft.output : "")
   const status = createSignalObject<"idle" | "saving" | "error">("idle")
+  const viewModeState = noteViewModeStateCreate()
+  const titleState = noteTitleStateCreate({ content: content.get })
 
   return {
+    ...viewModeState,
+    title: titleState.title,
     content: content.get,
     isSaving: () => status.get() === "saving",
     hasError: () => status.get() === "error",

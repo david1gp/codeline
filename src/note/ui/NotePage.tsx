@@ -1,5 +1,7 @@
 import { For, Match, Show, Switch } from "solid-js"
-import { A } from "@solidjs/router"
+import { NoteBackLink } from "./NoteBackLink.js"
+import { NoteContentField } from "./NoteContentField.js"
+import { NoteViewModeSwitcher } from "./NoteViewModeSwitcher.js"
 import { notePageStateCreate } from "./notePageStateCreate.js"
 
 export function NotePage(props: { noteId: string }) {
@@ -8,36 +10,37 @@ export function NotePage(props: { noteId: string }) {
   return (
     <main class="min-h-0 overflow-auto px-5 py-8 sm:px-8 lg:px-10" aria-labelledby="note-heading">
       <div class="mx-auto max-w-3xl">
-        <A class="mb-7 inline-flex text-sm text-[#969b8d] no-underline hover:text-[#d8ff72]" href="/notes">
-          Back to notes
-        </A>
+        <NoteBackLink />
         <header class="mb-6 flex items-end justify-between gap-4 border-[#30342a] border-b pb-5">
-          <div>
+          <div class="min-w-0">
             <p class="mb-2 font-mono text-[10px] font-bold tracking-[0.14em] text-[#d8ff72] uppercase">Notes</p>
-            <h1 class="m-0 text-3xl font-semibold tracking-[-0.04em]" id="note-heading">
-              Edit note
+            <h1 class="m-0 truncate text-3xl font-semibold tracking-[-0.04em]" id="note-heading">
+              {state.title()}
             </h1>
           </div>
-          <Show when={state.note() !== undefined}>
-            <button
-              class="grid size-9 place-items-center rounded-lg border border-[#30342a] text-[#969b8d] hover:border-[#d6a28b] hover:text-[#d6a28b]"
-              type="button"
-              aria-label="Delete note"
-              title="Delete note"
-              onClick={state.deleteConfirmOpen}
-            >
-              <svg
-                aria-hidden="true"
-                class="size-4"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.8"
+          <div class="flex items-center gap-2">
+            <NoteViewModeSwitcher viewMode={state.viewMode} viewModeSelect={state.viewModeSelect} />
+            <Show when={state.note() !== undefined}>
+              <button
+                class="grid size-9 place-items-center rounded-lg border border-[#30342a] text-[#969b8d] hover:border-[#d6a28b] hover:text-[#d6a28b]"
+                type="button"
+                aria-label="Delete note"
+                title="Delete note"
+                onClick={state.deleteConfirmOpen}
               >
-                <path d="M4 7h16M10 7V4.75h4V7M6.5 7l1 12.25h9L18 7" />
-              </svg>
-            </button>
-          </Show>
+                <svg
+                  aria-hidden="true"
+                  class="size-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                >
+                  <path d="M4 7h16M10 7V4.75h4V7M6.5 7l1 12.25h9L18 7" />
+                </svg>
+              </button>
+            </Show>
+          </div>
         </header>
 
         <Switch>
@@ -53,15 +56,10 @@ export function NotePage(props: { noteId: string }) {
           </Match>
           <Match when={true}>
             <form onSubmit={state.submit}>
-              <label class="sr-only" for="note-content">
-                Note content
-              </label>
-              <textarea
-                class="min-h-[24rem] w-full resize-y rounded-xl border border-[#30342a] bg-[#171a15] p-5 font-[inherit] text-[15px] leading-7 text-[#ebece5] outline-none placeholder:text-[#686d61] focus:border-[#768d3d]"
-                id="note-content"
-                value={state.content()}
-                onInput={state.contentUpdate}
-                required
+              <NoteContentField
+                content={() => state.content()}
+                contentUpdate={state.contentUpdate}
+                viewMode={state.viewMode}
               />
 
               <div class="mt-4 grid gap-2">

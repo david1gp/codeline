@@ -8,6 +8,8 @@ import { projectApiDirectoryResponseSchema } from "../../project/api/projectApiD
 import { codelineQueries } from "../../ui/codelineQueries.js"
 import { type NoteMutationContext, noteMutators } from "../noteMutators.js"
 import { noteLineCount } from "./noteLineCount.js"
+import { noteTitleStateCreate } from "./noteTitleStateCreate.js"
+import { noteViewModeStateCreate } from "./noteViewModeStateCreate.js"
 
 type NotePageStateOptions = {
   apiBase?: string
@@ -66,7 +68,12 @@ export function notePageStateCreate(options: NotePageStateOptions) {
     status.set(result.type === "error" ? "error" : "idle")
   }
 
+  const viewModeState = noteViewModeStateCreate()
+  const titleState = noteTitleStateCreate({ content: () => content.get() ?? "" })
+
   return {
+    ...viewModeState,
+    title: titleState.title,
     content: () => content.get() ?? "",
     contentUpdate: (event: InputEvent & { currentTarget: HTMLTextAreaElement }) => {
       content.set(event.currentTarget.value)
