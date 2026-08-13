@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
-import { and, asc, eq } from "drizzle-orm"
+import { asc, eq } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/postgres-js"
 import { Hono } from "hono"
 import postgres from "postgres"
@@ -11,10 +11,10 @@ import { developmentUserTable } from "../src/identity/db/developmentUserTable.js
 import { type DevelopmentUser, developmentUserUpsert } from "../src/identity/db/developmentUserUpsert.js"
 import { messageAppend } from "../src/message/actions/messageAppend.js"
 import { messageTable } from "../src/message/db/messageTable.js"
-import { apiSessionBranchRoutesAdd } from "../src/session/api/apiSessionBranchRoutesAdd.js"
 import { sessionArchive } from "../src/session/actions/sessionArchive.js"
 import { sessionCreate } from "../src/session/actions/sessionCreate.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
+import { apiSessionBranchRoutesAdd } from "../src/session/api/apiSessionBranchRoutesAdd.js"
 
 const client = postgres(Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline")
 const database = drizzle(client, { schema: databaseSchema })
@@ -91,7 +91,8 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  if (developmentUser !== undefined) await database.delete(developmentUserTable).where(eq(developmentUserTable.id, developmentUser.id))
+  if (developmentUser !== undefined)
+    await database.delete(developmentUserTable).where(eq(developmentUserTable.id, developmentUser.id))
   await client.end()
 })
 
@@ -117,7 +118,9 @@ test.skipIf(!databaseAvailable)("branches an owned active session through a fina
     .from(messageTable)
     .where(eq(messageTable.sessionId, targetSessionId))
     .orderBy(asc(messageTable.sequence))
-  expect(copied.map((row) => ({ content: row.message.content, role: row.message.role, sequence: row.message.sequence }))).toEqual([
+  expect(
+    copied.map((row) => ({ content: row.message.content, role: row.message.role, sequence: row.message.sequence })),
+  ).toEqual([
     { content: "Start with this context.", role: "user", sequence: 1 },
     { content: "Here is the finalized answer.", role: "assistant", sequence: 2 },
   ])
@@ -146,11 +149,18 @@ test.skipIf(!databaseAvailable)("branches idempotently and rejects invalid or ar
   })
   expect(repeated.status).toBe(200)
   expect(await repeated.json()).toMatchObject({ created: false, session: { id: firstBody.session.id } })
-  const targetMessages = await database.select().from(messageTable).where(eq(messageTable.sessionId, firstBody.session.id))
+  const targetMessages = await database
+    .select()
+    .from(messageTable)
+    .where(eq(messageTable.sessionId, firstBody.session.id))
   expect(targetMessages).toHaveLength(2)
 
   const invalid = await app.request(`http://codeline.test/sessions/${sourceSessionId}/branch`, {
-    body: JSON.stringify({ ...input, clientRequestId: `session-branch-invalid-${crypto.randomUUID()}`, messageId: "missing" }),
+    body: JSON.stringify({
+      ...input,
+      clientRequestId: `session-branch-invalid-${crypto.randomUUID()}`,
+      messageId: "missing",
+    }),
     headers: { "Content-Type": "application/json" },
     method: "POST",
   })

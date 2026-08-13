@@ -1,5 +1,5 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
-import { and, eq, isNull } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { messageCopyFinalizedPrefix } from "../../message/actions/messageCopyFinalizedPrefix.js"
 import { sessionTable } from "./sessionTable.js"
@@ -56,13 +56,7 @@ export async function sessionRepositoryBranch(
       return createResultError(op, "The branched session could not be created.")
     }
 
-    const copied = await messageCopyFinalizedPrefix(
-      database,
-      userId,
-      sourceSessionId,
-      created.id,
-      input.messageId,
-    )
+    const copied = await messageCopyFinalizedPrefix(database, userId, sourceSessionId, created.id, input.messageId)
     if (!copied.success) return createResultError(op, copied.errorMessage)
 
     return createResult({ created: true, session: created })

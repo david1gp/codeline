@@ -68,7 +68,8 @@ export async function messageRepositoryCopyFinalizedPrefix(
       )
       .returning()
 
-    if (copied.length !== prefix.length) return createResultError(op, "The finalized message prefix could not be copied.")
+    if (copied.length !== prefix.length)
+      return createResultError(op, "The finalized message prefix could not be copied.")
     return createResult(copied)
   } catch (_error) {
     return createResultError(op, "The finalized message prefix could not be copied.")

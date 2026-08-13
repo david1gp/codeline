@@ -26,10 +26,7 @@ function projectGitStatusPathIsSafe(value: string): boolean {
   return validated.success && validated.data.normalizedPath === value
 }
 
-function projectGitStatusFileResolve(
-  indexStatus: string,
-  worktreeStatus: string,
-): ProjectGitStatusFile["status"] {
+function projectGitStatusFileResolve(indexStatus: string, worktreeStatus: string): ProjectGitStatusFile["status"] {
   const pair = `${indexStatus}${worktreeStatus}`
   if (pair === "??") return "untracked"
   if (pair.includes("U")) return "conflict"
@@ -100,11 +97,9 @@ export async function projectGitStatusRead(
 
   let status: Result<ProjectGitCommandOutput>
   try {
-    status = await command(
-      repository.data.rootDir,
-      ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
-      { maxOutputBytes: projectGitStatusMaxOutputBytes },
-    )
+    status = await command(repository.data.rootDir, ["status", "--porcelain=v1", "-z", "--untracked-files=all"], {
+      maxOutputBytes: projectGitStatusMaxOutputBytes,
+    })
   } catch (_error) {
     return projectGitStatusCommandFailure()
   }

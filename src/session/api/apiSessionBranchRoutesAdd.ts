@@ -45,7 +45,10 @@ export function apiSessionBranchRoutesAdd(api: Hono<AppEnvironment>): void {
       sessionBranch(transaction, context.var.developmentUser.id, context.req.param("sessionId"), parsed.data),
     )
     if (!result.success) {
-      if (result.errorMessage.includes("could not be found") || result.errorMessage.includes("message could not be found"))
+      if (
+        result.errorMessage.includes("could not be found") ||
+        result.errorMessage.includes("message could not be found")
+      )
         return notFound(context)
       if (result.errorMessage.includes("archived")) return conflict(context, result.errorMessage)
       return internalServerError(context)
