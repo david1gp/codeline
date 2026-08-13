@@ -1,0 +1,99 @@
+import { expect, test } from "bun:test"
+import { createRoot } from "solid-js/dist/solid.js"
+import { sessionSearchStateCreate } from "../src/ui/sessionSearchStateCreate.js"
+
+function navigationCreate(initialUrl: string) {
+  let href = new URL(initialUrl).href
+  const replacedUrls: string[] = []
+  const popstateListeners: Array<() => void> = []
+
+  return {
+    location: {
+      get href() {
+        return href
+      },
+    },
+    history: {
+      replaceState: (_state: unknown, _title: string, url?: string | URL | null) => {
+        if (url === undefined || url === null) return
+        href = new URL(url, href).href
+        replacedUrls.push(href)
+      },
+    },
+    addEventListener: (_type: "popstate", listener: () => void) => popstateListeners.push(listener),
+    removeEventListener: (_type: "popstate", listener: () => void) => {
+      const index = popstateListeners.indexOf(listener)
+      if (index >= 0) popstateListeners.splice(index, 1)
+    },
+    navigateExternally: (url: string) => {
+      href = new URL(url, href).href
+      for (const listener of popstateListeners) listener()
+    },
+    replacedUrls,
+    get href() {
+      return href
+    },
+  }
+}
+
+test("search state reads and replaces the URL query and parses results", async () => {
+  const navigation = navigationCreate("https://codeline.test/workspace?search=title")
+  const calls: string[] = []
+  const dispose = createRoot((rootDispose) => {
+    const state = sessionSearchStateCreate(navigation, {
+      fetcher: async (input) => {
+        calls.push(String(input))
+        return new Response(
+          JSON.stringify({ nextCursor: null, sessions: [{ session: { id: "one", title: "Title match" } }] }),
+        )
+      },
+    })
+
+    return { rootDispose, state }
+  })
+
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  expect(dispose.state.query()).toBe("title")
+  expect(dispose.state.sessions()).toEqual([{ session: { id: "one", title: "Title match" } }])
+  expect(dispose.state.isComplete()).toBe(true)
+  expect(calls).toEqual(["/api/sessions?search=title"])
+
+  dispose.state.updateQuery("  metadata value  ")
+  expect(dispose.state.query()).toBe("metadata value")
+  expect(navigation.href).toBe("https://codeline.test/workspace?search=metadata+value")
+  expect(navigation.replacedUrls).toHaveLength(1)
+  dispose.state.updateQuery("")
+  expect(navigation.href).toBe("https://codeline.test/workspace")
+  expect(dispose.state.sessions()).toEqual([])
+  expect(dispose.state.isActive()).toBe(false)
+  expect(dispose.state.isLoading()).toBe(false)
+  navigation.navigateExternally("https://codeline.test/workspace?search=title")
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  expect(dispose.state.query()).toBe("title")
+  expect(dispose.state.isComplete()).toBe(true)
+  dispose.rootDispose()
+})
+
+test("search state exposes request failures and retries", async () => {
+  const navigation = navigationCreate("https://codeline.test/workspace")
+  let attempt = 0
+  const dispose = createRoot((rootDispose) => {
+    const state = sessionSearchStateCreate(navigation, {
+      fetcher: async () => {
+        attempt += 1
+        if (attempt === 1) return new Response(null, { status: 500 })
+        return new Response(JSON.stringify({ nextCursor: null, sessions: [] }))
+      },
+    })
+    state.updateQuery("missing")
+    return { rootDispose, state }
+  })
+
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  expect(dispose.state.isError()).toBe(true)
+  dispose.state.retry()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  expect(dispose.state.isComplete()).toBe(true)
+  expect(attempt).toBe(2)
+  dispose.rootDispose()
+})

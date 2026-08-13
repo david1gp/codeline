@@ -12,6 +12,15 @@ test("active session query definitions expose list and selected-session requests
   })
 })
 
+test("empty session search uses the unfiltered Zero active-session query", () => {
+  const request = codelineQueries.activeSessions()
+
+  expect(request).toMatchObject({
+    query: { queryName: "activeSessions" },
+  })
+  expect(request.args).toBeUndefined()
+})
+
 test("finalized message query definition exposes a session-scoped request", () => {
   const request = codelineQueries.finalizedMessages({ sessionId: "session-1" })
 

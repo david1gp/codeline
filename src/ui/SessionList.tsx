@@ -8,6 +8,18 @@ export function SessionList(props: { navigation: SessionNavigationState }) {
   return (
     <div class="mt-[38px] flex-1" id="activity">
       <p class="mb-[9px] font-mono text-[10px] font-bold tracking-[0.14em] text-[#777d6e] uppercase">Conversations</p>
+      <label class="relative mb-3 block" for="session-search">
+        <span class="sr-only">Search conversations</span>
+        <input
+          id="session-search"
+          class="w-full rounded-[9px] border border-[#30342a] bg-[#1c1f19] px-3 py-2.5 text-xs text-[#ebece5] outline-none placeholder:text-[#686d61] focus:border-[#768d3d] focus:ring-2 focus:ring-[#d8ff72]/20"
+          type="search"
+          value={state.query()}
+          placeholder="Search conversations"
+          autocomplete="off"
+          onInput={(event) => state.updateQuery(event.currentTarget.value)}
+        />
+      </label>
       <Switch>
         <Match when={state.isError()}>
           <div
@@ -30,7 +42,7 @@ export function SessionList(props: { navigation: SessionNavigationState }) {
         </Match>
         <Match when={state.isEmpty()}>
           <div class="rounded-[9px] border border-dashed border-[#30342a] p-3.5 text-xs leading-[1.5] text-[#71766a]">
-            No active conversations.
+            {state.emptyMessage()}
           </div>
         </Match>
         <Match when={true}>
