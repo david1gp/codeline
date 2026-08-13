@@ -19,7 +19,7 @@ type ExampleDataFixture = {
     id: string
     name: string
     role: string
-    configuration: { fixture: string }
+    configuration: { model: string; provider: "deterministic" }
     sortOrder: number
     createdAt: string
     updatedAt: string
@@ -66,7 +66,7 @@ export const exampleDataFixture = {
     id: "example-agent-local",
     name: "Example Coding Agent",
     role: "coding",
-    configuration: { fixture: "codeline-example-v1" },
+    configuration: { model: "development-default", provider: "deterministic" },
     sortOrder: 0,
     createdAt: "2026-08-12T08:02:00.000Z",
     updatedAt: "2026-08-12T08:02:00.000Z",

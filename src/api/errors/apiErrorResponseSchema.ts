@@ -9,6 +9,7 @@ export const apiErrorResponseSchema = v.object({
       "development_identity_unavailable",
       "internal_server_error",
       "not_found",
+      "unauthorized",
     ]),
     message: v.string(),
   }),

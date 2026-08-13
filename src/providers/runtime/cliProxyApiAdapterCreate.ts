@@ -14,6 +14,7 @@ export type CliProxyApiAdapterOptions = {
   chunks?: readonly string[]
   environment: Readonly<Record<string, string | undefined>>
   failure?: CliProxyApiAdapterFailure
+  label?: string
   settings: CliProxyApiSettings
 }
 
@@ -106,7 +107,7 @@ async function* cliProxyApiAdapterGenerate(
 
   if (!(await cliProxyApiAdapterWait(input.signal))) return
 
-  const chunks = options.chunks ?? [`[CLIProxyAPI:${options.settings.model}] `, input.prompt]
+  const chunks = options.chunks ?? [`[${options.label ?? "CLIProxyAPI"}:${options.settings.model}] `, input.prompt]
 
   for (let i = 0; i < chunks.length; i += 1) {
     if (options.failure?.atChunkIndex === i) {
