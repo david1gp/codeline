@@ -87,9 +87,18 @@ test.skipIf(!databaseAvailable)("session actions create idempotently and enforce
 
   const renamed = await sessionRename(database, userId, created.data.session.id, "Renamed title")
   expect(renamed).toMatchObject({ success: true, data: { title: "Renamed title" } })
+  const unauthorizedRename = await sessionRename(
+    database,
+    "development:unknown-session-user",
+    created.data.session.id,
+    "Unauthorized title",
+  )
+  expect(unauthorizedRename).toMatchObject({ success: false, errorMessage: "The session could not be found." })
 
   const archived = await sessionArchive(database, userId, created.data.session.id)
   expect(archived).toMatchObject({ success: true, data: { archivedAt: expect.any(Date) } })
+  const renamedArchived = await sessionRename(database, userId, created.data.session.id, "Archived title")
+  expect(renamedArchived).toMatchObject({ success: false, errorMessage: "The session is archived." })
   const withoutArchived = await sessionList(database, userId, { includeArchived: false, limit: 100 })
   expect(withoutArchived).toMatchObject({ success: true, data: { rows: [] } })
   const withArchived = await sessionList(database, userId, { includeArchived: true, limit: 100 })
