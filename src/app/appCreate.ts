@@ -2,19 +2,31 @@ import { Hono } from "hono"
 import { serveStatic } from "hono/bun"
 import { apiRoutesAdd } from "../api/apiRoutesAdd.js"
 import type { App, AppEnvironment } from "../api/appEnvironment.js"
-import { developmentIdentityMiddleware } from "../identity/api/developmentIdentityMiddleware.js"
 import type { ApiErrorResponse } from "../api/errors/apiErrorResponseSchema.js"
 import type { HealthResponse } from "../api/health/healthResponseSchema.js"
-import { databaseReadyCheck } from "../database/databaseReadyCheck.js"
-import type { DatabaseClient } from "../database/databaseClient.js"
 import type { RuntimeConfiguration } from "../configuration/runtimeConfigurationSchema.js"
+import type { DatabaseClient } from "../database/databaseClient.js"
+import { databaseReadyCheck } from "../database/databaseReadyCheck.js"
+import { developmentIdentityMiddleware } from "../identity/api/developmentIdentityMiddleware.js"
+import type { ProjectLimits } from "../project/projectLimitsSchema.js"
+import type { ProviderModelDiscoveryOptions } from "../providers/runtime/providerModelDiscovery.js"
+import { providerRuntimeAdapterCreate } from "../providers/runtime/providerRuntimeAdapterCreate.js"
 import { sessionChatAdapterCreate } from "../session/actions/sessionChatAdapterCreate.js"
+import { streamReplayServiceCreate } from "../stream/actions/streamReplayServiceCreate.js"
 
 export type AppCreateOptions = {
   configuration?: RuntimeConfiguration
   database?: DatabaseClient
   databaseReadyCheck?: typeof databaseReadyCheck
+  projectLimits?: ProjectLimits
+  projectRootDir?: string
+  providerConfiguration?: unknown
+  providerEnvironment?: Readonly<Record<string, string | undefined>>
+  providerFetch?: NonNullable<ProviderModelDiscoveryOptions["fetch"]>
+  providerRuntimeAdapterCreate?: typeof providerRuntimeAdapterCreate
   sessionChatAdapter?: typeof sessionChatAdapterCreate
+  streamInactivityTimeoutMs?: number
+  streamReplayServiceCreate?: typeof streamReplayServiceCreate
 }
 
 export function appCreate(options: AppCreateOptions = {}): App {
@@ -53,11 +65,17 @@ export function appCreate(options: AppCreateOptions = {}): App {
     app.use("/api/*", developmentIdentityMiddleware(options.configuration, options.database))
   }
 
-  apiRoutesAdd(
-    app,
-    readyCheck,
-    options.sessionChatAdapter === undefined ? {} : { sessionChatAdapter: options.sessionChatAdapter },
-  )
+  apiRoutesAdd(app, readyCheck, {
+    projectLimits: options.projectLimits,
+    projectRootDir: options.projectRootDir ?? process.cwd(),
+    providerConfiguration: options.providerConfiguration,
+    providerEnvironment: options.providerEnvironment,
+    providerFetch: options.providerFetch,
+    providerRuntimeAdapterCreate: options.providerRuntimeAdapterCreate,
+    sessionChatAdapter: options.sessionChatAdapter,
+    streamInactivityTimeoutMs: options.streamInactivityTimeoutMs,
+    streamReplayServiceCreate: options.streamReplayServiceCreate,
+  })
 
   app.get("/", serveStatic({ path: "./dist/ui/index.html" }))
   app.get("/assets/*", serveStatic({ root: "./dist/ui" }))

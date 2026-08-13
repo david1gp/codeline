@@ -1,10 +1,10 @@
-import { appCreate } from "../app/appCreate.js"
 import type { App } from "../api/appEnvironment.js"
+import { appCreate } from "../app/appCreate.js"
 import { runtimeConfigurationParse } from "../configuration/runtimeConfigurationParse.js"
 import type { RuntimeConfiguration } from "../configuration/runtimeConfigurationSchema.js"
+import type { DatabaseConnection } from "../database/databaseClient.js"
 import { databaseConnectionClose } from "../database/databaseConnectionClose.js"
 import { databaseCreate } from "../database/databaseCreate.js"
-import type { DatabaseConnection } from "../database/databaseClient.js"
 
 type Server = {
   stop: (closeActiveConnections?: boolean) => Promise<void>
@@ -23,9 +23,14 @@ type SignalSource = {
 }
 
 type ServerStartOptions = {
-  appCreate?: (options: { configuration: RuntimeConfiguration; database: DatabaseConnection["db"] }) => App
+  appCreate?: (options: {
+    configuration: RuntimeConfiguration
+    database: DatabaseConnection["db"]
+    projectRootDir: string
+  }) => App
   configuration?: RuntimeConfiguration
   database?: DatabaseConnection
+  projectRootDir?: string
   serve?: Serve
   signalSource?: SignalSource
 }
@@ -58,7 +63,11 @@ export function serverStart(options: ServerStartOptions = {}): Server {
   const hostname = Bun.env.HOST ?? "127.0.0.1"
   const createApp = options.appCreate ?? appCreate
   const server = (options.serve ?? (Bun.serve as Serve))({
-    fetch: createApp({ configuration: configuration.data, database: database.data.db }).fetch,
+    fetch: createApp({
+      configuration: configuration.data,
+      database: database.data.db,
+      projectRootDir: options.projectRootDir ?? process.cwd(),
+    }).fetch,
     hostname,
     port,
   })
