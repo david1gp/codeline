@@ -69,29 +69,6 @@ export function DemoSurfacePanel(props: { fixture: DemoSurfaceFixture }) {
               </div>
             )}
           </Match>
-          <Match when={props.fixture.kind === "trust" && props.fixture}>
-            {(fixture) => (
-              <div class="p-5">
-                <div class="rounded-lg border border-[#ead39c] bg-[#fff9e9] p-3 font-mono text-xs text-[#6f531a]">
-                  {fixture().path}
-                </div>
-                <ul class="my-5 grid list-none gap-3 p-0 text-xs text-[#536074]">
-                  <For each={fixture().checks}>
-                    {(check) => (
-                      <li class="flex gap-2">
-                        <span class="text-[#1f7047]">✓</span>
-                        {check}
-                      </li>
-                    )}
-                  </For>
-                </ul>
-                <div class="flex justify-end gap-2">
-                  <span class="rounded-md border border-[#ccd2dc] px-3 py-2 text-xs">Cancel</span>
-                  <span class="rounded-md bg-[#202938] px-3 py-2 text-xs text-white">Trust project</span>
-                </div>
-              </div>
-            )}
-          </Match>
           <Match when={props.fixture.kind === "stats" && props.fixture}>
             {(fixture) => (
               <div class="p-5">

@@ -28,7 +28,6 @@ export function UiRouter() {
       <Route path="/demo/diff" component={DemoApp} />
       <Route path="/demo/models" component={DemoApp} />
       <Route path="/demo/skills" component={DemoApp} />
-      <Route path="/demo/trust" component={DemoApp} />
       <Route path="/demo/stats" component={DemoApp} />
       <Route path="/demo/system-prompt" component={DemoApp} />
       <Route path="/demo/extensions" component={DemoApp} />

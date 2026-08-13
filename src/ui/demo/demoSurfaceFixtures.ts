@@ -42,17 +42,6 @@ export const demoSurfaceFixtures = {
     subtitle: "Deterministic discovery state with user and project scopes.",
     title: "Skills",
   },
-  trust: {
-    checks: [
-      "Read files inside this project",
-      "Use project instructions and skill descriptions",
-      "Show proposed commands and written-file summaries",
-    ],
-    kind: "trust",
-    path: "~/adaptive/codeline",
-    subtitle: "Review this local fixture path before starting a session.",
-    title: "Trust this project?",
-  },
   stats: {
     kind: "stats",
     metrics: [
@@ -119,6 +108,6 @@ export const demoSurfaceFixtures = {
     totals: "3 files · +141 −5",
   },
 } as const satisfies Record<
-  "extensions" | "models" | "skills" | "stats" | "system-prompt" | "trust" | "written-files",
+  "extensions" | "models" | "skills" | "stats" | "system-prompt" | "written-files",
   DemoSurfaceFixture
 >

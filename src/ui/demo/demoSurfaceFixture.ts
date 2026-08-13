@@ -23,13 +23,6 @@ export type DemoSurfaceFixture =
       title: string
     }
   | {
-      checks: readonly string[]
-      kind: "trust"
-      path: string
-      subtitle: string
-      title: string
-    }
-  | {
       kind: "stats"
       metrics: readonly { label: string; value: string }[]
       subtitle: string

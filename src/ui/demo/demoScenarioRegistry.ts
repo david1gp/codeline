@@ -68,12 +68,6 @@ export const demoScenarioRegistry = [
     slug: "skills",
   },
   {
-    description: "Project trust review before local context is used.",
-    href: "/demo/trust",
-    label: "Trust",
-    slug: "trust",
-  },
-  {
     description: "Deterministic session metrics and context usage.",
     href: "/demo/stats",
     label: "Stats",

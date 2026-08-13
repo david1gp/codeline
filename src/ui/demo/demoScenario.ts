@@ -15,7 +15,6 @@ export interface DemoScenario {
     | "stats"
     | "streaming"
     | "system-prompt"
-    | "trust"
     | "welcome"
     | "workspace"
     | "written-files"

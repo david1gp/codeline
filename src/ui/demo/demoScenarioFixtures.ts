@@ -335,7 +335,6 @@ export const demoScenarioFixtures = {
   diff: { ...fileScenarioFixture, activeFile: "README.md", workspace: demoWorkspaceFixtures.diff },
   models: { ...surfaceScenarioFixture, heading: "Model configuration", surface: demoSurfaceFixtures.models },
   skills: { ...surfaceScenarioFixture, heading: "Skill configuration", surface: demoSurfaceFixtures.skills },
-  trust: { ...surfaceScenarioFixture, heading: "Project trust", surface: demoSurfaceFixtures.trust },
   stats: { ...surfaceScenarioFixture, heading: "Session statistics", surface: demoSurfaceFixtures.stats },
   "system-prompt": {
     ...surfaceScenarioFixture,
