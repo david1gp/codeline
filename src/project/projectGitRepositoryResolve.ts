@@ -1,14 +1,14 @@
 import * as fs from "node:fs/promises"
 import * as path from "node:path"
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
+import * as v from "valibot"
+import { projectGitBranchNameSchema } from "./projectGitBranchNameSchema.js"
 import {
-  projectGitCommandRun,
   type ProjectGitCommandOptions,
   type ProjectGitCommandOutput,
+  projectGitCommandRun,
 } from "./projectGitCommandRun.js"
 import { projectPathResolve } from "./projectPathResolve.js"
-
-const projectGitRepositoryMaxBranchLength = 256
 
 export type ProjectGitCommand = (
   rootDir: string,
@@ -17,8 +17,8 @@ export type ProjectGitCommand = (
 ) => Promise<Result<ProjectGitCommandOutput>>
 
 export type ProjectGitRepository = {
-  rootDir: string
   branch: string | null
+  command: (args: readonly string[], options?: ProjectGitCommandOptions) => Promise<Result<ProjectGitCommandOutput>>
 }
 
 type ProjectGitRepositoryResolveOptions = {
@@ -29,21 +29,12 @@ function projectGitRepositoryOutputLines(output: string): string[] | undefined {
   if (new TextEncoder().encode(output).byteLength > 4 * 1024 * 1024) return undefined
   const lines = output.replaceAll("\r\n", "\n").split("\n")
   if (lines.at(-1) === "") lines.pop()
-  return lines.length === 3 ? lines : undefined
+  return lines.length === 5 ? lines : undefined
 }
 
 function projectGitRepositoryBranchResolve(value: string): string | null | undefined {
   if (value === "" || value === "HEAD") return null
-  if (
-    value.length > projectGitRepositoryMaxBranchLength ||
-    [...value].some((character) => {
-      const code = character.charCodeAt(0)
-      return code < 32 || code === 127
-    })
-  ) {
-    return undefined
-  }
-  return value
+  return v.safeParse(projectGitBranchNameSchema, value).success ? value : undefined
 }
 
 export async function projectGitRepositoryResolve(
@@ -59,7 +50,10 @@ export async function projectGitRepositoryResolve(
   try {
     probe = await command(resolved.data.resolvedRoot, [
       "rev-parse",
+      "--path-format=absolute",
       "--show-toplevel",
+      "--git-dir",
+      "--git-common-dir",
       "--is-inside-work-tree",
       "--abbrev-ref",
       "HEAD",
@@ -71,27 +65,47 @@ export async function projectGitRepositoryResolve(
   if (probe.data.exitCode !== 0) return createResult(null)
 
   const lines = projectGitRepositoryOutputLines(probe.data.stdout)
-  if (lines === undefined || lines[1] !== "true") {
+  if (lines === undefined || lines[3] !== "true") {
     return createResultError(op, "The Git repository response is invalid.")
   }
 
   const repositoryRoot = lines[0]
-  if (repositoryRoot === undefined || !path.isAbsolute(repositoryRoot)) {
+  const gitDir = lines[1]
+  const commonGitDir = lines[2]
+  if (
+    repositoryRoot === undefined ||
+    gitDir === undefined ||
+    commonGitDir === undefined ||
+    !path.isAbsolute(repositoryRoot) ||
+    !path.isAbsolute(gitDir) ||
+    !path.isAbsolute(commonGitDir)
+  ) {
     return createResultError(op, "The Git repository response is invalid.")
   }
 
   let canonicalRepositoryRoot: string
+  let canonicalGitDir: string
+  let canonicalCommonGitDir: string
   try {
     canonicalRepositoryRoot = await fs.realpath(repositoryRoot)
+    canonicalGitDir = await fs.realpath(gitDir)
+    canonicalCommonGitDir = await fs.realpath(commonGitDir)
   } catch (_error) {
     return createResultError(op, "The Git repository root is not trusted.")
   }
-  if (canonicalRepositoryRoot !== resolved.data.resolvedRoot) {
+  if (
+    canonicalRepositoryRoot !== resolved.data.resolvedRoot ||
+    canonicalGitDir !== canonicalCommonGitDir ||
+    canonicalGitDir !== path.join(resolved.data.resolvedRoot, ".git")
+  ) {
     return createResultError(op, "The Git repository root is not trusted.")
   }
 
-  const branch = projectGitRepositoryBranchResolve(lines[2] ?? "")
+  const branch = projectGitRepositoryBranchResolve(lines[4] ?? "")
   if (branch === undefined) return createResultError(op, "The Git repository branch is invalid.")
 
-  return createResult({ rootDir: resolved.data.resolvedRoot, branch })
+  return createResult({
+    branch,
+    command: (args, options) => command(resolved.data.resolvedRoot, args, options),
+  })
 }

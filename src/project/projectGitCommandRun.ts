@@ -52,14 +52,17 @@ export async function projectGitCommandRun(
 
   try {
     const environment: Record<string, string | undefined> = {}
-    for (const [key, value] of Object.entries(process.env)) environment[key] = value
+    environment.PATH = globalThis.process.env.PATH
+    environment.SystemRoot = globalThis.process.env.SystemRoot
     environment.GIT_CONFIG_NOSYSTEM = "1"
+    environment.GIT_CONFIG_GLOBAL = process.platform === "win32" ? "NUL" : "/dev/null"
+    environment.GIT_CONFIG_SYSTEM = process.platform === "win32" ? "NUL" : "/dev/null"
     environment.GIT_OPTIONAL_LOCKS = "0"
     environment.GIT_PAGER = "cat"
     environment.GIT_TERMINAL_PROMPT = "0"
     environment.LC_ALL = "C"
 
-    const process = Bun.spawn({
+    const proc = Bun.spawn({
       cmd: ["git", ...args],
       cwd: rootDir,
       env: environment,
@@ -69,9 +72,9 @@ export async function projectGitCommandRun(
       timeout: timeoutMs,
     })
     const [stdout, stderr, exitCode] = await Promise.all([
-      process.stdout === null ? "" : new Response(process.stdout).text(),
-      process.stderr === null ? "" : new Response(process.stderr).text(),
-      process.exited,
+      proc.stdout === null ? "" : new Response(proc.stdout).text(),
+      proc.stderr === null ? "" : new Response(proc.stderr).text(),
+      proc.exited,
     ])
 
     const outputBytes = new TextEncoder().encode(stdout).byteLength + new TextEncoder().encode(stderr).byteLength

@@ -1,7 +1,11 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
-import { projectGitCommandRun, type ProjectGitCommandOutput } from "./projectGitCommandRun.js"
-import { projectGitRepositoryResolve, type ProjectGitCommand } from "./projectGitRepositoryResolve.js"
+import { type ProjectGitCommandOutput, projectGitCommandRun } from "./projectGitCommandRun.js"
 import type { ProjectGitDiffSummary } from "./projectGitDiffSummarySchema.js"
+import {
+  type ProjectGitCommand,
+  type ProjectGitRepository,
+  projectGitRepositoryResolve,
+} from "./projectGitRepositoryResolve.js"
 
 const projectGitDiffSummaryMaxFiles = 1000
 const projectGitDiffSummaryMaxOutputBytes = 4 * 1024 * 1024
@@ -67,12 +71,13 @@ function projectGitDiffSummaryCommandFailure(): Result<never> {
 }
 
 async function projectGitDiffSummaryReadCommand(
-  command: ProjectGitCommand,
-  rootDir: string,
+  command: ProjectGitRepository["command"],
   args: readonly string[],
 ): Promise<Result<ProjectGitCommandOutput>> {
   try {
-    return await command(rootDir, args, { maxOutputBytes: projectGitDiffSummaryMaxOutputBytes })
+    const result = await command(args, { maxOutputBytes: projectGitDiffSummaryMaxOutputBytes })
+    if (!result.success) return projectGitDiffSummaryCommandFailure()
+    return result
   } catch (_error) {
     return projectGitDiffSummaryCommandFailure()
   }
@@ -96,7 +101,7 @@ export async function projectGitDiffSummaryRead(
     })
   }
 
-  const diff = await projectGitDiffSummaryReadCommand(command, repository.data.rootDir, [
+  const diff = await projectGitDiffSummaryReadCommand(repository.data.command, [
     "diff",
     "--no-color",
     "--no-ext-diff",
@@ -110,7 +115,7 @@ export async function projectGitDiffSummaryRead(
   let summaryOutput = diff.data.stdout
   if (diff.data.exitCode !== 0) {
     const [unstaged, staged] = await Promise.all([
-      projectGitDiffSummaryReadCommand(command, repository.data.rootDir, [
+      projectGitDiffSummaryReadCommand(repository.data.command, [
         "diff",
         "--no-color",
         "--no-ext-diff",
@@ -118,7 +123,7 @@ export async function projectGitDiffSummaryRead(
         "--numstat",
         "--",
       ]),
-      projectGitDiffSummaryReadCommand(command, repository.data.rootDir, [
+      projectGitDiffSummaryReadCommand(repository.data.command, [
         "diff",
         "--cached",
         "--no-color",

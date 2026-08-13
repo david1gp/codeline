@@ -1,12 +1,12 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
-import * as v from "valibot"
-import { projectGitDiffSummaryRead } from "../src/project/projectGitDiffSummaryRead.js"
-import { projectGitDiffSummarySchema } from "../src/project/projectGitDiffSummarySchema.js"
-import { projectGitStatusRead } from "../src/project/projectGitStatusRead.js"
-import { projectGitStatusSchema } from "../src/project/projectGitStatusSchema.js"
+import { projectGitBranchDelete } from "../src/project/projectGitBranchDelete.js"
+import { projectGitBranchListRead } from "../src/project/projectGitBranchListRead.js"
+import { projectGitBranchRename } from "../src/project/projectGitBranchRename.js"
+import { projectGitBranchSwitch } from "../src/project/projectGitBranchSwitch.js"
+import type { ProjectGitCommand } from "../src/project/projectGitRepositoryResolve.js"
 
 type CommandOutput = { stdout: string; stderr: string; exitCode: number }
 
@@ -25,71 +25,142 @@ async function gitAssert(rootDir: string, args: readonly string[]): Promise<void
   if (result.exitCode !== 0) throw new Error(result.stderr || result.stdout)
 }
 
-describe("project Git actions", () => {
+function resultErrorMessage(result: Awaited<ReturnType<typeof projectGitBranchSwitch>>): string {
+  return result.success ? "" : result.errorMessage
+}
+
+describe("trusted project Git branch management", () => {
   let rootDir: string
 
-  beforeAll(async () => {
+  beforeEach(async () => {
     rootDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "project-git-test-")))
     await gitAssert(rootDir, ["init", "--initial-branch=main"])
     await gitAssert(rootDir, ["config", "user.email", "test@example.test"])
     await gitAssert(rootDir, ["config", "user.name", "Codeline Test"])
-    await fs.writeFile(path.join(rootDir, "tracked.txt"), "one\ntwo\n", "utf8")
+    await fs.writeFile(path.join(rootDir, "tracked.txt"), "initial\n", "utf8")
     await gitAssert(rootDir, ["add", "tracked.txt"])
     await gitAssert(rootDir, ["commit", "-m", "initial"])
-    await fs.writeFile(path.join(rootDir, "tracked.txt"), "one\ntwo\nthree\n", "utf8")
-    await fs.writeFile(path.join(rootDir, "new.txt"), "new file\n", "utf8")
+    await gitAssert(rootDir, ["branch", "feature/one"])
+    await gitAssert(rootDir, ["branch", "release/v1"])
   })
 
-  afterAll(async () => {
+  afterEach(async () => {
     await fs.rm(rootDir, { force: true, recursive: true })
   })
 
-  test("reads only trusted-root relative status data", async () => {
-    const result = await projectGitStatusRead(rootDir)
-    expect(result.success).toBe(true)
-    if (!result.success) return
+  test("identifies the current branch and lists only other local branches", async () => {
+    const result = await projectGitBranchListRead(rootDir)
 
-    expect(v.safeParse(projectGitStatusSchema, result.data).success).toBe(true)
-    expect(result.data).toMatchObject({
-      branch: "main",
-      isDirty: true,
-      isGitRepository: true,
-      files: [
-        { path: "tracked.txt", status: "modified" },
-        { path: "new.txt", status: "untracked" },
-      ],
+    expect(result).toEqual({
+      success: true,
+      data: { currentBranch: "main", otherBranches: ["feature/one", "release/v1"] },
     })
-    expect(JSON.stringify(result.data)).not.toContain(rootDir)
-    for (const file of result.data.files) expect(path.isAbsolute(file.path)).toBe(false)
+    expect(JSON.stringify(result)).not.toContain(rootDir)
+    expect(JSON.stringify(result)).not.toContain("refs/")
   })
 
-  test("returns bounded tracked diff line summaries without patches or paths", async () => {
-    const result = await projectGitDiffSummaryRead(rootDir)
-    expect(result.success).toBe(true)
-    if (!result.success) return
-
-    expect(v.safeParse(projectGitDiffSummarySchema, result.data).success).toBe(true)
-    expect(result.data).toEqual({
-      additions: 1,
-      binaryFiles: 0,
-      deletions: 0,
-      filesChanged: 1,
-      isGitRepository: true,
+  test("switches, renames, and deletes local branches", async () => {
+    expect(await projectGitBranchSwitch(rootDir, "feature/one")).toEqual({ success: true, data: undefined })
+    expect(await projectGitBranchRename(rootDir, "feature/one", "feature/two")).toEqual({
+      success: true,
+      data: undefined,
     })
-    expect(JSON.stringify(result.data)).not.toContain(rootDir)
+    expect(await projectGitBranchDelete(rootDir, "main")).toEqual({ success: true, data: undefined })
+
+    expect(await projectGitBranchListRead(rootDir)).toEqual({
+      success: true,
+      data: { currentBranch: "feature/two", otherBranches: ["release/v1"] },
+    })
   })
 
-  test("accepts a linked worktree while keeping the worktree root trusted", async () => {
+  test("uses only fixed command forms with validated branch operands", async () => {
+    const calls: string[][] = []
+    const command: ProjectGitCommand = async (_root, args) => {
+      calls.push([...args])
+      if (args[0] === "rev-parse") {
+        return {
+          success: true,
+          data: { exitCode: 0, stderr: "", stdout: `${rootDir}\n${rootDir}/.git\n${rootDir}/.git\ntrue\nmain\n` },
+        }
+      }
+      if (args[0] === "for-each-ref") {
+        return { success: true, data: { exitCode: 0, stderr: "", stdout: "feature/one\nmain\n" } }
+      }
+      return { success: true, data: { exitCode: 0, stderr: "", stdout: "" } }
+    }
+
+    await projectGitBranchListRead(rootDir, { command })
+    await projectGitBranchSwitch(rootDir, "feature/one", { command })
+    await projectGitBranchRename(rootDir, "main", "renamed", { command })
+    await projectGitBranchDelete(rootDir, "feature/one", { command })
+
+    expect(calls.filter((args) => args[0] !== "rev-parse")).toEqual([
+      ["for-each-ref", "--sort=refname", "--format=%(refname:lstrip=2)", "refs/heads/"],
+      ["switch", "--no-guess", "--", "feature/one"],
+      ["branch", "-m", "--", "main", "renamed"],
+      ["branch", "-D", "--", "feature/one"],
+    ])
+  })
+
+  test("rejects unsafe names and option-like operands before mutation commands", async () => {
+    const unsafeNames = ["-force", "refs/heads/main", "HEAD", "../escape", "bad..name", "bad@{name", "bad\nname"]
+    let mutationCalls = 0
+    const command: ProjectGitCommand = async () => {
+      mutationCalls += 1
+      return { success: true, data: { exitCode: 0, stderr: "", stdout: "" } }
+    }
+
+    for (const name of unsafeNames) {
+      expect(resultErrorMessage(await projectGitBranchSwitch(rootDir, name, { command }))).toBe(
+        "The Git branch name is invalid.",
+      )
+      expect(resultErrorMessage(await projectGitBranchRename(rootDir, "main", name, { command }))).toBe(
+        "The Git branch name is invalid.",
+      )
+      expect(resultErrorMessage(await projectGitBranchDelete(rootDir, name, { command }))).toBe(
+        "The Git branch name is invalid.",
+      )
+    }
+    expect(mutationCalls).toBe(0)
+  })
+
+  test("rejects detached HEAD mutations and deleting the current branch", async () => {
+    await gitAssert(rootDir, ["checkout", "--detach", "HEAD"])
+    expect(await projectGitBranchListRead(rootDir)).toEqual({
+      success: true,
+      data: { currentBranch: null, otherBranches: ["feature/one", "main", "release/v1"] },
+    })
+
+    for (const result of [
+      await projectGitBranchSwitch(rootDir, "feature/one"),
+      await projectGitBranchRename(rootDir, "main", "renamed"),
+      await projectGitBranchDelete(rootDir, "feature/one"),
+    ]) {
+      expect(result.success).toBe(false)
+      if (!result.success) expect(result.errorMessage).toBe("Git branches cannot be changed from a detached HEAD.")
+    }
+
+    await gitAssert(rootDir, ["switch", "main"])
+    const currentDelete = await projectGitBranchDelete(rootDir, "main")
+    expect(currentDelete.success).toBe(false)
+    if (!currentDelete.success) expect(currentDelete.errorMessage).toBe("The current Git branch cannot be deleted.")
+  })
+
+  test("rejects linked worktrees and repository subdirectories as trust roots", async () => {
     const worktreeParent = await fs.mkdtemp(path.join(os.tmpdir(), "project-git-worktree-test-"))
     const worktreeRoot = path.join(worktreeParent, "linked")
+    const nestedRoot = path.join(rootDir, "nested")
     try {
       await gitAssert(rootDir, ["worktree", "add", "-b", "linked-test", worktreeRoot])
-      const result = await projectGitStatusRead(worktreeRoot)
-      expect(result.success).toBe(true)
-      if (result.success) {
-        expect(result.data.isGitRepository).toBe(true)
-        expect(result.data.branch).toBe("linked-test")
-        expect(JSON.stringify(result.data)).not.toContain(worktreeRoot)
+      await fs.mkdir(nestedRoot)
+
+      for (const result of [await projectGitBranchListRead(worktreeRoot), await projectGitBranchListRead(nestedRoot)]) {
+        expect(result.success).toBe(false)
+        if (!result.success) {
+          expect(result.errorMessage).toContain("not trusted")
+          expect(result.errorMessage).not.toContain(rootDir)
+          expect(result.errorMessage).not.toContain(worktreeRoot)
+        }
       }
     } finally {
       await gitAssert(rootDir, ["worktree", "remove", "--force", worktreeRoot])
@@ -97,48 +168,41 @@ describe("project Git actions", () => {
     }
   })
 
-  test("sanitizes command failures and rejects repository roots outside the trust boundary", async () => {
-    const command = async (_root: string, args: readonly string[]) => {
+  test("sanitizes injected host paths and malformed branch output", async () => {
+    const leakingProbe: ProjectGitCommand = async () => ({
+      success: true,
+      data: {
+        exitCode: 0,
+        stderr: `${rootDir}/private`,
+        stdout: `/host/private/repository\n/host/private/repository/.git\n/host/private/repository/.git\ntrue\nmain\n`,
+      },
+    })
+    const leaked = await projectGitBranchListRead(rootDir, { command: leakingProbe })
+    expect(leaked.success).toBe(false)
+    if (!leaked.success) {
+      expect(leaked.errorMessage).toContain("not trusted")
+      expect(leaked.errorMessage).not.toContain(rootDir)
+      expect(leaked.errorMessage).not.toContain("/host/private")
+    }
+
+    const malformedList: ProjectGitCommand = async (_root, args) => {
       if (args[0] === "rev-parse") {
         return {
-          success: true as const,
-          data: {
-            exitCode: 0,
-            stderr: `/host/private/${rootDir}`,
-            stdout: "/host/private/other\ntrue\nmain\n",
-          },
+          success: true,
+          data: { exitCode: 0, stderr: "", stdout: `${rootDir}\n${rootDir}/.git\n${rootDir}/.git\ntrue\nmain\n` },
         }
       }
       return {
-        success: false as const,
-        op: "testCommand",
-        errorMessage: `/host/private/${rootDir}`,
+        success: true,
+        data: { exitCode: 0, stderr: `/host/private/${rootDir}`, stdout: "main\nrefs/heads/leak\n" },
       }
     }
-
-    const result = await projectGitStatusRead(rootDir, { command })
-    expect(result.success).toBe(false)
-    if (!result.success) {
-      expect(result.errorMessage).toContain("root is not trusted")
-      expect(result.errorMessage).not.toContain(rootDir)
-    }
-  })
-
-  test("returns an empty non-repository contract", async () => {
-    const nonRepository = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "project-not-git-test-")))
-    try {
-      const status = await projectGitStatusRead(nonRepository)
-      expect(status).toEqual({
-        success: true,
-        data: { branch: null, files: [], isDirty: false, isGitRepository: false },
-      })
-      const diff = await projectGitDiffSummaryRead(nonRepository)
-      expect(diff).toEqual({
-        success: true,
-        data: { additions: 0, binaryFiles: 0, deletions: 0, filesChanged: 0, isGitRepository: false },
-      })
-    } finally {
-      await fs.rm(nonRepository, { force: true, recursive: true })
+    const malformed = await projectGitBranchListRead(rootDir, { command: malformedList })
+    expect(malformed.success).toBe(false)
+    if (!malformed.success) {
+      expect(malformed.errorMessage).toBe("The Git branch list contains an invalid branch name.")
+      expect(malformed.errorMessage).not.toContain(rootDir)
+      expect(malformed.errorMessage).not.toContain("/host/private")
     }
   })
 })

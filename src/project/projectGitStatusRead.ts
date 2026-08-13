@@ -1,12 +1,14 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
-import { projectGitCommandRun, type ProjectGitCommandOutput } from "./projectGitCommandRun.js"
-import { projectGitRepositoryResolve, type ProjectGitCommand } from "./projectGitRepositoryResolve.js"
+import { type ProjectGitCommandOutput, projectGitCommandRun } from "./projectGitCommandRun.js"
+import { type ProjectGitCommand, projectGitRepositoryResolve } from "./projectGitRepositoryResolve.js"
 import type { ProjectGitStatusFile } from "./projectGitStatusFileSchema.js"
 import type { ProjectGitStatus } from "./projectGitStatusSchema.js"
 import { projectPathValidate } from "./projectPathValidate.js"
 
 const projectGitStatusMaxFiles = 1000
 const projectGitStatusMaxOutputBytes = 4 * 1024 * 1024
+const projectGitStatusAllowedCodeCharacters = new Set([" ", "M", "T", "A", "D", "R", "C", "U", "?"])
+const projectGitStatusConflictCodes = new Set(["DD", "AU", "UD", "UA", "DU", "AA", "UU"])
 
 type ProjectGitStatusReadOptions = {
   command?: ProjectGitCommand
@@ -29,7 +31,7 @@ function projectGitStatusPathIsSafe(value: string): boolean {
 function projectGitStatusFileResolve(indexStatus: string, worktreeStatus: string): ProjectGitStatusFile["status"] {
   const pair = `${indexStatus}${worktreeStatus}`
   if (pair === "??") return "untracked"
-  if (pair.includes("U")) return "conflict"
+  if (projectGitStatusConflictCodes.has(pair) || pair.includes("U")) return "conflict"
   if (pair.includes("D")) return "deleted"
   if (pair.includes("R")) return "renamed"
   if (pair.includes("C")) return "copied"
@@ -55,7 +57,15 @@ function projectGitStatusParse(output: string): Result<ProjectGitStatusFile[]> {
     const indexStatus = record[0]
     const worktreeStatus = record[1]
     const path = record.slice(3)
-    if (indexStatus === undefined || worktreeStatus === undefined || !projectGitStatusPathIsSafe(path)) {
+    if (
+      indexStatus === undefined ||
+      worktreeStatus === undefined ||
+      !projectGitStatusAllowedCodeCharacters.has(indexStatus) ||
+      !projectGitStatusAllowedCodeCharacters.has(worktreeStatus) ||
+      `${indexStatus}${worktreeStatus}` === "  " ||
+      `${indexStatus}${worktreeStatus}` === "!!" ||
+      !projectGitStatusPathIsSafe(path)
+    ) {
       return createResultError(op, "The Git status contains an invalid relative path.")
     }
 
@@ -97,7 +107,7 @@ export async function projectGitStatusRead(
 
   let status: Result<ProjectGitCommandOutput>
   try {
-    status = await command(repository.data.rootDir, ["status", "--porcelain=v1", "-z", "--untracked-files=all"], {
+    status = await repository.data.command(["status", "--porcelain=v1", "-z", "--untracked-files=all"], {
       maxOutputBytes: projectGitStatusMaxOutputBytes,
     })
   } catch (_error) {
