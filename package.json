@@ -50,6 +50,7 @@
     "@adaptive-ds/result": "^0.6.0",
     "@adaptive-ds/solid-ui": "^0.18.0",
     "@rocicorp/zero": "link:@rocicorp/zero",
+    "@solidjs/router": "^1.0.0",
     "@tanstack/ai": "^0.44.0",
     "@tanstack/ai-client": "^0.23.2",
     "@tanstack/ai-solid": "^0.16.2",

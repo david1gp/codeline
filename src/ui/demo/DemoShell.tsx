@@ -1,4 +1,5 @@
 import { For, Show } from "solid-js"
+import { A } from "@solidjs/router"
 import { DemoMessage } from "./DemoMessage.js"
 import { DemoSurfacePanel } from "./DemoSurfacePanel.js"
 import { DemoWorkspacePanel } from "./DemoWorkspacePanel.js"
@@ -12,12 +13,12 @@ export function DemoShell(props: { fixture: DemoScenarioFixture; scenario: DemoS
   return (
     <main class="min-h-dvh overflow-x-hidden bg-[#f5f6f8] text-[#18202b] [font-family:Inter,ui-sans-serif,system-ui,sans-serif]">
       <header class="flex min-h-11 items-center gap-3 border-[#d8dce3] border-b bg-white px-3 text-xs max-[720px]:flex-wrap max-[720px]:py-2">
-        <a class="flex items-center gap-2 font-semibold no-underline" href="/demo" aria-label="Codeline demo home">
+        <A class="flex items-center gap-2 font-semibold no-underline" href="/demo" aria-label="Codeline demo home">
           <span class="grid size-6 place-items-center rounded-md bg-[#202938] font-mono text-[11px] text-white">
             C/
           </span>
           <span>Codeline demo</span>
-        </a>
+        </A>
         <span class="h-4 w-px bg-[#d8dce3] max-[720px]:hidden" aria-hidden="true" />
         <span class="rounded-md border border-[#d8dce3] px-2 py-1 font-mono text-[10px] min-[721px]:hidden">
           ☰ Menu
@@ -25,14 +26,14 @@ export function DemoShell(props: { fixture: DemoScenarioFixture; scenario: DemoS
         <nav class="flex min-w-0 gap-1 overflow-x-auto" aria-label="Demo scenarios">
           <For each={demoScenarioRegistry}>
             {(scenario) => (
-              <a
+              <A
                 class="rounded-md px-2.5 py-1.5 text-[#5f6879] no-underline transition-colors hover:bg-[#eef1f5] hover:text-[#18202b]"
                 classList={{ "bg-[#e8eefb] text-[#2459ad]": scenario.slug === props.scenario.slug }}
                 href={scenario.href}
                 aria-current={scenario.slug === props.scenario.slug ? "page" : undefined}
               >
                 {scenario.label}
-              </a>
+              </A>
             )}
           </For>
         </nav>

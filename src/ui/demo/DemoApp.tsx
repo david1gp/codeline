@@ -1,7 +1,9 @@
 import { DemoShell } from "./DemoShell.js"
-import type { DemoScenario } from "./demoScenario.js"
 import { demoScenarioFixtures } from "./demoScenarioFixtures.js"
+import { demoAppStateCreate } from "./demoAppStateCreate.js"
 
-export function DemoApp(props: { scenario: DemoScenario }) {
-  return <DemoShell fixture={demoScenarioFixtures[props.scenario.slug]} scenario={props.scenario} />
+export function DemoApp() {
+  const state = demoAppStateCreate()
+
+  return <DemoShell fixture={demoScenarioFixtures[state.scenario().slug]} scenario={state.scenario()} />
 }

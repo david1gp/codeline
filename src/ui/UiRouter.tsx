@@ -1,0 +1,39 @@
+import { Route, Router } from "@solidjs/router"
+import { NewNotePage } from "../note/ui/NewNotePage.js"
+import { NotesPage } from "../note/ui/NotesPage.js"
+import { ApplicationRoot } from "./ApplicationRoot.js"
+import { FilesPage } from "./FilesPage.js"
+import { NoteRoutePage } from "./NoteRoutePage.js"
+import { WorkspacePage } from "./WorkspacePage.js"
+import { DemoApp } from "./demo/DemoApp.js"
+
+export function UiRouter() {
+  return (
+    <Router>
+      <Route path="/" component={ApplicationRoot}>
+        <Route path="/" component={WorkspacePage} />
+        <Route path="/files" component={FilesPage} />
+        <Route path="/notes" component={NotesPage} />
+        <Route path="/notes/new" component={NewNotePage} />
+        <Route path="/notes/:noteId" component={NoteRoutePage} />
+      </Route>
+      <Route path="/demo" component={DemoApp} />
+      <Route path="/demo/conversation" component={DemoApp} />
+      <Route path="/demo/streaming" component={DemoApp} />
+      <Route path="/demo/long-chat" component={DemoApp} />
+      <Route path="/demo/workspace" component={DemoApp} />
+      <Route path="/demo/files" component={DemoApp} />
+      <Route path="/demo/markdown" component={DemoApp} />
+      <Route path="/demo/mermaid" component={DemoApp} />
+      <Route path="/demo/diff" component={DemoApp} />
+      <Route path="/demo/models" component={DemoApp} />
+      <Route path="/demo/skills" component={DemoApp} />
+      <Route path="/demo/trust" component={DemoApp} />
+      <Route path="/demo/stats" component={DemoApp} />
+      <Route path="/demo/system-prompt" component={DemoApp} />
+      <Route path="/demo/extensions" component={DemoApp} />
+      <Route path="/demo/written-files" component={DemoApp} />
+      <Route path="/demo/*unknownDemo" component={DemoApp} />
+    </Router>
+  )
+}
