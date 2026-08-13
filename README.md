@@ -28,7 +28,7 @@ The Hono API persists sessions and finalized messages in PostgreSQL. Zero synchr
 
 The TanStack AI seam converts deterministic `StreamChunk` events to SSE. It does not execute a model.
 
-Planned provider targets are local CLIProxyAPI and Codex-LB. Provider OAuth, Pi ecosystem integrations, MCP, full-text web search, and custom scrollbar behavior are out of scope.
+Planned provider targets are local CLIProxyAPI and Codex-LB. Provider OAuth, Pi ecosystem integrations, MCP, full-text web search, custom scrollbar behavior, trusted folders / project trust, editing or limiting AI capabilities, and AI permission management are out of scope.
 
 ## Source Layout
 
