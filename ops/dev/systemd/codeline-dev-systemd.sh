@@ -16,11 +16,20 @@ command -v bun >/dev/null 2>&1 || fail 'bun is required'
 mkdir -p "$unit_dir"
 
 install_units() {
-  local bun_path template target
+  local bun_path node_path path template target
   bun_path=$(command -v bun)
+  node_path=
+  IFS=: read -r -a paths <<< "${PATH:-}"
+  for path in "${paths[@]}"; do
+    [[ -x "$path/node" ]] || continue
+    [[ "$(readlink -f "$path/node")" == "$(readlink -f "$bun_path")" ]] && continue
+    node_path="$path/node"
+    break
+  done
+  [[ -n "$node_path" ]] || fail 'a Node.js runtime distinct from Bun is required for the Vite WebSocket proxy'
   for template in "$template_dir"/*.in; do
     target="$unit_dir/$(basename "${template%.in}")"
-    sed -e "s|@ROOT@|$root|g" -e "s|@BUN@|$bun_path|g" "$template" > "$target"
+    sed -e "s|@ROOT@|$root|g" -e "s|@BUN@|$bun_path|g" -e "s|@NODE@|$node_path|g" "$template" > "$target"
   done
   systemctl --user daemon-reload
   systemctl --user enable codeline-dev.target

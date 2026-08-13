@@ -10,6 +10,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, import.meta.dirname, "")
   const apiPort = Number(env.PORT ?? 6001)
   const uiPort = Number(env.UI_PORT ?? 6000)
+  const zeroCachePort = Number(env.ZERO_PORT ?? 6003)
   const solidRuntime = mode === "development" ? "solid-js/dist/dev.js" : "solid-js/dist/solid.js"
   const solidStoreRuntime = mode === "development" ? "solid-js/store/dist/dev.js" : "solid-js/store/dist/store.js"
 
@@ -41,9 +42,13 @@ export default defineConfig(({ mode }) => {
     server: {
       port: uiPort,
       strictPort: true,
-      allowedHosts: ["codeline.david-siewert.com", "preview.codeline.work"],
+      allowedHosts: ["preview.codeline.work"],
       proxy: {
         "/api": `http://127.0.0.1:${apiPort}`,
+        "/sync": {
+          target: `ws://127.0.0.1:${zeroCachePort}`,
+          ws: true,
+        },
       },
     },
     build: {
