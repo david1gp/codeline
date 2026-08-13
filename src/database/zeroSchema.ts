@@ -73,6 +73,17 @@ const message = table("message")
   .unique("sessionId", "sequence")
   .unique("sessionId", "clientRequestId")
 
+const note = table("note")
+  .columns({
+    id: string(),
+    userId: string().from("user_id"),
+    content: string(),
+    projectPath: string().from("project_path").optional(),
+    createdAt: number().from("created_at"),
+    updatedAt: number().from("updated_at"),
+  })
+  .primaryKey("id")
+
 const streamEvent = table("streamEvent")
   .from("stream_event")
   .columns({
@@ -104,6 +115,7 @@ const streamCheckpoint = table("streamCheckpoint")
 const developmentUserRelationships = relationships(developmentUser, ({ many }) => ({
   servers: many({ sourceField: ["id"], destField: ["ownerUserId"], destSchema: server }),
   sessions: many({ sourceField: ["id"], destField: ["userId"], destSchema: session }),
+  notes: many({ sourceField: ["id"], destField: ["userId"], destSchema: note }),
 }))
 
 const serverRelationships = relationships(server, ({ many, one }) => ({
@@ -140,14 +152,19 @@ const streamCheckpointRelationships = relationships(streamCheckpoint, ({ one }) 
   session: one({ sourceField: ["sessionId"], destField: ["id"], destSchema: session }),
 }))
 
+const noteRelationships = relationships(note, ({ one }) => ({
+  user: one({ sourceField: ["userId"], destField: ["id"], destSchema: developmentUser }),
+}))
+
 export const zeroSchema = createSchema({
-  tables: [developmentUser, server, agent, session, message, streamEvent, streamCheckpoint],
+  tables: [developmentUser, server, agent, session, message, note, streamEvent, streamCheckpoint],
   relationships: [
     developmentUserRelationships,
     serverRelationships,
     agentRelationships,
     sessionRelationships,
     messageRelationships,
+    noteRelationships,
     streamEventRelationships,
     streamCheckpointRelationships,
   ],

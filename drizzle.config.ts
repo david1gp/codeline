@@ -12,6 +12,7 @@ export default defineConfig({
     "./src/agents/db/*Table.ts",
     "./src/session/db/*Table.ts",
     "./src/message/db/*Table.ts",
+    "./src/note/db/*Table.ts",
     "./src/stream/db/*Table.ts",
   ],
   out: "./src/database/migrations",

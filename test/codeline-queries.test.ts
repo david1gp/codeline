@@ -29,3 +29,14 @@ test("finalized message query definition exposes a session-scoped request", () =
     query: { queryName: "finalizedMessages" },
   })
 })
+
+test("note query definitions expose ordered listing and selected-note requests", () => {
+  const listRequest = codelineQueries.notes()
+  const selectedRequest = codelineQueries.note({ noteId: "note-1" })
+
+  expect(listRequest.query.queryName).toBe("notes")
+  expect(selectedRequest).toMatchObject({
+    args: { noteId: "note-1" },
+    query: { queryName: "note" },
+  })
+})

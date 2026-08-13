@@ -9,6 +9,7 @@ const expectedTables = [
   "agent",
   "session",
   "message",
+  "note",
   "stream_event",
   "stream_checkpoint",
 ] as const
@@ -26,6 +27,7 @@ test("Zero exposes the durable application tables with matching PostgreSQL names
   expect(zeroSchema.tables.streamEvent.primaryKey).toEqual(["id"])
   expect(zeroSchema.tables.streamEvent.columns.sequence.type).toBe("number")
   expect(zeroSchema.tables.streamCheckpoint.columns.lastSequence.type).toBe("number")
+  expect(zeroSchema.tables.note.columns.projectPath.optional).toBe(true)
 })
 
 test("Zero relationships cover restart-safe session and stream ownership", () => {
@@ -35,6 +37,13 @@ test("Zero relationships cover restart-safe session and stream ownership", () =>
     sourceField: ["sessionId"],
     destField: ["id"],
     destSchema: "session",
+    cardinality: "one",
+  })
+  expect(zeroSchema.relationships.developmentUser).toHaveProperty("notes")
+  expect(zeroSchema.relationships.note.user[0]).toMatchObject({
+    sourceField: ["userId"],
+    destField: ["id"],
+    destSchema: "developmentUser",
     cardinality: "one",
   })
 })

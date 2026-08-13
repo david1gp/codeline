@@ -5,6 +5,7 @@ import type { HealthResponse } from "./health/healthResponseSchema.js"
 import { apiAgentRoutesAdd } from "../agents/api/apiAgentRoutesAdd.js"
 import { apiMessageRoutesAdd } from "../message/api/apiMessageRoutesAdd.js"
 import { apiQueryRoutesAdd } from "./query/apiQueryRoutesAdd.js"
+import { apiMutationRoutesAdd } from "./mutation/apiMutationRoutesAdd.js"
 import { apiServerRoutesAdd } from "../servers/api/apiServerRoutesAdd.js"
 import { apiSessionRoutesAdd } from "../session/api/apiSessionRoutesAdd.js"
 import { sessionChatAdapterCreate } from "../session/actions/sessionChatAdapterCreate.js"
@@ -35,6 +36,7 @@ export function apiRoutesAdd(
   apiServerRoutesAdd(api)
   apiAgentRoutesAdd(api)
   apiSessionRoutesAdd(api, options)
+  apiMutationRoutesAdd(api)
   apiMessageRoutesAdd(api)
   apiQueryRoutesAdd(api)
   apiTestingRoutesAdd(api)

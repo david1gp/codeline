@@ -26,4 +26,10 @@ export const codelineQueries = defineQueriesWithType<typeof zeroSchema>()({
       .orderBy("sequence", "asc")
       .orderBy("id", "asc"),
   ),
+  note: defineQuery(({ args }: { args: { noteId: string } }) =>
+    zeroQueryBuilder.note.where("id", args.noteId).where("userId", localDevelopmentUserId).one(),
+  ),
+  notes: defineQuery(() =>
+    zeroQueryBuilder.note.where("userId", localDevelopmentUserId).orderBy("updatedAt", "desc").orderBy("id", "desc"),
+  ),
 })
