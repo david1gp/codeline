@@ -1,4 +1,6 @@
 import { For, Match, Show, Switch } from "solid-js"
+import { FinalizedMessage } from "../message/ui/FinalizedMessage.js"
+import { SessionRenameControl } from "../session/ui/SessionRenameControl.js"
 import type { SessionNavigationState } from "./sessionNavigationStateCreate.js"
 import { selectedSessionStateCreate } from "./selectedSessionStateCreate.js"
 import { SessionChat } from "./SessionChat.js"
@@ -58,7 +60,9 @@ export function SelectedSession(props: { navigation: SessionNavigationState }) {
                 <p class="mb-[9px] font-mono text-[10px] font-bold tracking-[0.14em] text-[#d8ff72] uppercase">
                   Conversation
                 </p>
-                <h2 class="m-0 text-[clamp(24px,3vw,36px)] font-semibold tracking-[-0.035em]">{session.title}</h2>
+                <div class="text-[clamp(24px,3vw,36px)] font-semibold tracking-[-0.035em]">
+                  <SessionRenameControl sessionId={session.id} title={session.title} />
+                </div>
               </header>
 
               <Switch>
@@ -93,22 +97,13 @@ export function SelectedSession(props: { navigation: SessionNavigationState }) {
                 <Match when={true}>
                   <ol class="mx-auto grid w-[min(760px,100%)] list-none gap-6 m-0 p-0" aria-label="Finalized messages">
                     <For each={state.messages()}>
-                      {(message) => (
-                        <li
-                          class="border-l-2 border-[#657838] pl-4"
-                          classList={{ "!border-[#454a3d]": message.role === "assistant" }}
-                        >
-                          <span
-                            class="font-mono text-[10px] font-bold tracking-[0.12em] text-[#d8ff72] uppercase"
-                            classList={{ "!text-[#9da392]": message.role === "assistant" }}
-                          >
-                            {message.role}
-                          </span>
-                          <p class="mt-2 mb-0 overflow-wrap-anywhere whitespace-pre-wrap text-sm leading-[1.75] text-[#d7d9d1]">
-                            {message.content}
-                          </p>
-                        </li>
-                      )}
+                      {(message) =>
+                        message.role === "assistant" || message.role === "user" ? (
+                          <li>
+                            <FinalizedMessage content={message.content} role={message.role} />
+                          </li>
+                        ) : null
+                      }
                     </For>
                   </ol>
                 </Match>
