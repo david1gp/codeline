@@ -1,23 +1,24 @@
-import { Hono } from "hono"
+import { type StreamChunk, toServerSentEventsStream } from "@tanstack/ai"
 import type { Context } from "hono"
-import { toServerSentEventsStream } from "@tanstack/ai"
+import { Hono } from "hono"
+import { apiRequestParse } from "../../api/apiRequestParse.js"
 import type { AppEnvironment } from "../../api/appEnvironment.js"
 import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.js"
-import { apiRequestParse } from "../../api/apiRequestParse.js"
 import { databaseTransactionRun } from "../../database/databaseTransactionRun.js"
+import { providerRuntimeAdapterCreate } from "../../providers/runtime/providerRuntimeAdapterCreate.js"
+import { providerRuntimeAdapterResolve } from "../../providers/runtime/providerRuntimeAdapterResolve.js"
+import { streamReplayServiceCreate } from "../../stream/actions/streamReplayServiceCreate.js"
+import { sessionArchive } from "../actions/sessionArchive.js"
 import { sessionChatAdapterCreate } from "../actions/sessionChatAdapterCreate.js"
 import { sessionChatPrepare } from "../actions/sessionChatPrepare.js"
 import { sessionChatStreamCreate } from "../actions/sessionChatStreamCreate.js"
-import { sessionArchive } from "../actions/sessionArchive.js"
 import { sessionCreate } from "../actions/sessionCreate.js"
 import { sessionDelete } from "../actions/sessionDelete.js"
 import { sessionList } from "../actions/sessionList.js"
 import { sessionLoad } from "../actions/sessionLoad.js"
-import { sessionRename } from "../actions/sessionRename.js"
-import { sessionCreateRequestSchema } from "../schema/sessionCreateRequestSchema.js"
 import { sessionChatRequestSchema } from "../schema/sessionChatRequestSchema.js"
+import { sessionCreateRequestSchema } from "../schema/sessionCreateRequestSchema.js"
 import { sessionQuerySchema } from "../schema/sessionQuerySchema.js"
-import { sessionRenameRequestSchema } from "../schema/sessionRenameRequestSchema.js"
 
 type ApiContext = Context<AppEnvironment>
 
@@ -46,7 +47,27 @@ function internalServerError(context: ApiContext) {
 }
 
 type ApiSessionRoutesOptions = {
+  providerEnvironment?: Readonly<Record<string, string | undefined>>
+  providerRuntimeAdapterCreate?: typeof providerRuntimeAdapterCreate
   sessionChatAdapter?: typeof sessionChatAdapterCreate
+  streamInactivityTimeoutMs?: number
+  streamReplayServiceCreate?: typeof streamReplayServiceCreate
+}
+
+const sessionChatDefaultInactivityTimeoutMs = 120_000
+
+function sessionChatStreamIdCreate(sessionId: string, runId: string): string {
+  return `session-chat:${sessionId}:${runId}`
+}
+
+async function* sessionChatStreamReplay(
+  events: Array<{ id: string; payload: unknown }>,
+  eventIds: Array<string | undefined>,
+): AsyncGenerator<StreamChunk> {
+  for (const [index, event] of events.entries()) {
+    eventIds[index] = event.id
+    yield event.payload as StreamChunk
+  }
 }
 
 export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessionRoutesOptions = {}): void {
@@ -101,6 +122,21 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     const prompt = finalMessage.content.trim()
     if (prompt.length === 0) return badRequest(context, "The chat request must end with one plain-text user prompt.")
 
+    let adapter = options.sessionChatAdapter
+    if (adapter === undefined) {
+      const loaded = await sessionLoad(context.var.database, context.var.developmentUser.id, sessionId)
+      if (!loaded.success)
+        return loaded.errorMessage.includes("could not be found") ? notFound(context) : internalServerError(context)
+      if (loaded.data.session.archivedAt !== null) return conflict(context, "The session is archived.")
+
+      const resolved = providerRuntimeAdapterResolve(loaded.data.agent.configuration, {
+        environment: options.providerEnvironment ?? Bun.env,
+        runtimeAdapterCreate: options.providerRuntimeAdapterCreate,
+      })
+      if (!resolved.success) return internalServerError(context)
+      adapter = resolved.data
+    }
+
     const prepared = await databaseTransactionRun(context.var.database, (transaction) =>
       sessionChatPrepare(transaction, context.var.developmentUser.id, sessionId, {
         clientRequestId: parsed.data.runId,
@@ -120,19 +156,42 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     if (requestSignal.aborted) abortController.abort(requestSignal.reason)
     else requestSignal.addEventListener("abort", onRequestAbort, { once: true })
 
-    const stream = sessionChatStreamCreate({
-      adapter: options.sessionChatAdapter ?? sessionChatAdapterCreate,
-      cleanup: () => requestSignal.removeEventListener("abort", onRequestAbort),
+    const replayService = (options.streamReplayServiceCreate ?? streamReplayServiceCreate)({
       database: context.var.database,
-      history: prepared.data.history,
-      prompt,
-      requestId: parsed.data.runId,
-      runId: parsed.data.runId,
+      inactivityTimeoutMs: options.streamInactivityTimeoutMs ?? sessionChatDefaultInactivityTimeoutMs,
       sessionId,
-      signal: abortController.signal,
+      streamId: sessionChatStreamIdCreate(sessionId, parsed.data.runId),
       userId: context.var.developmentUser.id,
     })
-    const sse = toServerSentEventsStream(stream, abortController)
+    const started = await replayService.start()
+    if (!started.success) return internalServerError(context)
+
+    const eventIds: Array<string | undefined> = []
+    let stream: AsyncIterable<StreamChunk>
+    if (started.data.checkpoint.lastSequence > 0) {
+      const replay = await replayService.replay({ limit: 100 })
+      if (!replay.success) return internalServerError(context)
+      stream = sessionChatStreamReplay(replay.data.events, eventIds)
+      requestSignal.removeEventListener("abort", onRequestAbort)
+    } else {
+      stream = sessionChatStreamCreate({
+        adapter,
+        cleanup: () => requestSignal.removeEventListener("abort", onRequestAbort),
+        database: context.var.database,
+        history: prepared.data.history,
+        prompt,
+        replayService,
+        requestId: parsed.data.runId,
+        runId: parsed.data.runId,
+        sessionId,
+        signal: abortController.signal,
+        userId: context.var.developmentUser.id,
+        onEventId: (sequence, eventId) => {
+          eventIds[sequence - 1] = eventId
+        },
+      })
+    }
+    const sse = toServerSentEventsStream(stream, abortController, (_chunk, index) => eventIds[index])
 
     return new Response(sse, {
       headers: {
@@ -152,19 +211,6 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     if (!result.success)
       return result.errorMessage.includes("could not be found") ? notFound(context) : internalServerError(context)
     return context.json(result.data)
-  })
-
-  api.patch("/sessions/:sessionId", async (context) => {
-    const body = await context.req.json<unknown>().catch(() => undefined)
-    const parsed = apiRequestParse("sessionRenameRequestParse", sessionRenameRequestSchema, body)
-    if (!parsed.success) return badRequest(context, "The session rename request is invalid.")
-
-    const result = await databaseTransactionRun(context.var.database, (transaction) =>
-      sessionRename(transaction, context.var.developmentUser.id, context.req.param("sessionId"), parsed.data.title),
-    )
-    if (!result.success)
-      return result.errorMessage.includes("could not be found") ? notFound(context) : internalServerError(context)
-    return context.json({ session: result.data })
   })
 
   api.post("/sessions/:sessionId/archive", async (context) => {

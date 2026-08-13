@@ -12,10 +12,12 @@ import { developmentUserTable } from "../src/identity/db/developmentUserTable.js
 import { developmentUserUpsert } from "../src/identity/db/developmentUserUpsert.js"
 import { messageAppend } from "../src/message/actions/messageAppend.js"
 import { messageTable } from "../src/message/db/messageTable.js"
+import type { ProviderRuntimeAdapterOptions } from "../src/providers/runtime/providerRuntimeAdapterCreate.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionArchive } from "../src/session/actions/sessionArchive.js"
 import { sessionChatAdapterCreate } from "../src/session/actions/sessionChatAdapterCreate.js"
 import { sessionCreate } from "../src/session/actions/sessionCreate.js"
+import { streamReplayServiceCreate } from "../src/stream/actions/streamReplayServiceCreate.js"
 
 type ChatAdapter = NonNullable<AppCreateOptions["sessionChatAdapter"]>
 type ChatAdapterInput = Parameters<ChatAdapter>[0]
@@ -27,6 +29,7 @@ const databaseAvailable = await databaseReadyCheck(database).then((result) => re
 const fixture = {
   agentId: `session-chat-agent-${crypto.randomUUID()}`,
   otherAgentId: `session-chat-other-agent-${crypto.randomUUID()}`,
+  providerAgentId: `session-chat-provider-agent-${crypto.randomUUID()}`,
   otherServerId: `session-chat-other-server-${crypto.randomUUID()}`,
   otherUserKey: `session-chat-other-user-${crypto.randomUUID()}`,
   serverId: `session-chat-server-${crypto.randomUUID()}`,
@@ -90,6 +93,19 @@ async function sseEvents(response: Response): Promise<Array<Record<string, unkno
     })
 }
 
+async function streamReplay(sessionId: string, runId: string) {
+  if (userId === undefined) throw new Error("Expected a test user")
+  const replay = await streamReplayServiceCreate({
+    database,
+    inactivityTimeoutMs: 120_000,
+    sessionId,
+    streamId: `session-chat:${sessionId}:${runId}`,
+    userId,
+  }).replay()
+  if (!replay.success) throw new Error(replay.errorMessage)
+  return replay.data
+}
+
 function runStartedChunk(input: ChatAdapterInput): StreamChunk {
   return {
     type: EventType.RUN_STARTED,
@@ -132,16 +148,30 @@ beforeAll(async () => {
   ])
   await database.insert(agentTable).values([
     {
+      configuration: { model: "deterministic-test", provider: "deterministic" },
       id: fixture.agentId,
       name: "Session Chat Agent",
       role: "coding",
       serverId: fixture.serverId,
     },
     {
+      configuration: { model: "deterministic-test", provider: "deterministic" },
       id: fixture.otherAgentId,
       name: "Other Session Chat Agent",
       role: "coding",
       serverId: fixture.otherServerId,
+    },
+    {
+      configuration: {
+        apiKey: "$CLIPROXYAPI_API_KEY",
+        baseUrl: "https://provider.test/v1",
+        model: "provider-test-model",
+        provider: "cliproxyapi",
+      },
+      id: fixture.providerAgentId,
+      name: "Provider Session Chat Agent",
+      role: "coding",
+      serverId: fixture.serverId,
     },
   ])
 })
@@ -167,11 +197,20 @@ test.skipIf(!databaseAvailable)("chat success streams valid events and uses only
   expect(previous.success).toBe(true)
 
   let observedHistory: Array<{ content: string; role: string }> = []
+  let observedRuntimeOptions: ProviderRuntimeAdapterOptions | undefined
   const observingAdapter: ChatAdapter = (input) => {
     observedHistory = input.history.map(({ content, role }) => ({ content, role }))
     return sessionChatAdapterCreate(input)
   }
-  const observingApp = appCreate({ configuration, database, sessionChatAdapter: observingAdapter })
+  const observingApp = appCreate({
+    configuration,
+    database,
+    providerEnvironment: {},
+    providerRuntimeAdapterCreate: (options) => {
+      observedRuntimeOptions = options
+      return observingAdapter
+    },
+  })
   const runId = `session-chat-success-${crypto.randomUUID()}`
   const response = await observingApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
     body: JSON.stringify(
@@ -205,11 +244,56 @@ test.skipIf(!databaseAvailable)("chat success streams valid events and uses only
     { content: "durable context", role: "user" },
     { content: "hello", role: "user" },
   ])
+  expect(observedRuntimeOptions).toEqual({
+    configuration: { model: "deterministic-test", provider: "deterministic" },
+    environment: {},
+  })
 
   expect(await messageRows(sessionId)).toMatchObject([
     { content: "durable context", role: "user", sequence: 1 },
     { content: "hello", role: "user", sequence: 2 },
     { content: "Deterministic response: hello", role: "assistant", sequence: 3 },
+  ])
+  const replay = await streamReplay(sessionId, runId)
+  expect(replay.events.map((event) => event.payload)).toEqual(events)
+  expect(replay.checkpoint.lastSequence).toBe(events.length)
+})
+
+test.skipIf(!databaseAvailable)("chat selects the configured provider runtime with injected dependencies", async () => {
+  if (userId === undefined) return
+  const sessionId = await sessionCreateForTest(userId, "Provider chat", fixture.serverId, fixture.providerAgentId)
+  const environment = { CLIPROXYAPI_API_KEY: "injected-secret" }
+  let observedOptions: ProviderRuntimeAdapterOptions | undefined
+  const providerApp = appCreate({
+    configuration,
+    database,
+    providerEnvironment: environment,
+    providerRuntimeAdapterCreate: (options) => {
+      observedOptions = options
+      return sessionChatAdapterCreate
+    },
+  })
+  const runId = `session-chat-provider-${crypto.randomUUID()}`
+  const response = await providerApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+    body: JSON.stringify(chatBody(sessionId, runId, "provider prompt")),
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+  })
+
+  expect(response.status).toBe(200)
+  expect((await sseEvents(response)).at(-1)?.type).toBe("RUN_FINISHED")
+  expect(observedOptions).toEqual({
+    configuration: {
+      apiKey: "$CLIPROXYAPI_API_KEY",
+      baseUrl: "https://provider.test/v1",
+      model: "provider-test-model",
+      provider: "cliproxyapi",
+    },
+    environment,
+  })
+  expect(await messageRows(sessionId)).toMatchObject([
+    { content: "provider prompt", role: "user", sequence: 1 },
+    { content: "Deterministic response: provider prompt", role: "assistant", sequence: 2 },
   ])
 })
 
@@ -258,36 +342,64 @@ test.skipIf(!databaseAvailable)("chat persists the user before generation and as
   ])
 })
 
-test.skipIf(!databaseAvailable)("chat derives idempotency from runId", async () => {
+test.skipIf(!databaseAvailable)(
+  "chat replays a successfully checkpointed run without duplicating messages",
+  async () => {
+    if (userId === undefined) return
+    const sessionId = await sessionCreateForTest(userId, "Chat idempotency", fixture.serverId, fixture.agentId)
+    const runId = `session-chat-idempotent-${crypto.randomUUID()}`
+    const body = chatBody(sessionId, runId, "same request")
+
+    const first = await app.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+      body: JSON.stringify(body),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+    expect(first.status).toBe(200)
+    const firstEvents = await sseEvents(first)
+
+    const repeated = await app.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+      body: JSON.stringify(body),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+    expect(repeated.status).toBe(200)
+    expect(await sseEvents(repeated)).toEqual(firstEvents)
+    expect(firstEvents.at(-1)?.type).toBe("RUN_FINISHED")
+    expect(await messageRows(sessionId)).toHaveLength(2)
+
+    const conflicting = await app.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+      body: JSON.stringify(chatBody(sessionId, runId, "different request")),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+    expect(conflicting.status).toBe(409)
+    expect(await messageRows(sessionId)).toHaveLength(2)
+  },
+)
+
+test.skipIf(!databaseAvailable)("chat executes a new run after its stream status was inspected", async () => {
   if (userId === undefined) return
-  const sessionId = await sessionCreateForTest(userId, "Chat idempotency", fixture.serverId, fixture.agentId)
-  const runId = `session-chat-idempotent-${crypto.randomUUID()}`
-  const body = chatBody(sessionId, runId, "same request")
+  const sessionId = await sessionCreateForTest(userId, "Chat status probe", fixture.serverId, fixture.agentId)
+  const runId = `session-chat-status-probe-${crypto.randomUUID()}`
+  const streamId = encodeURIComponent(`session-chat:${sessionId}:${runId}`)
 
-  const first = await app.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
-    body: JSON.stringify(body),
+  const status = await app.request(`http://codeline.test/api/sessions/${sessionId}/streams/${streamId}/status`)
+  expect(status.status).toBe(200)
+  expect(await status.json()).toMatchObject({ lastEventId: null, lastSequence: 0 })
+
+  const response = await app.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+    body: JSON.stringify(chatBody(sessionId, runId, "probe first")),
     headers: { "Content-Type": "application/json" },
     method: "POST",
   })
-  expect(first.status).toBe(200)
-  await sseEvents(first)
-
-  const repeated = await app.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
-    body: JSON.stringify(body),
-    headers: { "Content-Type": "application/json" },
-    method: "POST",
-  })
-  expect(repeated.status).toBe(200)
-  expect((await sseEvents(repeated)).at(-1)?.type).toBe("RUN_FINISHED")
-  expect(await messageRows(sessionId)).toHaveLength(2)
-
-  const conflicting = await app.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
-    body: JSON.stringify(chatBody(sessionId, runId, "different request")),
-    headers: { "Content-Type": "application/json" },
-    method: "POST",
-  })
-  expect(conflicting.status).toBe(409)
-  expect(await messageRows(sessionId)).toHaveLength(2)
+  expect(response.status).toBe(200)
+  const events = await sseEvents(response)
+  expect(events.at(-1)?.type).toBe("RUN_FINISHED")
+  expect(await messageRows(sessionId)).toMatchObject([
+    { content: "probe first", role: "user", sequence: 1 },
+    { content: "Deterministic response: probe first", role: "assistant", sequence: 2 },
+  ])
 })
 
 test.skipIf(!databaseAvailable)("chat validates the thread and final plain-text prompt contract", async () => {
@@ -359,7 +471,7 @@ test.skipIf(!databaseAvailable)("chat rejects archived, missing, and inaccessibl
   expect(missingResponse.status).toBe(404)
 })
 
-test.skipIf(!databaseAvailable)("chat does not persist an assistant after adapter failure", async () => {
+test.skipIf(!databaseAvailable)("chat checkpoints interrupted execution without finalizing an assistant", async () => {
   if (userId === undefined) return
   const sessionId = await sessionCreateForTest(userId, "Chat failure", fixture.serverId, fixture.agentId)
   const failingAdapter: ChatAdapter = (input) =>
@@ -368,17 +480,21 @@ test.skipIf(!databaseAvailable)("chat does not persist an assistant after adapte
       const messageId = `assistant-${input.runId}`
       yield { type: EventType.TEXT_MESSAGE_START, messageId, role: "assistant", timestamp: Date.now() }
       yield { type: EventType.TEXT_MESSAGE_CONTENT, messageId, delta: "partial", timestamp: Date.now() }
-      throw new Error("deterministic adapter failure")
     })()
   const failingApp = appCreate({ configuration, database, sessionChatAdapter: failingAdapter })
+  const runId = `session-chat-failure-${crypto.randomUUID()}`
   const response = await failingApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
-    body: JSON.stringify(chatBody(sessionId, `session-chat-failure-${crypto.randomUUID()}`, "fail")),
+    body: JSON.stringify(chatBody(sessionId, runId, "fail")),
     headers: { "Content-Type": "application/json" },
     method: "POST",
   })
   expect(response.status).toBe(200)
-  expect((await sseEvents(response)).at(-1)?.type).toBe("RUN_ERROR")
+  const events = await sseEvents(response)
+  expect(events.at(-1)).toMatchObject({ code: "chat_interrupted", type: "RUN_ERROR" })
   expect(await messageRows(sessionId)).toMatchObject([{ content: "fail", role: "user", sequence: 1 }])
+  const replay = await streamReplay(sessionId, runId)
+  expect(replay.events.map((event) => event.payload)).toEqual(events)
+  expect(replay.checkpoint.lastSequence).toBe(events.length)
 })
 
 test.skipIf(!databaseAvailable)("chat does not persist an assistant after adapter abort", async () => {
