@@ -7,12 +7,12 @@ export function ZeroConnectionIndicator() {
   return (
     <Badge
       variant={state.variant()}
-      class="health-badge zero-connection-badge"
+      class="gap-[7px] border-[#30342a] px-2.5 py-[5px] text-xs data-[state=connecting]:text-[#e5c96b] data-[state=error]:text-[#ff8977] data-[state=offline]:text-[#ff8977]"
       data-state={state.status()}
       role="status"
       aria-live="polite"
     >
-      <span class="health-dot" aria-hidden="true" />
+      <span class="size-1.5 rounded-full bg-current shadow-[0_0_10px_currentColor]" aria-hidden="true" />
       {state.label()}
     </Badge>
   )
