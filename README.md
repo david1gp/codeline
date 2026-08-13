@@ -14,6 +14,36 @@ Local PostgreSQL and Zero development services are defined under `ops/dev/`. Pos
 
 The planned provider targets are local CLIProxyAPI and Codex-LB configurations. Provider OAuth, Pi ecosystem integrations, MCP, full-text web search, and custom scrollbar behavior are outside the planned scope.
 
+## Source Layout
+
+Top-level folders under `src/` are bounded contexts. Each domain context owns its own layers:
+
+```txt
+src/
+├── identity/{api,db}
+├── servers/{api,actions,db,schema}
+├── agents/{api,actions,db,schema}
+├── session/{api,actions,db,schema}
+├── message/{api,actions,db,schema}
+├── stream/db
+├── database/
+├── api/
+├── app/
+├── configuration/
+├── server/
+└── ui/
+```
+
+- `schema/` holds Valibot request and query contracts for that context.
+- `api/` holds Hono route registration only.
+- `actions/` holds application operations such as `sessionCreate` and `serverList`.
+- `db/` holds Drizzle tables and repositories.
+- `database/` holds shared persistence infrastructure only: the client, transactions, migrations, `databaseSchema.ts`, and `zeroSchema.ts`.
+- `api/` at the top level holds platform HTTP only: health, readiness, errors, testing, and route composition.
+- `server/` is the HTTP process. The server domain context is `servers/`.
+
+HTTP paths can nest across contexts. Agent routes stay at `/servers/:serverId/agents` and message routes stay at `/sessions/:sessionId/messages`; the owning context still registers them.
+
 ## Status
 
 The current increment is a runnable minimal Solid/Hono/Valibot/TanStack AI test slice plus local PostgreSQL/Zero service definitions, not a complete coding workspace. The Solid UI renders an empty workspace and checks `/api/health`. The Bun/Hono API exposes health, validation, deterministic error, and SSE test routes. The TanStack AI seam converts deterministic `StreamChunk` events to SSE; it does not execute a model or provide production AI behavior.
