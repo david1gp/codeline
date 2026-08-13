@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
-import { asc, eq } from "drizzle-orm"
+import { and, asc, eq } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/postgres-js"
 import { Hono } from "hono"
 import postgres from "postgres"
@@ -12,17 +12,20 @@ import { type DevelopmentUser, developmentUserUpsert } from "../src/identity/db/
 import { messageAppend } from "../src/message/actions/messageAppend.js"
 import { messageTable } from "../src/message/db/messageTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
-import { apiSessionBranchRoutesAdd } from "../src/session/api/apiSessionBranchRoutesAdd.js"
 import { sessionArchive } from "../src/session/actions/sessionArchive.js"
+import { sessionBranch } from "../src/session/actions/sessionBranch.js"
 import { sessionCreate } from "../src/session/actions/sessionCreate.js"
+import { apiSessionBranchRoutesAdd } from "../src/session/api/apiSessionBranchRoutesAdd.js"
+import { sessionTable } from "../src/session/db/sessionTable.js"
+import { uuidv7 } from "../src/uuid/uuidv7.js"
 
 const client = postgres(Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline")
 const database = drizzle(client, { schema: databaseSchema })
 const databaseAvailable = await databaseReadyCheck(database).then((result) => result.success)
 const fixture = {
-  agentId: `session-branch-agent-${crypto.randomUUID()}`,
-  serverId: `session-branch-server-${crypto.randomUUID()}`,
-  userKey: `session-branch-user-${crypto.randomUUID()}`,
+  agentId: `session-branch-agent-${uuidv7()}`,
+  serverId: `session-branch-server-${uuidv7()}`,
+  userKey: `session-branch-user-${uuidv7()}`,
 }
 let developmentUser: DevelopmentUser | undefined
 let sourceSessionId: string | undefined
@@ -52,7 +55,7 @@ beforeAll(async () => {
   })
 
   const source = await sessionCreate(database, developmentUser.id, {
-    clientRequestId: `session-branch-source-${crypto.randomUUID()}`,
+    clientRequestId: `session-branch-source-${uuidv7()}`,
     metadata: { branch: "source" },
     primaryAgentId: fixture.agentId,
     serverId: fixture.serverId,
@@ -62,20 +65,20 @@ beforeAll(async () => {
   sourceSessionId = source.data.session.id
 
   const userMessage = await messageAppend(database, developmentUser.id, sourceSessionId, {
-    clientRequestId: `session-branch-user-${crypto.randomUUID()}`,
+    clientRequestId: `session-branch-user-${uuidv7()}`,
     content: "Start with this context.",
     role: "user",
   })
   if (!userMessage.success) throw new Error(userMessage.errorMessage)
   const assistantMessage = await messageAppend(database, developmentUser.id, sourceSessionId, {
-    clientRequestId: `session-branch-assistant-${crypto.randomUUID()}`,
+    clientRequestId: `session-branch-assistant-${uuidv7()}`,
     content: "Here is the finalized answer.",
     role: "assistant",
   })
   if (!assistantMessage.success) throw new Error(assistantMessage.errorMessage)
   selectedMessageId = assistantMessage.data.message.id
   const afterSelected = await messageAppend(database, developmentUser.id, sourceSessionId, {
-    clientRequestId: `session-branch-after-${crypto.randomUUID()}`,
+    clientRequestId: `session-branch-after-${uuidv7()}`,
     content: "This must not be copied.",
     role: "user",
   })
@@ -100,7 +103,7 @@ test.skipIf(!databaseAvailable)("branches an owned active session through a fina
   if (developmentUser === undefined || sourceSessionId === undefined || selectedMessageId === undefined) return
 
   const input = {
-    clientRequestId: `session-branch-request-${crypto.randomUUID()}`,
+    clientRequestId: `session-branch-request-${uuidv7()}`,
     messageId: selectedMessageId,
   }
   const response = await app.request(`http://codeline.test/sessions/${sourceSessionId}/branch`, {
@@ -127,11 +130,21 @@ test.skipIf(!databaseAvailable)("branches an owned active session through a fina
   expect(copied.every((row) => row.message.id !== selectedMessageId)).toBe(true)
 })
 
+test.skipIf(!databaseAvailable)("does not branch a session for another owner", async () => {
+  if (sourceSessionId === undefined || selectedMessageId === undefined) return
+
+  const unauthorized = await sessionBranch(database, "development:unknown-session-branch-user", sourceSessionId, {
+    clientRequestId: `session-branch-unauthorized-${uuidv7()}`,
+    messageId: selectedMessageId,
+  })
+  expect(unauthorized).toMatchObject({ success: false, errorMessage: "The session could not be found." })
+})
+
 test.skipIf(!databaseAvailable)("branches idempotently and rejects invalid or archived sources", async () => {
   if (sourceSessionId === undefined || selectedMessageId === undefined) return
 
   const input = {
-    clientRequestId: `session-branch-idempotent-${crypto.randomUUID()}`,
+    clientRequestId: `session-branch-idempotent-${uuidv7()}`,
     messageId: selectedMessageId,
   }
   const first = await app.request(`http://codeline.test/sessions/${sourceSessionId}/branch`, {
@@ -155,28 +168,34 @@ test.skipIf(!databaseAvailable)("branches idempotently and rejects invalid or ar
     .where(eq(messageTable.sessionId, firstBody.session.id))
   expect(targetMessages).toHaveLength(2)
 
+  const invalidRequestId = `session-branch-invalid-${uuidv7()}`
   const invalid = await app.request(`http://codeline.test/sessions/${sourceSessionId}/branch`, {
     body: JSON.stringify({
       ...input,
-      clientRequestId: `session-branch-invalid-${crypto.randomUUID()}`,
+      clientRequestId: invalidRequestId,
       messageId: "missing",
     }),
     headers: { "Content-Type": "application/json" },
     method: "POST",
   })
   expect(invalid.status).toBe(404)
+  const rolledBack = await database
+    .select({ id: sessionTable.id })
+    .from(sessionTable)
+    .where(and(eq(sessionTable.userId, developmentUser?.id ?? ""), eq(sessionTable.clientRequestId, invalidRequestId)))
+  expect(rolledBack).toEqual([])
 
   const archived = await sessionArchive(database, developmentUser?.id ?? "", sourceSessionId)
   expect(archived.success).toBe(true)
   const rejected = await app.request(`http://codeline.test/sessions/${sourceSessionId}/branch`, {
-    body: JSON.stringify({ ...input, clientRequestId: `session-branch-archived-${crypto.randomUUID()}` }),
+    body: JSON.stringify({ ...input, clientRequestId: `session-branch-archived-${uuidv7()}` }),
     headers: { "Content-Type": "application/json" },
     method: "POST",
   })
   expect(rejected.status).toBe(409)
 })
 
-test.skipIf(!databaseAvailable)("keeps branch routes strict and ownership-aware", async () => {
+test.skipIf(!databaseAvailable)("keeps branch routes strict and independently registerable", async () => {
   if (sourceSessionId === undefined || selectedMessageId === undefined) return
 
   const invalid = await app.request(`http://codeline.test/sessions/${sourceSessionId}/branch`, {
