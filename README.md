@@ -1,18 +1,34 @@
-# Codeline
+# @adaptive-ds/codeline
 
-`@adaptive-ds/codeline` is a local-first coding workspace foundation for AI-assisted software development. It is intended to bring a focused editor-like experience to a SolidJS interface while making application state durable, synchronized, and inspectable as those capabilities are implemented.
+Codeline is an AI coding workspace built for the fastest possible UI/UX. Its foundation is [Rocicorp Zero](https://zero.rocicorp.dev/), which turns durable PostgreSQL state into reactive browser data so the interface can stay synchronized and feel immediate.
 
-The implemented foundation uses:
+The goal is AI coding that does not suck: instant feedback, durable application state, and a focused workspace that stays out of the way.
 
-- **Bun and TypeScript** for the runtime and toolchain.
-- **SolidJS** with `@adaptive-ds/solid-ui` for the browser application.
-- **Hono** for the application API and explicit streaming boundaries.
-- **TanStack AI** for the SSE conversion seam and streamed event shape used by the deterministic test stream.
-- **Valibot** for request validation and response contracts exercised by the UI and tests.
+- **Immediate reads** — Zero answers queries from client-side data first, then follows with authoritative server results
+- **Incremental live queries** — synchronized changes update existing query results instead of requiring full refetches
+- **Fine-grained rendering** — SolidJS and `@adaptive-ds/solid-ui` update only the UI affected by those changes
+- **Durable server state** — PostgreSQL and Drizzle own application data while Zero makes it reactive in the browser
+- **Explicit boundaries** — Hono, Valibot, and TanStack AI provide typed APIs, validation, and streaming seams
+- **Simple toolchain** — Bun and TypeScript power development, testing, and production builds
 
-Local PostgreSQL and Zero development services are defined under `ops/dev/`. PostgreSQL uses `postgres:18-alpine`; Zero uses a Podman-built image from the latest package generated from the pinned local `/home/david/opensource/zero` checkout. Drizzle owns the application schema and migrations; Zero consumes the same PostgreSQL database for synchronization.
+Quick Links
 
-The planned provider targets are local CLIProxyAPI and Codex-LB configurations. Provider OAuth, Pi ecosystem integrations, MCP, full-text web search, and custom scrollbar behavior are outside the planned scope.
+- site - http://codeline.work/
+- code - https://github.com/david1gp/codeline
+- issues - https://github.com/david1gp/codeline/issues
+- solid-ui - https://github.com/david1gp/solid-ui
+- zero - https://zero.rocicorp.dev/
+- zero code - https://github.com/rocicorp/mono
+
+## Status
+
+This is a runnable foundation, not yet a complete coding agent. The Solid UI checks application health and uses Zero for its active session list, URL-backed session selection, and finalized message rendering. Server and agent selectors and the composer remain disabled.
+
+The Hono API persists sessions and finalized messages in PostgreSQL. Zero synchronizes those reads into the browser; writes still go through the application API.
+
+The TanStack AI seam converts deterministic `StreamChunk` events to SSE. It does not execute a model.
+
+Planned provider targets are local CLIProxyAPI and Codex-LB. Provider OAuth, Pi ecosystem integrations, MCP, full-text web search, and custom scrollbar behavior are out of scope.
 
 ## Source Layout
 
@@ -44,16 +60,26 @@ src/
 
 HTTP paths can nest across contexts. Agent routes stay at `/servers/:serverId/agents` and message routes stay at `/sessions/:sessionId/messages`; the owning context still registers them.
 
-## Status
-
-The current increment is a runnable minimal Solid/Hono/Valibot/TanStack AI test slice plus local PostgreSQL/Zero service definitions, not a complete coding workspace. The Solid UI renders an empty workspace and checks `/api/health`. The Bun/Hono API exposes health, validation, deterministic error, and SSE test routes. The TanStack AI seam converts deterministic `StreamChunk` events to SSE; it does not execute a model or provide production AI behavior.
-
 ## Implemented Routes
 
+Health and readiness:
+
 - `GET /health` and `GET /api/health` return the Codeline health response.
-- `POST /api/testing/echo` accepts `{ "message": "..." }` and rejects an empty or invalid message with a structured `400` response.
-- `GET /api/testing/errors/bad-request` and `GET /api/testing/errors/internal-server-error` return deterministic structured error responses.
-- `GET /api/testing/stream` returns `text/event-stream` events with sequential IDs. Its `scenario` is `normal`, `error`, `unexpected-end`, or `idle-timeout`; optional `delayMs` and `idleTimeoutMs` values must be between 1 and 60000 milliseconds.
+- `GET /api/ready` reports process readiness.
+
+Workspace data:
+
+- `GET /api/servers` and `GET /api/servers/:serverId/agents`
+- `GET /api/sessions`, `POST /api/sessions`
+- `GET /api/sessions/:sessionId`, `PATCH /api/sessions/:sessionId`
+- `POST /api/sessions/:sessionId/archive`, `DELETE /api/sessions/:sessionId`
+- `GET /api/sessions/:sessionId/messages`, `POST /api/sessions/:sessionId/messages`
+
+Test seams:
+
+- `POST /api/testing/echo` accepts `{ "message": "..." }` and rejects an empty or invalid message with a structured `400`.
+- `GET /api/testing/errors/bad-request` and `GET /api/testing/errors/internal-server-error` return deterministic structured errors.
+- `GET /api/testing/stream` returns `text/event-stream` events with sequential IDs. `scenario` is `normal`, `error`, `unexpected-end`, or `idle-timeout`; optional `delayMs` and `idleTimeoutMs` values must be between 1 and 60000 milliseconds.
 
 ## Local Development
 
@@ -75,9 +101,9 @@ chmod 600 .env
 bun run dev
 ```
 
-The services use an isolated `codeline-dev` network and named volumes (`codeline-dev-postgres` and `codeline-dev-zero`). PostgreSQL is published at `127.0.0.1:5432`; Zero sync is published at `http://127.0.0.1:4848`. The Vite server proxies `/api` to the API at `http://127.0.0.1:3004`.
+Services use an isolated `codeline-dev` network and named volumes (`codeline-dev-postgres` and `codeline-dev-zero`). PostgreSQL is published at `127.0.0.1:5432`; Zero sync is published at `http://127.0.0.1:4848`. The Vite server proxies `/api` to the API at `http://127.0.0.1:3004`.
 
-The Postgres service starts with logical replication enabled (`wal_level=logical`, 10 replication slots, and 10 WAL senders). Zero waits for the Postgres health check, persists its SQLite replica in its named volume, and exposes `/` as its health check. The migration command is intentionally separate so schema changes remain owned by Drizzle.
+Postgres starts with logical replication enabled (`wal_level=logical`, 10 replication slots, and 10 WAL senders). Zero waits for the Postgres health check, persists its SQLite replica in its named volume, and exposes `/` as its health check. Migrations stay on a separate command so schema changes remain owned by Drizzle.
 
 Set up or verify the local Zero link without using registry Zero:
 
@@ -86,11 +112,13 @@ Set up or verify the local Zero link without using registry Zero:
 ./ops/dev/zero-link.sh verify
 ```
 
-After cloning, developers must run `./ops/dev/zero-link.sh setup` from a Codeline checkout. `ZERO_CHECKOUT` in `.env` selects the pinned Zero checkout and defaults to `/home/david/opensource/zero`; the setup builds `packages/zero` with `pnpm@11.11.0`, registers that public package with Bun, and links `@rocicorp/zero` into Codeline. The setup and verify commands are idempotent. This is intentionally the latest local Zero workflow and is not reproducible from a clean clone or CI yet; that work is deferred. `ops/dev/zero-pkgs/` remains ignored for old local artifacts but is not used.
+After cloning, run `./ops/dev/zero-link.sh setup` from a Codeline checkout. `ZERO_CHECKOUT` in `.env` selects the pinned Zero checkout and defaults to `/home/david/opensource/zero`. Setup builds `packages/zero` with `pnpm@11.11.0`, registers that public package with Bun, and links `@rocicorp/zero` into Codeline. Setup and verify are idempotent.
 
-CI is intentionally not viable for the full check suite until Zero dependency reproducibility is revisited. The workflow therefore runs only the clean-clone-safe format check; typecheck, tests, build, and database checks remain local commands after the Zero link is established.
+This is intentionally the latest local Zero workflow. It is not reproducible from a clean clone or CI yet; that work is deferred. `ops/dev/zero-pkgs/` remains ignored for old local artifacts but is not used.
 
-Service lifecycle commands:
+CI is not viable for the full check suite until Zero dependency reproducibility is revisited. The workflow therefore runs only the clean-clone-safe format check. Typecheck, tests, build, and database checks remain local commands after the Zero link is established.
+
+Service lifecycle:
 
 ```bash
 ./ops/dev/codeline-dev.sh up
@@ -112,8 +140,8 @@ bun run db:generate
 
 Troubleshooting:
 
-- If configuration validation reports a missing variable, ensure `.env` exists and contains the required names from `.env.example`; the wrapper reports names only, never values.
-- If `podman compose` is unavailable, install/configure a Podman Compose provider and retry `./ops/dev/codeline-dev.sh config`.
+- If configuration validation reports a missing variable, ensure `.env` exists and contains the required names from `.env.example`. The wrapper reports names only, never values.
+- If `podman compose` is unavailable, install or configure a Podman Compose provider and retry `./ops/dev/codeline-dev.sh config`.
 - If ports `5432` or `4848` are busy, change `POSTGRES_PORT` or `ZERO_PORT` in ignored `.env`, update the matching host port in `DATABASE_URL` or `ZERO_CACHE_URL`, then rerun `config` and `up`.
 - If Zero retains a stale replica after schema or database experiments, run `reset`, then `build`, `up`, and `migrate` again.
 - Inspect `./ops/dev/codeline-dev.sh logs postgres` and `./ops/dev/codeline-dev.sh logs zero-cache` for service diagnostics.
@@ -122,6 +150,7 @@ Example route checks:
 
 ```bash
 curl http://127.0.0.1:3004/health
+curl http://127.0.0.1:3004/api/sessions
 curl -X POST http://127.0.0.1:3004/api/testing/echo \
   -H 'Content-Type: application/json' \
   -d '{"message":"hello"}'
@@ -144,7 +173,9 @@ Copy `.env.example` to `.env` only when configuring local application work. The 
 
 ## Roadmap
 
-The implemented routes and UI are foundations for the remaining work. Planned work first covers Codeline parity with `pi-web`, then production AI execution, PostgreSQL persistence, Zero synchronization, durable stream replay, and the explicitly scoped extensions: multiple servers and agents, subagents, reloadable Git-backed configuration, and SSO/OIDC. None of those capabilities is available in the current slice.
+Next work is chat execution and an enabled composer, followed by stream replay, project/file tools, metadata search, and provider/agent configuration.
+
+After `pi-web` parity: multiple servers and agents, subagents, reloadable Git-backed configuration, durable stream replay, and SSO/OIDC.
 
 ## License
 
