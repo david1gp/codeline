@@ -37,7 +37,7 @@ Add persisted, Zero-synced notes with responsive grouped card listing, separate 
 5. [completed] Correct environment-specific Zero endpoint configuration for preview development and production.
 6. [completed] Add or update automated tests and run end-to-end browser verification for all note paths.
 7. [completed] Replace remaining full-page create/delete redirects with idiomatic Solid Router navigation and verify all note routes.
-8. [in progress] Format, isolate this feature's changes from concurrent work, create semantic commits, and push them.
+8. [completed] Format, isolate this feature's changes from concurrent work, create semantic commits, and push them.
 
 ## Paths
 
