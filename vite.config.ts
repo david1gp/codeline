@@ -41,6 +41,7 @@ export default defineConfig(({ mode }) => {
     server: {
       port: uiPort,
       strictPort: true,
+      allowedHosts: ["codeline.david-siewert.com", "preview.codeline.work"],
       proxy: {
         "/api": `http://127.0.0.1:${apiPort}`,
       },
