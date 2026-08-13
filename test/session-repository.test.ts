@@ -1,0 +1,145 @@
+import { afterAll, beforeAll, expect, test } from "bun:test"
+import { and, eq } from "drizzle-orm"
+import { drizzle } from "drizzle-orm/postgres-js"
+import postgres from "postgres"
+import { agentTable } from "../src/agents/db/agentTable.js"
+import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
+import { databaseSchema } from "../src/database/databaseSchema.js"
+import { developmentUserTable } from "../src/identity/db/developmentUserTable.js"
+import { developmentUserUpsert } from "../src/identity/db/developmentUserUpsert.js"
+import { serverTable } from "../src/servers/db/serverTable.js"
+import { sessionArchive } from "../src/session/actions/sessionArchive.js"
+import { sessionCreate } from "../src/session/actions/sessionCreate.js"
+import { sessionDelete } from "../src/session/actions/sessionDelete.js"
+import { sessionList } from "../src/session/actions/sessionList.js"
+import { sessionLoad } from "../src/session/actions/sessionLoad.js"
+import { sessionRename } from "../src/session/actions/sessionRename.js"
+import { sessionTable } from "../src/session/db/sessionTable.js"
+
+const client = postgres(Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline")
+const database = drizzle(client, { schema: databaseSchema })
+const databaseAvailable = await databaseReadyCheck(database).then((result) => result.success)
+const fixture = {
+  agentId: `session-test-agent-${crypto.randomUUID()}`,
+  serverId: `session-test-server-${crypto.randomUUID()}`,
+  userKey: `session-test-user-${crypto.randomUUID()}`,
+}
+let userId: string | undefined
+
+beforeAll(async () => {
+  if (!databaseAvailable) return
+
+  const user = await developmentUserUpsert(database, {
+    displayName: "Session Test User",
+    identityKey: fixture.userKey,
+  })
+  if (!user.success) throw new Error(user.errorMessage)
+  userId = user.data.id
+
+  await database.insert(serverTable).values({
+    endpoint: "http://session-test-server.test",
+    id: fixture.serverId,
+    name: "Session Test Server",
+    ownerUserId: userId,
+  })
+  await database.insert(agentTable).values({
+    id: fixture.agentId,
+    name: "Session Test Agent",
+    role: "coding",
+    serverId: fixture.serverId,
+  })
+})
+
+afterAll(async () => {
+  if (userId !== undefined) await database.delete(developmentUserTable).where(eq(developmentUserTable.id, userId))
+  await client.end()
+})
+
+test.skipIf(!databaseAvailable)("session actions create idempotently and enforce ownership", async () => {
+  if (userId === undefined) return
+  const clientRequestId = `session-test-request-${crypto.randomUUID()}`
+  const input = {
+    clientRequestId,
+    metadata: { project: "codeline" },
+    primaryAgentId: fixture.agentId,
+    serverId: fixture.serverId,
+    title: "Initial title",
+  }
+
+  const created = await sessionCreate(database, userId, input)
+  expect(created).toMatchObject({ success: true, data: { created: true, session: { title: "Initial title" } } })
+  if (!created.success) return
+
+  const repeated = await sessionCreate(database, userId, { ...input, title: "Changed title" })
+  expect(repeated).toMatchObject({ success: true, data: { created: false, session: { id: created.data.session.id } } })
+
+  const loaded = await sessionLoad(database, userId, created.data.session.id)
+  expect(loaded).toMatchObject({
+    success: true,
+    data: {
+      agent: { id: fixture.agentId },
+      server: { id: fixture.serverId },
+      session: { id: created.data.session.id },
+    },
+  })
+  const hidden = await sessionLoad(database, "development:unknown-session-user", created.data.session.id)
+  expect(hidden).toMatchObject({ success: false, errorMessage: "The session could not be found." })
+
+  const renamed = await sessionRename(database, userId, created.data.session.id, "Renamed title")
+  expect(renamed).toMatchObject({ success: true, data: { title: "Renamed title" } })
+
+  const archived = await sessionArchive(database, userId, created.data.session.id)
+  expect(archived).toMatchObject({ success: true, data: { archivedAt: expect.any(Date) } })
+  const withoutArchived = await sessionList(database, userId, { includeArchived: false, limit: 100 })
+  expect(withoutArchived).toMatchObject({ success: true, data: { rows: [] } })
+  const withArchived = await sessionList(database, userId, { includeArchived: true, limit: 100 })
+  expect(withArchived).toMatchObject({ success: true, data: { rows: [{ session: { id: created.data.session.id } }] } })
+
+  const deleted = await sessionDelete(database, userId, created.data.session.id)
+  expect(deleted).toMatchObject({ success: true, data: { id: created.data.session.id } })
+})
+
+test.skipIf(!databaseAvailable)("session list paginates in updated order and rejects malformed cursors", async () => {
+  if (userId === undefined) return
+  const sessionUserId = userId
+  const sessions = await Promise.all(
+    ["one", "two", "three"].map((title) =>
+      sessionCreate(database, sessionUserId, {
+        clientRequestId: `session-test-page-${title}-${crypto.randomUUID()}`,
+        metadata: {},
+        primaryAgentId: fixture.agentId,
+        serverId: fixture.serverId,
+        title,
+      }),
+    ),
+  )
+  expect(sessions.every((result) => result.success)).toBe(true)
+
+  const firstPage = await sessionList(database, sessionUserId, { includeArchived: true, limit: 2 })
+  expect(firstPage.success).toBe(true)
+  if (!firstPage.success || firstPage.data.nextCursor === null) return
+  expect(firstPage.data.rows).toHaveLength(2)
+
+  const secondPage = await sessionList(database, sessionUserId, {
+    cursor: firstPage.data.nextCursor,
+    includeArchived: true,
+    limit: 2,
+  })
+  expect(secondPage).toMatchObject({ success: true, data: { nextCursor: null } })
+  if (!secondPage.success) return
+  expect(secondPage.data.rows).toHaveLength(1)
+  expect(new Set(secondPage.data.rows.map((row) => row.session.id)).size).toBe(1)
+
+  const invalidCursor = await sessionList(database, sessionUserId, {
+    cursor: "not-a-cursor",
+    includeArchived: true,
+    limit: 2,
+  })
+  expect(invalidCursor).toMatchObject({ success: false, errorMessage: "The session list cursor is invalid." })
+
+  await database.delete(sessionTable).where(and(eq(sessionTable.userId, sessionUserId), eq(sessionTable.title, "one")))
+  await database.delete(sessionTable).where(and(eq(sessionTable.userId, sessionUserId), eq(sessionTable.title, "two")))
+  await database
+    .delete(sessionTable)
+    .where(and(eq(sessionTable.userId, sessionUserId), eq(sessionTable.title, "three")))
+})
