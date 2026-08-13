@@ -12,3 +12,16 @@
 - Seed example data deterministically through a repository-owned script or command using checked-in fixture data. Do not use one-off SQL, manual inserts, or undocumented local data generation as a substitute.
 - Use `~/opensource/zero/apps/zbugs` as the working reference implementation for this seeding workflow, especially its `scripts/seed.ts`, `db-seed` command, and documented migration/seed sequence.
 - Consult `~/opensource/zero/apps/zbugs` before changing Zero sync application configuration. Its `src/zero-init.tsx`, `shared/schema.ts`, `.env.example`, and `drizzle.config.ts` are the working examples for Zero client/cache URLs, query and mutation endpoints, schema wiring, and the PostgreSQL upstream connection.
+- Inspect Solid Router internals in `/home/david/opensource/solid-router` when needed.
+
+## Local Source Lookup
+
+Consult these local checkouts instead of fetching GitHub files one by one:
+
+- `~/opensource/pi-web`
+- `../result`
+- `../utils`
+- `../solid-ui`
+- `~/opensource/zero`
+- `~/opensource/tanstack-ai`
+- `~/opensource/markdown`
