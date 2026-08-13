@@ -7,6 +7,9 @@ import { projectDownloadPrepare } from "../src/project/projectDownloadPrepare.js
 import { projectMetadataRead } from "../src/project/projectMetadataRead.js"
 import { projectPathResolve } from "../src/project/projectPathResolve.js"
 import { projectPathValidate } from "../src/project/projectPathValidate.js"
+import { projectPreviewPolicyResolve } from "../src/project/projectPreviewPolicy.js"
+import { projectPreviewPrepare } from "../src/project/projectPreviewPrepare.js"
+import { projectPreviewRead } from "../src/project/projectPreviewRead.js"
 import { projectTextRead } from "../src/project/projectTextRead.js"
 
 describe("project-filesystem core", () => {
@@ -40,6 +43,8 @@ describe("project-filesystem core", () => {
     // Oversize file
     const oversizeBuffer = Buffer.alloc(2000, "x")
     await fs.writeFile(path.join(tempDir, "oversize.txt"), oversizeBuffer)
+    await fs.writeFile(path.join(tempDir, "picture.PNG"), Buffer.from([0x6e, 0x6f, 0x74, 0x2d, 0x70, 0x6e, 0x67]))
+    await fs.writeFile(path.join(tempDir, "document.pdf"), Buffer.from("not decoded by preview"))
 
     // Symlinks
     await fs.symlink(path.join(tempDir, "a_file.txt"), path.join(tempDir, "symlink_file.txt"))
@@ -136,7 +141,6 @@ describe("project-filesystem core", () => {
       if (!res.success) return
 
       const entries = res.data
-      const names = entries.map((e) => e.name)
 
       // Directories come first: Alpha_Dir, beta_dir, symlink_dir (marked type: other)
       const dirs = entries.filter((e) => e.type === "directory")
@@ -283,6 +287,53 @@ describe("project-filesystem core", () => {
       if (!res.success) {
         expect(res.errorMessage).toContain("symbolic link")
         expect(res.errorMessage).not.toContain(tempDir)
+      }
+    })
+  })
+
+  describe("project preview", () => {
+    test("classifies bounded text and browser-safe image/PDF types without decoding binaries", async () => {
+      expect(projectPreviewPolicyResolve("picture.PNG")).toEqual({ kind: "image", mimeType: "image/png" })
+      expect(projectPreviewPolicyResolve("document.pdf")).toEqual({ kind: "pdf", mimeType: "application/pdf" })
+      expect(projectPreviewPolicyResolve("unknown.bin")).toEqual({
+        kind: "unsupported",
+        mimeType: "application/octet-stream",
+      })
+
+      const text = await projectPreviewRead(tempDir, "hello.utf8.txt")
+      expect(text.success).toBe(true)
+      if (text.success)
+        expect(text.data).toMatchObject({
+          kind: "text",
+          mimeType: "text/plain",
+          content: "Hello, 🌍 World! Unicode string: 🚀",
+        })
+
+      const image = await projectPreviewRead(tempDir, "picture.PNG")
+      expect(image.success).toBe(true)
+      if (image.success)
+        expect(image.data).toEqual({ path: "picture.PNG", kind: "image", mimeType: "image/png", size: 7 })
+
+      const pdf = await projectPreviewPrepare(tempDir, "document.pdf", { maxPreviewFileSizeBytes: 100 })
+      expect(pdf.success).toBe(true)
+      if (pdf.success) {
+        const chunks: Buffer[] = []
+        for await (const chunk of pdf.data.createReadStream()) chunks.push(Buffer.from(chunk))
+        expect(Buffer.concat(chunks).toString()).toBe("not decoded by preview")
+      }
+    })
+
+    test("rejects symlinks and enforces the preview size limit", async () => {
+      await fs.symlink(path.join(tempDir, "picture.PNG"), path.join(tempDir, "symlink_image.png"))
+      const symlink = await projectPreviewPrepare(tempDir, "symlink_image.png")
+      expect(symlink.success).toBe(false)
+      if (!symlink.success) expect(symlink.errorMessage).toContain("symbolic link")
+
+      const oversized = await projectPreviewPrepare(tempDir, "picture.PNG", { maxPreviewFileSizeBytes: 2 })
+      expect(oversized.success).toBe(false)
+      if (!oversized.success) {
+        expect(oversized.errorMessage).toContain("exceeds preview limit of 2 bytes")
+        expect(oversized.errorMessage).not.toContain(tempDir)
       }
     })
   })
