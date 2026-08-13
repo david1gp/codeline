@@ -43,7 +43,7 @@ export function App() {
           </div>
 
           <div class="sidebar-footer">
-            <span class="shortcut">Local-first foundation</span>
+            <span class="shortcut">Zero-synced foundation</span>
             <span class="version">v0.1</span>
           </div>
         </aside>
