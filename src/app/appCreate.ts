@@ -8,11 +8,13 @@ import type { HealthResponse } from "../api/health/healthResponseSchema.js"
 import { databaseReadyCheck } from "../database/databaseReadyCheck.js"
 import type { DatabaseClient } from "../database/databaseClient.js"
 import type { RuntimeConfiguration } from "../configuration/runtimeConfigurationSchema.js"
+import { sessionChatAdapterCreate } from "../session/actions/sessionChatAdapterCreate.js"
 
 export type AppCreateOptions = {
   configuration?: RuntimeConfiguration
   database?: DatabaseClient
   databaseReadyCheck?: typeof databaseReadyCheck
+  sessionChatAdapter?: typeof sessionChatAdapterCreate
 }
 
 export function appCreate(options: AppCreateOptions = {}): App {
@@ -51,7 +53,11 @@ export function appCreate(options: AppCreateOptions = {}): App {
     app.use("/api/*", developmentIdentityMiddleware(options.configuration, options.database))
   }
 
-  apiRoutesAdd(app, readyCheck)
+  apiRoutesAdd(
+    app,
+    readyCheck,
+    options.sessionChatAdapter === undefined ? {} : { sessionChatAdapter: options.sessionChatAdapter },
+  )
 
   app.get("/", serveStatic({ path: "./dist/ui/index.html" }))
   app.get("/assets/*", serveStatic({ root: "./dist/ui" }))

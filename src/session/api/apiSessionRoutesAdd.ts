@@ -1,9 +1,13 @@
 import { Hono } from "hono"
 import type { Context } from "hono"
+import { toServerSentEventsStream } from "@tanstack/ai"
 import type { AppEnvironment } from "../../api/appEnvironment.js"
 import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.js"
 import { apiRequestParse } from "../../api/apiRequestParse.js"
 import { databaseTransactionRun } from "../../database/databaseTransactionRun.js"
+import { sessionChatAdapterCreate } from "../actions/sessionChatAdapterCreate.js"
+import { sessionChatPrepare } from "../actions/sessionChatPrepare.js"
+import { sessionChatStreamCreate } from "../actions/sessionChatStreamCreate.js"
 import { sessionArchive } from "../actions/sessionArchive.js"
 import { sessionCreate } from "../actions/sessionCreate.js"
 import { sessionDelete } from "../actions/sessionDelete.js"
@@ -11,6 +15,7 @@ import { sessionList } from "../actions/sessionList.js"
 import { sessionLoad } from "../actions/sessionLoad.js"
 import { sessionRename } from "../actions/sessionRename.js"
 import { sessionCreateRequestSchema } from "../schema/sessionCreateRequestSchema.js"
+import { sessionChatRequestSchema } from "../schema/sessionChatRequestSchema.js"
 import { sessionQuerySchema } from "../schema/sessionQuerySchema.js"
 import { sessionRenameRequestSchema } from "../schema/sessionRenameRequestSchema.js"
 
@@ -28,6 +33,11 @@ function notFound(context: ApiContext) {
   return context.json(response, 404)
 }
 
+function conflict(context: ApiContext, message: string) {
+  const response = { error: { code: "conflict", message } } satisfies ApiErrorResponse
+  return context.json(response, 409)
+}
+
 function internalServerError(context: ApiContext) {
   const response = {
     error: { code: "internal_server_error", message: "The request could not be completed." },
@@ -35,7 +45,11 @@ function internalServerError(context: ApiContext) {
   return context.json(response, 500)
 }
 
-export function apiSessionRoutesAdd(api: Hono<AppEnvironment>): void {
+type ApiSessionRoutesOptions = {
+  sessionChatAdapter?: typeof sessionChatAdapterCreate
+}
+
+export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessionRoutesOptions = {}): void {
   api.get("/sessions", async (context) => {
     const parsed = apiRequestParse("sessionQueryParse", sessionQuerySchema, context.req.query())
     if (!parsed.success) return badRequest(context, "The session query is invalid.")
@@ -71,6 +85,62 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>): void {
     }
 
     return context.json({ created: result.data.created, session: result.data.session }, result.data.created ? 201 : 200)
+  })
+
+  api.post("/sessions/:sessionId/chat", async (context) => {
+    const body = await context.req.json<unknown>().catch(() => undefined)
+    const parsed = apiRequestParse("sessionChatRequestParse", sessionChatRequestSchema, body)
+    if (!parsed.success) return badRequest(context, "The chat request is invalid.")
+
+    const sessionId = context.req.param("sessionId")
+    if (parsed.data.threadId !== sessionId) return badRequest(context, "The chat thread must match the session.")
+
+    const finalMessage = parsed.data.messages.at(-1)
+    if (finalMessage?.role !== "user" || typeof finalMessage.content !== "string")
+      return badRequest(context, "The chat request must end with one plain-text user prompt.")
+    const prompt = finalMessage.content.trim()
+    if (prompt.length === 0) return badRequest(context, "The chat request must end with one plain-text user prompt.")
+
+    const prepared = await databaseTransactionRun(context.var.database, (transaction) =>
+      sessionChatPrepare(transaction, context.var.developmentUser.id, sessionId, {
+        clientRequestId: parsed.data.runId,
+        content: prompt,
+      }),
+    )
+    if (!prepared.success) {
+      if (prepared.errorMessage.includes("could not be found")) return notFound(context)
+      if (prepared.errorMessage.includes("already used") || prepared.errorMessage.includes("archived"))
+        return conflict(context, prepared.errorMessage)
+      return internalServerError(context)
+    }
+
+    const abortController = new AbortController()
+    const requestSignal = context.req.raw.signal
+    const onRequestAbort = () => abortController.abort(requestSignal.reason)
+    if (requestSignal.aborted) abortController.abort(requestSignal.reason)
+    else requestSignal.addEventListener("abort", onRequestAbort, { once: true })
+
+    const stream = sessionChatStreamCreate({
+      adapter: options.sessionChatAdapter ?? sessionChatAdapterCreate,
+      cleanup: () => requestSignal.removeEventListener("abort", onRequestAbort),
+      database: context.var.database,
+      history: prepared.data.history,
+      prompt,
+      requestId: parsed.data.runId,
+      runId: parsed.data.runId,
+      sessionId,
+      signal: abortController.signal,
+      userId: context.var.developmentUser.id,
+    })
+    const sse = toServerSentEventsStream(stream, abortController)
+
+    return new Response(sse, {
+      headers: {
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+        "Content-Type": "text/event-stream",
+      },
+    })
   })
 
   api.get("/sessions/:sessionId", async (context) => {

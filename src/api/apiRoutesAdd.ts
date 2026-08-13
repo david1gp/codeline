@@ -7,10 +7,19 @@ import { apiMessageRoutesAdd } from "../message/api/apiMessageRoutesAdd.js"
 import { apiQueryRoutesAdd } from "./query/apiQueryRoutesAdd.js"
 import { apiServerRoutesAdd } from "../servers/api/apiServerRoutesAdd.js"
 import { apiSessionRoutesAdd } from "../session/api/apiSessionRoutesAdd.js"
+import { sessionChatAdapterCreate } from "../session/actions/sessionChatAdapterCreate.js"
 import { apiReadinessRoutesAdd } from "./readiness/apiReadinessRoutesAdd.js"
 import { apiTestingRoutesAdd } from "./testing/apiTestingRoutesAdd.js"
 
-export function apiRoutesAdd(app: Hono<AppEnvironment>, databaseReadyCheck: () => Promise<Result<void>>): void {
+type ApiRoutesAddOptions = {
+  sessionChatAdapter?: typeof sessionChatAdapterCreate
+}
+
+export function apiRoutesAdd(
+  app: Hono<AppEnvironment>,
+  databaseReadyCheck: () => Promise<Result<void>>,
+  options: ApiRoutesAddOptions = {},
+): void {
   const api = new Hono<AppEnvironment>()
 
   api.get("/health", (context) => {
@@ -25,7 +34,7 @@ export function apiRoutesAdd(app: Hono<AppEnvironment>, databaseReadyCheck: () =
   apiReadinessRoutesAdd(api, databaseReadyCheck)
   apiServerRoutesAdd(api)
   apiAgentRoutesAdd(api)
-  apiSessionRoutesAdd(api)
+  apiSessionRoutesAdd(api, options)
   apiMessageRoutesAdd(api)
   apiQueryRoutesAdd(api)
   apiTestingRoutesAdd(api)
