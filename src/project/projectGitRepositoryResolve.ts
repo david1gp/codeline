@@ -1,8 +1,12 @@
 import * as fs from "node:fs/promises"
 import * as path from "node:path"
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
+import {
+  projectGitCommandRun,
+  type ProjectGitCommandOptions,
+  type ProjectGitCommandOutput,
+} from "./projectGitCommandRun.js"
 import { projectPathResolve } from "./projectPathResolve.js"
-import { projectGitCommandRun, type ProjectGitCommandOptions, type ProjectGitCommandOutput } from "./projectGitCommandRun.js"
 
 const projectGitRepositoryMaxBranchLength = 256
 
@@ -30,7 +34,15 @@ function projectGitRepositoryOutputLines(output: string): string[] | undefined {
 
 function projectGitRepositoryBranchResolve(value: string): string | null | undefined {
   if (value === "" || value === "HEAD") return null
-  if (value.length > projectGitRepositoryMaxBranchLength || /[\u0000-\u001f\u007f]/u.test(value)) return undefined
+  if (
+    value.length > projectGitRepositoryMaxBranchLength ||
+    [...value].some((character) => {
+      const code = character.charCodeAt(0)
+      return code < 32 || code === 127
+    })
+  ) {
+    return undefined
+  }
   return value
 }
 
@@ -72,10 +84,10 @@ export async function projectGitRepositoryResolve(
   try {
     canonicalRepositoryRoot = await fs.realpath(repositoryRoot)
   } catch (_error) {
-    return createResultError(op, "The Git repository could not be verified.")
+    return createResultError(op, "The Git repository root is not trusted.")
   }
   if (canonicalRepositoryRoot !== resolved.data.resolvedRoot) {
-    return createResultError(op, "The Git repository root does not match the trusted project root.")
+    return createResultError(op, "The Git repository root is not trusted.")
   }
 
   const branch = projectGitRepositoryBranchResolve(lines[2] ?? "")

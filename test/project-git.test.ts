@@ -119,7 +119,7 @@ describe("project Git actions", () => {
     const result = await projectGitStatusRead(rootDir, { command })
     expect(result.success).toBe(false)
     if (!result.success) {
-      expect(result.errorMessage).toContain("trusted project root")
+      expect(result.errorMessage).toContain("root is not trusted")
       expect(result.errorMessage).not.toContain(rootDir)
     }
   })

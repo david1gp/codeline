@@ -16,7 +16,11 @@ export type ProjectGitCommandOptions = {
   timeoutMs?: number
 }
 
-function projectGitCommandLimitResolve(value: number | undefined, fallback: number, maximum: number): number | undefined {
+function projectGitCommandLimitResolve(
+  value: number | undefined,
+  fallback: number,
+  maximum: number,
+): number | undefined {
   if (value === undefined) return fallback
   if (!Number.isSafeInteger(value) || value <= 0) return undefined
   return Math.min(value, maximum)
@@ -47,16 +51,18 @@ export async function projectGitCommandRun(
   }
 
   try {
+    const environment: Record<string, string | undefined> = {}
+    for (const [key, value] of Object.entries(process.env)) environment[key] = value
+    environment.GIT_CONFIG_NOSYSTEM = "1"
+    environment.GIT_OPTIONAL_LOCKS = "0"
+    environment.GIT_PAGER = "cat"
+    environment.GIT_TERMINAL_PROMPT = "0"
+    environment.LC_ALL = "C"
+
     const process = Bun.spawn({
       cmd: ["git", ...args],
       cwd: rootDir,
-      env: {
-        ...Bun.env,
-        GIT_OPTIONAL_LOCKS: "0",
-        GIT_PAGER: "cat",
-        GIT_TERMINAL_PROMPT: "0",
-        LC_ALL: "C",
-      },
+      env: environment,
       maxBuffer: maxOutputBytes,
       stderr: "pipe",
       stdout: "pipe",

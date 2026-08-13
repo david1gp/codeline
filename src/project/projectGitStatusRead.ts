@@ -1,8 +1,9 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
-import { projectPathValidate } from "./projectPathValidate.js"
 import { projectGitCommandRun, type ProjectGitCommandOutput } from "./projectGitCommandRun.js"
 import { projectGitRepositoryResolve, type ProjectGitCommand } from "./projectGitRepositoryResolve.js"
-import type { ProjectGitStatus, ProjectGitStatusFile } from "./projectGitStatusSchema.js"
+import type { ProjectGitStatusFile } from "./projectGitStatusFileSchema.js"
+import type { ProjectGitStatus } from "./projectGitStatusSchema.js"
+import { projectPathValidate } from "./projectPathValidate.js"
 
 const projectGitStatusMaxFiles = 1000
 const projectGitStatusMaxOutputBytes = 4 * 1024 * 1024
@@ -12,7 +13,15 @@ type ProjectGitStatusReadOptions = {
 }
 
 function projectGitStatusPathIsSafe(value: string): boolean {
-  if (value.length === 0 || value.length > 4096 || /[\u0000-\u001f\u007f]/u.test(value)) return false
+  if (value.length === 0 || value.length > 4096) return false
+  if (
+    [...value].some((character) => {
+      const code = character.charCodeAt(0)
+      return code < 32 || code === 127
+    })
+  ) {
+    return false
+  }
   const validated = projectPathValidate(value)
   return validated.success && validated.data.normalizedPath === value
 }
@@ -41,7 +50,7 @@ function projectGitStatusParse(output: string): Result<ProjectGitStatusFile[]> {
   const records = output.split("\0")
   for (let index = 0; index < records.length; index += 1) {
     const record = records[index]
-    if (record === "") continue
+    if (record === undefined || record === "") continue
     if (record.length < 4 || record[2] !== " ") {
       return createResultError(op, "The Git status response is invalid.")
     }
