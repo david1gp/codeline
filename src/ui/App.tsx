@@ -1,8 +1,13 @@
 import { Badge } from "@adaptive-ds/solid-ui/static/badge/Badge"
 import { appStateCreate } from "./appStateCreate.js"
+import { SelectedSession } from "./SelectedSession.js"
+import { SessionList } from "./SessionList.js"
+import { sessionNavigationStateCreate } from "./sessionNavigationStateCreate.js"
+import { ZeroConnectionIndicator } from "./ZeroConnectionIndicator.js"
 
 export function App() {
   const state = appStateCreate()
+  const sessionNavigation = sessionNavigationStateCreate()
 
   return (
     <div class="app-shell">
@@ -23,10 +28,13 @@ export function App() {
           </a>
         </nav>
 
-        <Badge variant={state.healthVariant()} class="health-badge" role="status" aria-live="polite">
-          <span class="health-dot" aria-hidden="true" />
-          {state.healthLabel()}
-        </Badge>
+        <div class="connection-statuses">
+          <ZeroConnectionIndicator />
+          <Badge variant={state.healthVariant()} class="health-badge" role="status" aria-live="polite">
+            <span class="health-dot" aria-hidden="true" />
+            {state.healthLabel()}
+          </Badge>
+        </div>
       </header>
 
       <main class="workspace" id="workspace">
@@ -37,10 +45,7 @@ export function App() {
             <p class="sidebar-copy">No project or conversation is open.</p>
           </div>
 
-          <div class="session-list" id="activity">
-            <p class="section-label">Conversations</p>
-            <div class="empty-list">Your sessions will appear here.</div>
-          </div>
+          <SessionList navigation={sessionNavigation} />
 
           <div class="sidebar-footer">
             <span class="shortcut">Zero-synced foundation</span>
@@ -48,7 +53,7 @@ export function App() {
           </div>
         </aside>
 
-        <section class="chat-panel" aria-labelledby="empty-title">
+        <section class="chat-panel" aria-label="Conversation workspace">
           <div class="toolbar" aria-label="Session controls">
             <label class="selector-field">
               <span>Server</span>
@@ -69,22 +74,7 @@ export function App() {
             </label>
           </div>
 
-          <div class="empty-workspace">
-            <div class="empty-symbol" aria-hidden="true">
-              <span>&gt;_</span>
-            </div>
-            <p class="eyebrow">Ready when the runtime is</p>
-            <h2 id="empty-title">Start with an empty workspace</h2>
-            <p class="empty-copy">
-              Codeline is connected to its local API. Conversations, files, and agent execution are not implemented in
-              this increment.
-            </p>
-            <div class="scope-row" aria-label="Current capabilities">
-              <span>Solid UI</span>
-              <span>Hono API</span>
-              <span>Health connected</span>
-            </div>
-          </div>
+          <SelectedSession navigation={sessionNavigation} />
 
           <div class="composer-placeholder" aria-label="Chat composer unavailable">
             <div>

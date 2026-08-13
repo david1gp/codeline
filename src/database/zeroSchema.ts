@@ -64,13 +64,14 @@ const message = table("message")
     role: enumeration<string>(),
     sequence: number(),
     content: string(),
-    idempotencyKey: string().from("idempotency_key"),
+    clientRequestId: string().from("client_request_id"),
     metadata: json(),
     finalizedAt: number().from("finalized_at"),
     createdAt: number().from("created_at"),
   })
   .primaryKey("id")
   .unique("sessionId", "sequence")
+  .unique("sessionId", "clientRequestId")
 
 const streamEvent = table("streamEvent")
   .from("stream_event")

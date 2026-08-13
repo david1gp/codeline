@@ -4,6 +4,7 @@ import type { AppEnvironment } from "./appEnvironment.js"
 import type { HealthResponse } from "./health/healthResponseSchema.js"
 import { apiAgentRoutesAdd } from "../agents/api/apiAgentRoutesAdd.js"
 import { apiMessageRoutesAdd } from "../message/api/apiMessageRoutesAdd.js"
+import { apiQueryRoutesAdd } from "./query/apiQueryRoutesAdd.js"
 import { apiServerRoutesAdd } from "../servers/api/apiServerRoutesAdd.js"
 import { apiSessionRoutesAdd } from "../session/api/apiSessionRoutesAdd.js"
 import { apiReadinessRoutesAdd } from "./readiness/apiReadinessRoutesAdd.js"
@@ -26,6 +27,7 @@ export function apiRoutesAdd(app: Hono<AppEnvironment>, databaseReadyCheck: () =
   apiAgentRoutesAdd(api)
   apiSessionRoutesAdd(api)
   apiMessageRoutesAdd(api)
+  apiQueryRoutesAdd(api)
   apiTestingRoutesAdd(api)
   app.route("/api", api)
 }
