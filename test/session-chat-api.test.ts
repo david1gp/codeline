@@ -18,6 +18,7 @@ import { sessionArchive } from "../src/session/actions/sessionArchive.js"
 import { sessionChatAdapterCreate } from "../src/session/actions/sessionChatAdapterCreate.js"
 import { sessionCreate } from "../src/session/actions/sessionCreate.js"
 import { streamReplayServiceCreate } from "../src/stream/actions/streamReplayServiceCreate.js"
+import { uuidv7 } from "../src/uuid/uuidv7.js"
 
 type ChatAdapter = NonNullable<AppCreateOptions["sessionChatAdapter"]>
 type ChatAdapterInput = Parameters<ChatAdapter>[0]
@@ -27,13 +28,13 @@ const client = postgres(databaseUrl)
 const database = drizzle(client, { schema: databaseSchema })
 const databaseAvailable = await databaseReadyCheck(database).then((result) => result.success)
 const fixture = {
-  agentId: `session-chat-agent-${crypto.randomUUID()}`,
-  otherAgentId: `session-chat-other-agent-${crypto.randomUUID()}`,
-  providerAgentId: `session-chat-provider-agent-${crypto.randomUUID()}`,
-  otherServerId: `session-chat-other-server-${crypto.randomUUID()}`,
-  otherUserKey: `session-chat-other-user-${crypto.randomUUID()}`,
-  serverId: `session-chat-server-${crypto.randomUUID()}`,
-  userKey: `session-chat-user-${crypto.randomUUID()}`,
+  agentId: `session-chat-agent-${uuidv7()}`,
+  otherAgentId: `session-chat-other-agent-${uuidv7()}`,
+  providerAgentId: `session-chat-provider-agent-${uuidv7()}`,
+  otherServerId: `session-chat-other-server-${uuidv7()}`,
+  otherUserKey: `session-chat-other-user-${uuidv7()}`,
+  serverId: `session-chat-server-${uuidv7()}`,
+  userKey: `session-chat-user-${uuidv7()}`,
 }
 const configuration = {
   databaseUrl,
@@ -66,7 +67,7 @@ async function messageRows(sessionId: string) {
 
 async function sessionCreateForTest(ownerUserId: string, title: string, serverId: string, agentId: string) {
   const result = await sessionCreate(database, ownerUserId, {
-    clientRequestId: `session-chat-session-${crypto.randomUUID()}`,
+    clientRequestId: `session-chat-session-${uuidv7()}`,
     metadata: {},
     primaryAgentId: agentId,
     serverId,
@@ -189,7 +190,7 @@ test.skipIf(!databaseAvailable)("chat success streams valid events and uses only
   const sessionId = await sessionCreateForTest(userId, "Chat success", fixture.serverId, fixture.agentId)
   const previous = await databaseTransactionRun(database, (transaction) =>
     messageAppend(transaction, testUserId, sessionId, {
-      clientRequestId: `session-chat-previous-${crypto.randomUUID()}`,
+      clientRequestId: `session-chat-previous-${uuidv7()}`,
       content: "durable context",
       role: "user",
     }),
@@ -211,7 +212,7 @@ test.skipIf(!databaseAvailable)("chat success streams valid events and uses only
       return observingAdapter
     },
   })
-  const runId = `session-chat-success-${crypto.randomUUID()}`
+  const runId = `session-chat-success-${uuidv7()}`
   const response = await observingApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
     body: JSON.stringify(
       chatBody(sessionId, runId, "hello", [
@@ -273,7 +274,7 @@ test.skipIf(!databaseAvailable)("chat selects the configured provider runtime wi
       return sessionChatAdapterCreate
     },
   })
-  const runId = `session-chat-provider-${crypto.randomUUID()}`
+  const runId = `session-chat-provider-${uuidv7()}`
   const response = await providerApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
     body: JSON.stringify(chatBody(sessionId, runId, "provider prompt")),
     headers: { "Content-Type": "application/json" },
@@ -327,7 +328,7 @@ test.skipIf(!databaseAvailable)("chat persists the user before generation and as
     })()
   const gatedApp = appCreate({ configuration, database, sessionChatAdapter: gatedAdapter })
   const response = await gatedApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
-    body: JSON.stringify(chatBody(sessionId, `session-chat-order-${crypto.randomUUID()}`, "wait")),
+    body: JSON.stringify(chatBody(sessionId, `session-chat-order-${uuidv7()}`, "wait")),
     headers: { "Content-Type": "application/json" },
     method: "POST",
   })
@@ -347,7 +348,7 @@ test.skipIf(!databaseAvailable)(
   async () => {
     if (userId === undefined) return
     const sessionId = await sessionCreateForTest(userId, "Chat idempotency", fixture.serverId, fixture.agentId)
-    const runId = `session-chat-idempotent-${crypto.randomUUID()}`
+    const runId = `session-chat-idempotent-${uuidv7()}`
     const body = chatBody(sessionId, runId, "same request")
 
     const first = await app.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
@@ -381,7 +382,7 @@ test.skipIf(!databaseAvailable)(
 test.skipIf(!databaseAvailable)("chat executes a new run after its stream status was inspected", async () => {
   if (userId === undefined) return
   const sessionId = await sessionCreateForTest(userId, "Chat status probe", fixture.serverId, fixture.agentId)
-  const runId = `session-chat-status-probe-${crypto.randomUUID()}`
+  const runId = `session-chat-status-probe-${uuidv7()}`
   const streamId = encodeURIComponent(`session-chat:${sessionId}:${runId}`)
 
   const status = await app.request(`http://codeline.test/api/sessions/${sessionId}/streams/${streamId}/status`)
@@ -407,20 +408,20 @@ test.skipIf(!databaseAvailable)("chat validates the thread and final plain-text 
   const sessionId = await sessionCreateForTest(userId, "Chat validation", fixture.serverId, fixture.agentId)
   const requests = [
     {
-      ...chatBody(sessionId, `session-chat-validation-missing-run-${crypto.randomUUID()}`, "prompt"),
+      ...chatBody(sessionId, `session-chat-validation-missing-run-${uuidv7()}`, "prompt"),
       runId: undefined,
     },
-    { ...chatBody("different-session", `session-chat-validation-thread-${crypto.randomUUID()}`, "prompt") },
+    { ...chatBody("different-session", `session-chat-validation-thread-${uuidv7()}`, "prompt") },
     {
-      ...chatBody(sessionId, `session-chat-validation-role-${crypto.randomUUID()}`, "prompt"),
+      ...chatBody(sessionId, `session-chat-validation-role-${uuidv7()}`, "prompt"),
       messages: [{ content: "not a prompt", id: "assistant", role: "assistant" }],
     },
     {
-      ...chatBody(sessionId, `session-chat-validation-content-${crypto.randomUUID()}`, "prompt"),
+      ...chatBody(sessionId, `session-chat-validation-content-${uuidv7()}`, "prompt"),
       messages: [{ content: [{ text: "not plain text", type: "text" }], id: "multimodal", role: "user" }],
     },
     {
-      ...chatBody(sessionId, `session-chat-validation-empty-${crypto.randomUUID()}`, "prompt"),
+      ...chatBody(sessionId, `session-chat-validation-empty-${uuidv7()}`, "prompt"),
       messages: [{ content: "   ", id: "empty", role: "user" }],
     },
   ]
@@ -443,7 +444,7 @@ test.skipIf(!databaseAvailable)("chat rejects archived, missing, and inaccessibl
   expect(archived.success).toBe(true)
 
   const archivedResponse = await app.request(`http://codeline.test/api/sessions/${archivedSessionId}/chat`, {
-    body: JSON.stringify(chatBody(archivedSessionId, `session-chat-archived-${crypto.randomUUID()}`, "blocked")),
+    body: JSON.stringify(chatBody(archivedSessionId, `session-chat-archived-${uuidv7()}`, "blocked")),
     headers: { "Content-Type": "application/json" },
     method: "POST",
   })
@@ -456,15 +457,15 @@ test.skipIf(!databaseAvailable)("chat rejects archived, missing, and inaccessibl
     fixture.otherAgentId,
   )
   const inaccessibleResponse = await app.request(`http://codeline.test/api/sessions/${otherSessionId}/chat`, {
-    body: JSON.stringify(chatBody(otherSessionId, `session-chat-inaccessible-${crypto.randomUUID()}`, "hidden")),
+    body: JSON.stringify(chatBody(otherSessionId, `session-chat-inaccessible-${uuidv7()}`, "hidden")),
     headers: { "Content-Type": "application/json" },
     method: "POST",
   })
   expect(inaccessibleResponse.status).toBe(404)
 
-  const missingSessionId = `missing-session-${crypto.randomUUID()}`
+  const missingSessionId = `missing-session-${uuidv7()}`
   const missingResponse = await app.request(`http://codeline.test/api/sessions/${missingSessionId}/chat`, {
-    body: JSON.stringify(chatBody(missingSessionId, `session-chat-missing-${crypto.randomUUID()}`, "missing")),
+    body: JSON.stringify(chatBody(missingSessionId, `session-chat-missing-${uuidv7()}`, "missing")),
     headers: { "Content-Type": "application/json" },
     method: "POST",
   })
@@ -482,7 +483,7 @@ test.skipIf(!databaseAvailable)("chat checkpoints interrupted execution without 
       yield { type: EventType.TEXT_MESSAGE_CONTENT, messageId, delta: "partial", timestamp: Date.now() }
     })()
   const failingApp = appCreate({ configuration, database, sessionChatAdapter: failingAdapter })
-  const runId = `session-chat-failure-${crypto.randomUUID()}`
+  const runId = `session-chat-failure-${uuidv7()}`
   const response = await failingApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
     body: JSON.stringify(chatBody(sessionId, runId, "fail")),
     headers: { "Content-Type": "application/json" },
@@ -519,7 +520,7 @@ test.skipIf(!databaseAvailable)("chat does not persist an assistant after adapte
   const abortApp = appCreate({ configuration, database, sessionChatAdapter: abortAdapter })
   const controller = new AbortController()
   const response = await abortApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
-    body: JSON.stringify(chatBody(sessionId, `session-chat-abort-${crypto.randomUUID()}`, "abort")),
+    body: JSON.stringify(chatBody(sessionId, `session-chat-abort-${uuidv7()}`, "abort")),
     headers: { "Content-Type": "application/json" },
     method: "POST",
     signal: controller.signal,

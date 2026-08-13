@@ -2,6 +2,7 @@ import { createResult, createResultError, type Result } from "@adaptive-ds/resul
 import { and, eq, max } from "drizzle-orm"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { sessionTable } from "../../session/db/sessionTable.js"
+import { uuidv7 } from "../../uuid/uuidv7.js"
 import { messageTable } from "./messageTable.js"
 
 export async function messageRepositoryAppend(
@@ -50,7 +51,7 @@ export async function messageRepositoryAppend(
         agentId: session.primaryAgentId,
         clientRequestId: input.clientRequestId,
         content: input.content,
-        id: crypto.randomUUID(),
+        id: uuidv7(),
         metadata: {},
         role: input.role,
         sequence,

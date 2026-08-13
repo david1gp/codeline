@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { agentTable } from "../../agents/db/agentTable.js"
 import { serverTable } from "../../servers/db/serverTable.js"
+import { uuidv7 } from "../../uuid/uuidv7.js"
 import { sessionTable } from "./sessionTable.js"
 
 export async function sessionRepositoryCreate(
@@ -43,7 +44,7 @@ export async function sessionRepositoryCreate(
     const [created] = await database
       .insert(sessionTable)
       .values({
-        id: crypto.randomUUID(),
+        id: uuidv7(),
         clientRequestId: input.clientRequestId,
         metadata: input.metadata,
         primaryAgentId: input.primaryAgentId,

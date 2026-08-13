@@ -10,6 +10,7 @@ import { databaseTransactionRun } from "../src/database/databaseTransactionRun.j
 import { developmentUserTable } from "../src/identity/db/developmentUserTable.js"
 import { developmentUserUpsert } from "../src/identity/db/developmentUserUpsert.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
+import { uuidv7 } from "../src/uuid/uuidv7.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
 import { streamAppend } from "../src/stream/actions/streamAppend.js"
 import { streamCheckpointAdvance } from "../src/stream/actions/streamCheckpointAdvance.js"
@@ -20,9 +21,9 @@ const client = postgres(Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@12
 const database = drizzle(client, { schema: databaseSchema })
 const databaseAvailable = await databaseReadyCheck(database).then((result) => result.success)
 const fixture = {
-  agentId: `stream-test-agent-${crypto.randomUUID()}`,
-  serverId: `stream-test-server-${crypto.randomUUID()}`,
-  userKey: `stream-test-user-${crypto.randomUUID()}`,
+  agentId: `stream-test-agent-${uuidv7()}`,
+  serverId: `stream-test-server-${uuidv7()}`,
+  userKey: `stream-test-user-${uuidv7()}`,
 }
 let userId: string | undefined
 let sessionId: string | undefined
@@ -48,9 +49,9 @@ beforeAll(async () => {
     role: "coding",
     serverId: fixture.serverId,
   })
-  sessionId = `stream-test-session-${crypto.randomUUID()}`
+  sessionId = `stream-test-session-${uuidv7()}`
   await database.insert(sessionTable).values({
-    clientRequestId: crypto.randomUUID(),
+    clientRequestId: uuidv7(),
     id: sessionId,
     metadata: {},
     primaryAgentId: fixture.agentId,
@@ -72,7 +73,7 @@ afterEach(async () => {
 
 test.skipIf(!databaseAvailable)("stream append is ordered, JSON-aware, idempotent, and conflict-safe", async () => {
   if (userId === undefined || sessionId === undefined) return
-  const streamId = `stream-${crypto.randomUUID()}`
+  const streamId = `stream-${uuidv7()}`
   const first = await streamAppend(database, userId, sessionId, {
     eventType: "delta",
     idempotencyKey: "event-one",
@@ -134,7 +135,7 @@ test.skipIf(!databaseAvailable)("stream append is ordered, JSON-aware, idempoten
 
 test.skipIf(!databaseAvailable)("stream operations enforce ownership and cursor bounds", async () => {
   if (userId === undefined || sessionId === undefined) return
-  const streamId = `stream-owner-${crypto.randomUUID()}`
+  const streamId = `stream-owner-${uuidv7()}`
   const appended = await streamAppend(database, userId, sessionId, {
     eventType: "notice",
     idempotencyKey: "owner-event",
@@ -171,7 +172,7 @@ test.skipIf(!databaseAvailable)("stream operations enforce ownership and cursor 
 
 test.skipIf(!databaseAvailable)("checkpoints create at zero and advance monotonically", async () => {
   if (userId === undefined || sessionId === undefined) return
-  const streamId = `stream-checkpoint-${crypto.randomUUID()}`
+  const streamId = `stream-checkpoint-${uuidv7()}`
   const created = await streamCheckpointLoadOrCreate(database, userId, sessionId, streamId)
   expect(created).toMatchObject({ success: true, data: { created: true, checkpoint: { lastSequence: 0 } } })
   const repeated = await streamCheckpointLoadOrCreate(database, userId, sessionId, streamId)
@@ -192,7 +193,7 @@ test.skipIf(!databaseAvailable)("checkpoints create at zero and advance monotoni
 
 test.skipIf(!databaseAvailable)("archived streams remain readable but cannot start or advance", async () => {
   if (userId === undefined || sessionId === undefined) return
-  const streamId = `stream-archived-${crypto.randomUUID()}`
+  const streamId = `stream-archived-${uuidv7()}`
   const appended = await streamAppend(database, userId, sessionId, {
     eventType: "before_archive",
     idempotencyKey: "archived-event",
@@ -244,7 +245,7 @@ test.skipIf(!databaseAvailable)("archived streams remain readable but cannot sta
 
 test.skipIf(!databaseAvailable)("stream appends participate in caller-owned transaction rollback", async () => {
   if (userId === undefined || sessionId === undefined) return
-  const streamId = `stream-rollback-${crypto.randomUUID()}`
+  const streamId = `stream-rollback-${uuidv7()}`
   const result = await databaseTransactionRun(database, async (transaction) => {
     const appended = await streamAppend(transaction, userId as string, sessionId as string, {
       eventType: "rolled_back",

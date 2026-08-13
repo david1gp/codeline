@@ -10,6 +10,7 @@ import { exampleDataSeed } from "../src/database/exampleDataSeed.js"
 import { developmentUserTable } from "../src/identity/db/developmentUserTable.js"
 import { messageTable } from "../src/message/db/messageTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
+import { uuidv7 } from "../src/uuid/uuidv7.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
 
 const client = postgres(Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline")
@@ -18,12 +19,12 @@ const databaseAvailable = await databaseReadyCheck(database).then((result) => re
 const sessionIds = exampleDataFixture.sessions.map((session) => session.id)
 const messageIds = exampleDataFixture.sessions.flatMap((session) => session.messages.map((message) => message.id))
 const unrelated = {
-  agentId: `seed-test-agent-${crypto.randomUUID()}`,
-  serverId: `seed-test-server-${crypto.randomUUID()}`,
-  userId: `development:seed-test-${crypto.randomUUID()}`,
-  identityKey: `seed-test-${crypto.randomUUID()}`,
-  sessionId: `seed-test-session-${crypto.randomUUID()}`,
-  messageId: `seed-test-message-${crypto.randomUUID()}`,
+  agentId: `seed-test-agent-${uuidv7()}`,
+  serverId: `seed-test-server-${uuidv7()}`,
+  userId: `development:seed-test-${uuidv7()}`,
+  identityKey: `seed-test-${uuidv7()}`,
+  sessionId: `seed-test-session-${uuidv7()}`,
+  messageId: `seed-test-message-${uuidv7()}`,
 }
 
 beforeAll(async () => {
@@ -51,7 +52,7 @@ beforeAll(async () => {
     serverId: unrelated.serverId,
     primaryAgentId: unrelated.agentId,
     title: "Unrelated seed test session",
-    clientRequestId: `seed-test-request-${crypto.randomUUID()}`,
+    clientRequestId: `seed-test-request-${uuidv7()}`,
   })
   await database.insert(messageTable).values({
     id: unrelated.messageId,
@@ -60,7 +61,7 @@ beforeAll(async () => {
     role: "user",
     sequence: 1,
     content: "Unrelated content must remain.",
-    clientRequestId: `seed-test-message-request-${crypto.randomUUID()}`,
+    clientRequestId: `seed-test-message-request-${uuidv7()}`,
   })
 })
 

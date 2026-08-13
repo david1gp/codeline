@@ -11,14 +11,15 @@ import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
 import { streamReplayServiceCreate } from "../src/stream/actions/streamReplayServiceCreate.js"
 import { streamCheckpointTable } from "../src/stream/db/streamCheckpointTable.js"
+import { uuidv7 } from "../src/uuid/uuidv7.js"
 
 const client = postgres(Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline")
 const database = drizzle(client, { schema: databaseSchema })
 const databaseAvailable = await databaseReadyCheck(database).then((result) => result.success)
 const fixture = {
-  agentId: `stream-replay-agent-${crypto.randomUUID()}`,
-  serverId: `stream-replay-server-${crypto.randomUUID()}`,
-  userKey: `stream-replay-user-${crypto.randomUUID()}`,
+  agentId: `stream-replay-agent-${uuidv7()}`,
+  serverId: `stream-replay-server-${uuidv7()}`,
+  userKey: `stream-replay-user-${uuidv7()}`,
 }
 let userId: string | undefined
 let sessionId: string | undefined
@@ -44,9 +45,9 @@ beforeAll(async () => {
     role: "coding",
     serverId: fixture.serverId,
   })
-  sessionId = `stream-replay-session-${crypto.randomUUID()}`
+  sessionId = `stream-replay-session-${uuidv7()}`
   await database.insert(sessionTable).values({
-    clientRequestId: crypto.randomUUID(),
+    clientRequestId: uuidv7(),
     id: sessionId,
     metadata: {},
     primaryAgentId: fixture.agentId,
@@ -69,7 +70,7 @@ test.skipIf(!databaseAvailable)(
       database,
       inactivityTimeoutMs: 60_000,
       sessionId,
-      streamId: `stream-replay-${crypto.randomUUID()}`,
+      streamId: `stream-replay-${uuidv7()}`,
       userId,
     })
 
@@ -114,7 +115,7 @@ test.skipIf(!databaseAvailable)(
   "stream replay service rolls back sequence gaps and reports stale checkpoints",
   async () => {
     if (userId === undefined || sessionId === undefined) return
-    const streamId = `stream-stale-${crypto.randomUUID()}`
+    const streamId = `stream-stale-${uuidv7()}`
     const now = new Date()
     const service = streamReplayServiceCreate({
       database,
@@ -168,7 +169,7 @@ test.skipIf(!databaseAvailable)(
       database,
       inactivityTimeoutMs: 60_000,
       sessionId,
-      streamId: `stream-resumed-${crypto.randomUUID()}`,
+      streamId: `stream-resumed-${uuidv7()}`,
       userId,
     })
     expect(

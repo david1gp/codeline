@@ -2,6 +2,7 @@ import { createResult, createResultError, type Result } from "@adaptive-ds/resul
 import { and, eq } from "drizzle-orm"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { sessionTable } from "../../session/db/sessionTable.js"
+import { uuidv7 } from "../../uuid/uuidv7.js"
 import { streamCheckpointTable } from "./streamCheckpointTable.js"
 
 export async function streamCheckpointRepositoryLoadOrCreate(
@@ -32,7 +33,7 @@ export async function streamCheckpointRepositoryLoadOrCreate(
 
     const [created] = await database
       .insert(streamCheckpointTable)
-      .values({ id: crypto.randomUUID(), sessionId, streamId, lastSequence: 0 })
+      .values({ id: uuidv7(), sessionId, streamId, lastSequence: 0 })
       .onConflictDoNothing({ target: [streamCheckpointTable.sessionId, streamCheckpointTable.streamId] })
       .returning()
     if (created !== undefined) return createResult({ created: true, checkpoint: created })

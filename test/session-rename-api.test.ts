@@ -11,14 +11,15 @@ import { developmentUserUpsert } from "../src/identity/db/developmentUserUpsert.
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionArchive } from "../src/session/actions/sessionArchive.js"
 import { sessionCreate } from "../src/session/actions/sessionCreate.js"
+import { uuidv7 } from "../src/uuid/uuidv7.js"
 
 const client = postgres(Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline")
 const database = drizzle(client, { schema: databaseSchema })
 const databaseAvailable = await databaseReadyCheck(database).then((result) => result.success)
-const identityKey = `session-rename-user-${crypto.randomUUID()}`
+const identityKey = `session-rename-user-${uuidv7()}`
 const userId = `development:${identityKey}`
-const serverId = `session-rename-server-${crypto.randomUUID()}`
-const agentId = `session-rename-agent-${crypto.randomUUID()}`
+const serverId = `session-rename-server-${uuidv7()}`
+const agentId = `session-rename-agent-${uuidv7()}`
 const configuration = {
   databaseUrl: Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline",
   developmentIdentity: { displayName: "Session Rename Test User", identityKey },
@@ -48,7 +49,7 @@ test.skipIf(!databaseAvailable)(
   "authorized active-session rename validates, persists, and rejects archived sessions",
   async () => {
     const created = await sessionCreate(database, userId, {
-      clientRequestId: `session-rename-${crypto.randomUUID()}`,
+      clientRequestId: `session-rename-${uuidv7()}`,
       metadata: {},
       primaryAgentId: agentId,
       serverId,

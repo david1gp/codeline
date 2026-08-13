@@ -2,6 +2,7 @@ import { createResult, createResultError, type Result } from "@adaptive-ds/resul
 import { and, eq } from "drizzle-orm"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { messageCopyFinalizedPrefix } from "../../message/actions/messageCopyFinalizedPrefix.js"
+import { uuidv7 } from "../../uuid/uuidv7.js"
 import { sessionTable } from "./sessionTable.js"
 
 export async function sessionRepositoryBranch(
@@ -36,7 +37,7 @@ export async function sessionRepositoryBranch(
       .insert(sessionTable)
       .values({
         clientRequestId: input.clientRequestId,
-        id: crypto.randomUUID(),
+        id: uuidv7(),
         metadata: source.metadata,
         primaryAgentId: source.primaryAgentId,
         serverId: source.serverId,

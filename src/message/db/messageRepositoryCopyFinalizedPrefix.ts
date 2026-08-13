@@ -2,6 +2,7 @@ import { createResult, createResultError, type Result } from "@adaptive-ds/resul
 import { and, asc, eq, inArray, isNotNull, lte } from "drizzle-orm"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { sessionTable } from "../../session/db/sessionTable.js"
+import { uuidv7 } from "../../uuid/uuidv7.js"
 import { messageTable } from "./messageTable.js"
 
 export async function messageRepositoryCopyFinalizedPrefix(
@@ -59,7 +60,7 @@ export async function messageRepositoryCopyFinalizedPrefix(
           content: message.content,
           createdAt: message.createdAt,
           finalizedAt: message.finalizedAt,
-          id: crypto.randomUUID(),
+          id: uuidv7(),
           metadata: message.metadata,
           role: message.role,
           sequence: index + 1,

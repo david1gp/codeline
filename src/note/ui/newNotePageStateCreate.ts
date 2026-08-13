@@ -3,6 +3,7 @@ import { useZero } from "@rocicorp/zero/solid"
 import { useNavigate } from "@solidjs/router"
 import * as v from "valibot"
 import { zeroSchema } from "../../database/zeroSchema.js"
+import { uuidv7 } from "../../uuid/uuidv7.js"
 import { type NoteMutationContext, noteMutators } from "../noteMutators.js"
 import { noteTitleStateCreate } from "./noteTitleStateCreate.js"
 import { noteViewModeStateCreate } from "./noteViewModeStateCreate.js"
@@ -37,7 +38,7 @@ export function newNotePageStateCreate() {
       const now = Date.now()
       const mutation = zero().mutate(
         noteMutators.note.create({
-          id: crypto.randomUUID(),
+          id: uuidv7(),
           content: content.get(),
           projectPath: null,
           createdAt: now,

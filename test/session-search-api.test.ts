@@ -10,15 +10,16 @@ import { developmentUserTable } from "../src/identity/db/developmentUserTable.js
 import { developmentUserUpsert } from "../src/identity/db/developmentUserUpsert.js"
 import { messageTable } from "../src/message/db/messageTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
+import { uuidv7 } from "../src/uuid/uuidv7.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
 
 const client = postgres(Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline")
 const database = drizzle(client, { schema: databaseSchema })
 const databaseAvailable = await databaseReadyCheck(database).then((result) => result.success)
-const identityKey = `session-search-user-${crypto.randomUUID()}`
+const identityKey = `session-search-user-${uuidv7()}`
 const userId = `development:${identityKey}`
-const serverId = `session-search-server-${crypto.randomUUID()}`
-const agentId = `session-search-agent-${crypto.randomUUID()}`
+const serverId = `session-search-server-${uuidv7()}`
+const agentId = `session-search-agent-${uuidv7()}`
 const configuration = {
   databaseUrl: Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline",
   developmentIdentity: { displayName: "Session Search Test User", identityKey },
@@ -55,7 +56,7 @@ test.skipIf(!databaseAvailable)(
   "session search matches title, metadata, related names, and configuration while preserving ownership, archive, and order",
   async () => {
     const activeInput = {
-      clientRequestId: `session-search-active-${crypto.randomUUID()}`,
+      clientRequestId: `session-search-active-${uuidv7()}`,
       metadata: { searchMarker: "Lunar metadata % _ marker" },
       primaryAgentId: agentId,
       serverId,
@@ -70,7 +71,7 @@ test.skipIf(!databaseAvailable)(
     const secondActive = await app.request("http://codeline.test/api/sessions", {
       body: JSON.stringify({
         ...activeInput,
-        clientRequestId: `session-search-active-second-${crypto.randomUUID()}`,
+        clientRequestId: `session-search-active-second-${uuidv7()}`,
         title: "Search target second",
       }),
       headers: { "Content-Type": "application/json" },
@@ -80,7 +81,7 @@ test.skipIf(!databaseAvailable)(
     const archived = await app.request("http://codeline.test/api/sessions", {
       body: JSON.stringify({
         ...activeInput,
-        clientRequestId: `session-search-archived-${crypto.randomUUID()}`,
+        clientRequestId: `session-search-archived-${uuidv7()}`,
         title: "Archived search target",
       }),
       headers: { "Content-Type": "application/json" },
@@ -90,18 +91,18 @@ test.skipIf(!databaseAvailable)(
     await app.request(`http://codeline.test/api/sessions/${archivedId}/archive`, { method: "POST" })
     await database.insert(messageTable).values({
       agentId,
-      clientRequestId: `session-search-message-${crypto.randomUUID()}`,
+      clientRequestId: `session-search-message-${uuidv7()}`,
       content: "message-only-search-marker",
-      id: `session-search-message-${crypto.randomUUID()}`,
+      id: `session-search-message-${uuidv7()}`,
       role: "user",
       sequence: 1,
       sessionId: activeBody.session.id,
     })
 
-    const foreignIdentityKey = `session-search-foreign-${crypto.randomUUID()}`
+    const foreignIdentityKey = `session-search-foreign-${uuidv7()}`
     const foreignUserId = `development:${foreignIdentityKey}`
-    const foreignServerId = `foreign-search-server-${crypto.randomUUID()}`
-    const foreignAgentId = `foreign-search-agent-${crypto.randomUUID()}`
+    const foreignServerId = `foreign-search-server-${uuidv7()}`
+    const foreignAgentId = `foreign-search-agent-${uuidv7()}`
     const foreignUser = await developmentUserUpsert(database, {
       displayName: "Foreign Search User",
       identityKey: foreignIdentityKey,
@@ -120,8 +121,8 @@ test.skipIf(!databaseAvailable)(
       serverId: foreignServerId,
     })
     await database.insert(sessionTable).values({
-      clientRequestId: `foreign-search-request-${crypto.randomUUID()}`,
-      id: `foreign-search-session-${crypto.randomUUID()}`,
+      clientRequestId: `foreign-search-request-${uuidv7()}`,
+      id: `foreign-search-session-${uuidv7()}`,
       metadata: { searchMarker: "Lunar metadata marker" },
       primaryAgentId: foreignAgentId,
       serverId: foreignServerId,

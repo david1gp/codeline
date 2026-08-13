@@ -15,14 +15,15 @@ import { sessionList } from "../src/session/actions/sessionList.js"
 import { sessionLoad } from "../src/session/actions/sessionLoad.js"
 import { sessionRename } from "../src/session/actions/sessionRename.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
+import { uuidv7 } from "../src/uuid/uuidv7.js"
 
 const client = postgres(Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline")
 const database = drizzle(client, { schema: databaseSchema })
 const databaseAvailable = await databaseReadyCheck(database).then((result) => result.success)
 const fixture = {
-  agentId: `session-test-agent-${crypto.randomUUID()}`,
-  serverId: `session-test-server-${crypto.randomUUID()}`,
-  userKey: `session-test-user-${crypto.randomUUID()}`,
+  agentId: `session-test-agent-${uuidv7()}`,
+  serverId: `session-test-server-${uuidv7()}`,
+  userKey: `session-test-user-${uuidv7()}`,
 }
 let userId: string | undefined
 
@@ -57,7 +58,7 @@ afterAll(async () => {
 
 test.skipIf(!databaseAvailable)("session actions create idempotently and enforce ownership", async () => {
   if (userId === undefined) return
-  const clientRequestId = `session-test-request-${crypto.randomUUID()}`
+  const clientRequestId = `session-test-request-${uuidv7()}`
   const input = {
     clientRequestId,
     metadata: { project: "codeline" },
@@ -114,7 +115,7 @@ test.skipIf(!databaseAvailable)("session list paginates in updated order and rej
   const sessions = await Promise.all(
     ["one", "two", "three"].map((title) =>
       sessionCreate(database, sessionUserId, {
-        clientRequestId: `session-test-page-${title}-${crypto.randomUUID()}`,
+        clientRequestId: `session-test-page-${title}-${uuidv7()}`,
         metadata: {},
         primaryAgentId: fixture.agentId,
         serverId: fixture.serverId,

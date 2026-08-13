@@ -17,14 +17,15 @@ import { apiStreamRoutesAdd } from "../src/stream/api/apiStreamRoutesAdd.js"
 import { streamApiErrorResponseSchema } from "../src/stream/api/streamApiErrorResponseSchema.js"
 import { streamApiStatusResponseSchema } from "../src/stream/api/streamApiStatusResponseSchema.js"
 import { streamCheckpointTable } from "../src/stream/db/streamCheckpointTable.js"
+import { uuidv7 } from "../src/uuid/uuidv7.js"
 
 const client = postgres(Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline")
 const database = drizzle(client, { schema: databaseSchema })
 const databaseAvailable = await databaseReadyCheck(database).then((result) => result.success)
 const fixture = {
-  agentId: `stream-api-agent-${crypto.randomUUID()}`,
-  serverId: `stream-api-server-${crypto.randomUUID()}`,
-  userKey: `stream-api-user-${crypto.randomUUID()}`,
+  agentId: `stream-api-agent-${uuidv7()}`,
+  serverId: `stream-api-server-${uuidv7()}`,
+  userKey: `stream-api-user-${uuidv7()}`,
 }
 let developmentUser: DevelopmentUser | undefined
 let sessionId: string | undefined
@@ -69,10 +70,10 @@ beforeAll(async () => {
     role: "coding",
     serverId: fixture.serverId,
   })
-  sessionId = `stream-api-session-${crypto.randomUUID()}`
-  streamId = `stream-api-${crypto.randomUUID()}`
+  sessionId = `stream-api-session-${uuidv7()}`
+  streamId = `stream-api-${uuidv7()}`
   await database.insert(sessionTable).values({
-    clientRequestId: crypto.randomUUID(),
+    clientRequestId: uuidv7(),
     id: sessionId,
     metadata: {},
     primaryAgentId: fixture.agentId,

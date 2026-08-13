@@ -10,14 +10,15 @@ import { developmentUserTable } from "../src/identity/db/developmentUserTable.js
 import { developmentUserUpsert } from "../src/identity/db/developmentUserUpsert.js"
 import { messageTable } from "../src/message/db/messageTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
+import { uuidv7 } from "../src/uuid/uuidv7.js"
 
 const client = postgres(Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline")
 const database = drizzle(client, { schema: databaseSchema })
 const databaseAvailable = await databaseReadyCheck(database).then((result) => result.success)
-const identityKey = `session-http-user-${crypto.randomUUID()}`
+const identityKey = `session-http-user-${uuidv7()}`
 const userId = `development:${identityKey}`
-const serverId = `session-http-server-${crypto.randomUUID()}`
-const agentId = `session-http-agent-${crypto.randomUUID()}`
+const serverId = `session-http-server-${uuidv7()}`
+const agentId = `session-http-agent-${uuidv7()}`
 const configuration = {
   databaseUrl: Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline",
   developmentIdentity: {
@@ -60,7 +61,7 @@ test.skipIf(!databaseAvailable)(
   "session HTTP routes implement create, read, list, rename, archive, and delete",
   async () => {
     const input = {
-      clientRequestId: `session-http-request-${crypto.randomUUID()}`,
+      clientRequestId: `session-http-request-${uuidv7()}`,
       metadata: { project: "codeline" },
       primaryAgentId: agentId,
       serverId,
@@ -140,7 +141,7 @@ test.skipIf(!databaseAvailable)("session HTTP routes validate requests and curso
 
 test.skipIf(!databaseAvailable)("session and message HTTP routes persist the complete lifecycle", async () => {
   const input = {
-    clientRequestId: `session-flow-request-${crypto.randomUUID()}`,
+    clientRequestId: `session-flow-request-${uuidv7()}`,
     metadata: { project: "codeline" },
     primaryAgentId: agentId,
     serverId,
@@ -158,7 +159,7 @@ test.skipIf(!databaseAvailable)("session and message HTTP routes persist the com
 
   const userMessage = await app.request(`http://codeline.test/api/sessions/${sessionId}/messages`, {
     body: JSON.stringify({
-      clientRequestId: `session-flow-user-${crypto.randomUUID()}`,
+      clientRequestId: `session-flow-user-${uuidv7()}`,
       content: "Please inspect this persistence flow.",
       role: "user",
     }),
@@ -170,7 +171,7 @@ test.skipIf(!databaseAvailable)("session and message HTTP routes persist the com
 
   const assistantMessage = await app.request(`http://codeline.test/api/sessions/${sessionId}/messages`, {
     body: JSON.stringify({
-      clientRequestId: `session-flow-assistant-${crypto.randomUUID()}`,
+      clientRequestId: `session-flow-assistant-${uuidv7()}`,
       content: "The persistence flow is complete.",
       role: "assistant",
     }),
@@ -220,7 +221,7 @@ test.skipIf(!databaseAvailable)("session and message HTTP routes persist the com
 
   const writeAfterArchive = await app.request(`http://codeline.test/api/sessions/${sessionId}/messages`, {
     body: JSON.stringify({
-      clientRequestId: `session-flow-after-archive-${crypto.randomUUID()}`,
+      clientRequestId: `session-flow-after-archive-${uuidv7()}`,
       content: "This write must be rejected.",
       role: "user",
     }),

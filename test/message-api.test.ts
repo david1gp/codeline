@@ -10,14 +10,15 @@ import { developmentUserTable } from "../src/identity/db/developmentUserTable.js
 import { developmentUserUpsert } from "../src/identity/db/developmentUserUpsert.js"
 import { sessionCreate } from "../src/session/actions/sessionCreate.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
+import { uuidv7 } from "../src/uuid/uuidv7.js"
 
 const client = postgres(Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline")
 const database = drizzle(client, { schema: databaseSchema })
 const databaseAvailable = await databaseReadyCheck(database).then((result) => result.success)
 const fixture = {
-  agentId: `message-api-agent-${crypto.randomUUID()}`,
-  serverId: `message-api-server-${crypto.randomUUID()}`,
-  userKey: `message-api-user-${crypto.randomUUID()}`,
+  agentId: `message-api-agent-${uuidv7()}`,
+  serverId: `message-api-server-${uuidv7()}`,
+  userKey: `message-api-user-${uuidv7()}`,
 }
 const configuration = {
   databaseUrl: Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline",
@@ -57,7 +58,7 @@ afterAll(async () => {
 test.skipIf(!databaseAvailable)("message HTTP route validates and appends finalized plain text", async () => {
   if (userId === undefined) return
   const session = await sessionCreate(database, userId, {
-    clientRequestId: `message-api-session-${crypto.randomUUID()}`,
+    clientRequestId: `message-api-session-${uuidv7()}`,
     metadata: {},
     primaryAgentId: fixture.agentId,
     serverId: fixture.serverId,
@@ -67,7 +68,7 @@ test.skipIf(!databaseAvailable)("message HTTP route validates and appends finali
   if (!session.success) return
 
   const input = {
-    clientRequestId: `message-api-request-${crypto.randomUUID()}`,
+    clientRequestId: `message-api-request-${uuidv7()}`,
     content: "hello from HTTP",
     role: "user",
   }

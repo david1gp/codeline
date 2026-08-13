@@ -10,6 +10,7 @@ import { developmentUserTable } from "../src/identity/db/developmentUserTable.js
 import { developmentUserUpsert } from "../src/identity/db/developmentUserUpsert.js"
 import { messageAppend } from "../src/message/actions/messageAppend.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
+import { uuidv7 } from "../src/uuid/uuidv7.js"
 import { sessionArchive } from "../src/session/actions/sessionArchive.js"
 import { sessionCreate } from "../src/session/actions/sessionCreate.js"
 import { sessionLoad } from "../src/session/actions/sessionLoad.js"
@@ -18,9 +19,9 @@ const client = postgres(Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@12
 const database = drizzle(client, { schema: databaseSchema })
 const databaseAvailable = await databaseReadyCheck(database).then((result) => result.success)
 const fixture = {
-  agentId: `message-test-agent-${crypto.randomUUID()}`,
-  serverId: `message-test-server-${crypto.randomUUID()}`,
-  userKey: `message-test-user-${crypto.randomUUID()}`,
+  agentId: `message-test-agent-${uuidv7()}`,
+  serverId: `message-test-server-${uuidv7()}`,
+  userKey: `message-test-user-${uuidv7()}`,
 }
 let userId: string | undefined
 
@@ -57,7 +58,7 @@ test.skipIf(!databaseAvailable)("message append allocates sequence and is idempo
   if (userId === undefined) return
 
   const sessionResult = await sessionCreate(database, userId, {
-    clientRequestId: `message-session-${crypto.randomUUID()}`,
+    clientRequestId: `message-session-${uuidv7()}`,
     metadata: {},
     primaryAgentId: fixture.agentId,
     serverId: fixture.serverId,
@@ -69,7 +70,7 @@ test.skipIf(!databaseAvailable)("message append allocates sequence and is idempo
   const sessionId = sessionResult.data.session.id
   const initialUpdatedAt = sessionResult.data.session.updatedAt
   const firstRequest = {
-    clientRequestId: `message-request-${crypto.randomUUID()}`,
+    clientRequestId: `message-request-${uuidv7()}`,
     content: "hello",
     role: "user" as const,
   }
@@ -95,7 +96,7 @@ test.skipIf(!databaseAvailable)("message append allocates sequence and is idempo
 
   const second = await databaseTransactionRun(database, (transaction) =>
     messageAppend(transaction, testUserId, sessionId, {
-      clientRequestId: `message-request-${crypto.randomUUID()}`,
+      clientRequestId: `message-request-${uuidv7()}`,
       content: "reply",
       role: "assistant",
     }),
@@ -115,7 +116,7 @@ test.skipIf(!databaseAvailable)("message append allocates sequence and is idempo
   expect(archived.success).toBe(true)
   const rejected = await databaseTransactionRun(database, (transaction) =>
     messageAppend(transaction, testUserId, sessionId, {
-      clientRequestId: `message-request-${crypto.randomUUID()}`,
+      clientRequestId: `message-request-${uuidv7()}`,
       content: "not allowed",
       role: "user",
     }),

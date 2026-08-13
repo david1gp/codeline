@@ -2,6 +2,7 @@ import { createResult, createResultError, type Result } from "@adaptive-ds/resul
 import { and, eq } from "drizzle-orm"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { sessionTable } from "../../session/db/sessionTable.js"
+import { uuidv7 } from "../../uuid/uuidv7.js"
 import { streamEventTable } from "./streamEventTable.js"
 
 type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
@@ -112,7 +113,7 @@ export async function streamRepositoryAppend(
       .insert(streamEventTable)
       .values({
         eventType: input.eventType,
-        id: crypto.randomUUID(),
+        id: uuidv7(),
         idempotencyKey: input.idempotencyKey,
         payload: payload.data,
         sequence: input.sequence,
