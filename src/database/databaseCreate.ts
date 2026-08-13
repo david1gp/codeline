@@ -2,7 +2,7 @@ import { createResult, createResultError, type Result } from "@adaptive-ds/resul
 import { drizzle } from "drizzle-orm/postgres-js"
 import postgres from "postgres"
 import type { RuntimeConfiguration } from "../configuration/runtimeConfigurationSchema.js"
-import { databaseSchema } from "./schema/databaseSchema.js"
+import { databaseSchema } from "./databaseSchema.js"
 import type { DatabaseConnection } from "./databaseClient.js"
 
 export function databaseCreate(configuration: RuntimeConfiguration): Result<DatabaseConnection> {

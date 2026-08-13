@@ -3,7 +3,7 @@ import type { PgTransaction } from "drizzle-orm/pg-core"
 import type { PostgresJsQueryResultHKT } from "drizzle-orm/postgres-js"
 import type { drizzle } from "drizzle-orm/postgres-js"
 import type postgres from "postgres"
-import type { databaseSchema } from "./schema/databaseSchema.js"
+import type { databaseSchema } from "./databaseSchema.js"
 
 export type DatabaseClient = ReturnType<typeof drizzle<typeof databaseSchema>>
 export type DatabaseTransaction = PgTransaction<

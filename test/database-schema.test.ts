@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import { getTableName } from "drizzle-orm"
-import { databaseSchema } from "../src/database/schema/databaseSchema.js"
+import { databaseSchema } from "../src/database/databaseSchema.js"
 import { zeroSchema } from "../src/database/zeroSchema.js"
 
 const expectedTables = [

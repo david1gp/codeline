@@ -6,7 +6,14 @@ if (!databaseUrl.success) throw new Error("DATABASE_URL is required and must be 
 
 export default defineConfig({
   dialect: "postgresql",
-  schema: "./src/database/schema/*.ts",
+  schema: [
+    "./src/identity/db/*Table.ts",
+    "./src/servers/db/*Table.ts",
+    "./src/agents/db/*Table.ts",
+    "./src/session/db/*Table.ts",
+    "./src/message/db/*Table.ts",
+    "./src/stream/db/*Table.ts",
+  ],
   out: "./src/database/migrations",
   dbCredentials: {
     url: databaseUrl.output,

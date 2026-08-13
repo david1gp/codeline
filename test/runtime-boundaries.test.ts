@@ -5,7 +5,7 @@ import { healthResponseSchema } from "../src/api/health/healthResponseSchema.js"
 import { readinessResponseSchema } from "../src/api/readiness/readinessResponseSchema.js"
 import { appCreate } from "../src/app/appCreate.js"
 import { runtimeConfigurationParse } from "../src/configuration/runtimeConfigurationParse.js"
-import { developmentUserUpsert } from "../src/database/repository/developmentUserUpsert.js"
+import { developmentUserUpsert } from "../src/identity/db/developmentUserUpsert.js"
 import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
 import { serverStart } from "../src/server/serverStart.js"
 
