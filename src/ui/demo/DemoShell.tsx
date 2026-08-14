@@ -1,51 +1,20 @@
 import { For, Show } from "solid-js"
-import { A } from "@solidjs/router"
 import { DemoMessage } from "./DemoMessage.js"
 import { DemoSurfacePanel } from "./DemoSurfacePanel.js"
 import { DemoWorkspacePanel } from "./DemoWorkspacePanel.js"
-import type { DemoScenario } from "./demoScenario.js"
 import type { DemoScenarioFixture } from "./demoScenarioFixture.js"
-import { demoScenarioRegistry } from "./demoScenarioRegistry.js"
 import type { DemoSurfaceFixture } from "./demoSurfaceFixture.js"
 import type { DemoWorkspaceFixture } from "./demoWorkspaceFixture.js"
+import type { demoWorkspacePanelStateCreate } from "./demoWorkspacePanelStateCreate.js"
 
-export function DemoShell(props: { fixture: DemoScenarioFixture; scenario: DemoScenario }) {
+export function DemoShell(props: {
+  fixture: DemoScenarioFixture
+  workspacePanelState: ReturnType<typeof demoWorkspacePanelStateCreate>
+}) {
   return (
-    <main class="min-h-dvh overflow-x-hidden bg-[#f5f6f8] text-[#18202b] [font-family:Inter,ui-sans-serif,system-ui,sans-serif]">
-      <header class="flex min-h-11 items-center gap-3 border-[#d8dce3] border-b bg-white px-3 text-xs max-[720px]:flex-wrap max-[720px]:py-2">
-        <A class="flex items-center gap-2 font-semibold no-underline" href="/demo" aria-label="Codeline demo home">
-          <span class="grid size-6 place-items-center rounded-md bg-[#202938] font-mono text-[11px] text-white">
-            C/
-          </span>
-          <span>Codeline demo</span>
-        </A>
-        <span class="h-4 w-px bg-[#d8dce3] max-[720px]:hidden" aria-hidden="true" />
-        <span class="rounded-md border border-[#d8dce3] px-2 py-1 font-mono text-[10px] min-[721px]:hidden">
-          ☰ Menu
-        </span>
-        <nav class="flex min-w-0 gap-1 overflow-x-auto" aria-label="Demo scenarios">
-          <For each={demoScenarioRegistry}>
-            {(scenario) => (
-              <A
-                class="rounded-md px-2.5 py-1.5 text-[#5f6879] no-underline transition-colors hover:bg-[#eef1f5] hover:text-[#18202b]"
-                classList={{ "bg-[#e8eefb] text-[#2459ad]": scenario.slug === props.scenario.slug }}
-                href={scenario.href}
-                aria-current={scenario.slug === props.scenario.slug ? "page" : undefined}
-              >
-                {scenario.label}
-              </A>
-            )}
-          </For>
-        </nav>
-        <div class="ml-auto flex shrink-0 items-center gap-1 font-mono text-[10px] text-[#5f6879] max-[720px]:hidden">
-          <span class="rounded px-2 py-1 hover:bg-[#eef1f5]">Theme: System</span>
-          <span class="rounded px-2 py-1 hover:bg-[#eef1f5]">Language: EN</span>
-          <span class="tracking-[0.08em] text-[#5f6879] uppercase">fixtures only</span>
-        </div>
-      </header>
-
+    <div class="overflow-x-hidden bg-[#f5f6f8] text-[#18202b]">
       <div
-        class="grid h-[calc(100dvh-45px)] min-h-[620px] max-[720px]:h-auto max-[720px]:min-h-0 max-[720px]:grid-cols-1"
+        class="grid h-[calc(100dvh-48px)] min-h-[620px] max-[760px]:h-auto max-[760px]:min-h-0 max-[760px]:grid-cols-1"
         classList={{
           "grid-cols-[250px_minmax(360px,1fr)_330px] max-[1000px]:grid-cols-[220px_minmax(360px,1fr)_280px]":
             !props.fixture.workspace && !props.fixture.surface,
@@ -290,7 +259,7 @@ export function DemoShell(props: { fixture: DemoScenarioFixture; scenario: DemoS
           >
             {(panel) =>
               props.fixture.workspace ? (
-                <DemoWorkspacePanel fixture={panel() as DemoWorkspaceFixture} />
+                <DemoWorkspacePanel fixture={panel() as DemoWorkspaceFixture} state={props.workspacePanelState} />
               ) : (
                 <DemoSurfacePanel fixture={panel() as DemoSurfaceFixture} />
               )
@@ -298,6 +267,6 @@ export function DemoShell(props: { fixture: DemoScenarioFixture; scenario: DemoS
           </Show>
         </aside>
       </div>
-    </main>
+    </div>
   )
 }

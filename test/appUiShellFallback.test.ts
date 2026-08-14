@@ -13,8 +13,11 @@ test("known application, demo, and simulation paths resolve to the UI shell", as
     "/notes/note-1",
     "/notes/note-1/?session=selected",
     "/demo",
-    "/demo/conversation/",
-    "/demo/written-files",
+    "/demo/screens/conversation/",
+    "/demo/screens/written-files",
+    "/demo/components",
+    "/demo/screens/workspace-screen",
+    "/demo/components/session-list/",
     "/simulate",
     "/simulate/streaming/",
     "/simulate/retry-success",
@@ -31,6 +34,10 @@ test("known application, demo, and simulation paths resolve to the UI shell", as
 test("known-route resolution rejects unknown paths and malformed parameter paths", () => {
   expect(appKnownRouteResolve("/unknown")).toBe(false)
   expect(appKnownRouteResolve("/demo/unknown")).toBe(false)
+  expect(appKnownRouteResolve("/demo/screens/note-workspace-screen")).toBe(true)
+  expect(appKnownRouteResolve("/demo/components/theme-switcher")).toBe(true)
+  expect(appKnownRouteResolve("/demo/screens/unknown-specimen")).toBe(false)
+  expect(appKnownRouteResolve("/demo/components/session-list/extra")).toBe(false)
   expect(appKnownRouteResolve("/simulate")).toBe(true)
   expect(appKnownRouteResolve("/simulate/")).toBe(true)
   expect(appKnownRouteResolve("/simulate/retry-success/")).toBe(true)

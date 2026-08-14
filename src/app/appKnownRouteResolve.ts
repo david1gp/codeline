@@ -1,8 +1,10 @@
-import { demoScenarioRegistry } from "../ui/demo/demoScenarioRegistry.js"
 import { simulateScenarioHref } from "../ui/simulate/simulateScenarioHref.js"
 import { simulateScenarioRegistry } from "../ui/simulate/simulateScenarioRegistry.js"
+import { demoCatalogRouteResolve } from "../ui/demo/demoCatalogRouteResolve.js"
+import { demoScenarioRegistry } from "../ui/demo/demoScenarioRegistry.js"
 
 const applicationRoutePaths = ["/", "/files", "/notes", "/notes/new"] as const
+const demoSectionPaths = ["/demo/components", "/demo/screens"] as const
 
 export function appKnownRouteResolve(pathname: string): boolean {
   const normalizedPathname = pathname.endsWith("/") && pathname !== "/" ? pathname.slice(0, -1) : pathname
@@ -19,5 +21,22 @@ export function appKnownRouteResolve(pathname: string): boolean {
   if (simulateScenarioRegistry.some((scenario) => simulateScenarioHref(scenario.slug) === normalizedPathname))
     return true
 
-  return demoScenarioRegistry.some((scenario) => scenario.href === normalizedPathname)
+  if (
+    normalizedPathname === "/demo" ||
+    demoSectionPaths.includes(normalizedPathname as (typeof demoSectionPaths)[number])
+  ) {
+    return true
+  }
+
+  if (
+    demoScenarioRegistry.some(
+      (scenario) => scenario.href === normalizedPathname || `/demo/${scenario.slug}` === normalizedPathname,
+    )
+  ) {
+    return true
+  }
+
+  // Nested catalog URLs such as /demo/screens/workspace-screen must load directly.
+  if (!normalizedPathname.startsWith("/demo/")) return false
+  return demoCatalogRouteResolve(normalizedPathname).kind !== "index"
 }

@@ -1,9 +1,12 @@
 import { For, Match, Show, Switch } from "solid-js"
 import type { DemoWorkspaceFixture } from "./demoWorkspaceFixture.js"
-import { demoWorkspacePanelStateCreate } from "./demoWorkspacePanelStateCreate.js"
+import type { demoWorkspacePanelStateCreate } from "./demoWorkspacePanelStateCreate.js"
 
-export function DemoWorkspacePanel(props: { fixture: DemoWorkspaceFixture }) {
-  const state = demoWorkspacePanelStateCreate(() => props.fixture)
+export function DemoWorkspacePanel(props: {
+  fixture: DemoWorkspaceFixture
+  state: ReturnType<typeof demoWorkspacePanelStateCreate>
+}) {
+  const state = props.state
 
   return (
     <div class="grid min-h-0 flex-1 grid-rows-[auto_auto_minmax(0,1fr)] bg-[#fafbfc]">
@@ -23,20 +26,24 @@ export function DemoWorkspacePanel(props: { fixture: DemoWorkspaceFixture }) {
         <div class="max-h-[205px] overflow-auto p-1.5" tabindex="0">
           <For each={props.fixture.tree}>
             {(item) => (
-              <Show when={state.treeItemVisible(item.parentId)}>
+              <Show when={props.state.treeItemVisible(item.parentId)}>
                 <button
                   type="button"
                   class="flex h-7 w-full items-center gap-2 rounded border-0 bg-transparent pr-2 text-left text-xs hover:bg-[#eef1f5]"
-                  classList={{ "bg-[#e8eefb]": item.tabId === state.activeTabId() }}
+                  classList={{ "bg-[#e8eefb]": item.tabId === props.state.activeTabId() }}
                   style={{ "padding-left": `${7 + item.depth * 14}px` }}
                   onClick={() =>
                     item.kind === "directory"
-                      ? state.directoryToggle(item.id)
-                      : item.tabId && state.tabSelect(item.tabId)
+                      ? props.state.directoryToggle(item.id)
+                      : item.tabId && props.state.tabSelect(item.tabId)
                   }
                 >
                   <span class="w-3 shrink-0 font-mono text-[10px] text-[#5f6879]">
-                    {item.kind === "directory" ? (state.expandedDirectories().includes(item.id) ? "▾" : "▸") : "·"}
+                    {item.kind === "directory"
+                      ? props.state.expandedDirectories().includes(item.id)
+                        ? "▾"
+                        : "▸"
+                      : "·"}
                   </span>
                   <span class="min-w-0 flex-1 truncate">{item.label}</span>
                   <Show when={item.status}>
@@ -72,10 +79,10 @@ export function DemoWorkspacePanel(props: { fixture: DemoWorkspaceFixture }) {
           {(tab) => (
             <button
               type="button"
-              onClick={() => state.tabSelect(tab.id)}
+              onClick={() => props.state.tabSelect(tab.id)}
               class="flex min-w-[112px] max-w-[170px] shrink-0 items-center gap-2 border-0 border-[#d8dce3] border-r bg-transparent px-3 text-left text-[11px] text-[#5f6879]"
-              classList={{ "bg-white font-semibold text-[#18202b]": tab.id === state.activeTabId() }}
-              aria-current={tab.id === state.activeTabId() ? "page" : undefined}
+              classList={{ "bg-white font-semibold text-[#18202b]": tab.id === props.state.activeTabId() }}
+              aria-current={tab.id === props.state.activeTabId() ? "page" : undefined}
             >
               <span
                 class="size-1.5 shrink-0 rounded-full bg-[#8b94a3]"
