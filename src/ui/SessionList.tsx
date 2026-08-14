@@ -1,6 +1,5 @@
 import { For, Match, Show, Switch } from "solid-js"
 import { sessionListStateCreate } from "./sessionListStateCreate.js"
-import type { SessionNavigationState } from "./sessionNavigationStateCreate.js"
 
 type SessionListState = ReturnType<typeof sessionListStateCreate>
 type SessionBranchTreeNode = ReturnType<SessionListState["roots"]>[number]
@@ -61,37 +60,46 @@ function SessionBranchNodes(props: {
   )
 }
 
-export function SessionList(props: { navigation: SessionNavigationState }) {
-  const state = sessionListStateCreate(() => props.navigation)
+export function SessionList(props: { idPrefix?: string; state: SessionListState; onSessionSelect?: () => void }) {
+  const searchId = () => `${props.idPrefix ?? "session"}-search`
+  const activityId = () => (props.idPrefix === undefined ? "activity" : `${props.idPrefix}-activity`)
+  const selectSession = (sessionId: string) => {
+    props.state.selectSession(sessionId)
+    if (props.state.isSelected(sessionId)) props.onSessionSelect?.()
+  }
 
   return (
-    <div class="mt-[38px] flex-1" id="activity">
-      <p class="mb-[9px] font-mono text-[10px] font-bold tracking-[0.14em] text-[#777d6e] uppercase">Conversations</p>
-      <label class="relative mb-3 block" for="session-search">
+    <div class="mt-[38px] flex-1" id={activityId()}>
+      <p class="mb-[9px] font-mono text-[10px] font-bold tracking-[0.14em] text-[#9da392] uppercase">Conversations</p>
+      <label class="relative mb-3 block" for={searchId()}>
         <span class="sr-only">Search conversations</span>
         <input
-          id="session-search"
+          id={searchId()}
           class="w-full rounded-[9px] border border-[#30342a] bg-[#1c1f19] px-3 py-2.5 text-xs text-[#ebece5] outline-none placeholder:text-[#686d61] focus:border-[#768d3d] focus:ring-2 focus:ring-[#d8ff72]/20"
           type="search"
-          value={state.query()}
+          value={props.state.query()}
           placeholder="Search conversations"
           autocomplete="off"
-          onInput={(event) => state.updateQuery(event.currentTarget.value)}
+          onInput={(event) => props.state.updateQuery(event.currentTarget.value)}
         />
       </label>
       <Switch>
-        <Match when={state.isError()}>
+        <Match when={props.state.isError()}>
           <div
             class="flex items-center justify-between gap-2.5 rounded-[9px] border border-dashed border-[#30342a] p-3.5 text-xs leading-[1.5] text-[#71766a]"
             role="alert"
           >
             <span>Couldn't load conversations.</span>
-            <button class="border-0 bg-transparent p-0 text-[11px] text-[#d8ff72]" type="button" onClick={state.retry}>
+            <button
+              class="border-0 bg-transparent p-0 text-[11px] text-[#d8ff72]"
+              type="button"
+              onClick={props.state.retry}
+            >
               Retry
             </button>
           </div>
         </Match>
-        <Match when={state.isLoading()}>
+        <Match when={props.state.isLoading()}>
           <div
             class="rounded-[9px] border border-dashed border-[#30342a] p-3.5 text-xs leading-[1.5] text-[#71766a]"
             role="status"
@@ -99,23 +107,23 @@ export function SessionList(props: { navigation: SessionNavigationState }) {
             Loading conversations...
           </div>
         </Match>
-        <Match when={state.isEmpty()}>
+        <Match when={props.state.isEmpty()}>
           <div class="rounded-[9px] border border-dashed border-[#30342a] p-3.5 text-xs leading-[1.5] text-[#71766a]">
-            {state.emptyMessage()}
+            {props.state.emptyMessage()}
           </div>
         </Match>
         <Match when={true}>
           <ul class="m-0 grid list-none gap-1 p-0" aria-label="Active conversations">
             <SessionBranchNodes
-              ancestry={state.selectedAncestry()}
-              isSelected={state.isSelected}
-              nodes={state.roots()}
-              selectSession={state.selectSession}
+              ancestry={props.state.selectedAncestry()}
+              isSelected={props.state.isSelected}
+              nodes={props.state.roots()}
+              selectSession={selectSession}
             />
           </ul>
         </Match>
       </Switch>
-      <Show when={state.isRefreshing()}>
+      <Show when={props.state.isRefreshing()}>
         <span class="mt-2 block font-mono text-[9px] text-[#686d61]" role="status">
           Updating conversations...
         </span>
