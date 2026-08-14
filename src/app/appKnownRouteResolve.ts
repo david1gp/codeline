@@ -1,4 +1,6 @@
 import { demoScenarioRegistry } from "../ui/demo/demoScenarioRegistry.js"
+import { simulateScenarioHref } from "../ui/simulate/simulateScenarioHref.js"
+import { simulateScenarioRegistry } from "../ui/simulate/simulateScenarioRegistry.js"
 
 const applicationRoutePaths = ["/", "/files", "/notes", "/notes/new"] as const
 
@@ -11,6 +13,11 @@ export function appKnownRouteResolve(pathname: string): boolean {
     const noteId = normalizedPathname.slice("/notes/".length)
     return noteId !== "" && !noteId.includes("/")
   }
+
+  if (normalizedPathname === "/simulate") return true
+
+  if (simulateScenarioRegistry.some((scenario) => simulateScenarioHref(scenario.slug) === normalizedPathname))
+    return true
 
   return demoScenarioRegistry.some((scenario) => scenario.href === normalizedPathname)
 }

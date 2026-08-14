@@ -6,6 +6,7 @@ import { FilesPage } from "./FilesPage.js"
 import { NoteRoutePage } from "./NoteRoutePage.js"
 import { WorkspacePage } from "./WorkspacePage.js"
 import { DemoApp } from "./demo/DemoApp.js"
+import { SimulateApp } from "./simulate/SimulateApp.js"
 
 export function UiRouter() {
   return (
@@ -33,6 +34,15 @@ export function UiRouter() {
       <Route path="/demo/extensions" component={DemoApp} />
       <Route path="/demo/written-files" component={DemoApp} />
       <Route path="/demo/*unknownDemo" component={DemoApp} />
+      <Route path="/simulate" component={SimulateApp} />
+      <Route path="/simulate/streaming" component={SimulateApp} />
+      <Route path="/simulate/thinking-tools" component={SimulateApp} />
+      <Route path="/simulate/retry-success" component={SimulateApp} />
+      <Route path="/simulate/retry-exhausted" component={SimulateApp} />
+      <Route path="/simulate/terminal-error" component={SimulateApp} />
+      <Route path="/simulate/unexpected-end" component={SimulateApp} />
+      <Route path="/simulate/cancellation" component={SimulateApp} />
+      <Route path="/simulate/*unknownSimulation" component={SimulateApp} />
     </Router>
   )
 }
