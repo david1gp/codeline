@@ -1,5 +1,5 @@
-import { index, pgTable, text, timestamp } from "drizzle-orm/pg-core"
-import { developmentUserTable } from "../../identity/db/developmentUserTable.js"
+import { index, integer, pgTable, text, timestamp } from "drizzle-orm/pg-core"
+import { applicationUserTable } from "../../identity/db/applicationUserTable.js"
 
 export const noteTable = pgTable(
   "note",
@@ -7,9 +7,10 @@ export const noteTable = pgTable(
     id: text("id").primaryKey(),
     userId: text("user_id")
       .notNull()
-      .references(() => developmentUserTable.id, { onDelete: "cascade" }),
+      .references(() => applicationUserTable.id, { onDelete: "cascade" }),
     content: text("content").notNull(),
     projectPath: text("project_path"),
+    sortOrder: integer("sort_order"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },

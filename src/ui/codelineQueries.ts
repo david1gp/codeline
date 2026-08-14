@@ -1,35 +1,56 @@
 import { createBuilder, defineQueriesWithType, defineQuery } from "@rocicorp/zero"
 import { zeroSchema } from "../database/zeroSchema.js"
 
-const localDevelopmentUserId = "development:local-development"
 const zeroQueryBuilder = createBuilder(zeroSchema)
+type CodelineQueryContext = { userId: string }
 
 export const codelineQueries = defineQueriesWithType<typeof zeroSchema>()({
-  activeSession: defineQuery(({ args }: { args: { sessionId: string } }) =>
+  activeSession: defineQuery(({ args, ctx }: { args: { sessionId: string }; ctx: CodelineQueryContext }) =>
     zeroQueryBuilder.session
       .where("id", args.sessionId)
-      .where("userId", localDevelopmentUserId)
+      .where("userId", ctx.userId)
       .where("archivedAt", "IS", null)
       .one(),
   ),
-  activeSessions: defineQuery(() =>
+  activeSessions: defineQuery(({ ctx }: { ctx: CodelineQueryContext }) =>
     zeroQueryBuilder.session
-      .where("userId", localDevelopmentUserId)
+      .where("userId", ctx.userId)
       .where("archivedAt", "IS", null)
       .orderBy("updatedAt", "desc")
       .orderBy("id", "desc"),
   ),
-  finalizedMessages: defineQuery(({ args }: { args: { sessionId: string } }) =>
+  finalizedMessages: defineQuery(({ args, ctx }: { args: { sessionId: string }; ctx: CodelineQueryContext }) =>
     zeroQueryBuilder.message
       .where("sessionId", args.sessionId)
+      .whereExists("session", (session) => session.where("userId", ctx.userId))
       .where("finalizedAt", "IS NOT", null)
       .orderBy("sequence", "asc")
       .orderBy("id", "asc"),
   ),
-  note: defineQuery(({ args }: { args: { noteId: string } }) =>
-    zeroQueryBuilder.note.where("id", args.noteId).where("userId", localDevelopmentUserId).one(),
+  latestSessionRun: defineQuery(({ args, ctx }: { args: { sessionId: string }; ctx: CodelineQueryContext }) =>
+    zeroQueryBuilder.run
+      .where("sessionId", args.sessionId)
+      .where("userId", ctx.userId)
+      .orderBy("createdAt", "desc")
+      .orderBy("id", "desc")
+      .related("attempts", (attempts) => attempts.orderBy("ordinal", "asc"))
+      .one(),
   ),
-  notes: defineQuery(() =>
-    zeroQueryBuilder.note.where("userId", localDevelopmentUserId).orderBy("updatedAt", "desc").orderBy("id", "desc"),
+  note: defineQuery(({ args, ctx }: { args: { noteId: string }; ctx: CodelineQueryContext }) =>
+    zeroQueryBuilder.note.where("id", args.noteId).where("userId", ctx.userId).one(),
+  ),
+  sessionStreamEvents: defineQuery(({ args, ctx }: { args: { sessionId: string }; ctx: CodelineQueryContext }) =>
+    zeroQueryBuilder.streamEvent
+      .where("sessionId", args.sessionId)
+      .whereExists("session", (session) => session.where("userId", ctx.userId))
+      .orderBy("streamId", "asc")
+      .orderBy("sequence", "asc"),
+  ),
+  notes: defineQuery(({ ctx }: { ctx: CodelineQueryContext }) =>
+    zeroQueryBuilder.note
+      .where("userId", ctx.userId)
+      .orderBy("sortOrder", "asc")
+      .orderBy("updatedAt", "desc")
+      .orderBy("id", "desc"),
   ),
 })
