@@ -19,7 +19,7 @@ if [[ -z "${GIT_STORE_CHECKOUT+x}" && -f "$root/.env" ]]; then
   done < "$root/.env"
 fi
 
-checkout=${GIT_STORE_CHECKOUT:-/home/david/adaptive/git-store}
+checkout=${GIT_STORE_CHECKOUT:-"$root/../git-store-clean-779c05b"}
 fail() {
   printf 'git-store-link: %s\n' "$1" >&2
   exit 1
@@ -30,12 +30,7 @@ command -v bun >/dev/null 2>&1 || fail 'bun is required'
 [[ -f "$checkout/package.json" ]] || fail "git-store package not found: $checkout/package.json"
 
 verify_link() {
-  local linked_package
-  [[ -L "$root/node_modules/@adaptive-ds/git-store" ]] || fail 'Codeline @adaptive-ds/git-store is not a Bun link'
-  linked_package=$(readlink -f "$root/node_modules/@adaptive-ds/git-store")
-  [[ "$linked_package" == "$(readlink -f "$checkout")" ]] ||
-    fail "@adaptive-ds/git-store resolves to $linked_package, expected $checkout"
-  [[ -f "$checkout/dist/index.js" ]] || fail "git-store is not built: $checkout/dist/index.js"
+  bun "$root/scripts/releaseInputsVerify.ts" --root "$root" --input git-store || fail 'release-input manifest verification failed'
 }
 
 setup() {
@@ -44,8 +39,13 @@ setup() {
   trap 'rm -f "$bun_config"' RETURN
   (cd "$checkout" && bun install)
   (cd "$checkout" && bun run build)
-  (cd "$checkout" && bun --config "$bun_config" link)
-  (cd "$root" && bun --config "$bun_config" link @adaptive-ds/git-store)
+  (cd "$checkout" && bun link)
+  if [[ -L "$root/node_modules/@adaptive-ds/git-store" ]]; then
+    local linked_package
+    linked_package=$(readlink -f "$root/node_modules/@adaptive-ds/git-store")
+    [[ "$linked_package" == "$(readlink -f "$checkout")" ]] || rm "$root/node_modules/@adaptive-ds/git-store"
+  fi
+  (cd "$root" && bun link @adaptive-ds/git-store)
   verify_link
 }
 
