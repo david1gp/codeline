@@ -22,13 +22,13 @@ Quick Links
 
 ## Status
 
-This is a runnable foundation, not yet a complete coding agent. The Solid UI checks application health, uses Zero for its active session list and finalized message rendering, and provides URL-backed session selection plus executable server/agent target selectors. The composer remains disabled.
+Codeline is a runnable AI coding workspace. It provides synchronized session navigation, provider-backed chat execution, durable messages and execution events, stream replay, bounded retries and subagents, project/file browsing, Git branch controls, Markdown rendering, provider/model selection, simulation fixtures, and a responsive `/demo` showcase. It also includes provider-neutral OIDC/PKCE authentication, protected UI state, Zero cache isolation, and an installable PWA baseline.
 
-The Hono API persists sessions and finalized messages in PostgreSQL. Zero synchronizes those reads into the browser; writes still go through the application API.
+The Hono API persists durable state in PostgreSQL through Drizzle. Zero synchronizes authorized reads into the browser; commands and chat execution continue to go through the application API. The chat runtime supports deterministic fixtures and the configured local CLIProxyAPI/Codex-LB provider targets.
 
-The TanStack AI seam converts deterministic `StreamChunk` events to SSE. It does not execute a model.
+Local development and verification currently use the pinned local Zero and git-store checkouts through Bun links. `bun run release` runs the local format, test, and build preflight; `bun run deploy` runs the local build preflight only. GitHub release artifacts, clean-clone/CI reproducibility, and deployment automation are deferred and are not current priorities.
 
-Planned provider targets are local CLIProxyAPI and Codex-LB. Provider OAuth, Pi ecosystem integrations, MCP, full-text web search, custom scrollbar behavior, trusted folders / project trust, editing or limiting AI capabilities, and AI permission management are out of scope.
+Provider OAuth, Pi ecosystem integrations, MCP, full-text web search, custom scrollbar behavior, trusted folders / project trust, editing or limiting AI capabilities, and AI permission management are out of scope.
 
 ## Source Layout
 
@@ -132,11 +132,19 @@ bun run git-store:link
 bun run git-store:verify
 ```
 
-The link script installs and builds the checkout at `/home/david/adaptive/git-store`, runs `bun link` in that checkout, and links `@adaptive-ds/git-store` into Codeline. Set `GIT_STORE_CHECKOUT` in the environment or ignored `.env` to use another local checkout. Configuration writes always use `autoPush: false`; this setup does not add or use remote pushes.
+The link script installs and builds the clean sibling checkout at `../git-store-clean-779c05b`, runs `bun link` in that checkout, and links `@adaptive-ds/git-store` into Codeline. Set `GIT_STORE_CHECKOUT` in the environment or ignored `.env` to use another local checkout. Configuration writes always use `autoPush: false`; this setup does not add or use remote pushes.
 
 Like the Zero link, this is a local-checkout workflow and is not reproducible from a clean Codeline clone or CI. A clean clone needs the git-store checkout, its built `dist/`, and the local Bun link before Codeline dependencies and checks can resolve.
 
-GitHub Actions is used only to publish tagged releases, matching the other Adaptive packages. Full checks are not viable from a clean clone until Zero dependency reproducibility is revisited. Typecheck, tests, build, and database checks remain local commands after the Zero link is established.
+Verify the immutable release inputs without network access:
+
+```bash
+bun run release:inputs:verify
+```
+
+This checks the pinned Bun version, linked package targets, Git revisions and cleanliness, package identities and exports, and required build outputs. It reports a blocker when a provisioned source directory cannot prove its Git provenance.
+
+GitHub release artifacts and clean-clone/CI dependency reproducibility are deferred. Typecheck, tests, build, database checks, and release-input verification remain local commands after the Zero and git-store links are established.
 
 Service lifecycle:
 
@@ -218,9 +226,9 @@ Copy `.env.example` to `.env` only when configuring local application work. The 
 
 ## Roadmap
 
-Next work is chat execution and an enabled composer, followed by stream replay, project/file tools, metadata search, and provider/agent configuration.
+Near-term work is release-readiness verification: documentation, local package validation, and automated end-to-end checks for the managed development services and protected application flows.
 
-After `pi-web` parity: multiple servers and agents, subagents, reloadable Git-backed configuration, durable stream replay, and SSO/OIDC.
+GitHub release artifacts, clean-clone/CI reproducibility for the local Zero and git-store links, and production deployment automation are intentionally deferred. Pi-web exclusions remain out of scope.
 
 ## License
 
