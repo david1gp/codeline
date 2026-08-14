@@ -1,18 +1,23 @@
 import { useQuery } from "@rocicorp/zero/solid"
 import type { Accessor } from "solid-js"
 import { codelineQueries } from "./codelineQueries.js"
-import { sessionSearchStateCreate } from "./sessionSearchStateCreate.js"
-import type { SessionSearchResponse } from "../session/schema/sessionSearchResponseSchema.js"
+import { sessionBranchTreeStateCreate } from "./sessionBranchTreeStateCreate.js"
 import type { SessionNavigationState } from "./sessionNavigationStateCreate.js"
+import { sessionSearchStateCreate } from "./sessionSearchStateCreate.js"
 
 export function sessionListStateCreate(navigation: Accessor<SessionNavigationState>) {
   const [sessions, result] = useQuery(() => codelineQueries.activeSessions())
   const search = sessionSearchStateCreate(window)
-  const visibleSessions = (): SessionSearchResponse["sessions"][number]["session"][] =>
-    search.isActive() ? search.sessions().map((row) => row.session) : sessions()
+  const visibleSessions = () =>
+    search.isActive() ? search.sessions().map((row) => ({ ...row.session, updatedAt: 0 })) : sessions()
+  const branchTree = sessionBranchTreeStateCreate({
+    selectedSessionId: () => navigation().selectedSessionId(),
+    sessions: visibleSessions,
+  })
 
   return {
-    sessions: visibleSessions,
+    roots: branchTree.roots,
+    selectedAncestry: branchTree.selectedAncestry,
     query: search.query,
     updateQuery: search.updateQuery,
     isSelected: (sessionId: string) => navigation().selectedSessionId() === sessionId,
@@ -38,6 +43,8 @@ export function sessionListStateCreate(navigation: Accessor<SessionNavigationSta
       if (currentResult.type === "error") currentResult.retry()
     },
     emptyMessage: () => (search.isActive() ? "No conversations match your search." : "No active conversations."),
-    selectSession: (sessionId: string) => navigation().selectSession(sessionId),
+    selectSession: (sessionId: string) => {
+      if (branchTree.isLeaf(sessionId)) navigation().selectSession(sessionId)
+    },
   }
 }

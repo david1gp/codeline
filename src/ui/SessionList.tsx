@@ -1,6 +1,65 @@
 import { For, Match, Show, Switch } from "solid-js"
-import type { SessionNavigationState } from "./sessionNavigationStateCreate.js"
 import { sessionListStateCreate } from "./sessionListStateCreate.js"
+import type { SessionNavigationState } from "./sessionNavigationStateCreate.js"
+
+type SessionListState = ReturnType<typeof sessionListStateCreate>
+type SessionBranchTreeNode = ReturnType<SessionListState["roots"]>[number]
+
+function SessionBranchNodes(props: {
+  ancestry: readonly string[]
+  depth?: number
+  isSelected: SessionListState["isSelected"]
+  nodes: readonly SessionBranchTreeNode[]
+  selectSession: SessionListState["selectSession"]
+}) {
+  const depth = () => props.depth ?? 0
+
+  return (
+    <For each={props.nodes}>
+      {(node) => {
+        const isLeaf = () => node.children.length === 0
+        const isAncestor = () => props.ancestry.includes(node.session.id)
+        return (
+          <li>
+            <button
+              type="button"
+              class="relative w-full overflow-hidden rounded-lg border border-transparent bg-transparent py-2.5 pr-[11px] text-left text-xs leading-[1.4] text-[#a4a99c] transition-colors duration-150 hover:bg-[#1c1f19] hover:text-[#ebece5] disabled:cursor-default disabled:hover:bg-transparent"
+              classList={{
+                "border-[#46532c] bg-[#2b341c] text-[#d8ff72]": props.isSelected(node.session.id),
+                "text-[#c5c9bc]": isAncestor() && !props.isSelected(node.session.id),
+              }}
+              style={{ "padding-left": `${11 + depth() * 14}px` }}
+              disabled={!isLeaf()}
+              aria-current={props.isSelected(node.session.id) ? "page" : undefined}
+              aria-label={`${node.session.title}${isLeaf() ? "" : ", branch"}`}
+              onClick={() => props.selectSession(node.session.id)}
+            >
+              <Show when={depth() > 0}>
+                <span
+                  class="absolute top-0 bottom-0 border-[#3b4035] border-l"
+                  style={{ left: `${17 + (depth() - 1) * 14}px` }}
+                  aria-hidden="true"
+                />
+              </Show>
+              <span class="block overflow-hidden text-ellipsis whitespace-nowrap">{node.session.title}</span>
+            </button>
+            <Show when={node.children.length > 0}>
+              <ul class="m-0 grid list-none gap-1 p-0">
+                <SessionBranchNodes
+                  ancestry={props.ancestry}
+                  depth={depth() + 1}
+                  isSelected={props.isSelected}
+                  nodes={node.children}
+                  selectSession={props.selectSession}
+                />
+              </ul>
+            </Show>
+          </li>
+        )
+      }}
+    </For>
+  )
+}
 
 export function SessionList(props: { navigation: SessionNavigationState }) {
   const state = sessionListStateCreate(() => props.navigation)
@@ -47,21 +106,12 @@ export function SessionList(props: { navigation: SessionNavigationState }) {
         </Match>
         <Match when={true}>
           <ul class="m-0 grid list-none gap-1 p-0" aria-label="Active conversations">
-            <For each={state.sessions()}>
-              {(session) => (
-                <li>
-                  <button
-                    type="button"
-                    class="w-full overflow-hidden rounded-lg border border-transparent bg-transparent px-[11px] py-2.5 text-left text-xs leading-[1.4] text-[#a4a99c] transition-colors duration-150 hover:bg-[#1c1f19] hover:text-[#ebece5]"
-                    classList={{ "border-[#46532c] bg-[#2b341c] text-[#d8ff72]": state.isSelected(session.id) }}
-                    aria-current={state.isSelected(session.id) ? "page" : undefined}
-                    onClick={() => state.selectSession(session.id)}
-                  >
-                    <span class="block overflow-hidden text-ellipsis whitespace-nowrap">{session.title}</span>
-                  </button>
-                </li>
-              )}
-            </For>
+            <SessionBranchNodes
+              ancestry={state.selectedAncestry()}
+              isSelected={state.isSelected}
+              nodes={state.roots()}
+              selectSession={state.selectSession}
+            />
           </ul>
         </Match>
       </Switch>
