@@ -12,6 +12,10 @@ import { developmentUserTable } from "../src/identity/db/developmentUserTable.js
 import { type DevelopmentUser, developmentUserUpsert } from "../src/identity/db/developmentUserUpsert.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
+import { runChildCreate } from "../src/run/actions/runChildCreate.js"
+import { runChildStreamResolve } from "../src/run/actions/runChildStreamResolve.js"
+import { runCreate } from "../src/run/actions/runCreate.js"
+import { runTransition } from "../src/run/actions/runTransition.js"
 import { streamReplayServiceCreate } from "../src/stream/actions/streamReplayServiceCreate.js"
 import { apiStreamRoutesAdd } from "../src/stream/api/apiStreamRoutesAdd.js"
 import { streamApiErrorResponseSchema } from "../src/stream/api/streamApiErrorResponseSchema.js"
@@ -32,6 +36,7 @@ let sessionId: string | undefined
 let streamId: string | undefined
 let firstEventId: string | undefined
 let secondEventId: string | undefined
+let childStreamId: string | undefined
 const app = new Hono<AppEnvironment>()
 
 function sseEvents(text: string): Array<{ data: unknown; event: string; id: string }> {
@@ -82,6 +87,28 @@ beforeAll(async () => {
     userId: developmentUser.id,
   })
 
+  const root = await runCreate(database, developmentUser.id, sessionId, {
+    budget: { maxAttempts: 1, maxChildDepth: 1, maxChildRuns: 1, maxDurationMs: 60_000 },
+    clientRunId: `stream-api-root-${uuidv7()}`,
+    snapshot: {
+      configuration: { model: "stream-api-model", provider: "deterministic" },
+      configurationRevision: "stream-api-revision",
+      target: { agentId: fixture.agentId, serverId: fixture.serverId },
+    },
+    streamId,
+  })
+  if (!root.success) throw new Error(root.errorMessage)
+  const running = await runTransition(database, developmentUser.id, sessionId, root.data.run.id, { status: "running" })
+  if (!running.success) throw new Error(running.errorMessage)
+  const child = await runChildCreate(database, developmentUser.id, sessionId, {
+    delegationKey: "stream-api-child",
+    parentAttemptId: running.data.attempt.id,
+    parentRunId: root.data.run.id,
+    task: "Private child stream",
+  })
+  if (!child.success) throw new Error(child.errorMessage)
+  childStreamId = child.data.attempt.streamId
+
   const service = streamReplayServiceCreate({
     database,
     inactivityTimeoutMs: 60_000,
@@ -107,6 +134,21 @@ beforeAll(async () => {
   if (!second.success) throw new Error(second.errorMessage)
   secondEventId = second.data.event.id
 
+  const childService = streamReplayServiceCreate({
+    database,
+    inactivityTimeoutMs: 60_000,
+    sessionId,
+    streamId: childStreamId,
+    userId: developmentUser.id,
+  })
+  const childEvent = await childService.append({
+    eventType: "private",
+    idempotencyKey: "private-child-event",
+    payload: { private: true },
+    sequence: 1,
+  })
+  if (!childEvent.success) throw new Error(childEvent.errorMessage)
+
   app.use("*", async (context, next) => {
     context.set("database", database)
     if (developmentUser === undefined) return next()
@@ -122,7 +164,7 @@ afterAll(async () => {
   await client.end()
 })
 
-test.skipIf(!databaseAvailable)("replays durable events and resumes after a Last-Event-ID", async () => {
+test.skipIf(!databaseAvailable)("replays authorized root-run events and resumes after a Last-Event-ID", async () => {
   if (sessionId === undefined || streamId === undefined || firstEventId === undefined || secondEventId === undefined)
     return
 
@@ -146,6 +188,36 @@ test.skipIf(!databaseAvailable)("replays durable events and resumes after a Last
   expect(queryResumed.status).toBe(200)
   expect(sseEvents(await queryResumed.text())).toEqual([])
 })
+
+test.skipIf(!databaseAvailable)("rejects direct replay and status requests for delegated child streams", async () => {
+  if (sessionId === undefined || childStreamId === undefined) return
+
+  const replay = await app.request(`http://codeline.test/sessions/${sessionId}/streams/${childStreamId}/events`)
+  expect(replay.status).toBe(404)
+
+  const status = await app.request(`http://codeline.test/sessions/${sessionId}/streams/${childStreamId}/status`)
+  expect(status.status).toBe(404)
+})
+
+test.skipIf(!databaseAvailable)(
+  "keeps unknown stream replay behavior and scopes child lookup by ownership",
+  async () => {
+    if (sessionId === undefined || childStreamId === undefined || developmentUser === undefined) return
+
+    const unknown = await app.request(`http://codeline.test/sessions/${sessionId}/streams/unknown-stream/events`)
+    expect(unknown.status).toBe(200)
+    expect(await unknown.text()).toBe("")
+
+    expect(await runChildStreamResolve(database, "not-the-owner", sessionId, childStreamId)).toMatchObject({
+      data: false,
+      success: true,
+    })
+    expect(await runChildStreamResolve(database, developmentUser.id, "not-the-session", childStreamId)).toMatchObject({
+      data: false,
+      success: true,
+    })
+  },
+)
 
 test.skipIf(!databaseAvailable)("reports stale status and returns the stale replay error contract", async () => {
   if (sessionId === undefined || streamId === undefined || secondEventId === undefined) return

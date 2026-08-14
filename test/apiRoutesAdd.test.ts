@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
+import { createResult } from "@adaptive-ds/result"
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
@@ -33,6 +34,7 @@ beforeAll(async () => {
       replay: async () => ({ success: true, data: { checkpoint: {} as never, events: [], stale: false } }),
       start: async () => ({ success: true, data: {} as never }),
     }),
+    runChildStreamResolve: async () => createResult(false),
   })
 })
 

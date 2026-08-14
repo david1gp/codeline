@@ -21,12 +21,16 @@ import {
   providerRuntimeAdapterCreate,
 } from "../src/providers/runtime/providerRuntimeAdapterCreate.js"
 import { runCreate } from "../src/run/actions/runCreate.js"
+import { runCancellationCoordinatorCreate } from "../src/run/actions/runCancellationCoordinatorCreate.js"
+import { runTransition } from "../src/run/actions/runTransition.js"
 import { attemptTable } from "../src/run/db/attemptTable.js"
+import { runDelegationTable } from "../src/run/db/runDelegationTable.js"
 import { runTable } from "../src/run/db/runTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionArchive } from "../src/session/actions/sessionArchive.js"
 import { sessionChatAdapterCreate } from "../src/session/actions/sessionChatAdapterCreate.js"
 import { sessionCreate } from "../src/session/actions/sessionCreate.js"
+import { streamEventTable } from "../src/stream/db/streamEventTable.js"
 import { streamReplayServiceCreate } from "../src/stream/actions/streamReplayServiceCreate.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
 
@@ -110,6 +114,35 @@ async function configurationStoreForTest() {
   return { configDirectory, store: storeResult.data }
 }
 
+async function providerConfigurationStoreForTest(provider: "cliproxyapi" | "codex-lb") {
+  const configDirectory = mkdtempSync(join(Bun.env.TMPDIR ?? "/tmp", "codeline-provider-chat-"))
+  const storeResult = await configurationStoreCreate({
+    authorEmail: "provider-chat@example.com",
+    authorName: "Codeline Provider Chat Test",
+    branch: "main",
+    dir: configDirectory,
+  })
+  if (!storeResult.success) throw new Error(storeResult.errorMessage)
+
+  const configuration = await configurationStoreWrite(storeResult.data, {
+    agentConfigurations: [
+      {
+        configuration: {
+          apiKey: provider === "cliproxyapi" ? "$CLIPROXYAPI_API_KEY" : "$CODEX_LB_API_TOKEN",
+          baseUrl: "https://provider.test/v1",
+          generation: { maxTokens: 777, temperature: 0.25 },
+          model: "provider-chat-model",
+          provider,
+        },
+        target: { agentId: fixture.agentId, serverId: fixture.serverId },
+      },
+    ],
+    version: 1,
+  })
+  if (!configuration.success) throw new Error(configuration.errorMessage)
+  return { configDirectory, store: storeResult.data }
+}
+
 async function runRowsForTest(sessionId: string, runId: string) {
   const runs = await database
     .select()
@@ -148,6 +181,36 @@ async function streamReplay(sessionId: string, runId: string) {
   }).replay()
   if (!replay.success) throw new Error(replay.errorMessage)
   return replay.data
+}
+
+async function delegationRows(sessionId: string, runId: string) {
+  const rootRows = await runRowsForTest(sessionId, runId)
+  const root = rootRows.runs[0]
+  if (root === undefined) return { delegations: [], rootRows, childRows: [] }
+  const delegations = await database.select().from(runDelegationTable).where(eq(runDelegationTable.rootRunId, root.id))
+  const childRows = await Promise.all(
+    delegations.map(async (delegation) => {
+      const runs = await database.select().from(runTable).where(eq(runTable.id, delegation.childRunId))
+      const attempts =
+        runs[0] === undefined
+          ? []
+          : await database
+              .select()
+              .from(attemptTable)
+              .where(eq(attemptTable.runId, runs[0].id))
+              .orderBy(asc(attemptTable.ordinal))
+      return { attempts, delegation, runs }
+    }),
+  )
+  return { childRows, delegations, rootRows }
+}
+
+async function privateStreamEvents(streamId: string, sessionId: string) {
+  if (userId === undefined) throw new Error("Expected a test user")
+  return database
+    .select()
+    .from(streamEventTable)
+    .where(and(eq(streamEventTable.sessionId, sessionId), eq(streamEventTable.streamId, streamId)))
 }
 
 function runStartedChunk(input: ChatAdapterInput): StreamChunk {
@@ -302,6 +365,53 @@ test.skipIf(!databaseAvailable)("chat success streams valid events and uses only
   const replay = await streamReplay(sessionId, runId)
   expect(replay.events.map((event) => event.payload)).toEqual(events)
   expect(replay.checkpoint.lastSequence).toBe(events.length)
+})
+
+test.skipIf(!databaseAvailable)("chat completes and replays after the SSE reader disconnects", async () => {
+  if (userId === undefined) return
+  const sessionId = await sessionCreateForTest(userId, "Chat disconnect", fixture.serverId, fixture.agentId)
+  const lifecycle = await configurationStoreForTest()
+
+  try {
+    const lifecycleApp = appCreate({ configuration, configurationStore: lifecycle.store, database })
+    const runId = `session-chat-disconnect-${uuidv7()}`
+    const response = await lifecycleApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+      body: JSON.stringify(chatBody(sessionId, runId, "disconnect")),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+    expect(response.status).toBe(200)
+    const reader = response.body?.getReader()
+    if (reader === undefined) throw new Error("Expected an SSE response body")
+    expect((await reader.read()).done).toBe(false)
+    await reader.cancel()
+
+    let completed = false
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const rows = await runRowsForTest(sessionId, runId)
+      if (rows.runs[0]?.status === "succeeded") {
+        completed = true
+        break
+      }
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    }
+    expect(completed).toBe(true)
+    expect(await messageRows(sessionId)).toMatchObject([
+      { content: "disconnect", role: "user" },
+      { content: "Deterministic response: disconnect", role: "assistant" },
+    ])
+
+    const replayResponse = await lifecycleApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+      body: JSON.stringify(chatBody(sessionId, runId, "disconnect")),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+    expect(await sseEvents(replayResponse)).toEqual(
+      (await streamReplay(sessionId, runId)).events.map((event) => event.payload as Record<string, unknown>),
+    )
+  } finally {
+    rmSync(lifecycle.configDirectory, { force: true, recursive: true })
+  }
 })
 
 test.skipIf(!databaseAvailable)("chat selects the configured provider runtime with injected dependencies", async () => {
@@ -896,7 +1006,7 @@ test.skipIf(!databaseAvailable)("chat finalizes one assistant message across aut
   }
 })
 
-test.skipIf(!databaseAvailable)("chat transitions an aborted stream to aborted", async () => {
+test.skipIf(!databaseAvailable)("chat continues execution after the request disconnects", async () => {
   if (userId === undefined) return
   const sessionId = await sessionCreateForTest(userId, "Chat lifecycle abort", fixture.serverId, fixture.agentId)
   const lifecycle = await configurationStoreForTest()
@@ -904,18 +1014,10 @@ test.skipIf(!databaseAvailable)("chat transitions an aborted stream to aborted",
   const started = new Promise<void>((resolve) => {
     startedResolve = resolve
   })
-  const abortAdapter: ChatAdapter = (input) =>
-    (async function* () {
-      startedResolve()
-      yield runStartedChunk(input)
-      await new Promise<void>((resolve) => {
-        if (input.signal.aborted) {
-          resolve()
-          return
-        }
-        input.signal.addEventListener("abort", () => resolve(), { once: true })
-      })
-    })()
+  const abortAdapter: ChatAdapter = (input) => {
+    startedResolve()
+    return sessionChatAdapterCreate(input)
+  }
 
   try {
     const lifecycleApp = appCreate({
@@ -940,8 +1042,8 @@ test.skipIf(!databaseAvailable)("chat transitions an aborted stream to aborted",
     const rows = await runRowsForTest(sessionId, runId)
     expect(rows.runs).toHaveLength(1)
     expect(rows.attempts).toHaveLength(1)
-    expect(rows.runs[0]).toMatchObject({ failure: null, status: "aborted" })
-    expect(rows.attempts[0]).toMatchObject({ failure: null, ordinal: 1, status: "aborted" })
+    expect(rows.runs[0]).toMatchObject({ failure: null, status: "succeeded" })
+    expect(rows.attempts[0]).toMatchObject({ failure: null, ordinal: 1, status: "succeeded" })
   } finally {
     rmSync(lifecycle.configDirectory, { force: true, recursive: true })
   }
@@ -988,6 +1090,131 @@ test.skipIf(!databaseAvailable)(
       expect(rows.attempts).toHaveLength(1)
       expect(rows.runs[0]).toMatchObject({ status: "succeeded" })
       expect(rows.attempts[0]).toMatchObject({ ordinal: 1, status: "succeeded" })
+    } finally {
+      rmSync(lifecycle.configDirectory, { force: true, recursive: true })
+    }
+  },
+)
+
+test.skipIf(!databaseAvailable)(
+  "authenticated cancellation signals active chat and cleans up its controller",
+  async () => {
+    if (userId === undefined) return
+    const sessionId = await sessionCreateForTest(userId, "Chat cancellation command", fixture.serverId, fixture.agentId)
+    const lifecycle = await configurationStoreForTest()
+    const coordinator = runCancellationCoordinatorCreate()
+    let startedResolve: () => void = () => {}
+    let adapterAborted = false
+    const started = new Promise<void>((resolve) => {
+      startedResolve = resolve
+    })
+    const abortAdapter: ChatAdapter = (input) =>
+      (async function* () {
+        startedResolve()
+        yield runStartedChunk(input)
+        await new Promise<void>((resolve) => {
+          if (input.signal.aborted) {
+            adapterAborted = true
+            resolve()
+            return
+          }
+          input.signal.addEventListener(
+            "abort",
+            () => {
+              adapterAborted = true
+              resolve()
+            },
+            { once: true },
+          )
+        })
+      })()
+
+    try {
+      const lifecycleApp = appCreate({
+        configuration,
+        configurationStore: lifecycle.store,
+        database,
+        runCancellationCoordinator: coordinator,
+        sessionChatAdapter: abortAdapter,
+      })
+      const runId = `session-chat-cancellation-command-${uuidv7()}`
+      const response = await lifecycleApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+        body: JSON.stringify(chatBody(sessionId, runId, "cancel")),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      })
+      const bodyPromise = response.text()
+      await started
+
+      const admitted = await runRowsForTest(sessionId, runId)
+      const durableRun = admitted.runs[0]
+      if (durableRun === undefined) throw new Error("Expected an admitted durable run")
+      const cancelled = await lifecycleApp.request(
+        `http://codeline.test/api/sessions/${sessionId}/runs/${runId}/cancel`,
+        { method: "POST" },
+      )
+      expect(cancelled.status).toBe(200)
+      expect(await cancelled.json()).toMatchObject({
+        cancelledRunIds: [durableRun.id],
+        signalledRunIds: [durableRun.id],
+      })
+      expect(adapterAborted).toBe(true)
+
+      await bodyPromise
+      const completed = await runRowsForTest(sessionId, runId)
+      expect(completed.runs[0]).toMatchObject({ status: "aborted" })
+
+      const repeated = await lifecycleApp.request(
+        `http://codeline.test/api/sessions/${sessionId}/runs/${runId}/cancel`,
+        { method: "POST" },
+      )
+      expect(repeated.status).toBe(200)
+      expect(await repeated.json()).toMatchObject({ cancelledRunIds: [], signalledRunIds: [] })
+
+      if (otherUserId === undefined) throw new Error("Expected the second test user")
+      const otherConfiguration = {
+        ...configuration,
+        developmentIdentity: { ...configuration.developmentIdentity, identityKey: fixture.otherUserKey },
+      }
+      const ownership = await appCreate({ configuration: otherConfiguration, database }).request(
+        `http://codeline.test/api/sessions/${sessionId}/runs/${runId}/cancel`,
+        { method: "POST" },
+      )
+      expect(ownership.status).toBe(404)
+
+      const inactive = await runCreate(database, userId, sessionId, {
+        clientRunId: `session-chat-inactive-cancellation-${uuidv7()}`,
+        snapshot: {
+          configuration: { model: "inactive", provider: "deterministic" },
+          configurationRevision: "inactive-revision",
+          target: { agentId: fixture.agentId, serverId: fixture.serverId },
+        },
+        streamId: `session-chat-inactive-cancellation-${uuidv7()}`,
+      })
+      if (!inactive.success) throw new Error(inactive.errorMessage)
+      expect(
+        await runTransition(database, userId, sessionId, inactive.data.run.id, { status: "running" }),
+      ).toMatchObject({
+        success: true,
+      })
+      expect(
+        await runTransition(database, userId, sessionId, inactive.data.run.id, { status: "succeeded" }),
+      ).toMatchObject({ success: true })
+      const inactiveController = new AbortController()
+      const unregisterInactive = coordinator.register({
+        controller: inactiveController,
+        runId: inactive.data.run.id,
+        sessionId,
+        userId,
+      })
+      const inactiveCancellation = await lifecycleApp.request(
+        `http://codeline.test/api/sessions/${sessionId}/runs/${inactive.data.run.clientRunId}/cancel`,
+        { method: "POST" },
+      )
+      expect(inactiveCancellation.status).toBe(200)
+      expect(await inactiveCancellation.json()).toMatchObject({ cancelledRunIds: [], signalledRunIds: [] })
+      expect(inactiveController.signal.aborted).toBe(false)
+      unregisterInactive()
     } finally {
       rmSync(lifecycle.configDirectory, { force: true, recursive: true })
     }
@@ -1113,25 +1340,17 @@ test.skipIf(!databaseAvailable)("chat checkpoints interrupted execution without 
   expect(replay.checkpoint.lastSequence).toBe(events.length)
 })
 
-test.skipIf(!databaseAvailable)("chat does not persist an assistant after adapter abort", async () => {
+test.skipIf(!databaseAvailable)("chat persists the assistant after a disconnected adapter request", async () => {
   if (userId === undefined) return
   const sessionId = await sessionCreateForTest(userId, "Chat abort", fixture.serverId, fixture.agentId)
   let startedResolve: () => void = () => {}
   const started = new Promise<void>((resolve) => {
     startedResolve = resolve
   })
-  const abortAdapter: ChatAdapter = (input) =>
-    (async function* () {
-      startedResolve()
-      yield runStartedChunk(input)
-      await new Promise<void>((resolve) => {
-        if (input.signal.aborted) {
-          resolve()
-          return
-        }
-        input.signal.addEventListener("abort", () => resolve(), { once: true })
-      })
-    })()
+  const abortAdapter: ChatAdapter = (input) => {
+    startedResolve()
+    return sessionChatAdapterCreate(input)
+  }
   const abortApp = appCreate({ configuration, database, sessionChatAdapter: abortAdapter })
   const controller = new AbortController()
   const response = await abortApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
@@ -1144,5 +1363,444 @@ test.skipIf(!databaseAvailable)("chat does not persist an assistant after adapte
   await started
   controller.abort()
   await bodyPromise
-  expect(await messageRows(sessionId)).toMatchObject([{ content: "abort", role: "user", sequence: 1 }])
+  expect(await messageRows(sessionId)).toMatchObject([
+    { content: "abort", role: "user", sequence: 1 },
+    { content: "Deterministic response: abort", role: "assistant", sequence: 2 },
+  ])
 })
+
+test.skipIf(!databaseAvailable)(
+  "chat awaits one deterministic delegation before completing the root turn",
+  async () => {
+    if (userId === undefined) return
+    const sessionId = await sessionCreateForTest(userId, "Delegation success", fixture.serverId, fixture.agentId)
+    const lifecycle = await configurationStoreForTest()
+
+    try {
+      const delegatedApp = appCreate({ configuration, configurationStore: lifecycle.store, database })
+      const runId = `session-chat-delegation-success-${uuidv7()}`
+      const response = await delegatedApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+        body: JSON.stringify(chatBody(sessionId, runId, "delegate:inspect private child")),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      })
+      const events = await sseEvents(response)
+      const rows = await delegationRows(sessionId, runId)
+
+      expect(response.status).toBe(200)
+      expect(events.some((event) => event.type === "TOOL_CALL_START")).toBe(true)
+      expect(events.some((event) => event.type === "TOOL_CALL_RESULT")).toBe(true)
+      expect(rows.delegations).toHaveLength(1)
+      expect(rows.delegations[0]?.delegationKey).toBe(
+        events.find((event) => event.type === "TOOL_CALL_START")?.toolCallId as string | undefined,
+      )
+      expect(rows.childRows[0]?.runs[0]).toMatchObject({ status: "succeeded" })
+      expect(rows.childRows[0]?.attempts[0]).toMatchObject({ status: "succeeded" })
+      expect(rows.rootRows.runs[0]).toMatchObject({ status: "succeeded" })
+    } finally {
+      rmSync(lifecycle.configDirectory, { force: true, recursive: true })
+    }
+  },
+)
+
+test.skipIf(!databaseAvailable)("chat retries a delegated child without duplicating the root messages", async () => {
+  if (userId === undefined) return
+  const sessionId = await sessionCreateForTest(userId, "Delegation retry", fixture.serverId, fixture.agentId)
+  const lifecycle = await configurationStoreForTest()
+  let childCalls = 0
+  const retryRuntimeAdapter: NonNullable<AppCreateOptions["providerRuntimeAdapterCreate"]> = (options) => {
+    const base = providerRuntimeAdapterCreate(options)
+    return (input) => {
+      if (input.prompt === "retry child") {
+        childCalls += 1
+        if (childCalls === 1) {
+          return (async function* () {
+            yield runStartedChunk(input)
+            yield {
+              code: "provider_failed",
+              message: "The child provider failed once.",
+              timestamp: Date.now(),
+              type: EventType.RUN_ERROR,
+            }
+          })()
+        }
+      }
+      return base(input)
+    }
+  }
+
+  try {
+    const delegatedApp = appCreate({
+      configuration,
+      configurationStore: lifecycle.store,
+      database,
+      providerRuntimeAdapterCreate: retryRuntimeAdapter,
+      runCreate: (ownerDatabase, ownerUserId, ownerSessionId, input) =>
+        runCreate(ownerDatabase, ownerUserId, ownerSessionId, {
+          ...input,
+          budget: { ...input.budget, maxAttempts: 2 },
+        }),
+    })
+    const runId = `session-chat-delegation-retry-${uuidv7()}`
+    const response = await delegatedApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+      body: JSON.stringify(chatBody(sessionId, runId, "delegate:retry child")),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+    await sseEvents(response)
+    const rows = await delegationRows(sessionId, runId)
+
+    expect(childCalls).toBe(2)
+    expect(rows.childRows[0]?.attempts.map((attempt) => [attempt.ordinal, attempt.status])).toEqual([
+      [1, "failed"],
+      [2, "succeeded"],
+    ])
+    expect(await messageRows(sessionId)).toHaveLength(2)
+  } finally {
+    rmSync(lifecycle.configDirectory, { force: true, recursive: true })
+  }
+})
+
+test.skipIf(!databaseAvailable)(
+  "chat rejects a second delegated child at the server-owned budget boundary",
+  async () => {
+    if (userId === undefined) return
+    const sessionId = await sessionCreateForTest(userId, "Delegation budget", fixture.serverId, fixture.agentId)
+    const lifecycle = await configurationStoreForTest()
+
+    try {
+      const delegatedApp = appCreate({ configuration, configurationStore: lifecycle.store, database })
+      const runId = `session-chat-delegation-budget-${uuidv7()}`
+      const response = await delegatedApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+        body: JSON.stringify(chatBody(sessionId, runId, "delegate-twice:first child|second child")),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      })
+      const events = await sseEvents(response)
+      const rows = await delegationRows(sessionId, runId)
+
+      expect(rows.rootRows.runs[0]?.budget).toMatchObject({ maxChildDepth: 1, maxChildRuns: 1 })
+      expect(rows.delegations).toHaveLength(1)
+      expect(events.filter((event) => event.type === "TOOL_CALL_RESULT")).toHaveLength(2)
+      expect(events.some((event) => event.type === "TOOL_CALL_RESULT" && event.state === "output-error")).toBe(true)
+      expect(rows.rootRows.runs[0]).toMatchObject({ status: "succeeded" })
+    } finally {
+      rmSync(lifecycle.configDirectory, { force: true, recursive: true })
+    }
+  },
+)
+
+test.skipIf(!databaseAvailable)("chat propagates explicit Stop to the active delegated child", async () => {
+  if (userId === undefined) return
+  const sessionId = await sessionCreateForTest(userId, "Delegation stop", fixture.serverId, fixture.agentId)
+  const lifecycle = await configurationStoreForTest()
+  const coordinator = runCancellationCoordinatorCreate()
+  let childStartedResolve: () => void = () => undefined
+  const childStarted = new Promise<void>((resolve) => {
+    childStartedResolve = resolve
+  })
+  const stoppingRuntimeAdapter: NonNullable<AppCreateOptions["providerRuntimeAdapterCreate"]> = (options) => {
+    const base = providerRuntimeAdapterCreate(options)
+    return (input) => {
+      if (input.prompt !== "stop child") return base(input)
+      return (async function* () {
+        childStartedResolve()
+        yield runStartedChunk(input)
+        await new Promise<void>((resolve) => {
+          if (input.signal.aborted) resolve()
+          else input.signal.addEventListener("abort", () => resolve(), { once: true })
+        })
+      })()
+    }
+  }
+
+  try {
+    const delegatedApp = appCreate({
+      configuration,
+      configurationStore: lifecycle.store,
+      database,
+      providerRuntimeAdapterCreate: stoppingRuntimeAdapter,
+      runCancellationCoordinator: coordinator,
+    })
+    const runId = `session-chat-delegation-stop-${uuidv7()}`
+    const response = await delegatedApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+      body: JSON.stringify(chatBody(sessionId, runId, "delegate:stop child")),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+    const bodyPromise = response.text()
+    await childStarted
+
+    const cancelled = await delegatedApp.request(
+      `http://codeline.test/api/sessions/${sessionId}/runs/${runId}/cancel`,
+      { method: "POST" },
+    )
+    expect(cancelled.status).toBe(200)
+    const cancellation = await cancelled.json()
+    expect(cancellation.cancelledRunIds).toHaveLength(2)
+
+    await bodyPromise
+    const rows = await delegationRows(sessionId, runId)
+    expect(rows.rootRows.runs[0]).toMatchObject({ status: "aborted" })
+    expect(rows.childRows[0]?.runs[0]).toMatchObject({ status: "aborted" })
+    expect(await messageRows(sessionId)).toMatchObject([{ content: "delegate:stop child", role: "user" }])
+    expect(await messageRows(sessionId)).toHaveLength(1)
+  } finally {
+    rmSync(lifecycle.configDirectory, { force: true, recursive: true })
+  }
+})
+
+test.skipIf(!databaseAvailable)("chat continues a delegated run after the SSE reader is dropped", async () => {
+  if (userId === undefined) return
+  const sessionId = await sessionCreateForTest(userId, "Delegation disconnect", fixture.serverId, fixture.agentId)
+  const lifecycle = await configurationStoreForTest()
+
+  try {
+    const delegatedApp = appCreate({ configuration, configurationStore: lifecycle.store, database })
+    const runId = `session-chat-delegation-disconnect-${uuidv7()}`
+    const response = await delegatedApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+      body: JSON.stringify(chatBody(sessionId, runId, "delegate:continue child")),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+    const reader = response.body?.getReader()
+    if (reader === undefined) throw new Error("Expected an SSE response body")
+    expect((await reader.read()).done).toBe(false)
+    await reader.cancel()
+
+    let completed = false
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const rows = await delegationRows(sessionId, runId)
+      if (rows.rootRows.runs[0]?.status === "succeeded") {
+        completed = true
+        break
+      }
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    }
+    expect(completed).toBe(true)
+    expect(await messageRows(sessionId)).toHaveLength(2)
+  } finally {
+    rmSync(lifecycle.configDirectory, { force: true, recursive: true })
+  }
+})
+
+test.skipIf(!databaseAvailable)("chat replays a completed delegation without executing its child again", async () => {
+  if (userId === undefined) return
+  const sessionId = await sessionCreateForTest(userId, "Delegation replay", fixture.serverId, fixture.agentId)
+  const lifecycle = await configurationStoreForTest()
+  let childCalls = 0
+  const observingRuntimeAdapter: NonNullable<AppCreateOptions["providerRuntimeAdapterCreate"]> = (options) => {
+    const base = providerRuntimeAdapterCreate(options)
+    return (input) => {
+      if (input.prompt === "replay child") childCalls += 1
+      return base(input)
+    }
+  }
+
+  try {
+    const delegatedApp = appCreate({
+      configuration,
+      configurationStore: lifecycle.store,
+      database,
+      providerRuntimeAdapterCreate: observingRuntimeAdapter,
+    })
+    const runId = `session-chat-delegation-replay-${uuidv7()}`
+    const body = chatBody(sessionId, runId, "delegate:replay child")
+    const first = await delegatedApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+      body: JSON.stringify(body),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+    const firstEvents = await sseEvents(first)
+    const repeated = await delegatedApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+      body: JSON.stringify(body),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+
+    expect(await sseEvents(repeated)).toEqual(firstEvents)
+    expect(childCalls).toBe(1)
+    expect(await messageRows(sessionId)).toHaveLength(2)
+  } finally {
+    rmSync(lifecycle.configDirectory, { force: true, recursive: true })
+  }
+})
+
+test.skipIf(!databaseAvailable)(
+  "chat keeps delegated child events private and the visible transcript bounded",
+  async () => {
+    if (userId === undefined) return
+    const sessionId = await sessionCreateForTest(userId, "Delegation privacy", fixture.serverId, fixture.agentId)
+    const lifecycle = await configurationStoreForTest()
+
+    try {
+      const delegatedApp = appCreate({ configuration, configurationStore: lifecycle.store, database })
+      const runId = `session-chat-delegation-privacy-${uuidv7()}`
+      const response = await delegatedApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+        body: JSON.stringify(chatBody(sessionId, runId, "delegate:private child text")),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      })
+      const visibleEvents = await sseEvents(response)
+      const rows = await delegationRows(sessionId, runId)
+      const childAttempt = rows.childRows[0]?.attempts[0]
+      if (childAttempt === undefined) throw new Error("Expected a child attempt")
+      const childEvents = await privateStreamEvents(childAttempt.streamId, sessionId)
+
+      expect(childEvents.some((event) => event.eventType === "text_delta")).toBe(true)
+      expect(visibleEvents.filter((event) => event.type === "TEXT_MESSAGE_CONTENT")).toHaveLength(2)
+      expect(await messageRows(sessionId)).toMatchObject([
+        { content: "delegate:private child text", role: "user" },
+        { role: "assistant" },
+      ])
+      expect(await messageRows(sessionId)).toHaveLength(2)
+    } finally {
+      rmSync(lifecycle.configDirectory, { force: true, recursive: true })
+    }
+  },
+)
+
+test.skipIf(!databaseAvailable)(
+  "chat executes mocked OpenAI-compatible providers through durable delegation and replays without fetches",
+  async () => {
+    if (userId === undefined) return
+
+    for (const provider of ["cliproxyapi", "codex-lb"] as const) {
+      const sessionId = await sessionCreateForTest(
+        userId,
+        `Provider delegation ${provider}`,
+        fixture.serverId,
+        fixture.agentId,
+      )
+      const lifecycle = await providerConfigurationStoreForTest(provider)
+      const secret = provider === "cliproxyapi" ? "cliproxy-secret" : "codex-secret"
+      const environment = provider === "cliproxyapi" ? { CLIPROXYAPI_API_KEY: secret } : { CODEX_LB_API_TOKEN: secret }
+      const requests: Array<Record<string, unknown>> = []
+      const providerFetch: NonNullable<AppCreateOptions["providerFetch"]> = async (_input, init) => {
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+        requests.push(body)
+        const messages = body.messages as Array<{ role: string }>
+        const events =
+          body.tools === undefined
+            ? [
+                {
+                  choices: [{ delta: { content: "child result", role: "assistant" }, finish_reason: null, index: 0 }],
+                  id: "child-text",
+                  model: "provider-chat-model",
+                  object: "chat.completion.chunk",
+                },
+                {
+                  choices: [{ delta: {}, finish_reason: "stop", index: 0 }],
+                  id: "child-finish",
+                  model: "provider-chat-model",
+                  object: "chat.completion.chunk",
+                },
+              ]
+            : messages.some((message) => message.role === "tool")
+              ? [
+                  {
+                    choices: [
+                      { delta: { content: "root complete", role: "assistant" }, finish_reason: null, index: 0 },
+                    ],
+                    id: "root-text",
+                    model: "provider-chat-model",
+                    object: "chat.completion.chunk",
+                  },
+                  {
+                    choices: [{ delta: {}, finish_reason: "stop", index: 0 }],
+                    id: "root-finish",
+                    model: "provider-chat-model",
+                    object: "chat.completion.chunk",
+                  },
+                ]
+              : [
+                  {
+                    choices: [
+                      {
+                        delta: {
+                          role: "assistant",
+                          tool_calls: [
+                            {
+                              function: { arguments: '{"task":"', name: "delegate_task" },
+                              id: "provider-call",
+                              index: 0,
+                            },
+                          ],
+                        },
+                        finish_reason: null,
+                        index: 0,
+                      },
+                    ],
+                    id: "root-tool-1",
+                    model: "provider-chat-model",
+                    object: "chat.completion.chunk",
+                  },
+                  {
+                    choices: [
+                      {
+                        delta: { tool_calls: [{ function: { arguments: 'inspect child"}' }, index: 0 }] },
+                        finish_reason: null,
+                        index: 0,
+                      },
+                    ],
+                    id: "root-tool-2",
+                    model: "provider-chat-model",
+                    object: "chat.completion.chunk",
+                  },
+                  {
+                    choices: [{ delta: {}, finish_reason: "tool_calls", index: 0 }],
+                    id: "root-tool-3",
+                    model: "provider-chat-model",
+                    object: "chat.completion.chunk",
+                  },
+                ]
+        const source = `${events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("")}data: [DONE]\n\n`
+        return new Response(source, { headers: { "content-type": "text/event-stream" }, status: 200 })
+      }
+
+      try {
+        const providerApp = appCreate({
+          configuration,
+          configurationStore: lifecycle.store,
+          database,
+          providerEnvironment: environment,
+          providerFetch,
+        })
+        const runId = `session-chat-provider-delegation-${provider}-${uuidv7()}`
+        const body = chatBody(sessionId, runId, "delegate:inspect child")
+        const first = await providerApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+          body: JSON.stringify(body),
+          headers: { "Content-Type": "application/json" },
+          method: "POST",
+        })
+        const events = await sseEvents(first)
+        const repeated = await providerApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+          body: JSON.stringify(body),
+          headers: { "Content-Type": "application/json" },
+          method: "POST",
+        })
+
+        expect(first.status).toBe(200)
+        expect(events.filter((event) => event.type === "RUN_STARTED")).toHaveLength(1)
+        expect(events.filter((event) => event.type === "RUN_FINISHED")).toHaveLength(1)
+        expect(events.some((event) => event.type === "TOOL_CALL_RESULT" && event.content === "child result")).toBe(true)
+        expect(await sseEvents(repeated)).toEqual(events)
+        expect(requests).toHaveLength(3)
+        expect(requests[1]?.tools).toBeUndefined()
+        expect(
+          (requests[2]?.messages as Array<{ content: unknown; role: string }>).some(
+            (message) => message.role === "tool" && message.content === "child result",
+          ),
+        ).toBe(true)
+        expect(JSON.stringify(events)).not.toContain(secret)
+
+        const rows = await delegationRows(sessionId, runId)
+        expect(rows.childRows[0]?.runs[0]?.snapshot).toEqual(rows.rootRows.runs[0]?.snapshot)
+        expect(rows.rootRows.runs[0]).toMatchObject({ status: "succeeded" })
+        expect(await messageRows(sessionId)).toHaveLength(2)
+      } finally {
+        rmSync(lifecycle.configDirectory, { force: true, recursive: true })
+      }
+    }
+  },
+)

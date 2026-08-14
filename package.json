@@ -37,6 +37,8 @@
     "typecheck": "bun tsc -p tsconfig.json --noEmit",
     "build": "rm -rf ./dist && bun tsc -p ./tsconfig.json && env -u VITE_USER_NODE_ENV -u VITE_ZERO_CACHE_URL -u VITE_ZERO_QUERY_URL -u VITE_ZERO_MUTATE_URL NODE_ENV=production vite build --mode production && bun build ./src/ui/pwa/serviceWorkerMain.ts --outfile ./dist/ui/service-worker.js --target browser --format iife --minify && bun build ./src/index.ts --outdir ./dist/server --target bun --sourcemap=external",
     "release": "bash ./ops/release.sh",
+    "git-store:link": "bash ./ops/dev/git-store-link.sh setup",
+    "git-store:verify": "bash ./ops/dev/git-store-link.sh verify",
     "zero:link": "bash ./ops/dev/zero-link.sh setup",
     "zero:verify": "bash ./ops/dev/zero-link.sh verify",
     "db:generate": "drizzle-kit generate --config drizzle.config.ts",
@@ -47,12 +49,14 @@
     "format:check": "biome format src test scripts index.html vite.config.ts package.json tsconfig.json tsconfig.build.json biome.json bunfig.toml drizzle.config.ts"
   },
   "dependencies": {
+    "@adaptive-ds/git-store": "link:@adaptive-ds/git-store",
     "@adaptive-ds/result": "^0.6.0",
     "@adaptive-ds/solid-ui": "^0.18.0",
     "@rocicorp/zero": "link:@rocicorp/zero",
     "@solidjs/router": "^1.0.0",
     "@tanstack/ai": "^0.44.0",
     "@tanstack/ai-client": "^0.23.2",
+    "@tanstack/ai-openai": "0.19.0",
     "@tanstack/ai-solid": "^0.16.2",
     "@tanstack/ai-solid-ui": "^0.7.15",
     "clsx": "^2.1.1",
@@ -62,7 +66,8 @@
     "postgres": "3.4.9",
     "solid-js": "^1.9.12",
     "tailwind-merge": "^3.6.0",
-    "valibot": "^1.3.1"
+    "valibot": "^1.3.1",
+    "zod": "^4.0.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.2",

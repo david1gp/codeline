@@ -2,6 +2,7 @@ import { EventType, type StreamChunk } from "@tanstack/ai"
 import type { messageTable } from "../../message/db/messageTable.js"
 
 type SessionChatAdapterInput = {
+  attemptOrdinal?: number
   history: Array<typeof messageTable.$inferSelect>
   prompt: string
   runId: string

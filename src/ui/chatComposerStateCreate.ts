@@ -2,11 +2,15 @@ import { createSignalObject } from "@adaptive-ds/solid-ui/utils/createSignalObje
 import { useChat } from "@tanstack/ai-solid"
 import { createEffect, createMemo } from "solid-js"
 import type { CodelineExecution } from "../providers/schema/codelineExecutionSchema.js"
+import { runCancelCommand } from "../run/client/runCancelCommand.js"
 import { streamReplayConnectionCreate } from "../stream/client/streamReplayConnectionCreate.js"
+import { chatComposerStop } from "./chatComposerStop.js"
 import type { TransientMessage } from "./transientMessagesResolve.js"
 
 type ChatComposerOptions = {
   codelineExecution?: () => CodelineExecution | null
+  fetcher?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+  runCancel?: typeof runCancelCommand
   sessionId: string
 }
 
@@ -28,7 +32,10 @@ export function chatComposerStateCreate(options: ChatComposerOptions) {
   const recoveryStatus = createSignalObject<"error" | "idle" | "recovering" | "stale" | "streaming" | "terminal">(
     "idle",
   )
+  const stopError = createSignalObject<string | undefined>(undefined)
+  const stopping = createSignalObject(false)
   const connection = streamReplayConnectionCreate({
+    fetcher: options.fetcher,
     onStateChange: recoveryStatus.set,
     sessionId: options.sessionId,
   })
@@ -61,20 +68,44 @@ export function chatComposerStateCreate(options: ChatComposerOptions) {
 
   const submit = () => {
     const prompt = draft.get().trim()
-    if (prompt.length === 0 || chat.isLoading()) return
+    if (prompt.length === 0 || chat.isLoading() || stopping.get()) return
     draft.set("")
+    stopError.set(undefined)
     syncForwardedProps()
     void chat.sendMessage(prompt, { whenBusy: "drop" })
+  }
+
+  const stop = () => {
+    const clientRunId = chat.runId()
+    return chatComposerStop({
+      cancellation: () =>
+        (options.runCancel ?? runCancelCommand)({
+          clientRunId: clientRunId ?? "",
+          fetcher: options.fetcher,
+          sessionId: options.sessionId,
+        }),
+      clientRunId,
+      isBusy: chat.isLoading(),
+      isStopping: stopping.get(),
+      localStop: chat.stop,
+      onError: stopError.set,
+      onFinish: () => stopping.set(false),
+      onStart: () => {
+        stopping.set(true)
+        stopError.set(undefined)
+      },
+    })
   }
 
   return {
     canSubmit: () => draft.get().trim().length > 0 && !chat.isLoading(),
     draft: draft.get,
-    errorMessage: () => (recoveryStatus.get() === "stale" ? undefined : chat.error()?.message),
+    errorMessage: () => stopError.get() ?? (recoveryStatus.get() === "stale" ? undefined : chat.error()?.message),
     isBusy: chat.isLoading,
     recoveryStatus: recoveryStatus.get,
     setDraft: draft.set,
-    stop: () => chat.stop(),
+    isStopping: stopping.get,
+    stop,
     submit,
     transientMessages,
   }

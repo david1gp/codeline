@@ -6,6 +6,7 @@ import { apiRequestParse } from "../../api/apiRequestParse.js"
 import type { AppEnvironment } from "../../api/appEnvironment.js"
 import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.js"
 import type { DatabaseClient } from "../../database/databaseClient.js"
+import { runChildStreamResolve } from "../../run/actions/runChildStreamResolve.js"
 import { streamReplayServiceCreate } from "../actions/streamReplayServiceCreate.js"
 import { streamEventTable } from "../db/streamEventTable.js"
 import type { StreamApiErrorResponse } from "./streamApiErrorResponseSchema.js"
@@ -15,6 +16,7 @@ import type { StreamApiStatusResponse } from "./streamApiStatusResponseSchema.js
 type ApiContext = Context<AppEnvironment>
 
 type ApiStreamRoutesOptions = {
+  childStreamResolve?: typeof runChildStreamResolve
   inactivityTimeoutMs?: number
   replayServiceCreate?: typeof streamReplayServiceCreate
 }
@@ -126,13 +128,28 @@ function streamApiSseEncode(events: Array<typeof streamEventTable.$inferSelect>)
     .join("")
 }
 
+async function streamApiChildAccessReject(
+  context: ApiContext,
+  childStreamResolve: typeof runChildStreamResolve,
+  sessionId: string,
+  streamId: string,
+): Promise<Response | undefined> {
+  const resolved = await childStreamResolve(context.var.database, context.var.developmentUser.id, sessionId, streamId)
+  if (!resolved.success) return internalServerError(context)
+  return resolved.data ? notFound(context) : undefined
+}
+
 export function apiStreamRoutesAdd(api: Hono<AppEnvironment>, options: ApiStreamRoutesOptions = {}): void {
   const inactivityTimeoutMs = options.inactivityTimeoutMs ?? streamApiDefaultInactivityTimeoutMs
+  const childStreamResolve = options.childStreamResolve ?? runChildStreamResolve
   const replayServiceFactory = options.replayServiceCreate ?? streamReplayServiceCreate
 
   api.get("/sessions/:sessionId/streams/:streamId/status", async (context) => {
     const sessionId = context.req.param("sessionId")
     const streamId = context.req.param("streamId")
+    const denied = await streamApiChildAccessReject(context, childStreamResolve, sessionId, streamId)
+    if (denied !== undefined) return denied
+
     const result = await replayServiceFactory({
       database: context.var.database,
       inactivityTimeoutMs,
@@ -165,6 +182,9 @@ export function apiStreamRoutesAdd(api: Hono<AppEnvironment>, options: ApiStream
 
     const sessionId = context.req.param("sessionId")
     const streamId = context.req.param("streamId")
+    const denied = await streamApiChildAccessReject(context, childStreamResolve, sessionId, streamId)
+    if (denied !== undefined) return denied
+
     const cursor = await streamApiCursorSequenceLoad(
       context.var.database,
       sessionId,

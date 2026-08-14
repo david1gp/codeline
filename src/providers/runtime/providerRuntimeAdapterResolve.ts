@@ -8,6 +8,7 @@ export function providerRuntimeAdapterResolve(
   configuration: unknown,
   options: {
     environment: Readonly<Record<string, string | undefined>>
+    fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
     runtimeAdapterCreate?: typeof providerRuntimeAdapterCreate
   },
 ): Result<CliProxyApiAdapter> {
@@ -15,10 +16,13 @@ export function providerRuntimeAdapterResolve(
   const parsed = v.safeParse(agentConfigurationSchema, configuration)
   if (!parsed.success) return createResultError(op, "The agent provider configuration is invalid.")
 
+  const runtimeAdapterCreate = options.runtimeAdapterCreate ?? providerRuntimeAdapterCreate
+  const useDefaultRuntimeFetch = runtimeAdapterCreate === providerRuntimeAdapterCreate
   return createResult(
-    (options.runtimeAdapterCreate ?? providerRuntimeAdapterCreate)({
+    runtimeAdapterCreate({
       configuration: parsed.output,
       environment: options.environment,
+      ...(options.fetch === undefined && !useDefaultRuntimeFetch ? {} : { fetch: options.fetch ?? globalThis.fetch }),
     }),
   )
 }

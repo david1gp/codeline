@@ -1,5 +1,6 @@
 import type { App } from "../api/appEnvironment.js"
 import { appCreate } from "../app/appCreate.js"
+import type { ConfigurationStore } from "../configuration/configurationStore.js"
 import { runtimeConfigurationParse } from "../configuration/runtimeConfigurationParse.js"
 import type { RuntimeConfiguration } from "../configuration/runtimeConfigurationSchema.js"
 import type { DatabaseConnection } from "../database/databaseClient.js"
@@ -25,10 +26,12 @@ type SignalSource = {
 type ServerStartOptions = {
   appCreate?: (options: {
     configuration: RuntimeConfiguration
+    configurationStore?: ConfigurationStore
     database: DatabaseConnection["db"]
     projectRootDir: string
   }) => App
   configuration?: RuntimeConfiguration
+  configurationStore?: ConfigurationStore
   database?: DatabaseConnection
   projectRootDir?: string
   serve?: Serve
@@ -65,6 +68,7 @@ export function serverStart(options: ServerStartOptions = {}): Server {
   const server = (options.serve ?? (Bun.serve as Serve))({
     fetch: createApp({
       configuration: configuration.data,
+      configurationStore: options.configurationStore,
       database: database.data.db,
       projectRootDir: options.projectRootDir ?? process.cwd(),
     }).fetch,

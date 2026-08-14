@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
-import { asc, eq } from "drizzle-orm"
+import { and, asc, eq } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/postgres-js"
 import postgres from "postgres"
 import { agentTable } from "../src/agents/db/agentTable.js"
@@ -8,8 +8,12 @@ import { databaseSchema } from "../src/database/databaseSchema.js"
 import { developmentUserTable } from "../src/identity/db/developmentUserTable.js"
 import { developmentUserUpsert } from "../src/identity/db/developmentUserUpsert.js"
 import { attemptTable } from "../src/run/db/attemptTable.js"
+import { runDelegationTable } from "../src/run/db/runDelegationTable.js"
 import { runTable } from "../src/run/db/runTable.js"
 import { runCreate } from "../src/run/actions/runCreate.js"
+import { runCancel } from "../src/run/actions/runCancel.js"
+import { runChildCreate } from "../src/run/actions/runChildCreate.js"
+import { runDelegationFinalize } from "../src/run/actions/runDelegationFinalize.js"
 import { runLoad } from "../src/run/actions/runLoad.js"
 import { runRetryAttemptCreate } from "../src/run/actions/runRetryAttemptCreate.js"
 import { runTransition } from "../src/run/actions/runTransition.js"
@@ -99,6 +103,8 @@ test.skipIf(!databaseAvailable)(
       data: { created: true, attempt: { ordinal: 1, status: "accepted" }, run: { status: "accepted" } },
     })
     if (!created.success) return
+    expect(created.data.run.deadlineAt).toBeInstanceOf(Date)
+    expect(created.data.run.deadlineAt.getTime()).toBeGreaterThan(created.data.run.createdAt.getTime())
 
     const repeated = await runCreate(database, userId, fixture.sessionId, {
       ...input,
@@ -255,6 +261,7 @@ test.skipIf(!databaseAvailable)(
       created: true,
       run: { failure: null, status: "accepted", startedAt: null, finishedAt: null },
     })
+    expect(admitted.data.run.deadlineAt).toEqual(created.data.run.deadlineAt)
 
     const loadedRetry = await runLoad(database, userId, fixture.sessionId, created.data.run.clientRunId)
     expect(loadedRetry).toMatchObject({
@@ -306,6 +313,94 @@ test.skipIf(!databaseAvailable)(
   },
 )
 
+test.skipIf(!databaseAvailable)("retry attempt creation rejects durable cancellation intent", async () => {
+  if (userId === undefined) return
+  const created = await runCreate(database, userId, fixture.sessionId, {
+    ...input,
+    budget: { maxAttempts: 3, maxDurationMs: 10_000 },
+    clientRunId: `client-run-retry-cancelled-${uuidv7()}`,
+    streamId: `run-retry-cancelled-${uuidv7()}`,
+  })
+  if (!created.success) return
+  expect(
+    await runTransition(database, userId, fixture.sessionId, created.data.run.id, { status: "running" }),
+  ).toMatchObject({
+    success: true,
+  })
+  expect(await runCancel(database, userId, fixture.sessionId, created.data.run.id)).toMatchObject({
+    success: true,
+    data: { changed: true },
+  })
+  expect(
+    await runTransition(database, userId, fixture.sessionId, created.data.run.id, {
+      failure: { code: "provider_timeout", message: "The provider timed out." },
+      status: "failed",
+    }),
+  ).toMatchObject({ success: true })
+
+  expect(
+    await runRetryAttemptCreate(database, userId, fixture.sessionId, created.data.run.id, {
+      now: () => new Date(created.data.run.deadlineAt.getTime() - 1),
+    }),
+  ).toMatchObject({ success: false, errorMessage: "The run retry was not admitted: cancelled." })
+  expect(await database.select().from(attemptTable).where(eq(attemptTable.runId, created.data.run.id))).toHaveLength(1)
+})
+
+test.skipIf(!databaseAvailable)("retry attempt creation rejects at the immutable deadline boundary", async () => {
+  if (userId === undefined) return
+  const created = await runCreate(database, userId, fixture.sessionId, {
+    ...input,
+    budget: { maxAttempts: 3, maxDurationMs: 10_000 },
+    clientRunId: `client-run-retry-deadline-${uuidv7()}`,
+    streamId: `run-retry-deadline-${uuidv7()}`,
+  })
+  if (!created.success) return
+  expect(
+    await runTransition(database, userId, fixture.sessionId, created.data.run.id, { status: "running" }),
+  ).toMatchObject({
+    success: true,
+  })
+  expect(
+    await runTransition(database, userId, fixture.sessionId, created.data.run.id, {
+      failure: { code: "provider_timeout", message: "The provider timed out." },
+      status: "failed",
+    }),
+  ).toMatchObject({ success: true })
+  expect(
+    await runRetryAttemptCreate(database, userId, fixture.sessionId, created.data.run.id, {
+      now: () => new Date(created.data.run.deadlineAt),
+    }),
+  ).toMatchObject({ success: false, errorMessage: "The run retry was not admitted: deadline_exceeded." })
+  expect(await database.select().from(attemptTable).where(eq(attemptTable.runId, created.data.run.id))).toHaveLength(1)
+})
+
+test.skipIf(!databaseAvailable)("retry attempt creation admits a still-valid retry before the deadline", async () => {
+  if (userId === undefined) return
+  const created = await runCreate(database, userId, fixture.sessionId, {
+    ...input,
+    budget: { maxAttempts: 3, maxDurationMs: 10_000 },
+    clientRunId: `client-run-retry-valid-${uuidv7()}`,
+    streamId: `run-retry-valid-${uuidv7()}`,
+  })
+  if (!created.success) return
+  expect(
+    await runTransition(database, userId, fixture.sessionId, created.data.run.id, { status: "running" }),
+  ).toMatchObject({
+    success: true,
+  })
+  expect(
+    await runTransition(database, userId, fixture.sessionId, created.data.run.id, {
+      failure: { code: "provider_timeout", message: "The provider timed out." },
+      status: "failed",
+    }),
+  ).toMatchObject({ success: true })
+  expect(
+    await runRetryAttemptCreate(database, userId, fixture.sessionId, created.data.run.id, {
+      now: () => new Date(created.data.run.deadlineAt.getTime() - 1),
+    }),
+  ).toMatchObject({ success: true, data: { created: true, attempt: { ordinal: 2 }, run: { status: "accepted" } } })
+})
+
 test.skipIf(!databaseAvailable)("accepted runs can abort but cannot be reopened", async () => {
   if (userId === undefined) return
   const created = await runCreate(database, userId, fixture.sessionId, { ...input, clientRunId: "client-run-3" })
@@ -322,3 +417,495 @@ test.skipIf(!databaseAvailable)("accepted runs can abort but cannot be reopened"
     success: false,
   })
 })
+
+test.skipIf(!databaseAvailable)(
+  "run delegation persists the bounded tree relationship and rejects inconsistent rows",
+  async () => {
+    if (userId === undefined) return
+    const parent = await runCreate(database, userId, fixture.sessionId, {
+      ...input,
+      budget: { maxChildDepth: 3, maxChildRuns: 8, maxDurationMs: 10_000 },
+      clientRunId: `client-run-delegation-parent-${uuidv7()}`,
+      streamId: `run-delegation-parent-${uuidv7()}`,
+    })
+    const child = await runCreate(database, userId, fixture.sessionId, {
+      ...input,
+      clientRunId: `client-run-delegation-child-${uuidv7()}`,
+      streamId: `run-delegation-child-${uuidv7()}`,
+    })
+    if (!parent.success || !child.success) return
+
+    const delegation = {
+      childRunId: child.data.run.id,
+      delegationKey: "task-1",
+      depth: 1,
+      finalizedResult: { status: "succeeded" as const, text: "completed" },
+      id: uuidv7(),
+      parentAttemptId: parent.data.attempt.id,
+      parentRunId: parent.data.run.id,
+      rootOrdinal: 1,
+      rootRunId: parent.data.run.id,
+      sessionId: fixture.sessionId,
+      task: "Inspect the requested implementation and report the result.",
+      userId,
+    }
+    const [created] = await database.insert(runDelegationTable).values(delegation).returning()
+    expect(created).toMatchObject(delegation)
+
+    await expect(
+      (async () => {
+        await database.insert(runDelegationTable).values({ ...delegation, id: uuidv7(), delegationKey: "task-2" })
+      })(),
+    ).rejects.toThrow()
+    await expect(
+      (async () => {
+        await database.insert(runDelegationTable).values({
+          ...delegation,
+          childRunId: parent.data.run.id,
+          delegationKey: "task-3",
+          id: uuidv7(),
+          parentAttemptId: child.data.attempt.id,
+        })
+      })(),
+    ).rejects.toThrow()
+    await expect(
+      (async () => {
+        await database.insert(runDelegationTable).values({
+          ...delegation,
+          childRunId: parent.data.run.id,
+          id: uuidv7(),
+          rootOrdinal: 2,
+          task: "",
+        })
+      })(),
+    ).rejects.toThrow()
+  },
+)
+
+test.skipIf(!databaseAvailable)(
+  "child run creation is transactional, idempotent, concurrent-safe, and inherits the root budget/deadline",
+  async () => {
+    if (userId === undefined) return
+    const parent = await runCreate(database, userId, fixture.sessionId, {
+      ...input,
+      budget: { maxChildDepth: 2, maxChildRuns: 1, maxDurationMs: 10_000 },
+      clientRunId: `client-run-child-${uuidv7()}`,
+      streamId: `run-child-parent-${uuidv7()}`,
+    })
+    if (!parent.success) return
+    expect(
+      await runTransition(database, userId, fixture.sessionId, parent.data.run.id, { status: "running" }),
+    ).toMatchObject({ success: true })
+
+    const childInput = {
+      delegationKey: "child-task-1",
+      parentAttemptId: parent.data.attempt.id,
+      parentRunId: parent.data.run.id,
+      task: "Inspect the requested implementation.",
+    }
+    const concurrent = await Promise.all([
+      runChildCreate(database, userId, fixture.sessionId, childInput),
+      runChildCreate(database, userId, fixture.sessionId, childInput),
+    ])
+    expect(concurrent.map((result) => (result.success ? result.data.created : false)).sort()).toEqual([false, true])
+
+    const admitted = concurrent.find((result) => result.success && result.data.created)
+    if (admitted === undefined || !admitted.success) return
+    expect(admitted.data).toMatchObject({
+      admission: { decision: "admit", reason: "admitted" },
+      attempt: { ordinal: 1, snapshot: parent.data.run.snapshot, status: "accepted" },
+      created: true,
+      delegation: {
+        depth: 1,
+        parentAttemptId: parent.data.attempt.id,
+        parentRunId: parent.data.run.id,
+        rootOrdinal: 1,
+        rootRunId: parent.data.run.id,
+        task: childInput.task,
+      },
+      run: {
+        budget: parent.data.run.budget,
+        deadlineAt: parent.data.run.deadlineAt,
+        snapshot: parent.data.run.snapshot,
+        status: "accepted",
+      },
+    })
+    expect(admitted.data.run.deadlineAt).toEqual(parent.data.run.deadlineAt)
+
+    const replay = await runChildCreate(database, userId, fixture.sessionId, childInput)
+    expect(replay).toMatchObject({
+      success: true,
+      data: { created: false, delegation: { id: admitted.data.delegation.id }, run: { id: admitted.data.run.id } },
+    })
+    expect(
+      await database.select().from(runDelegationTable).where(eq(runDelegationTable.rootRunId, parent.data.run.id)),
+    ).toHaveLength(1)
+  },
+)
+
+test.skipIf(!databaseAvailable)(
+  "child run creation rejects durable deadline, depth, and descendant boundaries",
+  async () => {
+    if (userId === undefined) return
+    const parent = await runCreate(database, userId, fixture.sessionId, {
+      ...input,
+      budget: { maxChildDepth: 1, maxChildRuns: 3, maxDurationMs: 10_000 },
+      clientRunId: `client-run-child-boundary-${uuidv7()}`,
+      streamId: `run-child-boundary-parent-${uuidv7()}`,
+    })
+    if (!parent.success) return
+    expect(
+      await runTransition(database, userId, fixture.sessionId, parent.data.run.id, { status: "running" }),
+    ).toMatchObject({ success: true })
+
+    const childInput = (delegationKey: string) => ({
+      delegationKey,
+      parentAttemptId: parent.data.attempt.id,
+      parentRunId: parent.data.run.id,
+      task: "Run a bounded child task.",
+    })
+    expect(await runChildCreate(database, userId, fixture.sessionId, childInput("boundary-child-1"))).toMatchObject({
+      success: true,
+      data: { created: true },
+    })
+    const child = await database
+      .select()
+      .from(runDelegationTable)
+      .where(and(eq(runDelegationTable.rootRunId, parent.data.run.id), eq(runDelegationTable.rootOrdinal, 1)))
+    const firstChild = child[0]
+    if (firstChild === undefined) return
+    const [firstChildAttempt] = await database
+      .select()
+      .from(attemptTable)
+      .where(eq(attemptTable.runId, firstChild.childRunId))
+      .orderBy(asc(attemptTable.ordinal))
+    if (firstChildAttempt === undefined) return
+    expect(
+      await runTransition(database, userId, fixture.sessionId, firstChild.childRunId, { status: "running" }),
+    ).toMatchObject({
+      success: true,
+    })
+    expect(
+      await runChildCreate(database, userId, fixture.sessionId, {
+        delegationKey: "boundary-depth-1",
+        parentAttemptId: firstChildAttempt.id,
+        parentRunId: firstChild.childRunId,
+        task: "This task is beyond the root depth budget.",
+      }),
+    ).toMatchObject({
+      errorMessage: "The child run was not admitted: child_depth_limit_exhausted.",
+      success: false,
+    })
+
+    expect(await runChildCreate(database, userId, fixture.sessionId, childInput("boundary-child-2"))).toMatchObject({
+      success: true,
+      data: { created: true },
+    })
+    expect(await runChildCreate(database, userId, fixture.sessionId, childInput("boundary-child-3"))).toMatchObject({
+      success: true,
+      data: { created: true },
+    })
+    expect(await runChildCreate(database, userId, fixture.sessionId, childInput("boundary-child-4"))).toMatchObject({
+      errorMessage: "The child run was not admitted: child_run_limit_exhausted.",
+      success: false,
+    })
+
+    await database
+      .update(runTable)
+      .set({ deadlineAt: new Date(0) })
+      .where(eq(runTable.id, parent.data.run.id))
+    expect(await runChildCreate(database, userId, fixture.sessionId, childInput("boundary-deadline"))).toMatchObject({
+      errorMessage: "The child run was not admitted: deadline_exceeded.",
+      success: false,
+    })
+  },
+)
+
+test.skipIf(!databaseAvailable)("child run creation rejects an immutable delegation-key conflict", async () => {
+  if (userId === undefined) return
+  const parent = await runCreate(database, userId, fixture.sessionId, {
+    ...input,
+    budget: { maxChildDepth: 1, maxChildRuns: 2, maxDurationMs: 10_000 },
+    clientRunId: `client-run-child-conflict-${uuidv7()}`,
+    streamId: `run-child-conflict-parent-${uuidv7()}`,
+  })
+  if (!parent.success) return
+  expect(
+    await runTransition(database, userId, fixture.sessionId, parent.data.run.id, { status: "running" }),
+  ).toMatchObject({ success: true })
+  const childInput = {
+    delegationKey: "immutable-child-key",
+    parentAttemptId: parent.data.attempt.id,
+    parentRunId: parent.data.run.id,
+    task: "The original immutable task.",
+  }
+  const created = await runChildCreate(database, userId, fixture.sessionId, childInput)
+  expect(created).toMatchObject({ success: true, data: { created: true } })
+  if (!created.success) return
+
+  expect(
+    await runChildCreate(database, userId, fixture.sessionId, { ...childInput, task: "A conflicting task." }),
+  ).toMatchObject({
+    errorMessage: "The delegation key conflicts with a different task.",
+    success: false,
+  })
+  expect(
+    await database.select().from(runDelegationTable).where(eq(runDelegationTable.rootRunId, parent.data.run.id)),
+  ).toHaveLength(1)
+})
+
+test.skipIf(!databaseAvailable)(
+  "delegation finalization atomically terminalizes the child and is idempotent without allowing overwrites",
+  async () => {
+    if (userId === undefined) return
+    const parent = await runCreate(database, userId, fixture.sessionId, {
+      ...input,
+      budget: { maxChildDepth: 1, maxChildRuns: 4, maxDurationMs: 10_000 },
+      clientRunId: `client-run-finalize-${uuidv7()}`,
+      streamId: `run-finalize-parent-${uuidv7()}`,
+    })
+    if (!parent.success) return
+    expect(
+      await runTransition(database, userId, fixture.sessionId, parent.data.run.id, { status: "running" }),
+    ).toMatchObject({
+      success: true,
+    })
+
+    const child = await runChildCreate(database, userId, fixture.sessionId, {
+      delegationKey: "finalize-child",
+      parentAttemptId: parent.data.attempt.id,
+      parentRunId: parent.data.run.id,
+      task: "Complete the delegated finalization test.",
+    })
+    if (!child.success) return
+    expect(
+      await runTransition(database, userId, fixture.sessionId, child.data.run.id, { status: "running" }),
+    ).toMatchObject({
+      success: true,
+    })
+
+    const result = { status: "succeeded" as const, text: "The child completed successfully." }
+    const finalized = await runDelegationFinalize(database, userId, fixture.sessionId, child.data.delegation.id, result)
+    expect(finalized).toMatchObject({
+      success: true,
+      data: {
+        changed: true,
+        delegation: { finalizedResult: result },
+        run: { id: child.data.run.id, failure: null, status: "succeeded" },
+        attempt: { failure: null, status: "succeeded" },
+      },
+    })
+
+    expect(
+      await runDelegationFinalize(database, userId, fixture.sessionId, child.data.delegation.id, result),
+    ).toMatchObject({ success: true, data: { changed: false } })
+    expect(
+      await runDelegationFinalize(database, userId, fixture.sessionId, child.data.delegation.id, {
+        status: "succeeded",
+        text: "A conflicting result.",
+      }),
+    ).toMatchObject({
+      errorMessage: "The finalized delegation result cannot be overwritten.",
+      success: false,
+    })
+    expect(
+      await runDelegationFinalize(
+        database,
+        "development:unknown-run-user",
+        fixture.sessionId,
+        child.data.delegation.id,
+        result,
+      ),
+    ).toMatchObject({ errorMessage: "The session could not be found.", success: false })
+
+    const failedChild = await runChildCreate(database, userId, fixture.sessionId, {
+      delegationKey: "finalize-failed-child",
+      parentAttemptId: parent.data.attempt.id,
+      parentRunId: parent.data.run.id,
+      task: "Complete the delegated failure test.",
+    })
+    if (!failedChild.success) return
+    expect(
+      await runTransition(database, userId, fixture.sessionId, failedChild.data.run.id, { status: "running" }),
+    ).toMatchObject({ success: true })
+    expect(
+      await runDelegationFinalize(database, userId, fixture.sessionId, failedChild.data.delegation.id, {
+        failure: { code: "child_failed", message: "The child failed." },
+        status: "failed",
+        text: "The delegated task failed.",
+      }),
+    ).toMatchObject({
+      success: true,
+      data: {
+        run: { failure: { code: "child_failed" }, status: "failed" },
+        attempt: { failure: { code: "child_failed" }, status: "failed" },
+      },
+    })
+
+    const abortedChild = await runChildCreate(database, userId, fixture.sessionId, {
+      delegationKey: "finalize-aborted-child",
+      parentAttemptId: parent.data.attempt.id,
+      parentRunId: parent.data.run.id,
+      task: "Complete the delegated abort test.",
+    })
+    if (!abortedChild.success) return
+    expect(
+      await runDelegationFinalize(database, userId, fixture.sessionId, abortedChild.data.delegation.id, {
+        failure: { code: "child_aborted", message: "The child was aborted." },
+        status: "aborted",
+        text: "The delegated task was aborted.",
+      }),
+    ).toMatchObject({
+      success: true,
+      data: {
+        run: { failure: { code: "child_aborted" }, status: "aborted" },
+        attempt: { failure: { code: "child_aborted" }, status: "aborted" },
+      },
+    })
+
+    const invalidChild = await runChildCreate(database, userId, fixture.sessionId, {
+      delegationKey: "finalize-invalid-child",
+      parentAttemptId: parent.data.attempt.id,
+      parentRunId: parent.data.run.id,
+      task: "Reject the invalid lifecycle.",
+    })
+    if (!invalidChild.success) return
+    expect(
+      await runDelegationFinalize(database, userId, fixture.sessionId, invalidChild.data.delegation.id, result),
+    ).toMatchObject({
+      errorMessage: "The child run lifecycle does not allow delegation finalization.",
+      success: false,
+    })
+  },
+)
+
+test.skipIf(!databaseAvailable)(
+  "cancellation is idempotent, propagates only to nonterminal descendants, and blocks later child admission",
+  async () => {
+    if (userId === undefined) return
+    const root = await runCreate(database, userId, fixture.sessionId, {
+      ...input,
+      budget: { maxChildDepth: 3, maxChildRuns: 8, maxDurationMs: 10_000 },
+      clientRunId: `client-run-cancellation-${uuidv7()}`,
+      streamId: `run-cancellation-root-${uuidv7()}`,
+    })
+    if (!root.success) return
+    expect(
+      await runTransition(database, userId, fixture.sessionId, root.data.run.id, { status: "running" }),
+    ).toMatchObject({
+      success: true,
+    })
+
+    const child = await runChildCreate(database, userId, fixture.sessionId, {
+      delegationKey: "cancellation-child",
+      parentAttemptId: root.data.attempt.id,
+      parentRunId: root.data.run.id,
+      task: "The child run to cancel.",
+    })
+    if (!child.success) return
+    expect(
+      await runTransition(database, userId, fixture.sessionId, child.data.run.id, { status: "running" }),
+    ).toMatchObject({
+      success: true,
+    })
+
+    const sibling = await runChildCreate(database, userId, fixture.sessionId, {
+      delegationKey: "cancellation-sibling",
+      parentAttemptId: root.data.attempt.id,
+      parentRunId: root.data.run.id,
+      task: "The sibling run must remain uncancelled.",
+    })
+    if (!sibling.success) return
+
+    const grandchild = await runChildCreate(database, userId, fixture.sessionId, {
+      delegationKey: "cancellation-grandchild",
+      parentAttemptId: child.data.attempt.id,
+      parentRunId: child.data.run.id,
+      task: "The descendant run to cancel by ancestry.",
+    })
+    if (!grandchild.success) return
+    const completedDescendant = await runChildCreate(database, userId, fixture.sessionId, {
+      delegationKey: "cancellation-completed-descendant",
+      parentAttemptId: child.data.attempt.id,
+      parentRunId: child.data.run.id,
+      task: "The terminal descendant must remain unchanged.",
+    })
+    if (!completedDescendant.success) return
+    expect(
+      await runTransition(database, userId, fixture.sessionId, completedDescendant.data.run.id, { status: "running" }),
+    ).toMatchObject({ success: true })
+    expect(
+      await runTransition(database, userId, fixture.sessionId, completedDescendant.data.run.id, {
+        status: "succeeded",
+      }),
+    ).toMatchObject({ success: true })
+
+    const cancelled = await runCancel(database, userId, fixture.sessionId, child.data.run.id, { kind: "requested" })
+    expect(cancelled).toMatchObject({
+      success: true,
+      data: {
+        cancelledRunIds: [child.data.run.id, grandchild.data.run.id],
+        changed: true,
+        descendantsCancelled: 1,
+        run: { id: child.data.run.id, cancellationKind: "requested", status: "running" },
+      },
+    })
+    if (!cancelled.success) return
+    expect(cancelled.data.run.cancellationRequestedAt).toBeInstanceOf(Date)
+    expect(cancelled.data.run.cancellationSourceRunId).toBeNull()
+
+    const [cancelledChild, cancelledGrandchild, unchangedRoot, unchangedSibling, unchangedCompletedDescendant] =
+      await Promise.all(
+        [
+          child.data.run.id,
+          grandchild.data.run.id,
+          root.data.run.id,
+          sibling.data.run.id,
+          completedDescendant.data.run.id,
+        ].map(async (id) => {
+          const [run] = await database.select().from(runTable).where(eq(runTable.id, id))
+          return run
+        }),
+      )
+    expect(cancelledGrandchild).toMatchObject({
+      cancellationKind: "ancestor",
+      cancellationSourceRunId: child.data.run.id,
+    })
+    expect(cancelledGrandchild?.cancellationRequestedAt).toEqual(cancelledChild?.cancellationRequestedAt)
+    expect(unchangedRoot).toMatchObject({ cancellationKind: null, cancellationRequestedAt: null })
+    expect(unchangedSibling).toMatchObject({ cancellationKind: null, cancellationRequestedAt: null })
+    expect(unchangedCompletedDescendant).toMatchObject({
+      cancellationKind: null,
+      cancellationRequestedAt: null,
+      status: "succeeded",
+    })
+
+    expect(
+      await runCancel(database, "development:unknown-run-user", fixture.sessionId, child.data.run.id),
+    ).toMatchObject({
+      errorMessage: "The run could not be found.",
+      success: false,
+    })
+    expect(await runCancel(database, userId, fixture.sessionId, completedDescendant.data.run.id)).toMatchObject({
+      success: true,
+      data: { cancelledRunIds: [], changed: false, descendantsCancelled: 0 },
+    })
+
+    const repeated = await runCancel(database, userId, fixture.sessionId, child.data.run.id, { kind: "requested" })
+    expect(repeated).toMatchObject({
+      success: true,
+      data: { cancelledRunIds: [], changed: false, descendantsCancelled: 0 },
+    })
+    if (!repeated.success || !cancelled.success) return
+    expect(repeated.data.run.cancellationRequestedAt).toEqual(cancelled.data.run.cancellationRequestedAt)
+
+    expect(
+      await runChildCreate(database, userId, fixture.sessionId, {
+        delegationKey: "cancellation-after-request",
+        parentAttemptId: child.data.attempt.id,
+        parentRunId: child.data.run.id,
+        task: "This child must not be admitted beneath cancelled ancestry.",
+      }),
+    ).toMatchObject({ errorMessage: "The child run was not admitted: cancelled.", success: false })
+  },
+)

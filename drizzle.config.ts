@@ -13,6 +13,7 @@ export default defineConfig({
     "./src/session/db/*Table.ts",
     "./src/message/db/*Table.ts",
     "./src/note/db/*Table.ts",
+    "./src/run/db/*Table.ts",
     "./src/stream/db/*Table.ts",
   ],
   out: "./src/database/migrations",

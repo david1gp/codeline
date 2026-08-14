@@ -1,0 +1,254 @@
+import { createResult, createResultError, type Result } from "@adaptive-ds/result"
+import { and, count, desc, eq, max } from "drizzle-orm"
+import * as v from "valibot"
+import type { DatabaseClient, DatabaseExecutor } from "../../database/databaseClient.js"
+import { databaseTransactionRun } from "../../database/databaseTransactionRun.js"
+import { runChildAdmissionResolve } from "../actions/runChildAdmissionResolve.js"
+import { runBudgetSchema } from "../schema/runBudgetSchema.js"
+import { runChildCreateInputSchema, type RunChildCreateInput } from "../schema/runChildCreateInputSchema.js"
+import type { RunChildAdmission } from "../schema/runChildAdmissionSchema.js"
+import { runExecutionSnapshotSchema } from "../schema/runExecutionSnapshotSchema.js"
+import { attemptTable } from "./attemptTable.js"
+import { runDelegationTable } from "./runDelegationTable.js"
+import { runTable } from "./runTable.js"
+import { uuidv7 } from "../../uuid/uuidv7.js"
+
+type RunChildCreateResult = {
+  admission: RunChildAdmission | null
+  attempt: typeof attemptTable.$inferSelect
+  created: boolean
+  delegation: typeof runDelegationTable.$inferSelect
+  run: typeof runTable.$inferSelect
+}
+
+function jsonCanonicalize(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value)
+  if (Array.isArray(value)) return `[${value.map(jsonCanonicalize).join(",")}]`
+  return `{${Object.keys(value as Record<string, unknown>)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${jsonCanonicalize((value as Record<string, unknown>)[key])}`)
+    .join(",")}}`
+}
+
+export async function runRepositoryChildCreate(
+  database: DatabaseExecutor,
+  userId: string,
+  sessionId: string,
+  input: RunChildCreateInput,
+): Promise<Result<RunChildCreateResult>> {
+  const op = "runRepositoryChildCreate"
+  const parsedInput = v.safeParse(runChildCreateInputSchema, input)
+  if (!parsedInput.success) return createResultError(op, "The child run creation input is invalid.")
+
+  return databaseTransactionRun<RunChildCreateResult>(database as DatabaseClient, async (transaction) => {
+    try {
+      const [parentDelegation] = await transaction
+        .select({ depth: runDelegationTable.depth, rootRunId: runDelegationTable.rootRunId })
+        .from(runDelegationTable)
+        .where(
+          and(
+            eq(runDelegationTable.childRunId, parsedInput.output.parentRunId),
+            eq(runDelegationTable.sessionId, sessionId),
+            eq(runDelegationTable.userId, userId),
+          ),
+        )
+        .limit(1)
+      const rootRunId = parentDelegation?.rootRunId ?? parsedInput.output.parentRunId
+
+      const [root] = await transaction
+        .select()
+        .from(runTable)
+        .where(and(eq(runTable.id, rootRunId), eq(runTable.sessionId, sessionId), eq(runTable.userId, userId)))
+        .for("update")
+        .limit(1)
+      if (root === undefined) return createResultError(op, "The root run could not be found.")
+
+      const [parent] = await transaction
+        .select()
+        .from(runTable)
+        .where(
+          and(
+            eq(runTable.id, parsedInput.output.parentRunId),
+            eq(runTable.sessionId, sessionId),
+            eq(runTable.userId, userId),
+          ),
+        )
+        .for("update")
+        .limit(1)
+      if (parent === undefined) return createResultError(op, "The parent run could not be found.")
+
+      const [existingDelegation] = await transaction
+        .select()
+        .from(runDelegationTable)
+        .where(
+          and(
+            eq(runDelegationTable.parentRunId, parent.id),
+            eq(runDelegationTable.parentAttemptId, parsedInput.output.parentAttemptId),
+            eq(runDelegationTable.delegationKey, parsedInput.output.delegationKey),
+            eq(runDelegationTable.sessionId, sessionId),
+            eq(runDelegationTable.userId, userId),
+          ),
+        )
+        .for("update")
+        .limit(1)
+      if (existingDelegation !== undefined) {
+        if (existingDelegation.task !== parsedInput.output.task) {
+          return createResultError(op, "The delegation key conflicts with a different task.")
+        }
+        const [existingRun] = await transaction
+          .select()
+          .from(runTable)
+          .where(
+            and(
+              eq(runTable.id, existingDelegation.childRunId),
+              eq(runTable.sessionId, sessionId),
+              eq(runTable.userId, userId),
+            ),
+          )
+          .for("update")
+          .limit(1)
+        if (existingRun === undefined) return createResultError(op, "The existing child run could not be found.")
+
+        const [existingAttempt] = await transaction
+          .select()
+          .from(attemptTable)
+          .where(eq(attemptTable.runId, existingRun.id))
+          .orderBy(desc(attemptTable.ordinal))
+          .for("update")
+          .limit(1)
+        if (existingAttempt === undefined)
+          return createResultError(op, "The existing child attempt could not be found.")
+        return createResult({
+          admission: null,
+          attempt: existingAttempt,
+          created: false,
+          delegation: existingDelegation,
+          run: existingRun,
+        })
+      }
+
+      const [currentAttempt] = await transaction
+        .select()
+        .from(attemptTable)
+        .where(eq(attemptTable.runId, parent.id))
+        .orderBy(desc(attemptTable.ordinal))
+        .for("update")
+        .limit(1)
+      if (currentAttempt === undefined) return createResultError(op, "The parent attempt could not be found.")
+      if (currentAttempt.id !== parsedInput.output.parentAttemptId) {
+        return createResultError(op, "The parent attempt is not the current run attempt.")
+      }
+      if (currentAttempt.userId !== userId || currentAttempt.sessionId !== sessionId) {
+        return createResultError(op, "The parent attempt ownership is inconsistent.")
+      }
+      if (
+        parent.status !== currentAttempt.status ||
+        jsonCanonicalize(parent.failure) !== jsonCanonicalize(currentAttempt.failure) ||
+        jsonCanonicalize(parent.snapshot) !== jsonCanonicalize(currentAttempt.snapshot) ||
+        jsonCanonicalize(parent.budget) !== jsonCanonicalize(currentAttempt.budget)
+      ) {
+        return createResultError(op, "The parent run and current attempt are inconsistent.")
+      }
+
+      const parsedBudget = v.safeParse(runBudgetSchema, root.budget)
+      if (!parsedBudget.success) return createResultError(op, "The root run budget is invalid.")
+      const parsedSnapshot = v.safeParse(runExecutionSnapshotSchema, parent.snapshot)
+      if (!parsedSnapshot.success) return createResultError(op, "The parent execution snapshot is invalid.")
+
+      const [descendantState] = await transaction
+        .select({
+          descendantCount: count(runDelegationTable.id),
+          latestRootOrdinal: max(runDelegationTable.rootOrdinal),
+        })
+        .from(runDelegationTable)
+        .where(eq(runDelegationTable.rootRunId, root.id))
+      const depth = parentDelegation?.depth ?? 0
+      const now = new Date()
+      const admission = runChildAdmissionResolve({
+        attemptStatus: currentAttempt.status,
+        budget: parsedBudget.output,
+        cancelled: root.cancellationRequestedAt !== null || parent.cancellationRequestedAt !== null,
+        deadlineAt: root.deadlineAt.getTime(),
+        depth,
+        descendantCount: descendantState?.descendantCount ?? 0,
+        now: now.getTime(),
+        parentStatus: parent.status,
+      })
+      if (!admission.success) return createResultError(op, admission.errorMessage)
+      if (admission.data.decision !== "admit") {
+        return createResultError(op, `The child run was not admitted: ${admission.data.reason}.`)
+      }
+
+      const rootOrdinal = (descendantState?.latestRootOrdinal ?? 0) + 1
+      const childRunId = uuidv7()
+      const childStreamId = `run-child:${childRunId}`
+      const [childRun] = await transaction
+        .insert(runTable)
+        .values({
+          budget: parsedBudget.output,
+          clientRunId: `child-run:${childRunId}`,
+          createdAt: now,
+          deadlineAt: root.deadlineAt,
+          failure: null,
+          id: childRunId,
+          sessionId,
+          snapshot: parsedSnapshot.output,
+          status: "accepted",
+          streamId: childStreamId,
+          updatedAt: now,
+          userId,
+        })
+        .returning()
+      if (childRun === undefined) return createResultError(op, "The child run could not be created.")
+
+      const [childAttempt] = await transaction
+        .insert(attemptTable)
+        .values({
+          budget: parsedBudget.output,
+          failure: null,
+          id: uuidv7(),
+          ordinal: 1,
+          runId: childRunId,
+          sessionId,
+          snapshot: parsedSnapshot.output,
+          status: "accepted",
+          streamId: childStreamId,
+          updatedAt: now,
+          userId,
+        })
+        .returning()
+      if (childAttempt === undefined) return createResultError(op, "The initial child attempt could not be created.")
+
+      const [delegation] = await transaction
+        .insert(runDelegationTable)
+        .values({
+          childRunId,
+          createdAt: now,
+          delegationKey: parsedInput.output.delegationKey,
+          depth: depth + 1,
+          finalizedResult: null,
+          id: uuidv7(),
+          parentAttemptId: currentAttempt.id,
+          parentRunId: parent.id,
+          rootOrdinal,
+          rootRunId: root.id,
+          sessionId,
+          task: parsedInput.output.task,
+          updatedAt: now,
+          userId,
+        })
+        .returning()
+      if (delegation === undefined) return createResultError(op, "The child delegation could not be created.")
+
+      return createResult({
+        admission: admission.data,
+        attempt: childAttempt,
+        created: true,
+        delegation,
+        run: childRun,
+      })
+    } catch (_error) {
+      return createResultError(op, "The child run could not be persisted.")
+    }
+  })
+}

@@ -1,5 +1,5 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
-import { type StreamChunk, toServerSentEventsStream } from "@tanstack/ai"
+import type { StreamChunk } from "@tanstack/ai"
 import type { Context } from "hono"
 import { Hono } from "hono"
 import * as v from "valibot"
@@ -11,9 +11,18 @@ import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.j
 import type { ConfigurationStore } from "../../configuration/configurationStore.js"
 import type { DatabaseClient } from "../../database/databaseClient.js"
 import { databaseTransactionRun } from "../../database/databaseTransactionRun.js"
+import type { CliProxyApiAdapter } from "../../providers/runtime/cliProxyApiAdapterCreate.js"
+import { providerDelegationAdapterCreate } from "../../providers/runtime/providerDelegationAdapterCreate.js"
+import { providerDelegationToolLoopCreate } from "../../providers/runtime/providerDelegationToolLoopCreate.js"
+import { providerExecutionEventFromStreamChunk } from "../../providers/runtime/providerExecutionEventFromStreamChunk.js"
+import type { ProviderModelDiscoveryOptions } from "../../providers/runtime/providerModelDiscovery.js"
 import { providerRuntimeAdapterCreate } from "../../providers/runtime/providerRuntimeAdapterCreate.js"
 import { providerRuntimeAdapterResolve } from "../../providers/runtime/providerRuntimeAdapterResolve.js"
+import { runCancellationCoordinatorCreate } from "../../run/actions/runCancellationCoordinatorCreate.js"
+import { runChildCreate } from "../../run/actions/runChildCreate.js"
 import { runCreate } from "../../run/actions/runCreate.js"
+import { runDelegationExecute } from "../../run/actions/runDelegationExecute.js"
+import { runDelegationFinalize } from "../../run/actions/runDelegationFinalize.js"
 import { runExecutionSnapshotResolve } from "../../run/actions/runExecutionSnapshotResolve.js"
 import { runFailureClassResolve } from "../../run/actions/runFailureClassResolve.js"
 import { runLoad } from "../../run/actions/runLoad.js"
@@ -23,10 +32,14 @@ import type { attemptTable } from "../../run/db/attemptTable.js"
 import type { runTable } from "../../run/db/runTable.js"
 import type { RunExecutionSnapshot } from "../../run/schema/runExecutionSnapshotSchema.js"
 import { runExecutionSnapshotSchema } from "../../run/schema/runExecutionSnapshotSchema.js"
+import { executionStreamEventNormalize } from "../../stream/actions/executionStreamEventNormalize.js"
+import { streamAppend } from "../../stream/actions/streamAppend.js"
 import { streamReplayServiceCreate } from "../../stream/actions/streamReplayServiceCreate.js"
+import type { ExecutionStreamEvent } from "../../stream/schema/executionStreamEventSchema.js"
 import { sessionArchive } from "../actions/sessionArchive.js"
 import { sessionChatAdapterCreate } from "../actions/sessionChatAdapterCreate.js"
 import { sessionChatPrepare } from "../actions/sessionChatPrepare.js"
+import { sessionChatSseStreamCreate } from "../actions/sessionChatSseStreamCreate.js"
 import { sessionChatStreamCreate } from "../actions/sessionChatStreamCreate.js"
 import { sessionCreate } from "../actions/sessionCreate.js"
 import { sessionDelete } from "../actions/sessionDelete.js"
@@ -65,8 +78,12 @@ function internalServerError(context: ApiContext) {
 type ApiSessionRoutesOptions = {
   configurationStore?: ConfigurationStore
   providerEnvironment?: Readonly<Record<string, string | undefined>>
+  providerFetch?: NonNullable<ProviderModelDiscoveryOptions["fetch"]>
+  providerDelegationToolLoopCreate?: typeof providerDelegationToolLoopCreate
   providerRuntimeAdapterCreate?: typeof providerRuntimeAdapterCreate
   runCreate?: typeof runCreate
+  runCancellationCoordinator?: ReturnType<typeof runCancellationCoordinatorCreate>
+  runDelegationExecute?: typeof runDelegationExecute
   runExecutionSnapshotResolve?: typeof runExecutionSnapshotResolve
   runLoad?: typeof runLoad
   runRetryAttemptCreate?: typeof runRetryAttemptCreate
@@ -77,6 +94,12 @@ type ApiSessionRoutesOptions = {
 }
 
 const sessionChatDefaultInactivityTimeoutMs = 120_000
+const sessionChatRootBudget = { maxChildDepth: 1, maxChildRuns: 1 } as const
+
+function sessionChatRootBudgetResolve(configuration: AgentConfiguration) {
+  void configuration
+  return sessionChatRootBudget
+}
 
 function sessionChatStreamIdCreate(sessionId: string, runId: string): string {
   return `session-chat:${sessionId}:${runId}`
@@ -89,6 +112,60 @@ async function* sessionChatStreamReplay(
   for (const [index, event] of events.entries()) {
     eventIds[index] = event.id
     yield event.payload as StreamChunk
+  }
+}
+
+function sessionChatChildExecutionErrorCreate(code: string, message: string): ExecutionStreamEvent {
+  return {
+    eventType: "terminal",
+    payload: { code, message, status: "error" },
+  }
+}
+
+function sessionChatChildExecutionStreamCreate(input: {
+  adapter: CliProxyApiAdapter
+  run: typeof runTable.$inferSelect
+  signal: AbortSignal
+  task: string
+}): AsyncIterable<ExecutionStreamEvent> {
+  return sessionChatChildExecutionStreamGenerate(input)
+}
+
+async function* sessionChatChildExecutionStreamGenerate(input: {
+  adapter: CliProxyApiAdapter
+  run: typeof runTable.$inferSelect
+  signal: AbortSignal
+  task: string
+}): AsyncGenerator<ExecutionStreamEvent> {
+  try {
+    for await (const chunk of input.adapter({
+      history: [],
+      prompt: input.task,
+      runId: input.run.id,
+      sessionId: input.run.sessionId,
+      signal: input.signal,
+    })) {
+      if (input.signal.aborted) return
+
+      const providerEvent = providerExecutionEventFromStreamChunk(chunk)
+      if (!providerEvent.success) {
+        yield sessionChatChildExecutionErrorCreate("child_event_invalid", "The child attempt emitted an invalid event.")
+        return
+      }
+      if (providerEvent.data === null) continue
+
+      const normalized = executionStreamEventNormalize(providerEvent.data)
+      if (!normalized.success) {
+        yield sessionChatChildExecutionErrorCreate("child_event_invalid", "The child attempt emitted an invalid event.")
+        return
+      }
+      yield normalized.data
+    }
+  } catch (error) {
+    yield sessionChatChildExecutionErrorCreate(
+      "provider_failed",
+      error instanceof Error ? error.message : "The delegated child attempt failed.",
+    )
   }
 }
 
@@ -225,6 +302,8 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     let admittedRun: typeof runTable.$inferSelect | undefined
     let admittedAttempt: typeof attemptTable.$inferSelect | undefined
     let admittedAttempts: Array<typeof attemptTable.$inferSelect> = []
+    let activeRun: typeof runTable.$inferSelect | undefined
+    let activeAttempt: typeof attemptTable.$inferSelect | undefined
     const loaded = await sessionLoad(context.var.database, context.var.developmentUser.id, sessionId)
     if (!loaded.success)
       return loaded.errorMessage.includes("could not be found") ? notFound(context) : internalServerError(context)
@@ -251,6 +330,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
         context.var.developmentUser.id,
         sessionId,
         {
+          budget: sessionChatRootBudgetResolve(runtimeConfiguration ?? admission.data.snapshot.configuration),
           clientRunId: parsed.data.runId,
           snapshot: admission.data.snapshot,
           streamId: sessionChatStreamIdCreate(sessionId, parsed.data.runId),
@@ -264,6 +344,8 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
       admittedRun = created.data.run
       admittedAttempt = created.data.attempt
       admittedAttempts = admission.data.attempts ?? [created.data.attempt]
+      activeRun = admittedRun
+      activeAttempt = admittedAttempt
     } else if (adapter === undefined) {
       const resolvedConfiguration = agentConfigurationExecutionResolve(
         loaded.data.agent.configuration,
@@ -276,6 +358,50 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
       }
 
       runtimeConfiguration = resolvedConfiguration.data
+    }
+
+    const delegatedTaskExecute = async (input: { signal: AbortSignal; task: string; toolCallId: string }) => {
+      if (activeRun === undefined || activeAttempt === undefined) throw new Error("The parent chat run is unavailable.")
+
+      const childExecute = await (options.runDelegationExecute ?? runDelegationExecute)(
+        {
+          delegationKey: input.toolCallId,
+          parentAttempt: activeAttempt,
+          parentRun: activeRun,
+          task: input.task,
+        },
+        {
+          attemptStreamCreate: ({ run, signal, task }) => {
+            const resolved = providerRuntimeAdapterResolve(run.snapshot.configuration, {
+              environment: options.providerEnvironment ?? Bun.env,
+              ...(options.providerFetch === undefined ? {} : { fetch: options.providerFetch }),
+              runtimeAdapterCreate: options.providerRuntimeAdapterCreate,
+            })
+            if (!resolved.success) throw new Error(resolved.errorMessage)
+            return sessionChatChildExecutionStreamCreate({ adapter: resolved.data, run, signal, task })
+          },
+          cancellationRegister: (registration) =>
+            options.runCancellationCoordinator?.register(registration) ?? (() => undefined),
+          childCreate: (childInput) =>
+            runChildCreate(context.var.database, context.var.developmentUser.id, sessionId, childInput),
+          delegationFinalize: (delegationId, result) =>
+            runDelegationFinalize(
+              context.var.database,
+              context.var.developmentUser.id,
+              sessionId,
+              delegationId,
+              result,
+            ),
+          retryAttemptCreate: (runId, retryOptions) =>
+            runRetryAttemptCreate(context.var.database, context.var.developmentUser.id, sessionId, runId, retryOptions),
+          runTransition: (runId, transition) =>
+            runTransition(context.var.database, context.var.developmentUser.id, sessionId, runId, transition),
+          streamAppend: (event) => streamAppend(context.var.database, context.var.developmentUser.id, sessionId, event),
+        },
+      )
+      if (!childExecute.success) throw new Error(childExecute.errorMessage)
+      if (childExecute.data.status !== "succeeded") throw new Error(childExecute.data.failure.message)
+      return childExecute.data.text
     }
 
     const prepared = await databaseTransactionRun(context.var.database, (transaction) =>
@@ -291,11 +417,8 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
       return internalServerError(context)
     }
 
-    const abortController = new AbortController()
+    const executionAbortController = new AbortController()
     const requestSignal = context.req.raw.signal
-    const onRequestAbort = () => abortController.abort(requestSignal.reason)
-    if (requestSignal.aborted) abortController.abort(requestSignal.reason)
-    else requestSignal.addEventListener("abort", onRequestAbort, { once: true })
 
     const eventIds: Array<string | undefined> = []
     const replayServiceCreate = options.streamReplayServiceCreate ?? streamReplayServiceCreate
@@ -322,21 +445,28 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
       })
       if (!replay.success) return internalServerError(context)
       stream = sessionChatStreamReplay(replay.data, eventIds)
-      requestSignal.removeEventListener("abort", onRequestAbort)
     } else if (started.data.checkpoint.lastSequence > 0) {
       const replay = await initialReplayService.replay({ limit: 100 })
       if (!replay.success) return internalServerError(context)
       stream = sessionChatStreamReplay(replay.data.events, eventIds)
-      requestSignal.removeEventListener("abort", onRequestAbort)
     } else {
       if (adapter === undefined) {
         if (runtimeConfiguration === undefined) return internalServerError(context)
         const resolved = providerRuntimeAdapterResolve(runtimeConfiguration, {
           environment: options.providerEnvironment ?? Bun.env,
+          ...(options.providerFetch === undefined ? {} : { fetch: options.providerFetch }),
           runtimeAdapterCreate: options.providerRuntimeAdapterCreate,
         })
         if (!resolved.success) return internalServerError(context)
-        adapter = resolved.data
+        adapter =
+          activeRun === undefined
+            ? resolved.data
+            : providerDelegationAdapterCreate({
+                adapter: resolved.data,
+                delegateTask: delegatedTaskExecute,
+                model: runtimeConfiguration.model,
+                toolLoopCreate: options.providerDelegationToolLoopCreate,
+              })
       }
 
       if (admittedRun !== undefined && admittedAttempt !== undefined) {
@@ -348,8 +478,19 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
           { status: "running" },
         )
         if (!transitioned.success) return internalServerError(context)
+        activeRun = transitioned.data.run
+        activeAttempt = transitioned.data.attempt
       }
 
+      const unregisterCancellation =
+        admittedRun === undefined
+          ? undefined
+          : options.runCancellationCoordinator?.register({
+              controller: executionAbortController,
+              runId: admittedRun.id,
+              sessionId,
+              userId: context.var.developmentUser.id,
+            })
       stream = (async function* () {
         let currentAttempt = admittedAttempt
         let replayService = initialReplayService
@@ -359,21 +500,24 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
             let nextAttempt: typeof attemptTable.$inferSelect | undefined
             const attemptStream = sessionChatStreamCreate({
               adapter: adapter as NonNullable<typeof adapter>,
+              attemptOrdinal: currentAttempt?.ordinal,
               database: context.var.database,
               history: prepared.data.history,
               onEventId: (_sequence, eventId) => {
                 eventIds[eventIds.length] = eventId
               },
               onTerminal: async (terminal) => {
-                if (admittedRun === undefined || currentAttempt === undefined) return
+                if (activeRun === undefined || currentAttempt === undefined) return
                 const transitioned = await (options.runTransition ?? runTransition)(
                   context.var.database,
                   context.var.developmentUser.id,
                   sessionId,
-                  admittedRun.id,
+                  activeRun.id,
                   terminal,
                 )
                 if (!transitioned.success) throw new Error(transitioned.errorMessage)
+                activeRun = transitioned.data.run
+                activeAttempt = transitioned.data.attempt
                 if (terminal.status !== "failed" || terminal.failure === undefined) return
                 if (runFailureClassResolve(terminal.failure) !== "retryable") return
 
@@ -381,7 +525,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
                   context.var.database,
                   context.var.developmentUser.id,
                   sessionId,
-                  admittedRun.id,
+                  activeRun.id,
                 )
                 if (!retry.success) {
                   if (retry.errorMessage.includes("The run retry was not admitted:")) return
@@ -389,6 +533,8 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
                 }
                 if (retry.data.attempt.status !== "accepted") return
                 nextAttempt = retry.data.attempt
+                activeRun = retry.data.run
+                activeAttempt = retry.data.attempt
                 if (!admittedAttempts.some(({ id }) => id === retry.data.attempt.id)) {
                   admittedAttempts.push(retry.data.attempt)
                 }
@@ -398,7 +544,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
               requestId: parsed.data.runId,
               runId: parsed.data.runId,
               sessionId,
-              signal: abortController.signal,
+              signal: executionAbortController.signal,
               userId: context.var.developmentUser.id,
             })
 
@@ -417,23 +563,28 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
             if (!nextStarted.success) throw new Error(nextStarted.errorMessage)
             replayService = nextReplayService
 
-            if (admittedRun !== undefined) {
+            if (activeRun !== undefined) {
               const transitioned = await (options.runTransition ?? runTransition)(
                 context.var.database,
                 context.var.developmentUser.id,
                 sessionId,
-                admittedRun.id,
+                activeRun.id,
                 { status: "running" },
               )
               if (!transitioned.success) throw new Error(transitioned.errorMessage)
+              activeRun = transitioned.data.run
+              activeAttempt = transitioned.data.attempt
             }
           }
         } finally {
-          requestSignal.removeEventListener("abort", onRequestAbort)
+          unregisterCancellation?.()
         }
       })()
     }
-    const sse = toServerSentEventsStream(stream, abortController, (_chunk, index) => eventIds[index])
+    const sse = sessionChatSseStreamCreate(stream, {
+      getId: (_chunk, index) => eventIds[index],
+      requestSignal,
+    })
 
     return new Response(sse, {
       headers: {

@@ -4,27 +4,47 @@ import { apiRoutesAdd } from "../api/apiRoutesAdd.js"
 import type { App, AppEnvironment } from "../api/appEnvironment.js"
 import type { ApiErrorResponse } from "../api/errors/apiErrorResponseSchema.js"
 import type { HealthResponse } from "../api/health/healthResponseSchema.js"
+import type { ConfigurationStore } from "../configuration/configurationStore.js"
 import type { RuntimeConfiguration } from "../configuration/runtimeConfigurationSchema.js"
 import type { DatabaseClient } from "../database/databaseClient.js"
 import { databaseReadyCheck } from "../database/databaseReadyCheck.js"
 import { developmentIdentityMiddleware } from "../identity/api/developmentIdentityMiddleware.js"
 import type { ProjectLimits } from "../project/projectLimitsSchema.js"
 import type { ProviderModelDiscoveryOptions } from "../providers/runtime/providerModelDiscovery.js"
+import { providerDelegationToolLoopCreate } from "../providers/runtime/providerDelegationToolLoopCreate.js"
 import { providerRuntimeAdapterCreate } from "../providers/runtime/providerRuntimeAdapterCreate.js"
+import { runCreate } from "../run/actions/runCreate.js"
+import { runCancel } from "../run/actions/runCancel.js"
+import { runCancellationCoordinatorCreate } from "../run/actions/runCancellationCoordinatorCreate.js"
+import { runDelegationExecute } from "../run/actions/runDelegationExecute.js"
+import { runExecutionSnapshotResolve } from "../run/actions/runExecutionSnapshotResolve.js"
+import { runLoad } from "../run/actions/runLoad.js"
+import { runRetryAttemptCreate } from "../run/actions/runRetryAttemptCreate.js"
+import { runTransition } from "../run/actions/runTransition.js"
 import { sessionChatAdapterCreate } from "../session/actions/sessionChatAdapterCreate.js"
 import { streamReplayServiceCreate } from "../stream/actions/streamReplayServiceCreate.js"
 import { appUiShellFallbackAdd } from "./appUiShellFallbackAdd.js"
 
 export type AppCreateOptions = {
   configuration?: RuntimeConfiguration
+  configurationStore?: ConfigurationStore
   database?: DatabaseClient
   databaseReadyCheck?: typeof databaseReadyCheck
   projectLimits?: ProjectLimits
   projectRootDir?: string
   providerConfiguration?: unknown
   providerEnvironment?: Readonly<Record<string, string | undefined>>
+  providerDelegationToolLoopCreate?: typeof providerDelegationToolLoopCreate
   providerFetch?: NonNullable<ProviderModelDiscoveryOptions["fetch"]>
   providerRuntimeAdapterCreate?: typeof providerRuntimeAdapterCreate
+  runCreate?: typeof runCreate
+  runCancel?: typeof runCancel
+  runCancellationCoordinator?: ReturnType<typeof runCancellationCoordinatorCreate>
+  runDelegationExecute?: typeof runDelegationExecute
+  runExecutionSnapshotResolve?: typeof runExecutionSnapshotResolve
+  runLoad?: typeof runLoad
+  runRetryAttemptCreate?: typeof runRetryAttemptCreate
+  runTransition?: typeof runTransition
   sessionChatAdapter?: typeof sessionChatAdapterCreate
   streamInactivityTimeoutMs?: number
   streamReplayServiceCreate?: typeof streamReplayServiceCreate
@@ -33,6 +53,7 @@ export type AppCreateOptions = {
 
 export function appCreate(options: AppCreateOptions = {}): App {
   const app = new Hono<AppEnvironment>()
+  const runCancellationCoordinator = options.runCancellationCoordinator ?? runCancellationCoordinatorCreate()
 
   app.get("/health", (context) => {
     const response = {
@@ -74,6 +95,16 @@ export function appCreate(options: AppCreateOptions = {}): App {
     providerEnvironment: options.providerEnvironment,
     providerFetch: options.providerFetch,
     providerRuntimeAdapterCreate: options.providerRuntimeAdapterCreate,
+    providerDelegationToolLoopCreate: options.providerDelegationToolLoopCreate,
+    configurationStore: options.configurationStore,
+    runCreate: options.runCreate,
+    runCancel: options.runCancel,
+    runCancellationCoordinator,
+    runExecutionSnapshotResolve: options.runExecutionSnapshotResolve,
+    runLoad: options.runLoad,
+    runRetryAttemptCreate: options.runRetryAttemptCreate,
+    runTransition: options.runTransition,
+    runDelegationExecute: options.runDelegationExecute,
     sessionChatAdapter: options.sessionChatAdapter,
     streamInactivityTimeoutMs: options.streamInactivityTimeoutMs,
     streamReplayServiceCreate: options.streamReplayServiceCreate,

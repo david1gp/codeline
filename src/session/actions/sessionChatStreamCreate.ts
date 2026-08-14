@@ -9,6 +9,7 @@ import { sessionChatAdapterCreate } from "./sessionChatAdapterCreate.js"
 
 type SessionChatStreamCreateOptions = {
   adapter: typeof sessionChatAdapterCreate
+  attemptOrdinal?: number
   cleanup?: () => void
   database: DatabaseClient
   history: Array<typeof messageTable.$inferSelect>
@@ -83,6 +84,7 @@ async function* sessionChatStreamGenerate(options: SessionChatStreamCreateOption
         runId: options.runId,
         sessionId: options.sessionId,
         signal: options.signal,
+        ...(options.attemptOrdinal === undefined ? {} : { attemptOrdinal: options.attemptOrdinal }),
       })) {
         if (options.signal.aborted) return
         if (terminal !== undefined) throw new Error("The chat adapter emitted data after completion.")

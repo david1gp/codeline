@@ -1,0 +1,484 @@
+import { createResult, createResultError, type Result } from "@adaptive-ds/result"
+import * as v from "valibot"
+import type { ExecutionStreamEvent } from "../../stream/schema/executionStreamEventSchema.js"
+import { executionStreamEventSchema } from "../../stream/schema/executionStreamEventSchema.js"
+import { runChildCreateInputSchema } from "../schema/runChildCreateInputSchema.js"
+import { runDelegationResultSchema, type RunDelegationResult } from "../schema/runDelegationResultSchema.js"
+import type { RunFailureMetadata } from "../schema/runFailureMetadataSchema.js"
+import type { RunTransitionInput } from "../schema/runTransitionInputSchema.js"
+import { attemptTable } from "../db/attemptTable.js"
+import { runDelegationTable } from "../db/runDelegationTable.js"
+import { runTable } from "../db/runTable.js"
+import { runRetryAdmissionResolve } from "./runRetryAdmissionResolve.js"
+
+const PRIVATE_RESULT_LIMIT = 16_384
+
+type RunDelegationChild = {
+  attempt: typeof attemptTable.$inferSelect
+  created: boolean
+  delegation: typeof runDelegationTable.$inferSelect
+  run: typeof runTable.$inferSelect
+}
+
+type RunDelegationRetry = {
+  attempt: typeof attemptTable.$inferSelect
+  created: boolean
+  run: typeof runTable.$inferSelect
+}
+
+type RunDelegationTransition = {
+  attempt?: typeof attemptTable.$inferSelect
+  run?: typeof runTable.$inferSelect
+}
+
+type RunDelegationExecuteOptions = {
+  attemptStreamCreate: (input: {
+    attempt: typeof attemptTable.$inferSelect
+    run: typeof runTable.$inferSelect
+    signal: AbortSignal
+    task: string
+  }) => AsyncIterable<ExecutionStreamEvent> | Promise<AsyncIterable<ExecutionStreamEvent>>
+  cancellationRegister: (input: {
+    controller: AbortController
+    runId: string
+    sessionId: string
+    userId: string
+  }) => () => void
+  childCreate: (input: {
+    delegationKey: string
+    parentAttemptId: string
+    parentRunId: string
+    task: string
+  }) => Promise<Result<RunDelegationChild>>
+  delegationFinalize: (delegationId: string, result: RunDelegationResult) => Promise<Result<unknown>>
+  retryAttemptCreate: (runId: string, options: { now: () => Date }) => Promise<Result<RunDelegationRetry>>
+  runTransition: (runId: string, input: RunTransitionInput) => Promise<Result<RunDelegationTransition>>
+  streamAppend: (input: {
+    eventType: string
+    idempotencyKey: string
+    payload: unknown
+    sequence: number
+    streamId: string
+  }) => Promise<Result<unknown>>
+  clearTimeout?: (handle: ReturnType<typeof setTimeout>) => void
+  now?: () => Date
+  setTimeout?: (handler: () => void, timeout: number) => ReturnType<typeof setTimeout>
+}
+
+type RunDelegationExecuteInput = {
+  delegationKey: string
+  parentAttempt: typeof attemptTable.$inferSelect
+  parentRun: typeof runTable.$inferSelect
+  task: string
+}
+
+type RunDelegationAttemptOutcome = {
+  failure: RunFailureMetadata | undefined
+  status: "aborted" | "failed" | "succeeded"
+  text: string
+}
+
+type RunDelegationAbortKind = "cancelled" | "deadline"
+
+function runDelegationFailureCreate(code: string, message: string): RunFailureMetadata {
+  return { code: code.slice(0, 100), message: message.trim().slice(0, 2_000) || "The delegated child run failed." }
+}
+
+function runDelegationResultCreate(
+  status: RunDelegationAttemptOutcome["status"],
+  text: string,
+  failure?: RunFailureMetadata,
+): Result<RunDelegationResult> {
+  const op = "runDelegationExecute"
+  const candidate = failure === undefined ? { status, text } : { failure, status, text }
+  const parsed = v.safeParse(runDelegationResultSchema, candidate)
+  if (!parsed.success) return createResultError(op, "The delegated child result is invalid.")
+  return createResult(parsed.output)
+}
+
+function runDelegationNowResolve(options: RunDelegationExecuteOptions): Result<Date> {
+  const now = options.now?.() ?? new Date()
+  if (Number.isNaN(now.getTime())) return createResultError("runDelegationExecute", "The delegation clock is invalid.")
+  return createResult(now)
+}
+
+function runDelegationAbortFailureCreate(kind: RunDelegationAbortKind): RunFailureMetadata {
+  return kind === "deadline"
+    ? runDelegationFailureCreate("child_deadline_exceeded", "The delegated child run reached its immutable deadline.")
+    : runDelegationFailureCreate("child_aborted", "The delegated child run was cancelled.")
+}
+
+function runDelegationAbortKindResolve(
+  controller: AbortController,
+  deadlineAt: Date,
+  deadlineTriggered: boolean,
+  options: RunDelegationExecuteOptions,
+): Result<RunDelegationAbortKind | null> {
+  const now = runDelegationNowResolve(options)
+  if (!now.success) return now
+  if (now.data.getTime() >= deadlineAt.getTime()) {
+    controller.abort()
+    return createResult("deadline")
+  }
+  if (!controller.signal.aborted) return createResult(null)
+  return createResult(deadlineTriggered ? "deadline" : "cancelled")
+}
+
+async function runDelegationIteratorNext<T>(
+  iterator: AsyncIterator<T>,
+  signal: AbortSignal,
+): Promise<{ aborted: boolean; result?: IteratorResult<T> }> {
+  let removeAbortListener: () => void = () => undefined
+  const abort = new Promise<{ aborted: boolean }>((resolve) => {
+    if (signal.aborted) {
+      resolve({ aborted: true })
+      return
+    }
+    const onAbort = () => resolve({ aborted: true })
+    removeAbortListener = () => signal.removeEventListener("abort", onAbort)
+    signal.addEventListener("abort", onAbort, { once: true })
+  })
+  const next = Promise.resolve(iterator.next()).then(
+    (result) => ({ aborted: false, result }),
+    () => ({ aborted: false, result: undefined }),
+  )
+  const result = await Promise.race([next, abort])
+  removeAbortListener()
+  return result
+}
+
+async function runDelegationAttemptExecute(
+  options: RunDelegationExecuteOptions,
+  run: typeof runTable.$inferSelect,
+  attempt: typeof attemptTable.$inferSelect,
+  task: string,
+  controller: AbortController,
+  deadlineTriggered: () => boolean,
+): Promise<Result<RunDelegationAttemptOutcome>> {
+  const op = "runDelegationExecute"
+  let sequence = 0
+  let text = ""
+  let outcome: RunDelegationAttemptOutcome | undefined
+  let appendFailure: string | undefined
+
+  const append = async (event: ExecutionStreamEvent): Promise<boolean> => {
+    sequence += 1
+    const persistedEvent: ExecutionStreamEvent =
+      event.eventType === "terminal"
+        ? {
+            eventType: "terminal",
+            payload: {
+              ...(event.payload.code === undefined ? {} : { code: event.payload.code }),
+              ...(event.payload.message === undefined ? {} : { message: event.payload.message }),
+              status: event.payload.status,
+            },
+          }
+        : event
+    let persisted: Result<unknown>
+    try {
+      persisted = await options.streamAppend({
+        eventType: persistedEvent.eventType,
+        idempotencyKey: `${attempt.id}:${sequence}`,
+        payload: persistedEvent.payload,
+        sequence,
+        streamId: attempt.streamId,
+      })
+    } catch (_error) {
+      appendFailure = "The child attempt event could not be persisted."
+      return false
+    }
+    if (!persisted.success) {
+      appendFailure = persisted.errorMessage
+      return false
+    }
+    if (persistedEvent.eventType === "text_delta") {
+      const remaining = PRIVATE_RESULT_LIMIT - text.length
+      if (remaining > 0) text += persistedEvent.payload.delta.slice(0, remaining)
+    }
+    return true
+  }
+
+  const terminalAppend = async (status: "aborted" | "error", failure: RunFailureMetadata): Promise<boolean> => {
+    const terminal: ExecutionStreamEvent = {
+      eventType: "terminal",
+      payload: {
+        code: failure.code,
+        message: failure.message,
+        status,
+      },
+    }
+    return append(terminal)
+  }
+
+  try {
+    let stream: AsyncIterable<ExecutionStreamEvent> | undefined
+    try {
+      stream = await options.attemptStreamCreate({ attempt, run, signal: controller.signal, task })
+    } catch (error) {
+      const failure = runDelegationFailureCreate(
+        "provider_failed",
+        error instanceof Error ? error.message : "The delegated child attempt failed.",
+      )
+      if (!(await terminalAppend("error", failure))) return createResultError(op, appendFailure ?? failure.message)
+      outcome = { failure, status: "failed", text }
+    }
+
+    if (outcome === undefined && stream !== undefined) {
+      const iterator = stream[Symbol.asyncIterator]()
+      while (true) {
+        const aborted = runDelegationAbortKindResolve(controller, run.deadlineAt, deadlineTriggered(), options)
+        if (!aborted.success) return aborted
+        if (aborted.data !== null) {
+          const failure = runDelegationAbortFailureCreate(aborted.data)
+          if (!(await terminalAppend("aborted", failure)))
+            return createResultError(op, appendFailure ?? failure.message)
+          outcome = { failure, status: "aborted", text }
+          break
+        }
+
+        const next = await runDelegationIteratorNext(iterator, controller.signal)
+        if (next.aborted) {
+          const kind = runDelegationAbortKindResolve(controller, run.deadlineAt, deadlineTriggered(), options)
+          if (!kind.success) return kind
+          const abortKind = kind.data ?? "cancelled"
+          const failure = runDelegationAbortFailureCreate(abortKind)
+          if (!(await terminalAppend("aborted", failure)))
+            return createResultError(op, appendFailure ?? failure.message)
+          outcome = { failure, status: "aborted", text }
+          break
+        }
+        if (next.result === undefined || next.result.done) break
+
+        const parsedEvent = v.safeParse(executionStreamEventSchema, next.result.value)
+        if (!parsedEvent.success) {
+          const failure = runDelegationFailureCreate(
+            "child_event_invalid",
+            "The child attempt emitted an invalid event.",
+          )
+          if (!(await terminalAppend("error", failure))) return createResultError(op, appendFailure ?? failure.message)
+          outcome = { failure, status: "failed", text }
+          break
+        }
+        if (!(await append(parsedEvent.output)))
+          return createResultError(op, appendFailure ?? "The child event could not be persisted.")
+
+        if (parsedEvent.output.eventType !== "terminal") continue
+        const terminal = parsedEvent.output.payload
+        if (terminal.status === "completed") {
+          outcome = { status: "succeeded", text, failure: undefined }
+        } else if (terminal.status === "aborted") {
+          outcome = {
+            failure: runDelegationFailureCreate(
+              terminal.code ?? "child_aborted",
+              terminal.message ?? "The child run was aborted.",
+            ),
+            status: "aborted",
+            text,
+          }
+        } else {
+          outcome = {
+            failure: runDelegationFailureCreate(
+              terminal.code ?? "provider_failed",
+              terminal.message ?? "The child run failed.",
+            ),
+            status: "failed",
+            text,
+          }
+        }
+        break
+      }
+    }
+
+    if (outcome !== undefined) return createResult(outcome)
+    const aborted = runDelegationAbortKindResolve(controller, run.deadlineAt, deadlineTriggered(), options)
+    if (!aborted.success) return aborted
+    if (aborted.data !== null) {
+      const failure = runDelegationAbortFailureCreate(aborted.data)
+      if (!(await terminalAppend("aborted", failure))) return createResultError(op, appendFailure ?? failure.message)
+      return createResult({ failure, status: "aborted", text })
+    }
+
+    const failure = runDelegationFailureCreate(
+      "provider_failed",
+      "The delegated child attempt ended before completion.",
+    )
+    if (!(await terminalAppend("error", failure))) return createResultError(op, appendFailure ?? failure.message)
+    return createResult({ failure, status: "failed", text })
+  } catch (_error) {
+    return createResultError(op, "The delegated child attempt could not be executed.")
+  }
+}
+
+export async function runDelegationExecute(
+  input: RunDelegationExecuteInput,
+  options: RunDelegationExecuteOptions,
+): Promise<Result<RunDelegationResult>> {
+  const op = "runDelegationExecute"
+  const parsedInput = v.safeParse(runChildCreateInputSchema, {
+    delegationKey: input.delegationKey,
+    parentAttemptId: input.parentAttempt.id,
+    parentRunId: input.parentRun.id,
+    task: input.task,
+  })
+  if (!parsedInput.success) return createResultError(op, "The delegated child input is invalid.")
+  if (
+    input.parentAttempt.runId !== input.parentRun.id ||
+    input.parentAttempt.sessionId !== input.parentRun.sessionId ||
+    input.parentAttempt.userId !== input.parentRun.userId
+  ) {
+    return createResultError(op, "The trusted parent run and attempt are inconsistent.")
+  }
+  if (input.parentRun.status !== "running" || input.parentAttempt.status !== "running") {
+    return createResultError(op, "The trusted parent attempt is not running.")
+  }
+
+  const child = await options.childCreate(parsedInput.output)
+  if (!child.success) return createResultError(op, child.errorMessage)
+  if (child.data.delegation.finalizedResult !== null) {
+    const finalized = v.safeParse(runDelegationResultSchema, child.data.delegation.finalizedResult)
+    if (!finalized.success) return createResultError(op, "The finalized delegation result is invalid.")
+    return createResult(finalized.output)
+  }
+  if (child.data.run.deadlineAt.getTime() !== input.parentRun.deadlineAt.getTime()) {
+    return createResultError(op, "The child run deadline is not inherited from the parent.")
+  }
+  if (child.data.run.status !== "accepted" || child.data.attempt.status !== "accepted") {
+    return createResultError(op, "The delegated child attempt is not accepted for execution.")
+  }
+
+  const controller = new AbortController()
+  let deadlineTriggered = false
+  const unregister = options.cancellationRegister({
+    controller,
+    runId: child.data.run.id,
+    sessionId: input.parentRun.sessionId,
+    userId: input.parentRun.userId,
+  })
+  let deadlineTimer: ReturnType<typeof setTimeout> | undefined
+  const now = runDelegationNowResolve(options)
+  if (!now.success) {
+    unregister()
+    return now
+  }
+  const deadlineDelay = child.data.run.deadlineAt.getTime() - now.data.getTime()
+  if (deadlineDelay <= 0) {
+    deadlineTriggered = true
+    controller.abort()
+  } else {
+    const setTimeoutFn = options.setTimeout ?? globalThis.setTimeout
+    deadlineTimer = setTimeoutFn(() => {
+      deadlineTriggered = true
+      controller.abort()
+    }, deadlineDelay) as ReturnType<typeof setTimeout>
+  }
+
+  let currentRun = child.data.run
+  let currentAttempt = child.data.attempt
+  try {
+    while (true) {
+      const abortKind = runDelegationAbortKindResolve(controller, currentRun.deadlineAt, deadlineTriggered, options)
+      if (!abortKind.success) return abortKind
+      if (abortKind.data !== null) {
+        const failure = runDelegationAbortFailureCreate(abortKind.data)
+        const finalized = await options.delegationFinalize(child.data.delegation.id, {
+          failure,
+          status: "aborted",
+          text: "",
+        })
+        if (!finalized.success) return createResultError(op, finalized.errorMessage)
+        return createResult({ failure, status: "aborted", text: "" })
+      }
+
+      const running = await options.runTransition(currentRun.id, { status: "running" })
+      if (!running.success) return createResultError(op, running.errorMessage)
+      if (running.data.run !== undefined) currentRun = running.data.run
+      if (running.data.attempt !== undefined) currentAttempt = running.data.attempt
+
+      const attempt = await runDelegationAttemptExecute(
+        options,
+        currentRun,
+        currentAttempt,
+        parsedInput.output.task,
+        controller,
+        () => deadlineTriggered,
+      )
+      if (!attempt.success) return attempt
+
+      const postAttemptAbort = runDelegationAbortKindResolve(
+        controller,
+        currentRun.deadlineAt,
+        deadlineTriggered,
+        options,
+      )
+      if (!postAttemptAbort.success) return postAttemptAbort
+      if (postAttemptAbort.data !== null && attempt.data.status !== "aborted") {
+        const failure = runDelegationAbortFailureCreate(postAttemptAbort.data)
+        const finalized = await options.delegationFinalize(child.data.delegation.id, {
+          failure,
+          status: "aborted",
+          text: attempt.data.text,
+        })
+        if (!finalized.success) return createResultError(op, finalized.errorMessage)
+        return createResult({ failure, status: "aborted", text: attempt.data.text })
+      }
+
+      if (attempt.data.status === "aborted") {
+        const finalized = await options.delegationFinalize(child.data.delegation.id, {
+          failure: attempt.data.failure ?? runDelegationAbortFailureCreate("cancelled"),
+          status: "aborted",
+          text: attempt.data.text,
+        })
+        if (!finalized.success) return createResultError(op, finalized.errorMessage)
+        return createResult({
+          failure: attempt.data.failure ?? runDelegationAbortFailureCreate("cancelled"),
+          status: "aborted",
+          text: attempt.data.text,
+        })
+      }
+      if (attempt.data.status === "succeeded") {
+        const succeeded = runDelegationResultCreate("succeeded", attempt.data.text)
+        if (!succeeded.success) return succeeded
+        const finalized = await options.delegationFinalize(child.data.delegation.id, succeeded.data)
+        if (!finalized.success) return createResultError(op, finalized.errorMessage)
+        return succeeded
+      }
+
+      const failure = attempt.data.failure ?? runDelegationFailureCreate("provider_failed", "The child run failed.")
+      const retryAdmission = runRetryAdmissionResolve({
+        attemptOrdinal: currentAttempt.ordinal,
+        attemptStatus: "failed",
+        budget: currentRun.budget,
+        failure,
+      })
+      if (!retryAdmission.success) return retryAdmission
+      if (retryAdmission.data.decision !== "retry") {
+        const failed = runDelegationResultCreate("failed", attempt.data.text, failure)
+        if (!failed.success) return failed
+        const finalized = await options.delegationFinalize(child.data.delegation.id, failed.data)
+        if (!finalized.success) return createResultError(op, finalized.errorMessage)
+        return failed
+      }
+
+      const transitioned = await options.runTransition(currentRun.id, { failure, status: "failed" })
+      if (!transitioned.success) return createResultError(op, transitioned.errorMessage)
+      if (transitioned.data.run !== undefined) currentRun = transitioned.data.run
+      if (transitioned.data.attempt !== undefined) currentAttempt = transitioned.data.attempt
+      const retry = await options.retryAttemptCreate(currentRun.id, { now: options.now ?? (() => new Date()) })
+      if (!retry.success) {
+        const failed = runDelegationResultCreate("failed", attempt.data.text, failure)
+        if (!failed.success) return failed
+        const finalized = await options.delegationFinalize(child.data.delegation.id, failed.data)
+        if (!finalized.success) return createResultError(op, finalized.errorMessage)
+        return failed
+      }
+      if (retry.data.attempt.status !== "accepted" || retry.data.run.status !== "accepted") {
+        return createResultError(op, "The next delegated child attempt is not accepted for execution.")
+      }
+      currentAttempt = retry.data.attempt
+      currentRun = retry.data.run
+    }
+  } finally {
+    if (deadlineTimer !== undefined) (options.clearTimeout ?? globalThis.clearTimeout)(deadlineTimer)
+    unregister()
+  }
+}

@@ -11,6 +11,7 @@ export type ProviderRuntimeAdapterOptions = {
   chunks?: readonly string[]
   configuration: AgentConfiguration
   environment: Readonly<Record<string, string | undefined>>
+  fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
   failure?: CliProxyApiAdapterFailure
 }
 
@@ -22,6 +23,7 @@ export function providerRuntimeAdapterCreate(options: ProviderRuntimeAdapterOpti
   return cliProxyApiAdapterCreate({
     chunks: options.chunks,
     environment: options.environment,
+    ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
     failure: options.failure,
     label: options.configuration.provider === "codex-lb" ? "Codex-LB" : "CLIProxyAPI",
     settings: {
@@ -49,6 +51,28 @@ async function providerRuntimeAdapterWait(signal: AbortSignal): Promise<boolean>
   })
 }
 
+function providerRuntimeDelegationTasksResolve(
+  prompt: string,
+  history: Array<{ role: string }>,
+  tools: Array<{ name: string }> | undefined,
+): Array<string> | null {
+  if (!tools?.some((tool) => tool.name === "delegate_task")) return null
+  if (history.some((message) => message.role === "tool")) return null
+
+  const trimmed = prompt.trim()
+  if (trimmed.startsWith("delegate-twice:")) {
+    const tasks = trimmed
+      .slice("delegate-twice:".length)
+      .split("|")
+      .map((task) => task.trim())
+      .filter((task) => task.length > 0)
+    return tasks.length > 0 ? tasks.slice(0, 2) : [trimmed]
+  }
+  if (!trimmed.startsWith("delegate:")) return null
+  const task = trimmed.slice("delegate:".length).trim()
+  return [task.length > 0 ? task : trimmed]
+}
+
 async function* providerRuntimeDeterministicGenerate(
   options: ProviderRuntimeAdapterOptions,
   input: CliProxyApiAdapterInput,
@@ -71,6 +95,36 @@ async function* providerRuntimeDeterministicGenerate(
       code: failure.code ?? "provider_runtime_injected_failure",
       message: failure.message ?? "Provider runtime adapter injected failure.",
       timestamp: Date.now(),
+    }
+    return
+  }
+
+  const delegationTasks = providerRuntimeDelegationTasksResolve(input.prompt, input.history, input.tools)
+  if (delegationTasks !== null) {
+    if (!(await providerRuntimeAdapterWait(input.signal))) return
+    for (const [index, task] of delegationTasks.entries()) {
+      const toolCallId = `${input.runId}:delegate:${index + 1}`
+      yield {
+        timestamp: Date.now(),
+        toolCallId,
+        toolCallName: "delegate_task",
+        toolName: "delegate_task",
+        type: EventType.TOOL_CALL_START,
+      }
+      yield {
+        delta: JSON.stringify({ task }),
+        timestamp: Date.now(),
+        toolCallId,
+        type: EventType.TOOL_CALL_ARGS,
+      }
+    }
+    yield {
+      finishReason: "tool_calls",
+      outcome: { type: "success" },
+      runId: input.runId,
+      threadId: input.sessionId,
+      timestamp: Date.now(),
+      type: EventType.RUN_FINISHED,
     }
     return
   }

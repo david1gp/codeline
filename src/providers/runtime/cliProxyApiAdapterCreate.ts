@@ -1,6 +1,8 @@
-import { EventType, type StreamChunk } from "@tanstack/ai"
+import { EventType, type AnyTool, type ModelMessage, type StreamChunk } from "@tanstack/ai"
+import { InternalLogger } from "@tanstack/ai/adapter-internals"
 import type { sessionChatAdapterCreate } from "../../session/actions/sessionChatAdapterCreate.js"
 import type { CliProxyApiSettings } from "./cliProxyApiSettingsParse.js"
+import { providerOpenAiCompatibleTextAdapterCreate } from "./providerOpenAiCompatibleTextAdapterCreate.js"
 import { secretReferenceResolve } from "./secretReferenceResolve.js"
 
 export type CliProxyApiAdapterFailure = {
@@ -13,12 +15,15 @@ export type CliProxyApiAdapterFailure = {
 export type CliProxyApiAdapterOptions = {
   chunks?: readonly string[]
   environment: Readonly<Record<string, string | undefined>>
+  fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
   failure?: CliProxyApiAdapterFailure
   label?: string
   settings: CliProxyApiSettings
 }
 
-export type CliProxyApiAdapterInput = Parameters<typeof sessionChatAdapterCreate>[0]
+export type CliProxyApiAdapterInput = Parameters<typeof sessionChatAdapterCreate>[0] & {
+  tools?: Array<AnyTool>
+}
 
 export type CliProxyApiAdapter = (input: CliProxyApiAdapterInput) => AsyncIterable<StreamChunk>
 
@@ -53,6 +58,82 @@ async function cliProxyApiAdapterWait(signal: AbortSignal): Promise<boolean> {
   })
 }
 
+function cliProxyApiAdapterLoggerCreate(): InstanceType<typeof InternalLogger> {
+  return new InternalLogger(
+    { debug: () => undefined, error: () => undefined, info: () => undefined, warn: () => undefined },
+    {
+      agentLoop: false,
+      config: false,
+      errors: false,
+      middleware: false,
+      output: false,
+      provider: false,
+      request: false,
+      sandbox: false,
+      tools: false,
+    },
+  )
+}
+
+function cliProxyApiModelMessagesResolve(input: CliProxyApiAdapterInput): Array<ModelMessage> {
+  const messages: Array<ModelMessage> = []
+  for (const message of input.history as Array<{
+    content: unknown
+    role: string
+    toolCallId?: string
+    toolCalls?: ModelMessage["toolCalls"]
+  }>) {
+    if (message.role !== "user" && message.role !== "assistant" && message.role !== "tool") continue
+    const content =
+      typeof message.content === "string" || message.content === null || Array.isArray(message.content)
+        ? message.content
+        : JSON.stringify(message.content)
+    messages.push({
+      content,
+      role: message.role,
+      ...(message.toolCallId === undefined ? {} : { toolCallId: message.toolCallId }),
+      ...(message.toolCalls === undefined ? {} : { toolCalls: message.toolCalls }),
+    } as ModelMessage)
+  }
+
+  const last = messages.at(-1)
+  if (last?.role !== "user" || last.content !== input.prompt) {
+    messages.push({ content: input.prompt, role: "user" })
+  }
+  return messages
+}
+
+async function* cliProxyApiAdapterProviderGenerate(
+  options: CliProxyApiAdapterOptions,
+  input: CliProxyApiAdapterInput,
+  secret: string,
+): AsyncGenerator<StreamChunk> {
+  if (options.fetch === undefined) return
+
+  const adapter = providerOpenAiCompatibleTextAdapterCreate({
+    baseUrl: options.settings.baseUrl,
+    fetch: options.fetch,
+    model: options.settings.model,
+    provider: options.label === "Codex-LB" ? "codex-lb" : "cliproxyapi",
+    resolvedBearerSecret: secret,
+  })
+  const stream = adapter.chatStream({
+    logger: cliProxyApiAdapterLoggerCreate(),
+    messages: cliProxyApiModelMessagesResolve(input),
+    model: options.settings.model,
+    modelOptions: {
+      max_tokens: options.settings.maxTokens,
+      temperature: options.settings.temperature,
+      ...(input.tools !== undefined && input.tools.length > 0 ? { parallel_tool_calls: false } : {}),
+    },
+    request: { signal: input.signal },
+    runId: input.runId,
+    threadId: input.sessionId,
+    ...(input.tools === undefined ? {} : { tools: input.tools }),
+  })
+  for await (const chunk of stream) yield chunk
+}
+
 async function* cliProxyApiAdapterGenerate(
   options: CliProxyApiAdapterOptions,
   input: CliProxyApiAdapterInput,
@@ -76,6 +157,11 @@ async function* cliProxyApiAdapterGenerate(
       message: secretResult.errorMessage,
       timestamp: Date.now(),
     }
+    return
+  }
+
+  if (options.fetch !== undefined) {
+    yield* cliProxyApiAdapterProviderGenerate(options, input, secretResult.data.value)
     return
   }
 

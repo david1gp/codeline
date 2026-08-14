@@ -39,7 +39,14 @@ function providerExecutionEventParse(input: unknown): Result<ProviderExecutionEv
 function providerExecutionEventTerminalStatus(outcome: unknown): "aborted" | "completed" | "error" {
   if (typeof outcome !== "object" || outcome === null || !("type" in outcome)) return "completed"
   if (outcome.type === "success") return "completed"
-  if (outcome.type === "interrupted" || outcome.type === "cancelled" || outcome.type === "canceled") return "aborted"
+  if (
+    outcome.type === "interrupt" ||
+    outcome.type === "interrupted" ||
+    outcome.type === "cancelled" ||
+    outcome.type === "canceled"
+  ) {
+    return "aborted"
+  }
   return "error"
 }
 

@@ -6,6 +6,7 @@ export function runRetryAttemptCreate(
   userId: string,
   sessionId: string,
   runId: string,
+  options: Parameters<typeof runRepositoryRetryAttemptCreate>[4] = {},
 ): ReturnType<typeof runRepositoryRetryAttemptCreate> {
-  return runRepositoryRetryAttemptCreate(database, userId, sessionId, runId)
+  return runRepositoryRetryAttemptCreate(database, userId, sessionId, runId, options)
 }

@@ -47,6 +47,8 @@ export async function runRepositoryCreate(
   if (!parsedInput.success) return createResultError(op, "The run creation input is invalid.")
   const parsedBudget = v.safeParse(runBudgetSchema, parsedInput.output.budget ?? {})
   if (!parsedBudget.success) return createResultError(op, "The run budget is invalid.")
+  const createdAt = new Date()
+  const deadlineAt = new Date(createdAt.getTime() + parsedBudget.output.maxDurationMs)
 
   return databaseTransactionRun<RunCreateResult>(database as DatabaseClient, async (transaction) => {
     try {
@@ -91,6 +93,8 @@ export async function runRepositoryCreate(
         .values({
           budget: parsedBudget.output,
           clientRunId: parsedInput.output.clientRunId,
+          createdAt,
+          deadlineAt,
           failure: null,
           id: runId,
           sessionId,

@@ -29,11 +29,16 @@ type RunRetryAttemptCreateResult = {
   run: typeof runTable.$inferSelect
 }
 
+type RunRetryAttemptCreateOptions = {
+  now?: () => Date
+}
+
 export async function runRepositoryRetryAttemptCreate(
   database: DatabaseExecutor,
   userId: string,
   sessionId: string,
   runId: string,
+  options: RunRetryAttemptCreateOptions = {},
 ): Promise<Result<RunRetryAttemptCreateResult>> {
   const op = "runRepositoryRetryAttemptCreate"
 
@@ -98,6 +103,15 @@ export async function runRepositoryRetryAttemptCreate(
         return createResultError(op, `The run retry was not admitted: ${admission.data.reason}.`)
       }
 
+      if (run.cancellationRequestedAt !== null) {
+        return createResultError(op, "The run retry was not admitted: cancelled.")
+      }
+      const now = options.now?.() ?? new Date()
+      if (Number.isNaN(now.getTime())) return createResultError(op, "The retry clock is invalid.")
+      if (now.getTime() >= run.deadlineAt.getTime()) {
+        return createResultError(op, "The run retry was not admitted: deadline_exceeded.")
+      }
+
       const nextAttemptOrdinal = admission.data.nextAttemptOrdinal
       const [attempt] = await transaction
         .insert(attemptTable)
@@ -115,7 +129,6 @@ export async function runRepositoryRetryAttemptCreate(
         .returning()
       if (attempt === undefined) return createResultError(op, "The next run attempt could not be created.")
 
-      const now = new Date()
       const [updatedRun] = await transaction
         .update(runTable)
         .set({

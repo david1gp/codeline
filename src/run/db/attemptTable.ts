@@ -30,6 +30,7 @@ export const attemptTable = pgTable(
   (table) => [
     unique("attempt_run_ordinal_unique").on(table.runId, table.ordinal),
     unique("attempt_stream_id_unique").on(table.streamId),
+    unique("attempt_user_session_run_id_unique").on(table.userId, table.sessionId, table.runId, table.id),
     foreignKey({
       name: "attempt_run_ownership_consistency_fk",
       columns: [table.userId, table.sessionId, table.runId],
