@@ -22,7 +22,7 @@ Quick Links
 
 ## Status
 
-This is a runnable foundation, not yet a complete coding agent. The Solid UI checks application health and uses Zero for its active session list, URL-backed session selection, and finalized message rendering. Server and agent selectors and the composer remain disabled.
+This is a runnable foundation, not yet a complete coding agent. The Solid UI checks application health, uses Zero for its active session list and finalized message rendering, and provides URL-backed session selection plus executable server/agent target selectors. The composer remains disabled.
 
 The Hono API persists sessions and finalized messages in PostgreSQL. Zero synchronizes those reads into the browser; writes still go through the application API.
 
@@ -92,6 +92,7 @@ bun install
 cp .env.example .env
 chmod 600 .env
 # Replace the local password/admin placeholders in .env. Keep all real values there.
+./ops/dev/git-store-link.sh setup
 ./ops/dev/zero-link.sh setup
 ./ops/dev/codeline-dev.sh config
 ./ops/dev/codeline-dev.sh build
@@ -99,6 +100,14 @@ chmod 600 .env
 ./ops/dev/codeline-dev.sh migrate
 ./ops/dev/codeline-dev.sh status
 bun run dev
+```
+
+Project discovery roots are configured with `CODELINE_PROJECT_ROOTS` as a JSON string array. Omit the variable, or leave it blank, to discover projects from the operating-system home directory. Set it to an explicit empty array (`[]`) to disable project discovery. Relative roots are normalized from the Codeline process working directory and duplicate roots are removed.
+
+For example, configure multiple roots with:
+
+```dotenv
+CODELINE_PROJECT_ROOTS=["./projects","../shared-projects"]
 ```
 
 Services use an isolated `codeline-dev` network and named volumes (`codeline-dev-postgres` and `codeline-dev-zero`). The managed host listeners are UI `127.0.0.1:6000`, API `127.0.0.1:6001`, PostgreSQL `127.0.0.1:6002`, and Zero sync `http://127.0.0.1:6003`. PostgreSQL and Zero retain their upstream-required container ports `5432` and `4848`; the Vite server proxies `/api` to `http://127.0.0.1:6001`.
@@ -115,6 +124,17 @@ Set up or verify the local Zero link without using registry Zero:
 After cloning, run `./ops/dev/zero-link.sh setup` from a Codeline checkout. `ZERO_CHECKOUT` in `.env` selects the pinned Zero checkout and defaults to `/home/david/opensource/zero`. Setup builds `packages/zero` with `pnpm@11.11.0`, registers that public package with Bun, and links `@rocicorp/zero` into Codeline. Setup and verify are idempotent.
 
 This is intentionally the latest local Zero workflow. It is not reproducible from a clean clone or CI yet; that work is deferred. `ops/dev/zero-pkgs/` remains ignored for old local artifacts but is not used.
+
+Set up or verify the local git-store link:
+
+```bash
+bun run git-store:link
+bun run git-store:verify
+```
+
+The link script installs and builds the checkout at `/home/david/adaptive/git-store`, runs `bun link` in that checkout, and links `@adaptive-ds/git-store` into Codeline. Set `GIT_STORE_CHECKOUT` in the environment or ignored `.env` to use another local checkout. Configuration writes always use `autoPush: false`; this setup does not add or use remote pushes.
+
+Like the Zero link, this is a local-checkout workflow and is not reproducible from a clean Codeline clone or CI. A clean clone needs the git-store checkout, its built `dist/`, and the local Bun link before Codeline dependencies and checks can resolve.
 
 GitHub Actions is used only to publish tagged releases, matching the other Adaptive packages. Full checks are not viable from a clean clone until Zero dependency reproducibility is revisited. Typecheck, tests, build, and database checks remain local commands after the Zero link is established.
 
@@ -138,7 +158,7 @@ bun run db:generate
 ./ops/dev/codeline-dev.sh migrate
 ```
 
-Seed deterministic local example data through the repository-owned command. It applies Drizzle migrations first, then reconciles the local-development user, one server and agent, two active sessions, one archived session, and finalized messages. Repeated default runs preserve unrelated rows; `--reset` removes and recreates only the known fixture-owned rows.
+Seed deterministic local example data through the repository-owned command. It applies Drizzle migrations first, then reconciles the local-development user, two servers, three agents, three active sessions, one archived session, and finalized messages. Repeated default runs preserve unrelated rows; `--reset` removes and recreates only the known fixture-owned rows.
 
 ```bash
 bun run db:seed
