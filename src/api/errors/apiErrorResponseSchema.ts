@@ -7,6 +7,7 @@ export const apiErrorResponseSchema = v.object({
       "conflict",
       "database_not_ready",
       "development_identity_unavailable",
+      "forbidden",
       "internal_server_error",
       "not_found",
       "unauthorized",

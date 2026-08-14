@@ -42,7 +42,7 @@ export function apiSessionBranchRoutesAdd(api: Hono<AppEnvironment>): void {
     if (!parsed.success) return badRequest(context)
 
     const result = await databaseTransactionRun(context.var.database, (transaction) =>
-      sessionBranch(transaction, context.var.developmentUser.id, context.req.param("sessionId"), parsed.data),
+      sessionBranch(transaction, context.var.requestIdentity.userId, context.req.param("sessionId"), parsed.data),
     )
     if (!result.success) {
       if (

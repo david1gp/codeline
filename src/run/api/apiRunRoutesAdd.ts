@@ -45,7 +45,7 @@ export function apiRunRoutesAdd(api: Hono<AppEnvironment>, options: ApiRunRoutes
     const sessionId = context.req.param("sessionId")
     const loaded = await (options.runLoad ?? runLoad)(
       context.var.database,
-      context.var.developmentUser.id,
+      context.var.requestIdentity.userId,
       sessionId,
       context.req.param("runId"),
     )
@@ -56,7 +56,7 @@ export function apiRunRoutesAdd(api: Hono<AppEnvironment>, options: ApiRunRoutes
 
     const result = await (options.runCancel ?? runCancel)(
       context.var.database,
-      context.var.developmentUser.id,
+      context.var.requestIdentity.userId,
       sessionId,
       loaded.data.run.id,
       parsed.data,
@@ -72,7 +72,7 @@ export function apiRunRoutesAdd(api: Hono<AppEnvironment>, options: ApiRunRoutes
       options.runCancellationCoordinator?.abort({
         runIds: result.data.cancelledRunIds,
         sessionId,
-        userId: context.var.developmentUser.id,
+        userId: context.var.requestIdentity.userId,
       }) ?? []
     return context.json({ ...result.data, signalledRunIds })
   })

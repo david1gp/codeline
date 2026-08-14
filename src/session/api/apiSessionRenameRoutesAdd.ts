@@ -44,7 +44,7 @@ export function apiSessionRenameRoutesAdd(api: Hono<AppEnvironment>): void {
     if (!parsed.success) return badRequest(context)
 
     const result = await databaseTransactionRun(context.var.database, (transaction) =>
-      sessionRename(transaction, context.var.developmentUser.id, context.req.param("sessionId"), parsed.data.title),
+      sessionRename(transaction, context.var.requestIdentity.userId, context.req.param("sessionId"), parsed.data.title),
     )
     if (!result.success) {
       if (result.errorMessage.includes("archived")) return conflict(context)

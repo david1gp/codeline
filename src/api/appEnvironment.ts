@@ -1,11 +1,11 @@
 import type { Hono } from "hono"
 import type { DatabaseClient } from "../database/databaseClient.js"
-import type { DevelopmentUser } from "../identity/db/developmentUserUpsert.js"
+import type { RequestIdentity } from "../identity/requestIdentity.js"
 
 export type AppEnvironment = {
   Variables: {
     database: DatabaseClient
-    developmentUser: DevelopmentUser
+    requestIdentity: RequestIdentity
   }
 }
 

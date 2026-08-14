@@ -14,6 +14,7 @@ import { databaseTransactionRun } from "../../database/databaseTransactionRun.js
 import type { CliProxyApiAdapter } from "../../providers/runtime/cliProxyApiAdapterCreate.js"
 import { providerDelegationAdapterCreate } from "../../providers/runtime/providerDelegationAdapterCreate.js"
 import { providerDelegationToolLoopCreate } from "../../providers/runtime/providerDelegationToolLoopCreate.js"
+import { providerDeterministicScenarioResolve } from "../../providers/runtime/providerDeterministicScenarioResolve.js"
 import { providerExecutionEventFromStreamChunk } from "../../providers/runtime/providerExecutionEventFromStreamChunk.js"
 import type { ProviderModelDiscoveryOptions } from "../../providers/runtime/providerModelDiscovery.js"
 import { providerRuntimeAdapterCreate } from "../../providers/runtime/providerRuntimeAdapterCreate.js"
@@ -97,8 +98,9 @@ const sessionChatDefaultInactivityTimeoutMs = 120_000
 const sessionChatRootBudget = { maxChildDepth: 1, maxChildRuns: 1 } as const
 
 function sessionChatRootBudgetResolve(configuration: AgentConfiguration) {
-  void configuration
-  return sessionChatRootBudget
+  const scenario =
+    configuration.provider === "deterministic" ? providerDeterministicScenarioResolve(configuration.model) : null
+  return scenario === null ? sessionChatRootBudget : { ...sessionChatRootBudget, maxAttempts: scenario.maxAttempts }
 }
 
 function sessionChatStreamIdCreate(sessionId: string, runId: string): string {
@@ -247,10 +249,11 @@ async function sessionChatReplayEventsLoad(
 
 export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessionRoutesOptions = {}): void {
   api.get("/sessions", async (context) => {
+    const userId = context.var.requestIdentity.userId
     const parsed = apiRequestParse("sessionQueryParse", sessionQuerySchema, context.req.query())
     if (!parsed.success) return badRequest(context, "The session query is invalid.")
 
-    const result = await sessionList(context.var.database, context.var.developmentUser.id, {
+    const result = await sessionList(context.var.database, userId, {
       cursor: parsed.data.cursor,
       includeArchived: parsed.data.includeArchived === "1",
       limit: parsed.data.limit,
@@ -268,12 +271,13 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
   })
 
   api.post("/sessions", async (context) => {
+    const userId = context.var.requestIdentity.userId
     const body = await context.req.json<unknown>().catch(() => undefined)
     const parsed = apiRequestParse("sessionCreateRequestParse", sessionCreateRequestSchema, body)
     if (!parsed.success) return badRequest(context, "The session request is invalid.")
 
     const result = await databaseTransactionRun(context.var.database, (transaction) =>
-      sessionCreate(transaction, context.var.developmentUser.id, parsed.data),
+      sessionCreate(transaction, userId, parsed.data),
     )
     if (!result.success) {
       if (result.errorMessage.includes("could not be found")) return notFound(context)
@@ -284,6 +288,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
   })
 
   api.post("/sessions/:sessionId/chat", async (context) => {
+    const userId = context.var.requestIdentity.userId
     const body = await context.req.json<unknown>().catch(() => undefined)
     const parsed = apiRequestParse("sessionChatRequestParse", sessionChatRequestSchema, body)
     if (!parsed.success) return badRequest(context, "The chat request is invalid.")
@@ -304,7 +309,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     let admittedAttempts: Array<typeof attemptTable.$inferSelect> = []
     let activeRun: typeof runTable.$inferSelect | undefined
     let activeAttempt: typeof attemptTable.$inferSelect | undefined
-    const loaded = await sessionLoad(context.var.database, context.var.developmentUser.id, sessionId)
+    const loaded = await sessionLoad(context.var.database, userId, sessionId)
     if (!loaded.success)
       return loaded.errorMessage.includes("could not be found") ? notFound(context) : internalServerError(context)
     if (loaded.data.session.archivedAt !== null) return conflict(context, "The session is archived.")
@@ -312,7 +317,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     if (options.configurationStore !== undefined) {
       const admission = await sessionChatAdmissionResolve(
         context.var.database,
-        context.var.developmentUser.id,
+        userId,
         sessionId,
         parsed.data.runId,
         { agentId: loaded.data.session.primaryAgentId, serverId: loaded.data.session.serverId },
@@ -325,17 +330,12 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
       }
       runtimeConfiguration = admission.data.runtimeConfiguration
 
-      const created = await (options.runCreate ?? runCreate)(
-        context.var.database,
-        context.var.developmentUser.id,
-        sessionId,
-        {
-          budget: sessionChatRootBudgetResolve(runtimeConfiguration ?? admission.data.snapshot.configuration),
-          clientRunId: parsed.data.runId,
-          snapshot: admission.data.snapshot,
-          streamId: sessionChatStreamIdCreate(sessionId, parsed.data.runId),
-        },
-      )
+      const created = await (options.runCreate ?? runCreate)(context.var.database, userId, sessionId, {
+        budget: sessionChatRootBudgetResolve(runtimeConfiguration ?? admission.data.snapshot.configuration),
+        clientRunId: parsed.data.runId,
+        snapshot: admission.data.snapshot,
+        streamId: sessionChatStreamIdCreate(sessionId, parsed.data.runId),
+      })
       if (!created.success) {
         if (created.errorMessage.includes("could not be found")) return notFound(context)
         if (created.errorMessage.includes("conflicts")) return conflict(context, created.errorMessage)
@@ -382,21 +382,14 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
           },
           cancellationRegister: (registration) =>
             options.runCancellationCoordinator?.register(registration) ?? (() => undefined),
-          childCreate: (childInput) =>
-            runChildCreate(context.var.database, context.var.developmentUser.id, sessionId, childInput),
+          childCreate: (childInput) => runChildCreate(context.var.database, userId, sessionId, childInput),
           delegationFinalize: (delegationId, result) =>
-            runDelegationFinalize(
-              context.var.database,
-              context.var.developmentUser.id,
-              sessionId,
-              delegationId,
-              result,
-            ),
+            runDelegationFinalize(context.var.database, userId, sessionId, delegationId, result),
           retryAttemptCreate: (runId, retryOptions) =>
-            runRetryAttemptCreate(context.var.database, context.var.developmentUser.id, sessionId, runId, retryOptions),
+            runRetryAttemptCreate(context.var.database, userId, sessionId, runId, retryOptions),
           runTransition: (runId, transition) =>
-            runTransition(context.var.database, context.var.developmentUser.id, sessionId, runId, transition),
-          streamAppend: (event) => streamAppend(context.var.database, context.var.developmentUser.id, sessionId, event),
+            runTransition(context.var.database, userId, sessionId, runId, transition),
+          streamAppend: (event) => streamAppend(context.var.database, userId, sessionId, event),
         },
       )
       if (!childExecute.success) throw new Error(childExecute.errorMessage)
@@ -405,7 +398,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     }
 
     const prepared = await databaseTransactionRun(context.var.database, (transaction) =>
-      sessionChatPrepare(transaction, context.var.developmentUser.id, sessionId, {
+      sessionChatPrepare(transaction, userId, sessionId, {
         clientRequestId: parsed.data.runId,
         content: prompt,
       }),
@@ -430,7 +423,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
       inactivityTimeoutMs,
       sessionId,
       streamId: initialStreamId,
-      userId: context.var.developmentUser.id,
+      userId,
     })
     const started = await initialReplayService.start()
     if (!started.success) return internalServerError(context)
@@ -441,7 +434,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
         inactivityTimeoutMs,
         sessionId,
         streamReplayServiceCreate: replayServiceCreate,
-        userId: context.var.developmentUser.id,
+        userId,
       })
       if (!replay.success) return internalServerError(context)
       stream = sessionChatStreamReplay(replay.data, eventIds)
@@ -458,21 +451,25 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
           runtimeAdapterCreate: options.providerRuntimeAdapterCreate,
         })
         if (!resolved.success) return internalServerError(context)
+        const deterministicScenario =
+          runtimeConfiguration.provider === "deterministic"
+            ? providerDeterministicScenarioResolve(runtimeConfiguration.model)
+            : null
         adapter =
-          activeRun === undefined
-            ? resolved.data
-            : providerDelegationAdapterCreate({
+          activeRun !== undefined && deterministicScenario === null
+            ? providerDelegationAdapterCreate({
                 adapter: resolved.data,
                 delegateTask: delegatedTaskExecute,
                 model: runtimeConfiguration.model,
                 toolLoopCreate: options.providerDelegationToolLoopCreate,
               })
+            : resolved.data
       }
 
       if (admittedRun !== undefined && admittedAttempt !== undefined) {
         const transitioned = await (options.runTransition ?? runTransition)(
           context.var.database,
-          context.var.developmentUser.id,
+          userId,
           sessionId,
           admittedRun.id,
           { status: "running" },
@@ -489,7 +486,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
               controller: executionAbortController,
               runId: admittedRun.id,
               sessionId,
-              userId: context.var.developmentUser.id,
+              userId,
             })
       stream = (async function* () {
         let currentAttempt = admittedAttempt
@@ -510,7 +507,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
                 if (activeRun === undefined || currentAttempt === undefined) return
                 const transitioned = await (options.runTransition ?? runTransition)(
                   context.var.database,
-                  context.var.developmentUser.id,
+                  userId,
                   sessionId,
                   activeRun.id,
                   terminal,
@@ -523,7 +520,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
 
                 const retry = await (options.runRetryAttemptCreate ?? runRetryAttemptCreate)(
                   context.var.database,
-                  context.var.developmentUser.id,
+                  userId,
                   sessionId,
                   activeRun.id,
                 )
@@ -545,7 +542,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
               runId: parsed.data.runId,
               sessionId,
               signal: executionAbortController.signal,
-              userId: context.var.developmentUser.id,
+              userId,
             })
 
             for await (const chunk of attemptStream) yield chunk
@@ -557,7 +554,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
               inactivityTimeoutMs,
               sessionId,
               streamId: nextAttempt.streamId,
-              userId: context.var.developmentUser.id,
+              userId,
             })
             const nextStarted = await nextReplayService.start()
             if (!nextStarted.success) throw new Error(nextStarted.errorMessage)
@@ -566,7 +563,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
             if (activeRun !== undefined) {
               const transitioned = await (options.runTransition ?? runTransition)(
                 context.var.database,
-                context.var.developmentUser.id,
+                userId,
                 sessionId,
                 activeRun.id,
                 { status: "running" },
@@ -596,19 +593,17 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
   })
 
   api.get("/sessions/:sessionId", async (context) => {
-    const result = await sessionLoad(
-      context.var.database,
-      context.var.developmentUser.id,
-      context.req.param("sessionId"),
-    )
+    const userId = context.var.requestIdentity.userId
+    const result = await sessionLoad(context.var.database, userId, context.req.param("sessionId"))
     if (!result.success)
       return result.errorMessage.includes("could not be found") ? notFound(context) : internalServerError(context)
     return context.json(result.data)
   })
 
   api.post("/sessions/:sessionId/archive", async (context) => {
+    const userId = context.var.requestIdentity.userId
     const result = await databaseTransactionRun(context.var.database, (transaction) =>
-      sessionArchive(transaction, context.var.developmentUser.id, context.req.param("sessionId")),
+      sessionArchive(transaction, userId, context.req.param("sessionId")),
     )
     if (!result.success)
       return result.errorMessage.includes("could not be found") ? notFound(context) : internalServerError(context)
@@ -616,8 +611,9 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
   })
 
   api.delete("/sessions/:sessionId", async (context) => {
+    const userId = context.var.requestIdentity.userId
     const result = await databaseTransactionRun(context.var.database, (transaction) =>
-      sessionDelete(transaction, context.var.developmentUser.id, context.req.param("sessionId")),
+      sessionDelete(transaction, userId, context.req.param("sessionId")),
     )
     if (!result.success)
       return result.errorMessage.includes("could not be found") ? notFound(context) : internalServerError(context)

@@ -17,14 +17,7 @@ beforeAll(async () => {
 
   app.use("*", async (context, next) => {
     context.set("database", {} as never)
-    context.set("developmentUser", {
-      createdAt: new Date(),
-      displayName: "Composition User",
-      email: null,
-      id: "development:composition",
-      identityKey: "composition",
-      updatedAt: new Date(),
-    })
+    context.set("requestIdentity", { userId: "development:composition" })
     await next()
   })
   apiRoutesAdd(app, async () => ({ success: true, data: undefined }), {
@@ -88,7 +81,10 @@ test("app composition forwards provider configuration and runtime dependencies",
       transaction: async (operation: (transaction: unknown) => Promise<unknown>) =>
         operation({
           insert: () => ({
-            values: () => ({ onConflictDoUpdate: () => ({ returning: async () => [user] }) }),
+            values: () => ({
+              onConflictDoNothing: () => ({ returning: async () => [user] }),
+              onConflictDoUpdate: () => ({ returning: async () => [user] }),
+            }),
           }),
         }),
     } as never,

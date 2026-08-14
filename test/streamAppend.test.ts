@@ -7,8 +7,8 @@ import { agentTable } from "../src/agents/db/agentTable.js"
 import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
 import { databaseSchema } from "../src/database/databaseSchema.js"
 import { databaseTransactionRun } from "../src/database/databaseTransactionRun.js"
-import { developmentUserTable } from "../src/identity/db/developmentUserTable.js"
-import { developmentUserUpsert } from "../src/identity/db/developmentUserUpsert.js"
+import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
+import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
@@ -30,7 +30,7 @@ let sessionId: string | undefined
 
 beforeAll(async () => {
   if (!databaseAvailable) return
-  const user = await developmentUserUpsert(database, {
+  const user = await developmentIdentityUpsert(database, {
     displayName: "Stream Test User",
     identityKey: fixture.userKey,
   })
@@ -62,7 +62,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  if (userId !== undefined) await database.delete(developmentUserTable).where(eq(developmentUserTable.id, userId))
+  if (userId !== undefined) await database.delete(applicationUserTable).where(eq(applicationUserTable.id, userId))
   await client.end()
 })
 

@@ -3,13 +3,11 @@ import type { AttemptStatus } from "../run/schema/attemptStatusSchema.js"
 import type { RunCancellationKind } from "../run/schema/runCancellationKindSchema.js"
 import type { RunStatus } from "../run/schema/runStatusSchema.js"
 
-const developmentUser = table("developmentUser")
-  .from("development_user")
+const user = table("user")
+  .from("user")
   .columns({
     id: string(),
-    identityKey: string().from("identity_key"),
     displayName: string().from("display_name"),
-    email: string().from("email").optional(),
     createdAt: number().from("created_at"),
     updatedAt: number().from("updated_at"),
   })
@@ -36,7 +34,6 @@ const agent = table("agent")
     name: string(),
     role: enumeration<string>(),
     configuration: json(),
-    sortOrder: number().from("sort_order"),
     createdAt: number().from("created_at"),
     updatedAt: number().from("updated_at"),
   })
@@ -83,6 +80,7 @@ const note = table("note")
     userId: string().from("user_id"),
     content: string(),
     projectPath: string().from("project_path").optional(),
+    sortOrder: number().from("sort_order").optional(),
     createdAt: number().from("created_at"),
     updatedAt: number().from("updated_at"),
   })
@@ -186,7 +184,7 @@ const streamCheckpoint = table("streamCheckpoint")
   .primaryKey("id")
   .unique("sessionId", "streamId")
 
-const developmentUserRelationships = relationships(developmentUser, ({ many }) => ({
+const userRelationships = relationships(user, ({ many }) => ({
   servers: many({ sourceField: ["id"], destField: ["ownerUserId"], destSchema: server }),
   sessions: many({ sourceField: ["id"], destField: ["userId"], destSchema: session }),
   notes: many({ sourceField: ["id"], destField: ["userId"], destSchema: note }),
@@ -196,7 +194,7 @@ const developmentUserRelationships = relationships(developmentUser, ({ many }) =
 }))
 
 const serverRelationships = relationships(server, ({ many, one }) => ({
-  owner: one({ sourceField: ["ownerUserId"], destField: ["id"], destSchema: developmentUser }),
+  owner: one({ sourceField: ["ownerUserId"], destField: ["id"], destSchema: user }),
   agents: many({ sourceField: ["id"], destField: ["serverId"], destSchema: agent }),
   sessions: many({ sourceField: ["id"], destField: ["serverId"], destSchema: session }),
 }))
@@ -208,7 +206,7 @@ const agentRelationships = relationships(agent, ({ many, one }) => ({
 }))
 
 const sessionRelationships = relationships(session, ({ many, one }) => ({
-  user: one({ sourceField: ["userId"], destField: ["id"], destSchema: developmentUser }),
+  user: one({ sourceField: ["userId"], destField: ["id"], destSchema: user }),
   server: one({ sourceField: ["serverId"], destField: ["id"], destSchema: server }),
   primaryAgent: one({ sourceField: ["primaryAgentId"], destField: ["id"], destSchema: agent }),
   parent: one({ sourceField: ["parentSessionId"], destField: ["id"], destSchema: session }),
@@ -235,11 +233,11 @@ const streamCheckpointRelationships = relationships(streamCheckpoint, ({ one }) 
 }))
 
 const noteRelationships = relationships(note, ({ one }) => ({
-  user: one({ sourceField: ["userId"], destField: ["id"], destSchema: developmentUser }),
+  user: one({ sourceField: ["userId"], destField: ["id"], destSchema: user }),
 }))
 
 const runRelationships = relationships(run, ({ many, one }) => ({
-  user: one({ sourceField: ["userId"], destField: ["id"], destSchema: developmentUser }),
+  user: one({ sourceField: ["userId"], destField: ["id"], destSchema: user }),
   session: one({ sourceField: ["sessionId"], destField: ["id"], destSchema: session }),
   attempts: many({ sourceField: ["id"], destField: ["runId"], destSchema: attempt }),
   childDelegations: many({ sourceField: ["id"], destField: ["childRunId"], destSchema: runDelegation }),
@@ -248,13 +246,13 @@ const runRelationships = relationships(run, ({ many, one }) => ({
 }))
 
 const attemptRelationships = relationships(attempt, ({ one }) => ({
-  user: one({ sourceField: ["userId"], destField: ["id"], destSchema: developmentUser }),
+  user: one({ sourceField: ["userId"], destField: ["id"], destSchema: user }),
   session: one({ sourceField: ["sessionId"], destField: ["id"], destSchema: session }),
   run: one({ sourceField: ["runId"], destField: ["id"], destSchema: run }),
 }))
 
 const runDelegationRelationships = relationships(runDelegation, ({ one }) => ({
-  user: one({ sourceField: ["userId"], destField: ["id"], destSchema: developmentUser }),
+  user: one({ sourceField: ["userId"], destField: ["id"], destSchema: user }),
   session: one({ sourceField: ["sessionId"], destField: ["id"], destSchema: session }),
   childRun: one({ sourceField: ["childRunId"], destField: ["id"], destSchema: run }),
   rootRun: one({ sourceField: ["rootRunId"], destField: ["id"], destSchema: run }),
@@ -263,21 +261,9 @@ const runDelegationRelationships = relationships(runDelegation, ({ one }) => ({
 }))
 
 export const zeroSchema = createSchema({
-  tables: [
-    developmentUser,
-    server,
-    agent,
-    session,
-    message,
-    note,
-    run,
-    attempt,
-    runDelegation,
-    streamEvent,
-    streamCheckpoint,
-  ],
+  tables: [user, server, agent, session, message, note, run, attempt, runDelegation, streamEvent, streamCheckpoint],
   relationships: [
-    developmentUserRelationships,
+    userRelationships,
     serverRelationships,
     agentRelationships,
     sessionRelationships,

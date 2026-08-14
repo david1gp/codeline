@@ -8,7 +8,17 @@ import type { ConfigurationStore } from "../configuration/configurationStore.js"
 import type { RuntimeConfiguration } from "../configuration/runtimeConfigurationSchema.js"
 import type { DatabaseClient } from "../database/databaseClient.js"
 import { databaseReadyCheck } from "../database/databaseReadyCheck.js"
-import { developmentIdentityMiddleware } from "../identity/api/developmentIdentityMiddleware.js"
+import { authenticationMiddleware } from "../identity/api/authenticationMiddleware.js"
+import { developmentIdentityUpsert } from "../identity/db/developmentIdentityUpsert.js"
+import { identitySessionLoad } from "../identity/actions/identitySessionLoad.js"
+import { identitySessionRevoke } from "../identity/actions/identitySessionRevoke.js"
+import { identitySessionCreate } from "../identity/actions/identitySessionCreate.js"
+import { oidcIdentityUpsert } from "../identity/actions/oidcIdentityUpsert.js"
+import { oidcLoginTransactionCreate } from "../identity/db/oidcLoginTransactionCreate.js"
+import { oidcLoginTransactionConsume } from "../identity/db/oidcLoginTransactionConsume.js"
+import { oidcProviderDiscoveryCreate } from "../identity/oidc/oidcProviderDiscoveryCreate.js"
+import type { OidcProviderFetch } from "../identity/oidc/oidcProviderFetch.js"
+import { appKnownRouteResolve } from "./appKnownRouteResolve.js"
 import type { ProjectLimits } from "../project/projectLimitsSchema.js"
 import type { ProviderModelDiscoveryOptions } from "../providers/runtime/providerModelDiscovery.js"
 import { providerDelegationToolLoopCreate } from "../providers/runtime/providerDelegationToolLoopCreate.js"
@@ -30,7 +40,23 @@ export type AppCreateOptions = {
   configurationStore?: ConfigurationStore
   database?: DatabaseClient
   databaseReadyCheck?: typeof databaseReadyCheck
+  developmentIdentityUpsert?: typeof developmentIdentityUpsert
+  identitySessionLoad?: typeof identitySessionLoad
+  identitySessionRevoke?: typeof identitySessionRevoke
+  identitySessionCreate?: typeof identitySessionCreate
+  oidcIdentityUpsert?: typeof oidcIdentityUpsert
+  oidcIdCreate?: () => string
+  oidcLoginTransactionCreate?: typeof oidcLoginTransactionCreate
+  oidcLoginTransactionConsume?: typeof oidcLoginTransactionConsume
+  oidcNow?: () => Date
+  oidcProviderDiscovery?: ReturnType<typeof oidcProviderDiscoveryCreate>
+  oidcProviderFetch?: OidcProviderFetch
+  oidcRandomValueCreate?: () => string
+  oidcSessionCredentialCreate?: () => string
+  oidcSessionIdCreate?: () => string
+  oidcReturnToPathIsKnown?: typeof appKnownRouteResolve
   projectLimits?: ProjectLimits
+  projectRootDirs?: readonly string[]
   projectRootDir?: string
   providerConfiguration?: unknown
   providerEnvironment?: Readonly<Record<string, string | undefined>>
@@ -85,12 +111,21 @@ export function appCreate(options: AppCreateOptions = {}): App {
   })
 
   if (options.configuration !== undefined && options.database !== undefined) {
-    app.use("/api/*", developmentIdentityMiddleware(options.configuration, options.database))
+    app.use(
+      "/api/*",
+      authenticationMiddleware(options.configuration, options.database, {
+        developmentIdentityUpsert: options.developmentIdentityUpsert,
+        identitySessionLoad: options.identitySessionLoad,
+      }),
+    )
   }
 
   apiRoutesAdd(app, readyCheck, {
+    configuration: options.configuration,
+    database: options.database,
     projectLimits: options.projectLimits,
-    projectRootDir: options.projectRootDir ?? process.cwd(),
+    projectRootDir: options.projectRootDir,
+    projectRootDirs: options.projectRootDirs,
     providerConfiguration: options.providerConfiguration,
     providerEnvironment: options.providerEnvironment,
     providerFetch: options.providerFetch,
@@ -104,6 +139,21 @@ export function appCreate(options: AppCreateOptions = {}): App {
     runLoad: options.runLoad,
     runRetryAttemptCreate: options.runRetryAttemptCreate,
     runTransition: options.runTransition,
+    identitySessionRevoke: options.identitySessionRevoke,
+    identitySessionCreate: options.identitySessionCreate,
+    identitySessionLoad: options.identitySessionLoad,
+    oidcIdentityUpsert: options.oidcIdentityUpsert,
+    oidcIdCreate: options.oidcIdCreate,
+    oidcLoginTransactionCreate: options.oidcLoginTransactionCreate,
+    oidcLoginTransactionConsume: options.oidcLoginTransactionConsume,
+    oidcNow: options.oidcNow,
+    oidcProviderDiscovery: options.oidcProviderDiscovery,
+    oidcProviderFetch: options.oidcProviderFetch,
+    oidcRandomValueCreate: options.oidcRandomValueCreate,
+    oidcSessionCredentialCreate: options.oidcSessionCredentialCreate,
+    oidcSessionIdCreate: options.oidcSessionIdCreate,
+    oidcReturnToPathIsKnown: options.oidcReturnToPathIsKnown,
+    authCallbackRoute: app,
     runDelegationExecute: options.runDelegationExecute,
     sessionChatAdapter: options.sessionChatAdapter,
     streamInactivityTimeoutMs: options.streamInactivityTimeoutMs,

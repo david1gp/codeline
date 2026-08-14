@@ -6,11 +6,9 @@ import type { AppEnvironment } from "../appEnvironment.js"
 import { noteMutators } from "../../note/noteMutators.js"
 import { zeroSchema } from "../../database/zeroSchema.js"
 
-const localDevelopmentIdentity = "local-development"
-const localDevelopmentUserId = "development:local-development"
-
 export function apiMutationRoutesAdd(api: Hono<AppEnvironment>): void {
   api.post("/mutate", async (context) => {
+    const userId = context.var.requestIdentity.userId
     const response = await handleMutateRequest({
       body: await context.req.json().catch(() => null),
       dbProvider: zeroDrizzle(zeroSchema, context.var.database),
@@ -18,12 +16,12 @@ export function apiMutationRoutesAdd(api: Hono<AppEnvironment>): void {
         transact((tx, name, args) =>
           mustGetMutator(noteMutators, name).fn({
             args,
-            ctx: { userId: localDevelopmentUserId },
+            ctx: { userId },
             tx,
           }),
         ),
       query: context.req.query(),
-      userID: localDevelopmentIdentity,
+      userID: userId,
     })
 
     return context.json(response)

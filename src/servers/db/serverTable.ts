@@ -1,5 +1,5 @@
 import { index, jsonb, pgTable, text, timestamp, unique } from "drizzle-orm/pg-core"
-import { developmentUserTable } from "../../identity/db/developmentUserTable.js"
+import { applicationUserTable } from "../../identity/db/applicationUserTable.js"
 
 export const serverTable = pgTable(
   "server",
@@ -7,7 +7,7 @@ export const serverTable = pgTable(
     id: text("id").primaryKey(),
     ownerUserId: text("owner_user_id")
       .notNull()
-      .references(() => developmentUserTable.id, { onDelete: "cascade" }),
+      .references(() => applicationUserTable.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     endpoint: text("endpoint").notNull(),
     metadata: jsonb("metadata").notNull().default({}),

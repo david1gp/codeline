@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm"
 import { check, foreignKey, index, integer, jsonb, pgTable, text, timestamp, unique } from "drizzle-orm/pg-core"
-import { developmentUserTable } from "../../identity/db/developmentUserTable.js"
+import { applicationUserTable } from "../../identity/db/applicationUserTable.js"
 import type { RunDelegationResult } from "../schema/runDelegationResultSchema.js"
 import { attemptTable } from "./attemptTable.js"
 import { runTable } from "./runTable.js"
@@ -11,7 +11,7 @@ export const runDelegationTable = pgTable(
     id: text("id").primaryKey(),
     userId: text("user_id")
       .notNull()
-      .references(() => developmentUserTable.id, { onDelete: "cascade" }),
+      .references(() => applicationUserTable.id, { onDelete: "cascade" }),
     sessionId: text("session_id").notNull(),
     childRunId: text("child_run_id").notNull(),
     rootRunId: text("root_run_id").notNull(),

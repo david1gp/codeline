@@ -42,7 +42,7 @@ export function apiMessageRoutesAdd(api: Hono<AppEnvironment>): void {
     if (!parsed.success) return badRequest(context, "The message request is invalid.")
 
     const result = await databaseTransactionRun(context.var.database, (transaction) =>
-      messageAppend(transaction, context.var.developmentUser.id, context.req.param("sessionId"), parsed.data),
+      messageAppend(transaction, context.var.requestIdentity.userId, context.req.param("sessionId"), parsed.data),
     )
     if (!result.success) {
       if (result.errorMessage.includes("could not be found")) return notFound(context)
@@ -59,7 +59,7 @@ export function apiMessageRoutesAdd(api: Hono<AppEnvironment>): void {
 
     const result = await messageListFinalized(
       context.var.database,
-      context.var.developmentUser.id,
+      context.var.requestIdentity.userId,
       context.req.param("sessionId"),
       parsed.data,
     )

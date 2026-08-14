@@ -1,7 +1,7 @@
 import type { AnyPgColumn } from "drizzle-orm/pg-core"
 import { foreignKey, index, jsonb, pgTable, text, timestamp, unique } from "drizzle-orm/pg-core"
 import { agentTable } from "../../agents/db/agentTable.js"
-import { developmentUserTable } from "../../identity/db/developmentUserTable.js"
+import { applicationUserTable } from "../../identity/db/applicationUserTable.js"
 import { serverTable } from "../../servers/db/serverTable.js"
 
 export const sessionTable = pgTable(
@@ -10,7 +10,7 @@ export const sessionTable = pgTable(
     id: text("id").primaryKey(),
     userId: text("user_id")
       .notNull()
-      .references(() => developmentUserTable.id, { onDelete: "cascade" }),
+      .references(() => applicationUserTable.id, { onDelete: "cascade" }),
     serverId: text("server_id")
       .notNull()
       .references(() => serverTable.id, { onDelete: "restrict" }),

@@ -1,10 +1,18 @@
 import { expect, test } from "bun:test"
-import { appCreate } from "../src/app/appCreate.js"
+import { Hono } from "hono"
+import type { AppEnvironment } from "../src/api/appEnvironment.js"
+import { apiQueryRoutesAdd } from "../src/api/query/apiQueryRoutesAdd.js"
 
-const app = appCreate()
+const app = new Hono<AppEnvironment>()
+app.use("*", async (context, next) => {
+  context.set("database", {} as never)
+  context.set("requestIdentity", { userId: "development:server-derived" })
+  await next()
+})
+apiQueryRoutesAdd(app)
 
 test("query protocol serves workspace and notes named queries", async () => {
-  const response = await app.request("http://codeline.test/api/query", {
+  const response = await app.request("http://codeline.test/query?userID=browser-spoof", {
     body: JSON.stringify([
       "transform",
       [
@@ -20,7 +28,7 @@ test("query protocol serves workspace and notes named queries", async () => {
   const body = await response.json()
 
   expect(response.status).toBe(200)
-  expect(body).toMatchObject({ kind: "QueryResponse", userID: "local-development" })
+  expect(body).toMatchObject({ kind: "QueryResponse", userID: "development:server-derived" })
   expect(body.queries).toHaveLength(4)
   expect(body.queries.map((query: { name: string }) => query.name)).toEqual([
     "activeSessions",
@@ -31,7 +39,7 @@ test("query protocol serves workspace and notes named queries", async () => {
 })
 
 test("query protocol reports unknown named queries without serving an unregistered query", async () => {
-  const response = await app.request("http://codeline.test/api/query", {
+  const response = await app.request("http://codeline.test/query?userID=browser-spoof", {
     body: JSON.stringify(["transform", [{ args: [], id: "unknown", name: "unknown" }]]),
     headers: { "Content-Type": "application/json" },
     method: "POST",
@@ -39,6 +47,6 @@ test("query protocol reports unknown named queries without serving an unregister
   const body = await response.json()
 
   expect(response.status).toBe(200)
-  expect(body).toMatchObject({ kind: "QueryResponse", userID: "local-development" })
+  expect(body).toMatchObject({ kind: "QueryResponse", userID: "development:server-derived" })
   expect(body.queries[0]).toMatchObject({ error: "app", id: "unknown", name: "unknown" })
 })

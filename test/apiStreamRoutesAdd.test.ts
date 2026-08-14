@@ -8,8 +8,9 @@ import { agentTable } from "../src/agents/db/agentTable.js"
 import type { AppEnvironment } from "../src/api/appEnvironment.js"
 import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
 import { databaseSchema } from "../src/database/databaseSchema.js"
-import { developmentUserTable } from "../src/identity/db/developmentUserTable.js"
-import { type DevelopmentUser, developmentUserUpsert } from "../src/identity/db/developmentUserUpsert.js"
+import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
+import type { ApplicationUser } from "../src/identity/db/applicationUserTable.js"
+import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
 import { runChildCreate } from "../src/run/actions/runChildCreate.js"
@@ -31,7 +32,7 @@ const fixture = {
   serverId: `stream-api-server-${uuidv7()}`,
   userKey: `stream-api-user-${uuidv7()}`,
 }
-let developmentUser: DevelopmentUser | undefined
+let developmentUser: ApplicationUser | undefined
 let sessionId: string | undefined
 let streamId: string | undefined
 let firstEventId: string | undefined
@@ -56,7 +57,7 @@ function sseEvents(text: string): Array<{ data: unknown; event: string; id: stri
 
 beforeAll(async () => {
   if (!databaseAvailable) return
-  const user = await developmentUserUpsert(database, {
+  const user = await developmentIdentityUpsert(database, {
     displayName: "Stream API User",
     identityKey: fixture.userKey,
   })
@@ -152,7 +153,7 @@ beforeAll(async () => {
   app.use("*", async (context, next) => {
     context.set("database", database)
     if (developmentUser === undefined) return next()
-    context.set("developmentUser", developmentUser)
+    context.set("requestIdentity", { userId: developmentUser.id })
     await next()
   })
   apiStreamRoutesAdd(app, { inactivityTimeoutMs: 60_000 })
@@ -160,7 +161,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (developmentUser !== undefined)
-    await database.delete(developmentUserTable).where(eq(developmentUserTable.id, developmentUser.id))
+    await database.delete(applicationUserTable).where(eq(applicationUserTable.id, developmentUser.id))
   await client.end()
 })
 

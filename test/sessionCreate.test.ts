@@ -5,8 +5,8 @@ import postgres from "postgres"
 import { agentTable } from "../src/agents/db/agentTable.js"
 import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
 import { databaseSchema } from "../src/database/databaseSchema.js"
-import { developmentUserTable } from "../src/identity/db/developmentUserTable.js"
-import { developmentUserUpsert } from "../src/identity/db/developmentUserUpsert.js"
+import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
+import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionArchive } from "../src/session/actions/sessionArchive.js"
 import { sessionCreate } from "../src/session/actions/sessionCreate.js"
@@ -30,7 +30,7 @@ let userId: string | undefined
 beforeAll(async () => {
   if (!databaseAvailable) return
 
-  const user = await developmentUserUpsert(database, {
+  const user = await developmentIdentityUpsert(database, {
     displayName: "Session Test User",
     identityKey: fixture.userKey,
   })
@@ -52,7 +52,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  if (userId !== undefined) await database.delete(developmentUserTable).where(eq(developmentUserTable.id, userId))
+  if (userId !== undefined) await database.delete(applicationUserTable).where(eq(applicationUserTable.id, userId))
   await client.end()
 })
 

@@ -18,7 +18,7 @@ export function apiAgentRoutesAdd(api: Hono<AppEnvironment>): void {
 
     const result = await agentList(
       context.var.database,
-      context.var.developmentUser.id,
+      context.var.requestIdentity.userId,
       context.req.param("serverId"),
       parsed.data.search,
     )

@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm"
 import { check, foreignKey, index, integer, jsonb, pgTable, text, timestamp, unique } from "drizzle-orm/pg-core"
-import { developmentUserTable } from "../../identity/db/developmentUserTable.js"
+import { applicationUserTable } from "../../identity/db/applicationUserTable.js"
 import { sessionTable } from "../../session/db/sessionTable.js"
 import type { RunBudget } from "../schema/runBudgetSchema.js"
 import type { RunExecutionSnapshot } from "../schema/runExecutionSnapshotSchema.js"
@@ -14,7 +14,7 @@ export const attemptTable = pgTable(
     runId: text("run_id").notNull(),
     userId: text("user_id")
       .notNull()
-      .references(() => developmentUserTable.id, { onDelete: "cascade" }),
+      .references(() => applicationUserTable.id, { onDelete: "cascade" }),
     sessionId: text("session_id").notNull(),
     ordinal: integer("ordinal").notNull(),
     streamId: text("stream_id").notNull(),

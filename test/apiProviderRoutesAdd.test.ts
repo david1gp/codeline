@@ -17,14 +17,7 @@ const configuration = {
 function authorizedApp() {
   const app = new Hono<AppEnvironment>()
   app.use("*", async (context, next) => {
-    context.set("developmentUser", {
-      createdAt: new Date(),
-      displayName: "Provider API User",
-      email: null,
-      id: "development:provider-api",
-      identityKey: "provider-api",
-      updatedAt: new Date(),
-    })
+    context.set("requestIdentity", { userId: "development:provider-api" })
     await next()
   })
   apiProviderRoutesAdd(app, {
@@ -90,14 +83,7 @@ test("provider routes reject extra request fields and redact provider failures",
   const secret = "provider-secret"
   const failedApp = new Hono<AppEnvironment>()
   failedApp.use("*", async (context, next) => {
-    context.set("developmentUser", {
-      createdAt: new Date(),
-      displayName: "Provider API User",
-      email: null,
-      id: "development:provider-api",
-      identityKey: "provider-api",
-      updatedAt: new Date(),
-    })
+    context.set("requestIdentity", { userId: "development:provider-api" })
     await next()
   })
   apiProviderRoutesAdd(failedApp, {

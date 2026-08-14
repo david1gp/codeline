@@ -35,7 +35,7 @@
     "dev:ui": "vite",
     "test": "bun test",
     "typecheck": "bun tsc -p tsconfig.json --noEmit",
-    "build": "rm -rf ./dist && bun tsc -p ./tsconfig.json && env -u VITE_USER_NODE_ENV -u VITE_ZERO_CACHE_URL -u VITE_ZERO_QUERY_URL -u VITE_ZERO_MUTATE_URL NODE_ENV=production vite build --mode production && bun build ./src/ui/pwa/serviceWorkerMain.ts --outfile ./dist/ui/service-worker.js --target browser --format iife --minify && bun build ./src/index.ts --outdir ./dist/server --target bun --sourcemap=external",
+    "build": "rm -rf ./dist && bun tsc -p ./tsconfig.json && env -u VITE_USER_NODE_ENV -u VITE_ZERO_CACHE_URL -u VITE_ZERO_QUERY_URL -u VITE_ZERO_MUTATE_URL NODE_ENV=production vite build --mode production && bun build ./src/ui/pwa/serviceWorkerMain.ts --outfile ./dist/ui/service-worker.js --target browser --format iife --minify && bun build ./src/index.ts --outdir ./dist/server --target bun --sourcemap=external --external valibot",
     "release": "bash ./ops/release.sh",
     "git-store:link": "bash ./ops/dev/git-store-link.sh setup",
     "git-store:verify": "bash ./ops/dev/git-store-link.sh verify",
@@ -49,6 +49,10 @@
     "format:check": "biome format src test scripts ui index.html vite.config.ts package.json tsconfig.json tsconfig.build.json biome.json bunfig.toml drizzle.config.ts",
     "ui": "rsync -avh --delete ../solid-ui/ui/ ./ui/",
     "ui:push": "rsync -avh --delete ./ui/ ../solid-ui/ui/"
+  },
+  "imports": {
+    "#ui/*": "./ui/*",
+    "#utils/*": "@adaptive-ds/utils/*"
   },
   "dependencies": {
     "@adaptive-ds/git-store": "link:@adaptive-ds/git-store",
@@ -67,6 +71,7 @@
     "drizzle-orm": "0.45.2",
     "hono": "^4.12.8",
     "micromark": "^4.0.2",
+    "oauth4webapi": "^3.8.7",
     "postgres": "3.4.9",
     "solid-js": "^1.9.12",
     "tailwind-merge": "^3.6.0",
@@ -93,9 +98,5 @@
   },
   "engines": {
     "bun": ">=1.3.0"
-  },
-  "imports": {
-    "#ui/*": "./ui/*",
-    "#utils/*": "@adaptive-ds/utils/*"
   }
 }

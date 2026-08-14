@@ -7,6 +7,7 @@ import type { AppEnvironment } from "../../api/appEnvironment.js"
 import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.js"
 import type { DatabaseClient } from "../../database/databaseClient.js"
 import { runChildStreamResolve } from "../../run/actions/runChildStreamResolve.js"
+import { sessionTable } from "../../session/db/sessionTable.js"
 import { streamReplayServiceCreate } from "../actions/streamReplayServiceCreate.js"
 import { streamEventTable } from "../db/streamEventTable.js"
 import type { StreamApiErrorResponse } from "./streamApiErrorResponseSchema.js"
@@ -62,6 +63,7 @@ function serviceErrorResponse(context: ApiContext, errorMessage: string) {
 
 async function streamApiCursorSequenceLoad(
   database: DatabaseClient,
+  userId: string,
   sessionId: string,
   streamId: string,
   eventId: string | undefined,
@@ -75,8 +77,10 @@ async function streamApiCursorSequenceLoad(
     const [event] = await database
       .select({ sequence: streamEventTable.sequence })
       .from(streamEventTable)
+      .innerJoin(sessionTable, eq(streamEventTable.sessionId, sessionTable.id))
       .where(
         and(
+          eq(sessionTable.userId, userId),
           eq(streamEventTable.id, eventId),
           eq(streamEventTable.sessionId, sessionId),
           eq(streamEventTable.streamId, streamId),
@@ -92,6 +96,7 @@ async function streamApiCursorSequenceLoad(
 
 async function streamApiLatestEventLoad(
   database: DatabaseClient,
+  userId: string,
   sessionId: string,
   streamId: string,
   lastSequence: number,
@@ -102,8 +107,10 @@ async function streamApiLatestEventLoad(
     const [event] = await database
       .select({ id: streamEventTable.id })
       .from(streamEventTable)
+      .innerJoin(sessionTable, eq(streamEventTable.sessionId, sessionTable.id))
       .where(
         and(
+          eq(sessionTable.userId, userId),
           eq(streamEventTable.sessionId, sessionId),
           eq(streamEventTable.streamId, streamId),
           lte(streamEventTable.sequence, lastSequence),
@@ -134,7 +141,12 @@ async function streamApiChildAccessReject(
   sessionId: string,
   streamId: string,
 ): Promise<Response | undefined> {
-  const resolved = await childStreamResolve(context.var.database, context.var.developmentUser.id, sessionId, streamId)
+  const resolved = await childStreamResolve(
+    context.var.database,
+    context.var.requestIdentity.userId,
+    sessionId,
+    streamId,
+  )
   if (!resolved.success) return internalServerError(context)
   return resolved.data ? notFound(context) : undefined
 }
@@ -155,12 +167,13 @@ export function apiStreamRoutesAdd(api: Hono<AppEnvironment>, options: ApiStream
       inactivityTimeoutMs,
       sessionId,
       streamId,
-      userId: context.var.developmentUser.id,
+      userId: context.var.requestIdentity.userId,
     }).replay({ afterSequence: 0, limit: 1 })
     if (!result.success) return serviceErrorResponse(context, result.errorMessage)
 
     const latest = await streamApiLatestEventLoad(
       context.var.database,
+      context.var.requestIdentity.userId,
       sessionId,
       streamId,
       result.data.checkpoint.lastSequence,
@@ -187,6 +200,7 @@ export function apiStreamRoutesAdd(api: Hono<AppEnvironment>, options: ApiStream
 
     const cursor = await streamApiCursorSequenceLoad(
       context.var.database,
+      context.var.requestIdentity.userId,
       sessionId,
       streamId,
       context.req.header("Last-Event-ID") ?? parsed.data.afterEventId,
@@ -202,7 +216,7 @@ export function apiStreamRoutesAdd(api: Hono<AppEnvironment>, options: ApiStream
       inactivityTimeoutMs,
       sessionId,
       streamId,
-      userId: context.var.developmentUser.id,
+      userId: context.var.requestIdentity.userId,
     }).replay({ afterSequence: cursor.data, limit: parsed.data.limit })
     if (!result.success) return serviceErrorResponse(context, result.errorMessage)
     if (result.data.stale) return streamStale(context)

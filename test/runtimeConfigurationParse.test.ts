@@ -5,11 +5,12 @@ import { healthResponseSchema } from "../src/api/health/healthResponseSchema.js"
 import { readinessResponseSchema } from "../src/api/readiness/readinessResponseSchema.js"
 import { appCreate } from "../src/app/appCreate.js"
 import { runtimeConfigurationParse } from "../src/configuration/runtimeConfigurationParse.js"
-import { developmentUserUpsert } from "../src/identity/db/developmentUserUpsert.js"
 import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
+import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
 import { serverStart } from "../src/server/serverStart.js"
 
 const configuration = runtimeConfigurationParse({
+  authMode: "development",
   databaseUrl: "postgres://codeline:local@127.0.0.1:6002/codeline",
   developmentIdentity: {
     email: "developer@example.test",
@@ -17,12 +18,15 @@ const configuration = runtimeConfigurationParse({
     displayName: "Configured Developer",
   },
   nodeEnv: "development",
+  publicOrigin: "http://127.0.0.1:6000",
 })
 
 test("runtime configuration rejects missing development identity without exposing values", () => {
   const result = runtimeConfigurationParse({
+    authMode: "development",
     databaseUrl: "postgres://secret:password@127.0.0.1:6002/codeline",
     nodeEnv: "development",
+    publicOrigin: "http://127.0.0.1:6000",
   })
 
   expect(result.success).toBe(false)
@@ -70,9 +74,10 @@ test("development identity middleware stores only the configured identity", asyn
       operation({
         insert: () => ({
           values: (value: unknown) => {
-            capturedIdentity = value
+            if (capturedIdentity === undefined) capturedIdentity = value
             return {
               onConflictDoUpdate: () => ({ returning: async () => [{ id: "development:configured-developer" }] }),
+              onConflictDoNothing: () => ({ returning: async () => [{ id: "development:configured-developer" }] }),
             }
           },
         }),
@@ -99,15 +104,15 @@ test("development identity middleware stores only the configured identity", asyn
 
   expect(response.status).toBe(200)
   expect(capturedIdentity).toMatchObject({
+    id: user.id,
     email: user.email,
-    identityKey: user.identityKey,
     displayName: user.displayName,
   })
   expect(JSON.stringify(capturedIdentity)).not.toContain("client-controlled-owner")
 })
 
 test("development identity repository safely returns an error when its database operation fails", async () => {
-  const result = await developmentUserUpsert(
+  const result = await developmentIdentityUpsert(
     {
       insert: () => {
         throw new Error("database unavailable")
@@ -153,9 +158,10 @@ test("server shutdown stops the server and closes the injected database once", a
     client: { end: async () => void (closeCount += 1) },
     db: {},
   } as never
-  const server = serverStart({
+  const server = await serverStart({
     appCreate: () => appCreate(),
     configuration: configuration.data,
+    configurationStore: {} as never,
     database,
     serve: () => ({
       stop: async () => void (stopCount += 1),

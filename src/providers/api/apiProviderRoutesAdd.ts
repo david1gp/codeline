@@ -39,8 +39,8 @@ function providerUnavailable(context: ApiContext) {
 }
 
 function requestAuthorized(context: ApiContext): boolean {
-  const user = context.get("developmentUser")
-  return typeof user?.id === "string" && user.id.length > 0
+  const identity = context.get("requestIdentity")
+  return typeof identity?.userId === "string" && identity.userId.length > 0
 }
 
 async function requestBodyRead(context: ApiContext): Promise<unknown> {

@@ -45,6 +45,13 @@
       "breakpoints": true
     },
     {
+      "idx": 6,
+      "version": "7",
+      "when": 1786740000002,
+      "tag": "0006_note_ordering",
+      "breakpoints": true
+    },
+    {
       "idx": 7,
       "version": "7",
       "when": 1786740000003,
@@ -56,6 +63,20 @@
       "version": "7",
       "when": 1786740000004,
       "tag": "0008_durable_cancellation",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1786740000005,
+      "tag": "0009_durable_identity_storage",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1786740000006,
+      "tag": "0010_oidc_login_binding",
       "breakpoints": true
     }
   ]

@@ -2,6 +2,14 @@ import type { Result } from "@adaptive-ds/result"
 import { Hono } from "hono"
 import { apiAgentRoutesAdd } from "../agents/api/apiAgentRoutesAdd.js"
 import type { ConfigurationStore } from "../configuration/configurationStore.js"
+import type { RuntimeConfiguration } from "../configuration/runtimeConfigurationSchema.js"
+import type { DatabaseClient } from "../database/databaseClient.js"
+import { identitySessionRevoke } from "../identity/actions/identitySessionRevoke.js"
+import { apiAuthRoutesAdd } from "../identity/api/apiAuthRoutesAdd.js"
+import { oidcLoginTransactionCreate } from "../identity/db/oidcLoginTransactionCreate.js"
+import { oidcProviderDiscoveryCreate } from "../identity/oidc/oidcProviderDiscoveryCreate.js"
+import type { OidcProviderFetch } from "../identity/oidc/oidcProviderFetch.js"
+import { appKnownRouteResolve } from "../app/appKnownRouteResolve.js"
 import { apiMessageRoutesAdd } from "../message/api/apiMessageRoutesAdd.js"
 import { apiProjectRoutesAdd } from "../project/api/apiProjectRoutesAdd.js"
 import type { ProjectLimits } from "../project/projectLimitsSchema.js"
@@ -33,8 +41,11 @@ import { apiReadinessRoutesAdd } from "./readiness/apiReadinessRoutesAdd.js"
 import { apiTestingRoutesAdd } from "./testing/apiTestingRoutesAdd.js"
 
 type ApiRoutesAddOptions = {
+  configuration?: RuntimeConfiguration
   configurationStore?: ConfigurationStore
+  database?: DatabaseClient
   projectLimits?: ProjectLimits
+  projectRootDirs?: readonly string[]
   projectRootDir?: string
   providerConfiguration?: unknown
   providerEnvironment?: Readonly<Record<string, string | undefined>>
@@ -50,6 +61,21 @@ type ApiRoutesAddOptions = {
   runLoad?: typeof runLoad
   runRetryAttemptCreate?: typeof runRetryAttemptCreate
   runTransition?: typeof runTransition
+  identitySessionRevoke?: typeof identitySessionRevoke
+  identitySessionCreate?: typeof import("../identity/actions/identitySessionCreate.js").identitySessionCreate
+  identitySessionLoad?: typeof import("../identity/actions/identitySessionLoad.js").identitySessionLoad
+  oidcIdentityUpsert?: typeof import("../identity/actions/oidcIdentityUpsert.js").oidcIdentityUpsert
+  oidcLoginTransactionCreate?: typeof oidcLoginTransactionCreate
+  oidcLoginTransactionConsume?: typeof import("../identity/db/oidcLoginTransactionConsume.js").oidcLoginTransactionConsume
+  oidcProviderDiscovery?: ReturnType<typeof oidcProviderDiscoveryCreate>
+  oidcProviderFetch?: OidcProviderFetch
+  oidcRandomValueCreate?: () => string
+  oidcIdCreate?: () => string
+  oidcNow?: () => Date
+  oidcSessionCredentialCreate?: () => string
+  oidcSessionIdCreate?: () => string
+  oidcReturnToPathIsKnown?: typeof appKnownRouteResolve
+  authCallbackRoute?: Hono<AppEnvironment>
   sessionChatAdapter?: typeof sessionChatAdapterCreate
   streamInactivityTimeoutMs?: number
   streamReplayServiceCreate?: typeof streamReplayServiceCreate
@@ -72,6 +98,25 @@ export function apiRoutesAdd(
   })
 
   apiReadinessRoutesAdd(api, databaseReadyCheck)
+  apiAuthRoutesAdd(api, {
+    configuration: options.configuration,
+    database: options.database,
+    idCreate: options.oidcIdCreate,
+    identitySessionRevoke: options.identitySessionRevoke,
+    identitySessionCreate: options.identitySessionCreate,
+    identitySessionLoad: options.identitySessionLoad,
+    oidcIdentityUpsert: options.oidcIdentityUpsert,
+    now: options.oidcNow,
+    oidcLoginTransactionCreate: options.oidcLoginTransactionCreate,
+    oidcLoginTransactionConsume: options.oidcLoginTransactionConsume,
+    oidcProviderDiscovery: options.oidcProviderDiscovery,
+    oidcProviderFetch: options.oidcProviderFetch,
+    randomValueCreate: options.oidcRandomValueCreate,
+    returnToPathIsKnown: options.oidcReturnToPathIsKnown,
+    oidcSessionCredentialCreate: options.oidcSessionCredentialCreate,
+    oidcSessionIdCreate: options.oidcSessionIdCreate,
+    callbackRoute: options.authCallbackRoute ?? app,
+  })
   apiServerRoutesAdd(api)
   apiAgentRoutesAdd(api)
   apiSessionRoutesAdd(api, options)
@@ -82,7 +127,13 @@ export function apiRoutesAdd(
   })
   apiSessionRenameRoutesAdd(api)
   apiMessageRoutesAdd(api)
-  apiProjectRoutesAdd(api, { limits: options.projectLimits, rootDir: options.projectRootDir ?? process.cwd() })
+  if (options.projectRootDir !== undefined) {
+    apiProjectRoutesAdd(api, { limits: options.projectLimits, rootDir: options.projectRootDir })
+  } else if (options.projectRootDirs !== undefined) {
+    apiProjectRoutesAdd(api, { limits: options.projectLimits, rootDirs: options.projectRootDirs })
+  } else {
+    apiProjectRoutesAdd(api, { limits: options.projectLimits, rootDir: process.cwd() })
+  }
   apiProviderRoutesAdd(api, {
     configuration: options.providerConfiguration ?? { model: "development-default", provider: "deterministic" },
     environment: options.providerEnvironment ?? Bun.env,

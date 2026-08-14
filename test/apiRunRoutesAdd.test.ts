@@ -2,7 +2,6 @@ import { expect, test } from "bun:test"
 import { createResult } from "@adaptive-ds/result"
 import { Hono } from "hono"
 import type { AppEnvironment } from "../src/api/appEnvironment.js"
-import type { DevelopmentUser } from "../src/identity/db/developmentUserUpsert.js"
 import { apiRunRoutesAdd } from "../src/run/api/apiRunRoutesAdd.js"
 import { runCancel } from "../src/run/actions/runCancel.js"
 import { runCancellationCoordinatorCreate } from "../src/run/actions/runCancellationCoordinatorCreate.js"
@@ -23,7 +22,7 @@ test("run cancellation route passes the authenticated session scope and exact du
   coordinator.register({ ...scope, controller: sibling, runId: "sibling" })
   app.use("*", async (context, next) => {
     context.set("database", {} as AppEnvironment["Variables"]["database"])
-    context.set("developmentUser", { id: scope.userId } as DevelopmentUser)
+    context.set("requestIdentity", { userId: scope.userId })
     await next()
   })
 
@@ -66,7 +65,7 @@ test("run cancellation route rejects an invalid command body", async () => {
   const app = new Hono<AppEnvironment>()
   app.use("*", async (context, next) => {
     context.set("database", {} as AppEnvironment["Variables"]["database"])
-    context.set("developmentUser", { id: "user-1" } as DevelopmentUser)
+    context.set("requestIdentity", { userId: "user-1" })
     await next()
   })
   apiRunRoutesAdd(app, {

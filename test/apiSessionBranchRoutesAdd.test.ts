@@ -7,8 +7,9 @@ import { agentTable } from "../src/agents/db/agentTable.js"
 import type { AppEnvironment } from "../src/api/appEnvironment.js"
 import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
 import { databaseSchema } from "../src/database/databaseSchema.js"
-import { developmentUserTable } from "../src/identity/db/developmentUserTable.js"
-import { type DevelopmentUser, developmentUserUpsert } from "../src/identity/db/developmentUserUpsert.js"
+import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
+import type { ApplicationUser } from "../src/identity/db/applicationUserTable.js"
+import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
 import { messageAppend } from "../src/message/actions/messageAppend.js"
 import { messageTable } from "../src/message/db/messageTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
@@ -27,14 +28,14 @@ const fixture = {
   serverId: `session-branch-server-${uuidv7()}`,
   userKey: `session-branch-user-${uuidv7()}`,
 }
-let developmentUser: DevelopmentUser | undefined
+let developmentUser: ApplicationUser | undefined
 let sourceSessionId: string | undefined
 let selectedMessageId: string | undefined
 const app = new Hono<AppEnvironment>()
 
 beforeAll(async () => {
   if (!databaseAvailable) return
-  const user = await developmentUserUpsert(database, {
+  const user = await developmentIdentityUpsert(database, {
     displayName: "Session Branch User",
     identityKey: fixture.userKey,
   })
@@ -87,7 +88,7 @@ beforeAll(async () => {
   app.use("*", async (context, next) => {
     if (developmentUser === undefined) return next()
     context.set("database", database)
-    context.set("developmentUser", developmentUser)
+    context.set("requestIdentity", { userId: developmentUser.id })
     await next()
   })
   apiSessionBranchRoutesAdd(app)
@@ -95,7 +96,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (developmentUser !== undefined)
-    await database.delete(developmentUserTable).where(eq(developmentUserTable.id, developmentUser.id))
+    await database.delete(applicationUserTable).where(eq(applicationUserTable.id, developmentUser.id))
   await client.end()
 })
 
