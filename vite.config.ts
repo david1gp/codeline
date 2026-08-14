@@ -1,9 +1,9 @@
-import tailwindcss from "@tailwindcss/vite"
 import { resolve } from "node:path"
+import tailwindcss from "@tailwindcss/vite"
 import { defineConfig, loadEnv } from "vite"
 import solid from "vite-plugin-solid"
 
-const solidUiRoot = resolve(import.meta.dirname, "../solid-ui/ui")
+const solidUiRoot = resolve(import.meta.dirname, "ui")
 const dependenciesRoot = resolve(import.meta.dirname, "node_modules")
 
 export default defineConfig(({ mode }) => {
@@ -35,6 +35,9 @@ export default defineConfig(({ mode }) => {
         { find: /^solid-js\/dist\/solid\.js$/, replacement: resolve(dependenciesRoot, solidRuntime) },
         { find: /^solid-js\/web$/, replacement: resolve(dependenciesRoot, "solid-js/web/dist/web.js") },
         { find: /^solid-js\/store$/, replacement: resolve(dependenciesRoot, solidStoreRuntime) },
+        { find: /^@corvu\/popover$/, replacement: resolve(dependenciesRoot, "@corvu/popover") },
+        { find: /^@mdi\/js$/, replacement: resolve(dependenciesRoot, "@mdi/js") },
+        { find: /^valibot$/, replacement: resolve(dependenciesRoot, "valibot") },
         { find: "clsx", replacement: resolve(dependenciesRoot, "clsx") },
         { find: "tailwind-merge", replacement: resolve(dependenciesRoot, "tailwind-merge") },
       ],

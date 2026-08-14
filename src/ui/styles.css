@@ -2,24 +2,138 @@
 @import "../markdown/markdown.css";
 
 @source "./**/*.{ts,tsx}";
-@source "../../../solid-ui/ui/static/badge/**/*.{ts,tsx}";
+@source "../../ui/static/badge/**/*.{ts,tsx}";
+@source "../../ui/interactive/popover/**/*.{ts,tsx}";
+@source "../../ui/interactive/button/**/*.{ts,tsx}";
+@source "../../ui/static/icon/**/*.{ts,tsx}";
 
 @theme {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
+  --color-surface: var(--surface);
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-line: var(--border);
+  --color-line-subtle: var(--border-subtle);
+  --color-line-strong: var(--border-strong);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-border: var(--accent-border);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-contrast: var(--accent-contrast);
+  --color-strong: var(--foreground-strong);
+  --color-subtle: var(--foreground-subtle);
+  --color-faint: var(--foreground-faint);
+  --color-placeholder: var(--placeholder);
+  --color-disabled: var(--disabled-foreground);
+  --color-disabled-surface: var(--disabled-surface);
+  --color-disabled-border: var(--disabled-border);
+  --color-danger: var(--danger);
+  --color-danger-border: var(--danger-border);
+  --color-danger-soft: var(--danger-soft);
+  --color-success: var(--success);
+  --color-success-solid: var(--success-solid);
+  --color-warning: var(--warning);
 }
 
 @layer base {
   :root {
-    --background: #11130f;
-    --foreground: #ebece5;
-    --muted: #22251e;
-    --muted-foreground: #969b8d;
-    color-scheme: dark;
+    --background: #f7f9f3;
+    --foreground: #1f2a18;
+    --foreground-strong: #10170c;
+    --foreground-subtle: #4a5643;
+    --foreground-faint: #626d5a;
+    --muted: #edf1e6;
+    --muted-foreground: #5a6552;
+    --placeholder: #79826f;
+    --surface: #ffffff;
+    --surface-hover: #f1f5e8;
+    --surface-raised: #ffffff;
+    --surface-sunken: #f3f6ec;
+    --border: #dde4d1;
+    --border-subtle: #e8ede0;
+    --border-strong: #c5cfb6;
+    --accent: #4a7a12;
+    --accent-hover: #3d6610;
+    --accent-soft: #edf6da;
+    --accent-border: #b9d189;
+    --accent-contrast: #ffffff;
+    --disabled-foreground: #878f7e;
+    --disabled-surface: #eef1e9;
+    --disabled-border: #dae0d0;
+    --danger: #a33a22;
+    --danger-border: #e5b6a8;
+    --danger-soft: #fcefea;
+    --success: #2f7d3f;
+    --success-solid: #1f7047;
+    --warning: #9a6b0f;
+    --header-background: rgb(247 249 243 / 82%);
+    --glow: rgb(116 153 44 / 7%);
+    --code-background: #eff3e6;
+    --code-surface: #f7f9f2;
+    --quote-border: #b6c98c;
+    --quote-foreground: #4e5a46;
+    --heading-foreground: #10170c;
+    --link-color: #3d6410;
+    --shadow-color: rgb(41 56 26 / 10%);
+    --shadow-color-strong: rgb(41 56 26 / 16%);
+    --overlay: rgb(31 42 20 / 42%);
+    --emblem-from: #f4f9e8;
+    --emblem-to: #ffffff;
+    --emblem-glow: rgb(74 122 18 / 6%);
+    color-scheme: light;
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     font-synthesis: none;
+  }
+
+  :root.dark {
+    --background: #11130f;
+    --foreground: #ebece5;
+    --foreground-strong: #ebece5;
+    --foreground-subtle: #c8cbc1;
+    --foreground-faint: #9da392;
+    --muted: #22251e;
+    --muted-foreground: #969b8d;
+    --placeholder: #7b8174;
+    --surface: #171a15;
+    --surface-hover: #1c1f19;
+    --surface-raised: #1c1f19;
+    --surface-sunken: #11130f;
+    --border: #30342a;
+    --border-subtle: #25281f;
+    --border-strong: #59604e;
+    --accent: #d8ff72;
+    --accent-hover: #e3ff98;
+    --accent-soft: #2b341c;
+    --accent-border: #546333;
+    --accent-contrast: #171a13;
+    --disabled-foreground: #82887a;
+    --disabled-surface: #292d24;
+    --disabled-border: #3a4032;
+    --danger: #d6a28b;
+    --danger-border: #5d4237;
+    --danger-soft: #2a1d18;
+    --success: #8fcf70;
+    --success-solid: #1f7047;
+    --warning: #e5c96b;
+    --header-background: rgb(17 19 15 / 88%);
+    --glow: rgb(116 153 44 / 8%);
+    --code-background: #25281f;
+    --code-surface: #171914;
+    --quote-border: #657838;
+    --quote-foreground: #b8bdae;
+    --heading-foreground: #ebece5;
+    --link-color: #d8ff72;
+    --shadow-color: rgb(0 0 0 / 30%);
+    --shadow-color-strong: rgb(0 0 0 / 45%);
+    --overlay: rgb(10 12 9 / 72%);
+    --emblem-from: #22271a;
+    --emblem-to: #171914;
+    --emblem-glow: rgb(216 255 114 / 8%);
+    color-scheme: dark;
   }
 
   html {
@@ -33,7 +147,7 @@
     min-width: 320px;
     min-height: 100vh;
     min-height: 100dvh;
-    background: radial-gradient(circle at 72% 30%, rgb(216 255 114 / 6%), transparent 32rem), var(--background);
+    background: radial-gradient(circle at 72% 30%, var(--glow), transparent 32rem), var(--background);
     color: var(--foreground);
   }
 

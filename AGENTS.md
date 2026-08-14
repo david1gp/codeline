@@ -14,6 +14,12 @@
 - Consult `~/opensource/zero/apps/zbugs` before changing Zero sync application configuration. Its `src/zero-init.tsx`, `shared/schema.ts`, `.env.example`, and `drizzle.config.ts` are the working examples for Zero client/cache URLs, query and mutation endpoints, schema wiring, and the PostgreSQL upstream connection.
 - Inspect Solid Router internals in `/home/david/opensource/solid-router` when needed.
 
+## solid-ui
+
+- Sync the library into this repo with `bun run ui` (`../solid-ui/ui/` → `./ui/`).
+- Treat `./ui` as a read-only copy. Edit components in `../solid-ui`, then re-sync. App-specific UI stays under `src/ui`.
+- Import library components via `#ui/...`.
+
 ## Local Source Lookup
 
 Consult these local checkouts instead of fetching GitHub files one by one:
