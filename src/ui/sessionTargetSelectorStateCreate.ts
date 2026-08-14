@@ -207,7 +207,9 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
       selectedAgentId.set(agentId)
       sessionCreateErrorClear()
     },
-    agentsReload: () => agentReloadToken.set(agentReloadToken.get() + 1),
+    agentsReload: () => {
+      agentReloadToken.set(agentReloadToken.get() + 1)
+    },
     agentStatus: agentStatus.get,
     canCreateSession: () => pendingTarget() !== null && sessionCreateStatus.get() !== "creating",
     isCreatingSession: () => sessionCreateStatus.get() === "creating",
@@ -220,7 +222,9 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
       selectedServerId.set(serverId)
       sessionCreateErrorClear()
     },
-    serversReload: () => serverReloadToken.set(serverReloadToken.get() + 1),
+    serversReload: () => {
+      serverReloadToken.set(serverReloadToken.get() + 1)
+    },
     serverStatus: serverStatus.get,
     sessionCreateStart,
     sessionCreateStatus: sessionCreateStatus.get,

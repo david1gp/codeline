@@ -1,7 +1,6 @@
 import { For, Match, Show, Switch } from "solid-js"
-import { sessionListStateCreate } from "./sessionListStateCreate.js"
+import type { SessionListState } from "./sessionListStateCreate.js"
 
-type SessionListState = ReturnType<typeof sessionListStateCreate>
 type SessionBranchTreeNode = ReturnType<SessionListState["roots"]>[number]
 
 function SessionBranchNodes(props: {
@@ -22,10 +21,10 @@ function SessionBranchNodes(props: {
           <li>
             <button
               type="button"
-              class="relative w-full overflow-hidden rounded-lg border border-transparent bg-transparent py-2.5 pr-[11px] text-left text-xs leading-[1.4] text-[#a4a99c] transition-colors duration-150 hover:bg-[#1c1f19] hover:text-[#ebece5] disabled:cursor-default disabled:hover:bg-transparent"
+              class="relative w-full overflow-hidden rounded-lg border border-transparent bg-transparent py-2.5 pr-[11px] text-left text-xs leading-[1.4] text-faint transition-colors duration-150 hover:bg-surface-raised hover:text-strong disabled:cursor-default disabled:hover:bg-transparent"
               classList={{
-                "border-[#46532c] bg-[#2b341c] text-[#d8ff72]": props.isSelected(node.session.id),
-                "text-[#c5c9bc]": isAncestor() && !props.isSelected(node.session.id),
+                "border-accent-border bg-accent-soft text-accent": props.isSelected(node.session.id),
+                "text-subtle": isAncestor() && !props.isSelected(node.session.id),
               }}
               style={{ "padding-left": `${11 + depth() * 14}px` }}
               disabled={!isLeaf()}
@@ -35,7 +34,7 @@ function SessionBranchNodes(props: {
             >
               <Show when={depth() > 0}>
                 <span
-                  class="absolute top-0 bottom-0 border-[#3b4035] border-l"
+                  class="absolute top-0 bottom-0 border-line-strong border-l"
                   style={{ left: `${17 + (depth() - 1) * 14}px` }}
                   aria-hidden="true"
                 />
@@ -70,12 +69,12 @@ export function SessionList(props: { idPrefix?: string; state: SessionListState;
 
   return (
     <div class="mt-[38px] flex-1" id={activityId()}>
-      <p class="mb-[9px] font-mono text-[10px] font-bold tracking-[0.14em] text-[#9da392] uppercase">Conversations</p>
+      <p class="mb-[9px] font-mono text-[10px] font-bold tracking-[0.14em] text-faint uppercase">Conversations</p>
       <label class="relative mb-3 block" for={searchId()}>
         <span class="sr-only">Search conversations</span>
         <input
           id={searchId()}
-          class="w-full rounded-[9px] border border-[#30342a] bg-[#1c1f19] px-3 py-2.5 text-xs text-[#ebece5] outline-none placeholder:text-[#686d61] focus:border-[#768d3d] focus:ring-2 focus:ring-[#d8ff72]/20"
+          class="w-full rounded-[9px] border border-line bg-surface-raised px-3 py-2.5 text-xs text-strong outline-none placeholder:text-placeholder focus:border-accent-border focus:ring-2 focus:ring-accent/20"
           type="search"
           value={props.state.query()}
           placeholder="Search conversations"
@@ -86,12 +85,12 @@ export function SessionList(props: { idPrefix?: string; state: SessionListState;
       <Switch>
         <Match when={props.state.isError()}>
           <div
-            class="flex items-center justify-between gap-2.5 rounded-[9px] border border-dashed border-[#30342a] p-3.5 text-xs leading-[1.5] text-[#71766a]"
+            class="flex items-center justify-between gap-2.5 rounded-[9px] border border-dashed border-line p-3.5 text-xs leading-[1.5] text-disabled"
             role="alert"
           >
             <span>Couldn't load conversations.</span>
             <button
-              class="border-0 bg-transparent p-0 text-[11px] text-[#d8ff72]"
+              class="border-0 bg-transparent p-0 text-[11px] text-accent"
               type="button"
               onClick={props.state.retry}
             >
@@ -101,14 +100,14 @@ export function SessionList(props: { idPrefix?: string; state: SessionListState;
         </Match>
         <Match when={props.state.isLoading()}>
           <div
-            class="rounded-[9px] border border-dashed border-[#30342a] p-3.5 text-xs leading-[1.5] text-[#71766a]"
+            class="rounded-[9px] border border-dashed border-line p-3.5 text-xs leading-[1.5] text-disabled"
             role="status"
           >
             Loading conversations...
           </div>
         </Match>
         <Match when={props.state.isEmpty()}>
-          <div class="rounded-[9px] border border-dashed border-[#30342a] p-3.5 text-xs leading-[1.5] text-[#71766a]">
+          <div class="rounded-[9px] border border-dashed border-line p-3.5 text-xs leading-[1.5] text-disabled">
             {props.state.emptyMessage()}
           </div>
         </Match>
@@ -124,7 +123,7 @@ export function SessionList(props: { idPrefix?: string; state: SessionListState;
         </Match>
       </Switch>
       <Show when={props.state.isRefreshing()}>
-        <span class="mt-2 block font-mono text-[9px] text-[#686d61]" role="status">
+        <span class="mt-2 block font-mono text-[9px] text-placeholder" role="status">
           Updating conversations...
         </span>
       </Show>

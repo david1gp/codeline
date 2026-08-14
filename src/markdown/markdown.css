@@ -1,5 +1,5 @@
 .markdown-content {
-  color: var(--markdown-content-color, #d7d9d1);
+  color: var(--markdown-content-color, var(--foreground));
   font-size: 0.875rem;
   line-height: 1.75;
   overflow-wrap: anywhere;
@@ -10,7 +10,7 @@
 }
 
 .markdown-content--preview {
-  --markdown-content-color: #c8cbc1;
+  --markdown-content-color: var(--muted-foreground);
 }
 
 .markdown-content > :first-child {
@@ -29,7 +29,7 @@
 .markdown-content h2,
 .markdown-content h3,
 .markdown-content h4 {
-  color: #ebece5;
+  color: var(--heading-foreground);
   font-weight: 600;
   line-height: 1.3;
 }
@@ -68,20 +68,20 @@
 }
 
 .markdown-content a {
-  color: #d8ff72;
+  color: var(--link-color);
   text-decoration: underline;
   text-underline-offset: 0.15em;
 }
 
 .markdown-content a:focus-visible {
   border-radius: 0.125rem;
-  outline: 2px solid #d8ff72;
+  outline: 2px solid var(--link-color);
   outline-offset: 2px;
 }
 
 .markdown-content code {
   border-radius: 0.25rem;
-  background: #25281f;
+  background: var(--code-background);
   padding: 0.125rem 0.25rem;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
@@ -89,9 +89,9 @@
 .markdown-content pre {
   max-width: 100%;
   overflow-x: auto;
-  border: 1px solid #30342a;
+  border: 1px solid var(--border);
   border-radius: 0.5rem;
-  background: #171914;
+  background: var(--code-surface);
   padding: 0.75rem;
   white-space: pre;
 }
@@ -103,13 +103,13 @@
 
 .markdown-content blockquote {
   margin-inline: 0;
-  border-left: 3px solid #657838;
+  border-left: 3px solid var(--quote-border);
   padding-left: 1rem;
-  color: #b8bdae;
+  color: var(--quote-foreground);
 }
 
 .markdown-content hr {
   margin-block: 1.25rem;
   border: 0;
-  border-top: 1px solid #30342a;
+  border-top: 1px solid var(--border);
 }

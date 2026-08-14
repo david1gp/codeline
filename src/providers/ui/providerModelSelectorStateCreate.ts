@@ -129,3 +129,5 @@ export function providerModelSelectorStateCreate(options: ProviderModelSelectorS
     status: status.get,
   }
 }
+
+export type ProviderModelSelectorState = ReturnType<typeof providerModelSelectorStateCreate>

@@ -3,11 +3,22 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#11130f" />
+    <meta name="theme-color" content="#f5f7f1" />
     <meta name="description" content="Codeline local AI coding workspace" />
     <link rel="icon" href="/favicon.ico" sizes="32x32" />
     <link rel="apple-touch-icon" href="/icons/codeline-icon-192.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
+    <script>
+      (() => {
+        let stored
+        try {
+          stored = localStorage.getItem("theme")
+        } catch {}
+        const theme = stored === "light" || stored === "dark" || stored === "os" ? stored : "os"
+        const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches
+        document.documentElement.classList.toggle("dark", theme === "dark" || (theme === "os" && prefersDark))
+      })()
+    </script>
     <title>Codeline</title>
   </head>
   <body>
