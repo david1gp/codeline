@@ -4,6 +4,7 @@ import type { ProjectApiDirectoryResponse } from "./api/projectApiDirectoryRespo
 import { projectApiDirectoryResponseSchema } from "./api/projectApiDirectoryResponseSchema.js"
 import type { ProjectApiPreviewResponse } from "./api/projectApiPreviewResponseSchema.js"
 import { projectApiPreviewResponseSchema } from "./api/projectApiPreviewResponseSchema.js"
+import { projectFileTabStateCreate } from "./projectFileTabStateCreate.js"
 
 type ProjectEntry = ProjectApiDirectoryResponse["entries"][number]
 
@@ -23,9 +24,9 @@ export function projectBrowserStateCreate(options: ProjectBrowserStateOptions = 
   const [currentPath, setCurrentPath] = createSignal("")
   const [entries, setEntries] = createSignal<ProjectEntry[]>([])
   const [directoryStatus, setDirectoryStatus] = createSignal<"loading" | "complete" | "error">("loading")
-  const [selectedFile, setSelectedFile] = createSignal<ProjectEntry | null>(null)
   const [preview, setPreview] = createSignal<ProjectApiPreviewResponse | null>(null)
   const [previewStatus, setPreviewStatus] = createSignal<"idle" | "loading" | "complete" | "error">("idle")
+  const fileTabs = projectFileTabStateCreate()
   let directoryController: AbortController | undefined
   let previewController: AbortController | undefined
 
@@ -46,14 +47,35 @@ export function projectBrowserStateCreate(options: ProjectBrowserStateOptions = 
         if (controller.signal.aborted) return
         setCurrentPath(path)
         setEntries(parsed.output.entries)
-        setSelectedFile(null)
-        setPreview(null)
-        setPreviewStatus("idle")
         setDirectoryStatus("complete")
       })
       .catch((_error: unknown) => {
         if (controller.signal.aborted) return
         setDirectoryStatus("error")
+      })
+  }
+
+  const previewLoad = (path: string) => {
+    previewController?.abort()
+    const controller = new AbortController()
+    previewController = controller
+    setPreview(null)
+    setPreviewStatus("loading")
+
+    void fetcher(requestUrl("preview", path), { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("The project preview request failed.")
+        const parsed = v.safeParse(projectApiPreviewResponseSchema, await response.json())
+        if (!parsed.success || parsed.output.path !== path) {
+          throw new Error("The project preview response is invalid.")
+        }
+        if (controller.signal.aborted) return
+        setPreview(parsed.output)
+        setPreviewStatus("complete")
+      })
+      .catch((_error: unknown) => {
+        if (controller.signal.aborted) return
+        setPreviewStatus("error")
       })
   }
 
@@ -65,28 +87,9 @@ export function projectBrowserStateCreate(options: ProjectBrowserStateOptions = 
       return
     }
 
-    previewController?.abort()
-    const controller = new AbortController()
-    previewController = controller
-    setSelectedFile(entry)
-    setPreview(null)
-    setPreviewStatus("loading")
-
-    void fetcher(requestUrl("preview", entry.path), { signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) throw new Error("The project preview request failed.")
-        const parsed = v.safeParse(projectApiPreviewResponseSchema, await response.json())
-        if (!parsed.success || parsed.output.path !== entry.path) {
-          throw new Error("The project preview response is invalid.")
-        }
-        if (controller.signal.aborted) return
-        setPreview(parsed.output)
-        setPreviewStatus("complete")
-      })
-      .catch((_error: unknown) => {
-        if (controller.signal.aborted) return
-        setPreviewStatus("error")
-      })
+    const opened = fileTabs.tabOpen(entry.path)
+    if (!opened.success) return
+    previewLoad(opened.data.path)
   }
 
   const directoryOpen = (entry: ProjectEntry) => {
@@ -109,8 +112,8 @@ export function projectBrowserStateCreate(options: ProjectBrowserStateOptions = 
     directoryOpen,
     directoryStatus,
     downloadUrl: () => {
-      const file = selectedFile()
-      return file === null ? null : requestUrl("download", file.path)
+      const path = fileTabs.activePath()
+      return path === null ? null : requestUrl("download", path)
     },
     entries,
     fileOpen,
@@ -129,10 +132,32 @@ export function projectBrowserStateCreate(options: ProjectBrowserStateOptions = 
     preview,
     previewStatus,
     retryPreview: () => {
-      const file = selectedFile()
-      if (file !== null) fileOpen(file)
+      const path = fileTabs.activePath()
+      if (path !== null) previewLoad(path)
     },
-    selectedFile,
+    selectedFile: () => {
+      const path = fileTabs.activePath()
+      return path === null ? null : { name: path.split("/").at(-1) ?? path, path }
+    },
+    tabClose: (path: string) => {
+      const wasActive = fileTabs.activePath() === path
+      const closed = fileTabs.tabClose(path)
+      if (!closed.success || !wasActive) return
+      const activePath = fileTabs.activePath()
+      if (activePath !== null) {
+        previewLoad(activePath)
+        return
+      }
+      previewController?.abort()
+      setPreview(null)
+      setPreviewStatus("idle")
+    },
+    tabSelect: (path: string) => {
+      const selected = fileTabs.tabSelect(path)
+      if (!selected.success) return
+      previewLoad(path)
+    },
+    tabs: fileTabs.tabs,
     textPreview: () => {
       const value = preview()
       return value?.kind === "text" ? value : null
