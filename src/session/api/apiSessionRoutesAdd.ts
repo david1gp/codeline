@@ -1,6 +1,8 @@
 import { type StreamChunk, toServerSentEventsStream } from "@tanstack/ai"
 import type { Context } from "hono"
 import { Hono } from "hono"
+import { agentConfigurationExecutionResolve } from "../../agents/actions/agentConfigurationExecutionResolve.js"
+import type { AgentConfiguration } from "../../agents/schema/agentConfigurationSchema.js"
 import { apiRequestParse } from "../../api/apiRequestParse.js"
 import type { AppEnvironment } from "../../api/appEnvironment.js"
 import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.js"
@@ -123,18 +125,24 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     if (prompt.length === 0) return badRequest(context, "The chat request must end with one plain-text user prompt.")
 
     let adapter = options.sessionChatAdapter
+    let runtimeConfiguration: AgentConfiguration | undefined
     if (adapter === undefined) {
       const loaded = await sessionLoad(context.var.database, context.var.developmentUser.id, sessionId)
       if (!loaded.success)
         return loaded.errorMessage.includes("could not be found") ? notFound(context) : internalServerError(context)
       if (loaded.data.session.archivedAt !== null) return conflict(context, "The session is archived.")
 
-      const resolved = providerRuntimeAdapterResolve(loaded.data.agent.configuration, {
-        environment: options.providerEnvironment ?? Bun.env,
-        runtimeAdapterCreate: options.providerRuntimeAdapterCreate,
-      })
-      if (!resolved.success) return internalServerError(context)
-      adapter = resolved.data
+      const resolvedConfiguration = agentConfigurationExecutionResolve(
+        loaded.data.agent.configuration,
+        parsed.data.forwardedProps?.codelineExecution,
+      )
+      if (!resolvedConfiguration.success) {
+        if (resolvedConfiguration.errorMessage.includes("execution override"))
+          return badRequest(context, resolvedConfiguration.errorMessage)
+        return internalServerError(context)
+      }
+
+      runtimeConfiguration = resolvedConfiguration.data
     }
 
     const prepared = await databaseTransactionRun(context.var.database, (transaction) =>
@@ -174,6 +182,15 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
       stream = sessionChatStreamReplay(replay.data.events, eventIds)
       requestSignal.removeEventListener("abort", onRequestAbort)
     } else {
+      if (adapter === undefined) {
+        if (runtimeConfiguration === undefined) return internalServerError(context)
+        const resolved = providerRuntimeAdapterResolve(runtimeConfiguration, {
+          environment: options.providerEnvironment ?? Bun.env,
+          runtimeAdapterCreate: options.providerRuntimeAdapterCreate,
+        })
+        if (!resolved.success) return internalServerError(context)
+        adapter = resolved.data
+      }
       stream = sessionChatStreamCreate({
         adapter,
         cleanup: () => requestSignal.removeEventListener("abort", onRequestAbort),

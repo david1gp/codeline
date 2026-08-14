@@ -1,8 +1,12 @@
-import { fetchServerSentEvents, useChat } from "@tanstack/ai-solid"
-import { createMemo, createSignal } from "solid-js"
+import { createSignalObject } from "@adaptive-ds/solid-ui/utils/createSignalObject"
+import { useChat } from "@tanstack/ai-solid"
+import { createEffect, createMemo } from "solid-js"
+import type { CodelineExecution } from "../providers/schema/codelineExecutionSchema.js"
+import { streamReplayConnectionCreate } from "../stream/client/streamReplayConnectionCreate.js"
 import type { TransientMessage } from "./transientMessagesResolve.js"
 
 type ChatComposerOptions = {
+  codelineExecution?: () => CodelineExecution | null
   sessionId: string
 }
 
@@ -20,11 +24,29 @@ function chatMessageText(parts: ReadonlyArray<{ type: string; content?: unknown 
  * instead of leaking it into the next conversation.
  */
 export function chatComposerStateCreate(options: ChatComposerOptions) {
-  const [draft, setDraft] = createSignal("")
+  const draft = createSignalObject("")
+  const recoveryStatus = createSignalObject<"error" | "idle" | "recovering" | "stale" | "streaming" | "terminal">(
+    "idle",
+  )
+  const connection = streamReplayConnectionCreate({
+    onStateChange: recoveryStatus.set,
+    sessionId: options.sessionId,
+  })
+  const forwardedProps: Record<string, unknown> = {}
+  const syncForwardedProps = () => {
+    const execution = options.codelineExecution?.() ?? null
+    if (execution === null) {
+      delete forwardedProps.codelineExecution
+      return
+    }
+    forwardedProps.codelineExecution = execution
+  }
   const chat = useChat({
-    connection: fetchServerSentEvents(`/api/sessions/${encodeURIComponent(options.sessionId)}/chat`),
+    connection,
+    forwardedProps,
     threadId: options.sessionId,
   })
+  createEffect(syncForwardedProps)
 
   const transientMessages = createMemo<Array<TransientMessage>>(() =>
     chat
@@ -38,18 +60,20 @@ export function chatComposerStateCreate(options: ChatComposerOptions) {
   )
 
   const submit = () => {
-    const prompt = draft().trim()
+    const prompt = draft.get().trim()
     if (prompt.length === 0 || chat.isLoading()) return
-    setDraft("")
+    draft.set("")
+    syncForwardedProps()
     void chat.sendMessage(prompt, { whenBusy: "drop" })
   }
 
   return {
-    canSubmit: () => draft().trim().length > 0 && !chat.isLoading(),
-    draft,
-    errorMessage: () => chat.error()?.message,
+    canSubmit: () => draft.get().trim().length > 0 && !chat.isLoading(),
+    draft: draft.get,
+    errorMessage: () => (recoveryStatus.get() === "stale" ? undefined : chat.error()?.message),
     isBusy: chat.isLoading,
-    setDraft,
+    recoveryStatus: recoveryStatus.get,
+    setDraft: draft.set,
     stop: () => chat.stop(),
     submit,
     transientMessages,

@@ -1,14 +1,17 @@
 import { For, Show } from "solid-js"
+import type { Accessor } from "solid-js"
+import type { CodelineExecution } from "../providers/schema/codelineExecutionSchema.js"
 import { chatComposerStateCreate } from "./chatComposerStateCreate.js"
 import { transientMessagesResolve } from "./transientMessagesResolve.js"
 
 type SessionChatProps = {
+  codelineExecution: Accessor<CodelineExecution | null>
   durableMessages: () => ReadonlyArray<{ content: string; role: string }>
   sessionId: string
 }
 
 export function SessionChat(props: SessionChatProps) {
-  const composer = chatComposerStateCreate({ sessionId: props.sessionId })
+  const composer = chatComposerStateCreate({ codelineExecution: props.codelineExecution, sessionId: props.sessionId })
   const pending = () => transientMessagesResolve(composer.transientMessages(), props.durableMessages())
 
   const onKeyDown = (event: KeyboardEvent) => {
@@ -60,6 +63,11 @@ export function SessionChat(props: SessionChatProps) {
             </p>
           )}
         </Show>
+        <Show when={composer.recoveryStatus() === "stale"}>
+          <p class="m-0 text-xs text-[#e08a7a]" role="alert">
+            The saved response is stale and could not be recovered.
+          </p>
+        </Show>
 
         <textarea
           class="min-h-[62px] w-full resize-y rounded-lg border border-[#25281f] bg-transparent p-2.5 text-[13px] leading-[1.6] text-[#d7d9d1] disabled:text-[#777d70]"
@@ -73,10 +81,22 @@ export function SessionChat(props: SessionChatProps) {
         />
 
         <div class="flex items-center justify-end gap-2.5">
-          <Show when={composer.isBusy()}>
-            <span class="mr-auto font-mono text-[10px] text-[#9da392]" role="status">
-              Streaming response...
+          <Show when={composer.recoveryStatus() === "recovering"}>
+            <span class="mr-auto font-mono text-[10px] text-[#9da392]" role="status" aria-live="polite">
+              Recovering saved response...
             </span>
+          </Show>
+          <Show when={composer.recoveryStatus() === "terminal"}>
+            <span class="mr-auto font-mono text-[10px] text-[#9da392]" role="status" aria-live="polite">
+              Response complete.
+            </span>
+          </Show>
+          <Show when={composer.isBusy()}>
+            <Show when={composer.recoveryStatus() !== "recovering"}>
+              <span class="mr-auto font-mono text-[10px] text-[#9da392]" role="status" aria-live="polite">
+                Streaming response...
+              </span>
+            </Show>
             <button
               class="cursor-pointer rounded-lg border border-[#546333] bg-[#2b341c] px-3.5 py-2 text-[#d8ff72]"
               type="button"

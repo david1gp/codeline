@@ -1,11 +1,16 @@
 import { For, Match, Show, Switch } from "solid-js"
+import type { Accessor } from "solid-js"
 import { FinalizedMessage } from "../message/ui/FinalizedMessage.js"
+import type { CodelineExecution } from "../providers/schema/codelineExecutionSchema.js"
 import { SessionRenameControl } from "../session/ui/SessionRenameControl.js"
 import type { SessionNavigationState } from "./sessionNavigationStateCreate.js"
 import { selectedSessionStateCreate } from "./selectedSessionStateCreate.js"
 import { SessionChat } from "./SessionChat.js"
 
-export function SelectedSession(props: { navigation: SessionNavigationState }) {
+export function SelectedSession(props: {
+  codelineExecution: Accessor<CodelineExecution | null>
+  navigation: SessionNavigationState
+}) {
   const state = selectedSessionStateCreate(() => props.navigation)
 
   return (
@@ -144,7 +149,13 @@ export function SelectedSession(props: { navigation: SessionNavigationState }) {
           </div>
         }
       >
-        {(sessionId) => <SessionChat sessionId={sessionId} durableMessages={state.messages} />}
+        {(sessionId) => (
+          <SessionChat
+            codelineExecution={props.codelineExecution}
+            sessionId={sessionId}
+            durableMessages={state.messages}
+          />
+        )}
       </Show>
     </>
   )

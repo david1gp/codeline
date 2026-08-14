@@ -1,9 +1,12 @@
-import { SessionList } from "./SessionList.js"
+import { ProviderModelSelector } from "../providers/ui/ProviderModelSelector.js"
+import { providerModelSelectorStateCreate } from "../providers/ui/providerModelSelectorStateCreate.js"
 import { SelectedSession } from "./SelectedSession.js"
+import { SessionList } from "./SessionList.js"
 import { sessionNavigationStateCreate } from "./sessionNavigationStateCreate.js"
 
 export function WorkspacePage() {
   const navigation = sessionNavigationStateCreate()
+  const providerModelSelector = providerModelSelectorStateCreate({ sessionId: navigation.selectedSessionId })
 
   return (
     <main class="grid min-h-0 grid-cols-[264px_minmax(0,1fr)] max-[760px]:block" id="workspace">
@@ -29,10 +32,7 @@ export function WorkspacePage() {
         class="grid min-w-0 min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] max-[760px]:min-h-[calc(100dvh-110px)]"
         aria-label="Conversation workspace"
       >
-        <div
-          class="flex min-h-[74px] items-center gap-[18px] border-[#25281f] border-b px-7 py-3 max-[760px]:items-stretch max-[760px]:gap-[9px] max-[760px]:overflow-x-auto max-[760px]:px-4"
-          aria-label="Session controls"
-        >
+        <div class="flex min-h-[74px] items-center gap-[18px] border-[#25281f] border-b px-7 py-3 max-[760px]:items-stretch max-[760px]:gap-[9px] max-[760px]:overflow-x-auto max-[760px]:px-4">
           <label class="relative grid grid-cols-[auto_minmax(130px,auto)_auto] items-center gap-[9px] text-[11px] font-semibold tracking-[0.06em] text-[#969b8d] uppercase max-[760px]:min-w-max max-[760px]:grid-cols-[auto_auto] max-[760px]:grid-rows-[auto_auto]">
             <span>Server</span>
             <select
@@ -68,9 +68,13 @@ export function WorkspacePage() {
               Upcoming
             </small>
           </label>
+
+          <span class="h-7 w-px bg-[#30342a] max-[760px]:h-auto" aria-hidden="true" />
+
+          <ProviderModelSelector state={providerModelSelector} />
         </div>
 
-        <SelectedSession navigation={navigation} />
+        <SelectedSession codelineExecution={providerModelSelector.codelineExecution} navigation={navigation} />
       </section>
     </main>
   )
