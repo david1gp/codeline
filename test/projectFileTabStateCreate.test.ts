@@ -54,3 +54,20 @@ test("returns Result errors and leaves state unchanged for invalid or unopened p
   expect(state.tabs().map((tab) => tab.path)).toEqual(["src/index.ts"])
   expect(state.activePath()).toBe("src/index.ts")
 })
+
+test("keeps a display mode per file without changing tab order or selection", () => {
+  const state = projectFileTabStateCreate()
+  state.tabOpen("README.md")
+  state.tabOpen("notes.md")
+
+  expect(state.tabDisplayModeSelect("README.md", "preview").success).toBe(true)
+  expect(state.tabs()).toEqual([
+    { path: "README.md", displayMode: "preview" },
+    { path: "notes.md", displayMode: "source" },
+  ])
+  expect(state.activePath()).toBe("notes.md")
+
+  state.tabSelect("README.md")
+  expect(state.tabs()[0]?.displayMode).toBe("preview")
+  expect(state.tabDisplayModeSelect("missing.md", "preview").success).toBe(false)
+})

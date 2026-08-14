@@ -1,15 +1,15 @@
 import { expect, test } from "bun:test"
-import { finalizedMessageHtmlRender } from "../src/message/ui/finalizedMessageHtmlRender.js"
+import { markdownHtmlRender } from "../src/markdown/markdownHtmlRender.js"
 
 test("finalized messages render Markdown and fenced code", () => {
-  const html = finalizedMessageHtmlRender("First line\nsecond line with **bold**.\n\n```ts\nconst answer = 42\n```")
+  const html = markdownHtmlRender("First line\nsecond line with **bold**.\n\n```ts\nconst answer = 42\n```")
 
   expect(html).toContain("First line\nsecond line with <strong>bold</strong>.")
   expect(html).toContain('<pre><code class="language-ts">const answer = 42\n</code></pre>')
 })
 
 test("finalized messages sanitize raw HTML", () => {
-  const html = finalizedMessageHtmlRender(
+  const html = markdownHtmlRender(
     '<script>globalThis.compromised = true</script><img src="x" onerror="globalThis.compromised = true">\n\n[unsafe](javascript:alert(1))',
   )
 

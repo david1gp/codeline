@@ -1,6 +1,10 @@
 import { For, Match, Show, Switch } from "solid-js"
-import { projectBrowserStateCreate } from "./projectBrowserStateCreate.js"
 import { ProjectGitPanel } from "./ProjectGitPanel.js"
+import { projectBrowserStateCreate } from "./projectBrowserStateCreate.js"
+import { projectByteSizeFormat } from "./projectByteSizeFormat.js"
+import { projectEntryAccessibleName } from "./projectEntryAccessibleName.js"
+import { projectEntryPresentationClassify } from "./projectEntryPresentationClassify.js"
+import { projectModifiedAtFormat } from "./projectModifiedAtFormat.js"
 
 export function ProjectBrowser(props: { apiBase?: string }) {
   const state = projectBrowserStateCreate({ apiBase: props.apiBase })
@@ -47,22 +51,40 @@ export function ProjectBrowser(props: { apiBase?: string }) {
             <Match when={true}>
               <ul class="m-0 grid list-none gap-1 p-0" aria-label="Project directory entries">
                 <For each={state.entries()}>
-                  {(entry) => (
-                    <li>
-                      <button
-                        class="flex w-full items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-left text-xs text-[#a4a99c] hover:bg-[#22261e] hover:text-[#ebece5]"
-                        classList={{ "bg-[#2b341c] text-[#d8ff72]": state.selectedFile()?.path === entry.path }}
-                        type="button"
-                        disabled={entry.type === "other"}
-                        onClick={() =>
-                          entry.type === "directory" ? state.directoryOpen(entry) : state.fileOpen(entry)
-                        }
-                      >
-                        <span class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">{entry.name}</span>
-                        <span class="font-mono text-[10px] uppercase text-[#a4a99c]">{entry.type}</span>
-                      </button>
-                    </li>
-                  )}
+                  {(entry) => {
+                    const presentation = projectEntryPresentationClassify(entry)
+                    return (
+                      <li>
+                        <button
+                          class="grid w-full grid-cols-[2.5rem_minmax(0,1fr)] items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-[#a4a99c] hover:bg-[#22261e] hover:text-[#ebece5]"
+                          classList={{ "bg-[#2b341c] text-[#d8ff72]": state.selectedFile()?.path === entry.path }}
+                          type="button"
+                          disabled={entry.type === "other"}
+                          aria-label={projectEntryAccessibleName(entry)}
+                          onClick={() =>
+                            entry.type === "directory" ? state.directoryOpen(entry) : state.fileOpen(entry)
+                          }
+                        >
+                          <span
+                            class="rounded border border-[#30342a] bg-[#11130f] px-1 py-0.5 text-center font-mono text-[9px] text-[#d8ff72]"
+                            aria-hidden="true"
+                          >
+                            {presentation.marker}
+                          </span>
+                          <span class="min-w-0">
+                            <span class="block overflow-hidden text-ellipsis whitespace-nowrap text-[#ebece5]">
+                              {entry.name}
+                            </span>
+                            <span class="mt-0.5 block overflow-hidden text-ellipsis whitespace-nowrap text-[10px] text-[#9da392]">
+                              {presentation.label}
+                              {entry.type === "file" ? ` | ${projectByteSizeFormat(entry.size)}` : ""}
+                              {` | ${projectModifiedAtFormat(entry.modifiedAt)}`}
+                            </span>
+                          </span>
+                        </button>
+                      </li>
+                    )
+                  }}
                 </For>
               </ul>
             </Match>
@@ -101,17 +123,50 @@ export function ProjectBrowser(props: { apiBase?: string }) {
             >
               {(file) => (
                 <>
-                  <header class="mb-3 flex items-center justify-between gap-3 border-b border-[#30342a] pb-3">
-                    <code class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-[#ebece5]">
-                      {file().path}
-                    </code>
-                    <Show when={state.downloadUrl()}>
-                      {(url) => (
-                        <a class="text-xs text-[#d8ff72]" href={url()} download={file().name}>
-                          Download
-                        </a>
-                      )}
-                    </Show>
+                  <header class="mb-3 flex flex-wrap items-center justify-between gap-3 border-b border-[#30342a] pb-3">
+                    <div class="min-w-0">
+                      <code class="block overflow-hidden text-ellipsis whitespace-nowrap text-xs text-[#ebece5]">
+                        {file().path}
+                      </code>
+                      <Show when={state.preview()}>
+                        {(preview) => (
+                          <span class="mt-1 block text-[10px] text-[#9da392]">
+                            {preview().mimeType} | {projectByteSizeFormat(preview().size)}
+                          </span>
+                        )}
+                      </Show>
+                    </div>
+                    <div class="flex items-center gap-3">
+                      <Show when={state.isMarkdownPreview()}>
+                        {/* biome-ignore lint/a11y/useSemanticElements: Toggle buttons use aria-pressed, not form controls. */}
+                        <div
+                          class="flex rounded-md border border-[#30342a] p-0.5"
+                          role="group"
+                          aria-label="Markdown display mode"
+                        >
+                          <For each={["source", "preview"] as const}>
+                            {(mode) => (
+                              <button
+                                class="rounded px-2 py-1 text-[10px] capitalize text-[#a4a99c]"
+                                classList={{ "bg-[#30342a] text-[#ebece5]": state.displayMode() === mode }}
+                                type="button"
+                                aria-pressed={state.displayMode() === mode}
+                                onClick={() => state.displayModeSelect(mode)}
+                              >
+                                {mode}
+                              </button>
+                            )}
+                          </For>
+                        </div>
+                      </Show>
+                      <Show when={state.downloadUrl()}>
+                        {(url) => (
+                          <a class="text-xs text-[#d8ff72]" href={url()} download={file().name}>
+                            Download
+                          </a>
+                        )}
+                      </Show>
+                    </div>
                   </header>
                   <Switch>
                     <Match when={state.previewStatus() === "loading"}>
@@ -126,6 +181,14 @@ export function ProjectBrowser(props: { apiBase?: string }) {
                           Retry
                         </button>
                       </div>
+                    </Match>
+                    <Match when={state.isMarkdownPreview() && state.displayMode() === "preview"}>
+                      <section
+                        class="markdown-content markdown-content--preview max-h-[70vh] overflow-auto"
+                        tabindex="0"
+                        aria-label={`Markdown preview of ${file().name}`}
+                        innerHTML={state.markdownPreviewHtml()}
+                      />
                     </Match>
                     <Match when={state.textPreview()}>
                       {(preview) => (

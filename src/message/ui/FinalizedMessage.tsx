@@ -1,5 +1,5 @@
-import { finalizedMessageHtmlRender } from "./finalizedMessageHtmlRender.js"
 import { finalizedMessageCopyStateCreate } from "./finalizedMessageCopyStateCreate.js"
+import { MessageBody } from "./MessageBody.js"
 
 type FinalizedMessageProps = {
   content: string
@@ -36,10 +36,7 @@ export function FinalizedMessage(props: FinalizedMessageProps) {
           </button>
         </div>
       </div>
-      <div
-        class="mt-2 overflow-wrap-anywhere whitespace-pre-wrap text-sm leading-[1.75] text-[#d7d9d1] [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_a]:text-[#d8ff72] [&_a]:underline [&_code]:rounded [&_code]:bg-[#25281f] [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:border [&_pre]:border-[#30342a] [&_pre]:bg-[#171914] [&_pre]:p-3 [&_pre]:whitespace-pre [&_pre_code]:bg-transparent [&_pre_code]:p-0"
-        innerHTML={finalizedMessageHtmlRender(props.content)}
-      />
+      <MessageBody content={props.content} />
     </article>
   )
 }

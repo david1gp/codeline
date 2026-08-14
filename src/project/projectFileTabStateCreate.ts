@@ -3,6 +3,7 @@ import { createSignal } from "solid-js/dist/solid.js"
 import { projectPathValidate } from "./projectPathValidate.js"
 
 type ProjectFileTab = {
+  displayMode: "preview" | "source"
   path: string
 }
 
@@ -33,7 +34,7 @@ export function projectFileTabStateCreate() {
       return createResult(existing)
     }
 
-    const tab = { path: path.data }
+    const tab = { displayMode: "source" as const, path: path.data }
     tabs.set([...tabs.get(), tab])
     activePath.set(tab.path)
     return createResult(tab)
@@ -69,9 +70,24 @@ export function projectFileTabStateCreate() {
     return createResult(undefined)
   }
 
+  const tabDisplayModeSelect = (relativePath: string, displayMode: "preview" | "source"): Result<void> => {
+    const op = "projectFileTabDisplayModeSelect"
+    const path = projectFileTabPathResolve(relativePath, op)
+    if (!path.success) return path
+
+    const currentTabs = tabs.get()
+    if (!currentTabs.some((tab) => tab.path === path.data)) {
+      return createResultError(op, "The file tab is not open")
+    }
+
+    tabs.set(currentTabs.map((tab) => (tab.path === path.data ? { ...tab, displayMode } : tab)))
+    return createResult(undefined)
+  }
+
   return {
     activePath: activePath.get,
     tabClose,
+    tabDisplayModeSelect,
     tabOpen,
     tabSelect,
     tabs: tabs.get,

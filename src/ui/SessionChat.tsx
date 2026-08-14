@@ -1,5 +1,6 @@
-import { For, Show } from "solid-js"
 import type { Accessor } from "solid-js"
+import { For, Show } from "solid-js"
+import { MessageBody } from "../message/ui/MessageBody.js"
 import type { CodelineExecution } from "../providers/schema/codelineExecutionSchema.js"
 import { chatComposerStateCreate } from "./chatComposerStateCreate.js"
 import { transientMessagesResolve } from "./transientMessagesResolve.js"
@@ -39,9 +40,7 @@ export function SessionChat(props: SessionChatProps) {
                 >
                   {message.role}
                 </span>
-                <p class="mt-2 mb-0 overflow-wrap-anywhere whitespace-pre-wrap text-sm leading-[1.75] text-[#d7d9d1]">
-                  {message.content}
-                </p>
+                <MessageBody content={message.content} />
               </li>
             )}
           </For>

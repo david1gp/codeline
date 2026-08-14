@@ -159,3 +159,47 @@ test("project browser opens, selects, and closes multiple viewed files", async (
   expect(root.state.previewStatus()).toBe("idle")
   root.dispose()
 })
+
+test("project browser defaults Markdown to source and renders only sanitized preview HTML", async () => {
+  const root = createRoot((dispose) => ({
+    dispose,
+    state: projectBrowserStateCreate({
+      fetcher: async (input) => {
+        const url = new URL(String(input), "https://codeline.test")
+        if (url.pathname.endsWith("/directory")) {
+          return Response.json({
+            entries: [
+              {
+                name: "README.md",
+                path: "README.md",
+                type: "file",
+                size: 31,
+                modifiedAt: "2026-08-13T00:00:00.000Z",
+              },
+            ],
+          })
+        }
+        return Response.json({
+          path: "README.md",
+          kind: "text",
+          mimeType: "text/markdown; charset=utf-8",
+          content: "# Safe\n\n<script>alert(1)</script>\n\n[bad](javascript:alert(1))",
+          size: 31,
+        })
+      },
+    }),
+  }))
+
+  await tick()
+  root.state.fileOpen(root.state.entries()[0]!)
+  await tick()
+  expect(root.state.isMarkdownPreview()).toBe(true)
+  expect(root.state.displayMode()).toBe("source")
+
+  root.state.displayModeSelect("preview")
+  expect(root.state.displayMode()).toBe("preview")
+  expect(root.state.markdownPreviewHtml()).toContain("<h1>Safe</h1>")
+  expect(root.state.markdownPreviewHtml()).not.toContain("<script>")
+  expect(root.state.markdownPreviewHtml()).not.toContain('href="javascript:')
+  root.dispose()
+})

@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "../markdown/markdown.css";
 
 @source "./**/*.{ts,tsx}";
 @source "../../../solid-ui/ui/static/badge/**/*.{ts,tsx}";

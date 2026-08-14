@@ -1,10 +1,17 @@
-import { createSignal, onCleanup } from "solid-js/dist/solid.js"
+import * as solidRuntime from "solid-js/dist/solid.js"
 import * as v from "valibot"
+import { markdownHtmlRender } from "../markdown/markdownHtmlRender.js"
 import type { ProjectApiDirectoryResponse } from "./api/projectApiDirectoryResponseSchema.js"
 import { projectApiDirectoryResponseSchema } from "./api/projectApiDirectoryResponseSchema.js"
 import type { ProjectApiPreviewResponse } from "./api/projectApiPreviewResponseSchema.js"
 import { projectApiPreviewResponseSchema } from "./api/projectApiPreviewResponseSchema.js"
 import { projectFileTabStateCreate } from "./projectFileTabStateCreate.js"
+import { projectMimeTypeIsMarkdown } from "./projectMimeTypeIsMarkdown.js"
+
+const { createMemo, createSignal, onCleanup } = solidRuntime as unknown as Pick<
+  typeof import("solid-js"),
+  "createMemo" | "createSignal" | "onCleanup"
+>
 
 type ProjectEntry = ProjectApiDirectoryResponse["entries"][number]
 
@@ -27,6 +34,11 @@ export function projectBrowserStateCreate(options: ProjectBrowserStateOptions = 
   const [preview, setPreview] = createSignal<ProjectApiPreviewResponse | null>(null)
   const [previewStatus, setPreviewStatus] = createSignal<"idle" | "loading" | "complete" | "error">("idle")
   const fileTabs = projectFileTabStateCreate()
+  const markdownPreviewHtml = createMemo(() => {
+    const value = preview()
+    if (value?.kind !== "text" || !projectMimeTypeIsMarkdown(value.mimeType)) return ""
+    return markdownHtmlRender(value.content)
+  })
   let directoryController: AbortController | undefined
   let previewController: AbortController | undefined
 
@@ -116,6 +128,14 @@ export function projectBrowserStateCreate(options: ProjectBrowserStateOptions = 
       return path === null ? null : requestUrl("download", path)
     },
     entries,
+    displayMode: () => {
+      const path = fileTabs.activePath()
+      return fileTabs.tabs().find((tab) => tab.path === path)?.displayMode ?? "source"
+    },
+    displayModeSelect: (displayMode: "preview" | "source") => {
+      const path = fileTabs.activePath()
+      if (path !== null) fileTabs.tabDisplayModeSelect(path, displayMode)
+    },
     fileOpen,
     parentOpen: () => {
       if (currentPath() !== "") directoryLoad(parentPathResolve(currentPath()))
@@ -129,6 +149,11 @@ export function projectBrowserStateCreate(options: ProjectBrowserStateOptions = 
       const value = preview()
       return value?.kind === "pdf" ? value : null
     },
+    isMarkdownPreview: () => {
+      const value = preview()
+      return value?.kind === "text" && projectMimeTypeIsMarkdown(value.mimeType)
+    },
+    markdownPreviewHtml,
     preview,
     previewStatus,
     retryPreview: () => {
