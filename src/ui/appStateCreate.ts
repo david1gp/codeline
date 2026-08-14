@@ -29,6 +29,7 @@ export function appStateCreate() {
   })
 
   return {
+    healthStatus: health.get,
     healthLabel: () => {
       if (health.get() === "connected") return "API connected"
       if (health.get() === "unavailable") return "API unavailable"

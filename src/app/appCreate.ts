@@ -13,6 +13,7 @@ import type { ProviderModelDiscoveryOptions } from "../providers/runtime/provide
 import { providerRuntimeAdapterCreate } from "../providers/runtime/providerRuntimeAdapterCreate.js"
 import { sessionChatAdapterCreate } from "../session/actions/sessionChatAdapterCreate.js"
 import { streamReplayServiceCreate } from "../stream/actions/streamReplayServiceCreate.js"
+import { appUiShellFallbackAdd } from "./appUiShellFallbackAdd.js"
 
 export type AppCreateOptions = {
   configuration?: RuntimeConfiguration
@@ -27,6 +28,7 @@ export type AppCreateOptions = {
   sessionChatAdapter?: typeof sessionChatAdapterCreate
   streamInactivityTimeoutMs?: number
   streamReplayServiceCreate?: typeof streamReplayServiceCreate
+  uiShellPath?: string
 }
 
 export function appCreate(options: AppCreateOptions = {}): App {
@@ -77,8 +79,14 @@ export function appCreate(options: AppCreateOptions = {}): App {
     streamReplayServiceCreate: options.streamReplayServiceCreate,
   })
 
-  app.get("/", serveStatic({ path: "./dist/ui/index.html" }))
+  const uiShellPath = options.uiShellPath ?? "./dist/ui/index.html"
+  app.get("/", serveStatic({ path: uiShellPath }))
   app.get("/assets/*", serveStatic({ root: "./dist/ui" }))
+  app.get("/icons/*", serveStatic({ root: "./dist/ui" }))
+  app.get("/favicon.ico", serveStatic({ root: "./dist/ui" }))
+  app.get("/manifest.webmanifest", serveStatic({ root: "./dist/ui" }))
+  app.get("/service-worker.js", serveStatic({ root: "./dist/ui" }))
+  appUiShellFallbackAdd(app, uiShellPath)
 
   app.notFound((context) => {
     const response = {

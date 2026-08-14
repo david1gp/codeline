@@ -35,7 +35,7 @@
     "dev:ui": "vite",
     "test": "bun test",
     "typecheck": "bun tsc -p tsconfig.json --noEmit",
-    "build": "rm -rf ./dist && bun tsc -p ./tsconfig.json && env -u VITE_USER_NODE_ENV -u VITE_ZERO_CACHE_URL -u VITE_ZERO_QUERY_URL -u VITE_ZERO_MUTATE_URL NODE_ENV=production vite build --mode production && bun build ./src/index.ts --outdir ./dist/server --target bun --sourcemap=external",
+    "build": "rm -rf ./dist && bun tsc -p ./tsconfig.json && env -u VITE_USER_NODE_ENV -u VITE_ZERO_CACHE_URL -u VITE_ZERO_QUERY_URL -u VITE_ZERO_MUTATE_URL NODE_ENV=production vite build --mode production && bun build ./src/ui/pwa/serviceWorkerMain.ts --outfile ./dist/ui/service-worker.js --target browser --format iife --minify && bun build ./src/index.ts --outdir ./dist/server --target bun --sourcemap=external",
     "release": "bash ./ops/release.sh",
     "zero:link": "bash ./ops/dev/zero-link.sh setup",
     "zero:verify": "bash ./ops/dev/zero-link.sh verify",

@@ -2,6 +2,7 @@ import { Badge } from "@adaptive-ds/solid-ui/static/badge/Badge"
 import { A } from "@solidjs/router"
 import type { JSX } from "solid-js"
 import { appStateCreate } from "./appStateCreate.js"
+import { PwaStatusIndicator } from "./pwa/PwaStatusIndicator.js"
 import { ZeroConnectionIndicator } from "./ZeroConnectionIndicator.js"
 
 export function App(props: { children: JSX.Element }) {
@@ -53,7 +54,7 @@ export function App(props: { children: JSX.Element }) {
           </A>
         </nav>
 
-        <div class="flex items-center gap-2 max-[760px]:gap-1.5">
+        <div class="flex items-center gap-2 max-[760px]:gap-1">
           <A
             class="grid size-9 place-items-center rounded-lg border border-[#30342a] text-[#969b8d] no-underline hover:border-[#768d3d] hover:text-[#d8ff72]"
             href="/notes"
@@ -72,10 +73,12 @@ export function App(props: { children: JSX.Element }) {
               <path d="M9 10h6M9 14h6M9 18h4" />
             </svg>
           </A>
+          <PwaStatusIndicator />
           <ZeroConnectionIndicator />
           <Badge
             variant={state.healthVariant()}
-            class="gap-[7px] border-[#30342a] px-2.5 py-[5px] text-xs"
+            class="gap-[7px] border-[#30342a] px-2.5 py-[5px] text-xs data-[state=connected]:bg-[#1f7047]"
+            data-state={state.healthStatus()}
             role="status"
             aria-live="polite"
           >

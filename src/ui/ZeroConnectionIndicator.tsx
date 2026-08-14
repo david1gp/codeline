@@ -7,7 +7,7 @@ export function ZeroConnectionIndicator() {
   return (
     <Badge
       variant={state.variant()}
-      class="gap-[7px] border-[#30342a] px-2.5 py-[5px] text-xs data-[state=connecting]:text-[#e5c96b] data-[state=error]:text-[#ff8977] data-[state=offline]:text-[#ff8977]"
+      class="gap-[7px] border-[#30342a] px-2.5 py-[5px] text-xs data-[state=connecting]:text-[#e5c96b] data-[state=error]:text-[#ff8977] data-[state=offline]:text-[#ff8977] data-[state=online]:bg-[#1f7047]"
       data-state={state.status()}
       role="status"
       aria-live="polite"
