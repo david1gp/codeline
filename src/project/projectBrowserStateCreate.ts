@@ -18,6 +18,7 @@ type ProjectEntry = ProjectApiDirectoryResponse["entries"][number]
 type ProjectBrowserStateOptions = {
   apiBase?: string
   fetcher?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+  projectId?: string
 }
 
 function parentPathResolve(path: string): string {
@@ -25,7 +26,7 @@ function parentPathResolve(path: string): string {
   return separator < 0 ? "" : path.slice(0, separator)
 }
 
-export function projectBrowserStateCreate(options: ProjectBrowserStateOptions = {}) {
+export function projectBrowserStateCreate(options: ProjectBrowserStateOptions) {
   const apiBase = options.apiBase ?? "/api/project"
   const fetcher = options.fetcher ?? fetch
   const [currentPath, setCurrentPath] = createSignal("")
@@ -42,8 +43,10 @@ export function projectBrowserStateCreate(options: ProjectBrowserStateOptions = 
   let directoryController: AbortController | undefined
   let previewController: AbortController | undefined
 
-  const requestUrl = (route: "directory" | "download" | "preview", path: string) =>
-    `${apiBase}/${route}?path=${encodeURIComponent(path)}`
+  const requestUrl = (route: "directory" | "download" | "preview", path: string) => {
+    const projectQuery = options.projectId === undefined ? "" : `project=${encodeURIComponent(options.projectId)}&`
+    return `${apiBase}/${route}?${projectQuery}path=${encodeURIComponent(path)}`
+  }
 
   const directoryLoad = (path: string) => {
     directoryController?.abort()

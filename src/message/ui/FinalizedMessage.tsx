@@ -1,35 +1,34 @@
-import { finalizedMessageCopyStateCreate } from "./finalizedMessageCopyStateCreate.js"
+import type { finalizedMessageCopyStateCreate } from "./finalizedMessageCopyStateCreate.js"
 import { MessageBody } from "./MessageBody.js"
 
 type FinalizedMessageProps = {
   content: string
   role: "assistant" | "user"
+  state: ReturnType<typeof finalizedMessageCopyStateCreate>
 }
 
 export function FinalizedMessage(props: FinalizedMessageProps) {
-  const state = finalizedMessageCopyStateCreate({ content: () => props.content })
-
   return (
     <article
-      class="border-l-2 border-[#657838] pl-4"
-      classList={{ "!border-[#454a3d]": props.role === "assistant" }}
+      class="border-l-2 border-accent-border pl-4"
+      classList={{ "!border-line-strong": props.role === "assistant" }}
       data-message-role={props.role}
     >
       <div class="flex min-h-7 items-center justify-between gap-3">
         <span
-          class="font-mono text-[10px] font-bold tracking-[0.12em] text-[#d8ff72] uppercase"
-          classList={{ "!text-[#9da392]": props.role === "assistant" }}
+          class="font-mono text-[10px] font-bold tracking-[0.12em] text-accent uppercase"
+          classList={{ "!text-faint": props.role === "assistant" }}
         >
           {props.role}
         </span>
         <div class="flex items-center gap-2">
-          <span aria-live="polite" class="font-mono text-[10px] text-[#b8bdae]" role="status">
-            {state.status() === "copied" ? "Copied" : state.status() === "error" ? "Copy failed" : ""}
+          <span aria-live="polite" class="font-mono text-[10px] text-subtle" role="status">
+            {props.state.status() === "copied" ? "Copied" : props.state.status() === "error" ? "Copy failed" : ""}
           </span>
           <button
             aria-label={`Copy ${props.role} message`}
-            class="min-h-7 rounded border border-[#454a3d] px-2 font-mono text-[10px] font-bold tracking-[0.08em] text-[#d7d9d1] uppercase hover:border-[#657838] hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d8ff72]"
-            onClick={state.copy}
+            class="min-h-7 rounded border border-line-strong px-2 font-mono text-[10px] font-bold tracking-[0.08em] text-subtle uppercase hover:border-accent-border hover:text-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            onClick={props.state.copy}
             type="button"
           >
             Copy

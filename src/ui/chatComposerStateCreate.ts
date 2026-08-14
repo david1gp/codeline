@@ -5,6 +5,8 @@ import type { CodelineExecution } from "../providers/schema/codelineExecutionSch
 import { runCancelCommand } from "../run/client/runCancelCommand.js"
 import { streamReplayConnectionCreate } from "../stream/client/streamReplayConnectionCreate.js"
 import { chatComposerStop } from "./chatComposerStop.js"
+import { streamActivityStateCreate } from "./streamActivityStateCreate.js"
+import { transientMessageActivitiesResolve } from "./transientMessageActivitiesResolve.js"
 import type { TransientMessage } from "./transientMessagesResolve.js"
 
 type ChatComposerOptions = {
@@ -48,9 +50,11 @@ export function chatComposerStateCreate(options: ChatComposerOptions) {
     }
     forwardedProps.codelineExecution = execution
   }
+  const activity = streamActivityStateCreate()
   const chat = useChat({
     connection,
     forwardedProps,
+    onChunk: activity.chunkObserve,
     threadId: options.sessionId,
   })
   createEffect(syncForwardedProps)
@@ -60,6 +64,7 @@ export function chatComposerStateCreate(options: ChatComposerOptions) {
       .messages()
       .filter((message) => message.role === "assistant" || message.role === "user")
       .map((message) => ({
+        activities: transientMessageActivitiesResolve(message.parts),
         content: chatMessageText(message.parts),
         id: message.id,
         role: message.role as "assistant" | "user",
@@ -71,6 +76,7 @@ export function chatComposerStateCreate(options: ChatComposerOptions) {
     if (prompt.length === 0 || chat.isLoading() || stopping.get()) return
     draft.set("")
     stopError.set(undefined)
+    activity.turnReset()
     syncForwardedProps()
     void chat.sendMessage(prompt, { whenBusy: "drop" })
   }
@@ -98,6 +104,7 @@ export function chatComposerStateCreate(options: ChatComposerOptions) {
   }
 
   return {
+    activity,
     canSubmit: () => draft.get().trim().length > 0 && !chat.isLoading(),
     draft: draft.get,
     errorMessage: () => stopError.get() ?? (recoveryStatus.get() === "stale" ? undefined : chat.error()?.message),

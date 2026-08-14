@@ -1,13 +1,15 @@
 import { createSignalObject } from "@adaptive-ds/solid-ui/utils/createSignalObject"
 import { useQuery, useZero } from "@rocicorp/zero/solid"
 import { useNavigate } from "@solidjs/router"
-import { createEffect, onCleanup } from "solid-js"
-import * as v from "valibot"
+import { createEffect } from "solid-js"
 import type { zeroSchema } from "../../database/zeroSchema.js"
-import { projectApiDirectoryResponseSchema } from "../../project/api/projectApiDirectoryResponseSchema.js"
 import { codelineQueries } from "../../ui/codelineQueries.js"
 import { type NoteMutationContext, noteMutators } from "../noteMutators.js"
 import { noteLineCount } from "./noteLineCount.js"
+import { noteContentFieldStateCreate } from "./noteContentFieldStateCreate.js"
+import { noteProjectChoicesResolve } from "./noteProjectChoicesResolve.js"
+import { noteProjectListStateCreate } from "./noteProjectListStateCreate.js"
+import type { NoteScreenView } from "./noteScreenView.js"
 import { noteTitleStateCreate } from "./noteTitleStateCreate.js"
 import { noteViewModeStateCreate } from "./noteViewModeStateCreate.js"
 
@@ -17,7 +19,7 @@ type NotePageStateOptions = {
   noteId: string
 }
 
-export function notePageStateCreate(options: NotePageStateOptions) {
+export function notePageStateCreate(options: NotePageStateOptions): NoteScreenView {
   const navigate = useNavigate()
   const apiBase = options.apiBase ?? "/api/project"
   const fetcher = options.fetcher ?? fetch
@@ -25,8 +27,8 @@ export function notePageStateCreate(options: NotePageStateOptions) {
   const [note, noteResult] = useQuery(() => codelineQueries.note({ noteId: options.noteId }))
 
   const content = createSignalObject<string | null>(null)
-  const projectPath = createSignalObject<string | null>(null)
-  const projectPaths = createSignalObject<string[]>([])
+  const projectId = createSignalObject<string | null>(null)
+  const projectList = noteProjectListStateCreate({ apiBase, fetcher })
   const status = createSignalObject<"idle" | "saving" | "error">("idle")
   const isDeleteConfirmOpen = createSignalObject(false)
 
@@ -34,21 +36,8 @@ export function notePageStateCreate(options: NotePageStateOptions) {
     const loaded = note()
     if (loaded === undefined || content.get() !== null) return
     content.set(loaded.content)
-    projectPath.set(loaded.projectPath)
+    projectId.set(loaded.projectPath)
   })
-
-  const controller = new AbortController()
-  void fetcher(`${apiBase}/directory?path=${encodeURIComponent("")}`, { signal: controller.signal })
-    .then(async (response) => {
-      if (!response.ok) throw new Error("The project directory request failed.")
-      const parsed = v.safeParse(projectApiDirectoryResponseSchema, await response.json())
-      if (!parsed.success || controller.signal.aborted) return
-      projectPaths.set(parsed.output.entries.filter((entry) => entry.type === "directory").map((entry) => entry.path))
-    })
-    .catch((_error: unknown) => {
-      if (!controller.signal.aborted) projectPaths.set([])
-    })
-  onCleanup(() => controller.abort())
 
   const noteSave = async () => {
     const current = note()
@@ -60,7 +49,7 @@ export function notePageStateCreate(options: NotePageStateOptions) {
       noteMutators.note.update({
         id: current.id,
         content: editedContent,
-        projectPath: projectPath.get(),
+        projectPath: projectId.get(),
         updatedAt: Date.now(),
       }),
     )
@@ -69,10 +58,15 @@ export function notePageStateCreate(options: NotePageStateOptions) {
   }
 
   const viewModeState = noteViewModeStateCreate()
+  const contentField = noteContentFieldStateCreate({
+    content: () => content.get() ?? "",
+    viewMode: viewModeState.viewMode,
+  })
   const titleState = noteTitleStateCreate({ content: () => content.get() ?? "" })
 
   return {
     ...viewModeState,
+    contentField,
     title: titleState.title,
     content: () => content.get() ?? "",
     contentUpdate: (event: InputEvent & { currentTarget: HTMLTextAreaElement }) => {
@@ -96,21 +90,21 @@ export function notePageStateCreate(options: NotePageStateOptions) {
       navigate("/notes")
     },
     hasError: () => status.get() === "error",
+    hasNote: () => note() !== undefined,
     isDeleteConfirmOpen: isDeleteConfirmOpen.get,
     isDirty: () => {
       const current = note()
       if (current === undefined || content.get() === null) return false
-      return content.get() !== current.content || projectPath.get() !== current.projectPath
+      return content.get() !== current.content || projectId.get() !== current.projectPath
     },
     isLoading: () => noteResult().type === "unknown" && note() === undefined,
     isNotFound: () => noteResult().type === "complete" && note() === undefined,
     isSaving: () => status.get() === "saving",
     lineCount: () => noteLineCount(content.get() ?? ""),
-    note,
-    projectPath: () => projectPath.get() ?? "",
-    projectPaths: projectPaths.get,
-    projectPathUpdate: (event: Event & { currentTarget: HTMLSelectElement }) => {
-      projectPath.set(event.currentTarget.value === "" ? null : event.currentTarget.value)
+    projectId: () => projectId.get() ?? "",
+    projects: () => noteProjectChoicesResolve(projectList.projects(), projectId.get()),
+    projectIdUpdate: (event: Event & { currentTarget: HTMLSelectElement }) => {
+      projectId.set(event.currentTarget.value === "" ? null : event.currentTarget.value)
       if (status.get() === "error") status.set("idle")
     },
     submit: async (event: SubmitEvent) => {

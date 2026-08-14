@@ -1,7 +1,9 @@
-import { NotePage } from "../note/ui/NotePage.js"
+import { NoteWorkspacePage } from "../note/ui/NoteWorkspacePage.js"
+import { noteWorkspaceScreenStateCreate } from "../note/ui/noteWorkspaceScreenStateCreate.js"
 import { noteRoutePageStateCreate } from "./noteRoutePageStateCreate.js"
 
 export function NoteRoutePage() {
-  const state = noteRoutePageStateCreate()
-  return <NotePage noteId={state.noteId()} />
+  const route = noteRoutePageStateCreate()
+  const state = noteWorkspaceScreenStateCreate({ noteId: route.noteId })
+  return <NoteWorkspacePage state={state} />
 }

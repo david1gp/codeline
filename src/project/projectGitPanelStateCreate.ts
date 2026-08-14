@@ -11,6 +11,7 @@ type ProjectGitPanelStateOptions = {
   apiBase?: string
   confirmDelete?: (branch: string) => boolean
   fetcher?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+  projectId?: string
 }
 
 function createSignalObject<T>(value: T) {
@@ -18,7 +19,7 @@ function createSignalObject<T>(value: T) {
   return { get, set }
 }
 
-export function projectGitPanelStateCreate(options: ProjectGitPanelStateOptions = {}) {
+export function projectGitPanelStateCreate(options: ProjectGitPanelStateOptions) {
   const apiBase = options.apiBase ?? "/api/project"
   const fetcher = options.fetcher ?? fetch
   const confirmDelete = options.confirmDelete ?? ((branch: string) => window.confirm(`Delete local branch ${branch}?`))
@@ -30,13 +31,17 @@ export function projectGitPanelStateCreate(options: ProjectGitPanelStateOptions 
   const message = createSignalObject("")
   const renamingBranch = createSignalObject<string | null>(null)
   let controller: AbortController | undefined
+  const requestUrl = (route: string) =>
+    options.projectId === undefined
+      ? `${apiBase}/${route}`
+      : `${apiBase}/${route}?project=${encodeURIComponent(options.projectId)}`
 
   const load = async () => {
     controller?.abort()
     controller = new AbortController()
     loadStatus.set("loading")
     try {
-      const statusResponse = await fetcher(`${apiBase}/git/status`, { signal: controller.signal })
+      const statusResponse = await fetcher(requestUrl("git/status"), { signal: controller.signal })
       if (!statusResponse.ok) throw new Error("The project Git request failed.")
       const parsedStatus = v.safeParse(projectGitStatusSchema, await statusResponse.json())
       if (!parsedStatus.success) throw new Error("The project Git response is invalid.")
@@ -48,8 +53,8 @@ export function projectGitPanelStateCreate(options: ProjectGitPanelStateOptions 
         return
       }
       const responses = await Promise.all([
-        fetcher(`${apiBase}/git/diff-summary`, { signal: controller.signal }),
-        fetcher(`${apiBase}/git/branches`, { signal: controller.signal }),
+        fetcher(requestUrl("git/diff-summary"), { signal: controller.signal }),
+        fetcher(requestUrl("git/branches"), { signal: controller.signal }),
       ])
       if (responses.some((response) => !response.ok)) throw new Error("The project Git request failed.")
       const [summaryBody, branchesBody] = await Promise.all(responses.map((response) => response.json()))
@@ -71,7 +76,7 @@ export function projectGitPanelStateCreate(options: ProjectGitPanelStateOptions 
     actionStatus.set("loading")
     message.set("")
     try {
-      const response = await fetcher(`${apiBase}/git/branches/${action}`, {
+      const response = await fetcher(requestUrl(`git/branches/${action}`), {
         body: JSON.stringify(body),
         headers: { "Content-Type": "application/json" },
         method: "POST",

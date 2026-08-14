@@ -5,22 +5,26 @@ import * as v from "valibot"
 import { zeroSchema } from "../../database/zeroSchema.js"
 import { uuidv7 } from "../../uuid/uuidv7.js"
 import { type NoteMutationContext, noteMutators } from "../noteMutators.js"
+import type { NewNoteScreenView } from "./newNoteScreenView.js"
+import { noteContentFieldStateCreate } from "./noteContentFieldStateCreate.js"
 import { noteTitleStateCreate } from "./noteTitleStateCreate.js"
 import { noteViewModeStateCreate } from "./noteViewModeStateCreate.js"
 
 const draftKey = "codeline.note.new.content"
 
-export function newNotePageStateCreate() {
+export function newNotePageStateCreate(): NewNoteScreenView {
   const navigate = useNavigate()
   const zero = useZero<typeof zeroSchema, undefined, NoteMutationContext>()
   const storedDraft = v.safeParse(v.string(), localStorage.getItem(draftKey))
   const content = createSignalObject(storedDraft.success ? storedDraft.output : "")
   const status = createSignalObject<"idle" | "saving" | "error">("idle")
   const viewModeState = noteViewModeStateCreate()
+  const contentField = noteContentFieldStateCreate({ content: content.get, viewMode: viewModeState.viewMode })
   const titleState = noteTitleStateCreate({ content: content.get })
 
   return {
     ...viewModeState,
+    contentField,
     title: titleState.title,
     content: content.get,
     isSaving: () => status.get() === "saving",

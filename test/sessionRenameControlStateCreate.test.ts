@@ -12,7 +12,7 @@ test("session rename component declares accessible edit and form semantics", asy
   expect(source).toContain('aria-label="Rename session"')
   expect(source).toContain('role="alert"')
   expect(source).toContain("onKeyDown={state.inputKeyDown}")
-  expect(source).toContain("encodeURIComponent(props.sessionId)")
+  expect(source).toContain('const inputId = "session-rename-title"')
   expect(source).toContain('<h2 class="m-0 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">')
 })
 
@@ -20,7 +20,7 @@ test("selected session exposes rename at its Zero-backed title without navigatio
   const source = await Bun.file(new URL("../src/ui/SelectedSession.tsx", import.meta.url)).text()
 
   expect(source).toContain('import { SessionRenameControl } from "../session/ui/SessionRenameControl.js"')
-  expect(source).toContain("<SessionRenameControl sessionId={session.id} title={session.title} />")
+  expect(source).toContain("state={props.state.renameState()!}")
   expect(source).not.toContain("onRenamed=")
 })
 

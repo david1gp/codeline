@@ -14,12 +14,12 @@ const options = [
 
 export function NoteViewModeSwitcher(props: NoteViewModeSwitcherProps) {
   return (
-    <fieldset class="m-0 inline-flex gap-0.5 rounded-lg border border-[#30342a] p-0.5">
+    <fieldset class="m-0 inline-flex gap-0.5 rounded-lg border border-line p-0.5">
       <legend class="sr-only">Note view mode</legend>
       <For each={options}>
         {(option) => (
           <button
-            class="grid size-8 place-items-center rounded-md text-[#969b8d] hover:text-[#ebece5] aria-pressed:bg-[#25281f] aria-pressed:text-[#d8ff72]"
+            class="grid size-8 place-items-center rounded-md text-faint hover:text-strong aria-pressed:bg-line-subtle aria-pressed:text-accent"
             type="button"
             aria-pressed={props.viewMode() === option.value}
             aria-label={option.label}

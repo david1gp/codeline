@@ -1,45 +1,43 @@
-import type { Accessor } from "solid-js"
 import { For, Show } from "solid-js"
 import { MessageBody } from "../message/ui/MessageBody.js"
-import type { CodelineExecution } from "../providers/schema/codelineExecutionSchema.js"
-import { chatComposerStateCreate } from "./chatComposerStateCreate.js"
-import { transientMessagesResolve } from "./transientMessagesResolve.js"
+import type { SessionChatState } from "./sessionChatStateCreate.js"
 
-type SessionChatProps = {
-  codelineExecution: Accessor<CodelineExecution | null>
-  durableMessages: () => ReadonlyArray<{ content: string; role: string }>
-  sessionId: string
-}
-
-export function SessionChat(props: SessionChatProps) {
-  const composer = chatComposerStateCreate({ codelineExecution: props.codelineExecution, sessionId: props.sessionId })
-  const pending = () => transientMessagesResolve(composer.transientMessages(), props.durableMessages())
-
-  const onKeyDown = (event: KeyboardEvent) => {
-    if (event.key !== "Enter" || event.shiftKey || event.isComposing) return
-    event.preventDefault()
-    composer.submit()
-  }
-
+export function SessionChat(props: { state: SessionChatState }) {
   return (
     <section class="grid min-h-0 gap-3 px-7 pb-6 max-[760px]:px-3.5 max-[760px]:pb-3.5" aria-label="Chat input">
-      <Show when={pending().length > 0}>
+      <Show when={props.state.pendingMessages().length > 0}>
         <ol
           class="mx-auto grid max-h-[30vh] w-[min(760px,100%)] list-none gap-6 overflow-y-auto p-0"
           aria-label="In-flight messages"
         >
-          <For each={pending()}>
+          <For each={props.state.pendingMessages()}>
             {(message) => (
               <li
-                class="border-l-2 border-dashed border-[#657838] pl-4"
-                classList={{ "!border-[#454a3d]": message.role === "assistant" }}
+                class="border-l-2 border-dashed border-accent-border pl-4"
+                classList={{ "!border-line-strong": message.role === "assistant" }}
               >
                 <span
-                  class="font-mono text-[10px] font-bold tracking-[0.12em] text-[#d8ff72] uppercase"
-                  classList={{ "!text-[#9da392]": message.role === "assistant" }}
+                  class="font-mono text-[10px] font-bold tracking-[0.12em] text-accent uppercase"
+                  classList={{ "!text-faint": message.role === "assistant" }}
                 >
                   {message.role}
                 </span>
+                <Show when={(message.activities?.length ?? 0) > 0}>
+                  <ul class="my-1.5 grid list-none gap-1 p-0" aria-label="Response activity">
+                    <For each={message.activities ?? []}>
+                      {(activity) => (
+                        <li class="font-mono text-[10px] text-faint">
+                          <span class="text-accent">{activity.kind}</span>
+                          <span> · {activity.label}</span>
+                          <Show when={activity.status}>{(status) => <span> · {status()}</span>}</Show>
+                          <Show when={activity.detail}>
+                            {(detail) => <span class="text-placeholder"> · {detail().slice(0, 160)}</span>}
+                          </Show>
+                        </li>
+                      )}
+                    </For>
+                  </ul>
+                </Show>
                 <MessageBody content={message.content} />
               </li>
             )}
@@ -48,66 +46,90 @@ export function SessionChat(props: SessionChatProps) {
       </Show>
 
       <form
-        class="grid gap-2.5 rounded-xl border border-[#30342a] bg-[#1c1f19] p-3 shadow-[0_18px_48px_rgb(0_0_0_/_18%)]"
+        class="grid gap-2.5 rounded-xl border border-line bg-surface-raised p-3 shadow-[0_18px_48px_var(--shadow-color)]"
         aria-label="Chat composer"
-        onSubmit={(event) => {
-          event.preventDefault()
-          composer.submit()
-        }}
+        onSubmit={props.state.submitHandle}
       >
-        <Show when={composer.errorMessage()}>
+        <Show when={props.state.errorMessage()}>
           {(message) => (
-            <p class="m-0 text-xs text-[#e08a7a]" role="alert">
+            <p class="m-0 text-xs text-danger" role="alert">
               {message()}
             </p>
           )}
         </Show>
-        <Show when={composer.recoveryStatus() === "stale"}>
-          <p class="m-0 text-xs text-[#e08a7a]" role="alert">
+        <Show when={props.state.failures().length > 0}>
+          <ul class="m-0 grid list-none gap-1 p-0" aria-label="Run failures">
+            <For each={props.state.failures()}>
+              {(failure) => (
+                <li class="font-mono text-[10px] text-danger" role="alert">
+                  {failure.code} · {failure.message}
+                </li>
+              )}
+            </For>
+          </ul>
+        </Show>
+        <Show when={props.state.recoveryStatus() === "stale"}>
+          <p class="m-0 text-xs text-danger" role="alert">
             The saved response is stale and could not be recovered.
           </p>
         </Show>
 
         <textarea
-          class="min-h-[62px] w-full resize-y rounded-lg border border-[#25281f] bg-transparent p-2.5 text-[13px] leading-[1.6] text-[#d7d9d1] disabled:text-[#777d70]"
+          class="min-h-[62px] w-full resize-y rounded-lg border border-line-subtle bg-transparent p-2.5 text-[13px] leading-[1.6] text-foreground placeholder:text-placeholder disabled:text-disabled"
           aria-label="Message"
           placeholder="Send a message. Enter sends, Shift+Enter adds a newline."
           rows={3}
-          disabled={composer.isBusy()}
-          value={composer.draft()}
-          onInput={(event) => composer.setDraft(event.currentTarget.value)}
-          onKeyDown={onKeyDown}
+          disabled={props.state.isBusy()}
+          value={props.state.draft()}
+          onInput={(event) => props.state.draftUpdate(event.currentTarget.value)}
+          onKeyDown={props.state.keyDownHandle}
         />
 
         <div class="flex items-center justify-end gap-2.5">
-          <Show when={composer.recoveryStatus() === "recovering"}>
-            <span class="mr-auto font-mono text-[10px] text-[#9da392]" role="status" aria-live="polite">
+          <Show when={props.state.isThinking()}>
+            <span class="mr-auto font-mono text-[10px] text-accent" role="status" aria-live="polite">
+              Thinking...
+            </span>
+          </Show>
+          <Show when={props.state.attemptCount() > 1}>
+            <span class="font-mono text-[10px] text-faint" role="status" aria-live="polite">
+              Attempt {props.state.attemptCount()}
+            </span>
+          </Show>
+          <Show when={props.state.isAborted()}>
+            <span class="font-mono text-[10px] text-faint" role="status" aria-live="polite">
+              Response cancelled.
+            </span>
+          </Show>
+          <Show when={props.state.recoveryStatus() === "recovering"}>
+            <span class="mr-auto font-mono text-[10px] text-faint" role="status" aria-live="polite">
               Recovering saved response...
             </span>
           </Show>
-          <Show when={composer.recoveryStatus() === "terminal"}>
-            <span class="mr-auto font-mono text-[10px] text-[#9da392]" role="status" aria-live="polite">
+          <Show when={props.state.recoveryStatus() === "terminal"}>
+            <span class="mr-auto font-mono text-[10px] text-faint" role="status" aria-live="polite">
               Response complete.
             </span>
           </Show>
-          <Show when={composer.isBusy()}>
-            <Show when={composer.recoveryStatus() !== "recovering"}>
-              <span class="mr-auto font-mono text-[10px] text-[#9da392]" role="status" aria-live="polite">
+          <Show when={props.state.isBusy()}>
+            <Show when={props.state.recoveryStatus() !== "recovering"}>
+              <span class="mr-auto font-mono text-[10px] text-faint" role="status" aria-live="polite">
                 Streaming response...
               </span>
             </Show>
             <button
-              class="cursor-pointer rounded-lg border border-[#546333] bg-[#2b341c] px-3.5 py-2 text-[#d8ff72]"
+              class="cursor-pointer rounded-lg border border-accent-border bg-accent-soft px-3.5 py-2 text-accent"
               type="button"
-              onClick={composer.stop}
+              disabled={props.state.isStopping()}
+              onClick={props.state.stopHandle}
             >
               Stop
             </button>
           </Show>
           <button
-            class="cursor-pointer rounded-lg border border-[#546333] bg-[#2b341c] px-3.5 py-2 text-[#d8ff72] disabled:cursor-not-allowed disabled:border-[#3a4032] disabled:bg-[#292d24] disabled:text-[#6f7468]"
+            class="cursor-pointer rounded-lg border border-accent-border bg-accent-soft px-3.5 py-2 text-accent disabled:cursor-not-allowed disabled:border-disabled-border disabled:bg-disabled-surface disabled:text-disabled"
             type="submit"
-            disabled={!composer.canSubmit()}
+            disabled={!props.state.canSubmit()}
           >
             Send
           </button>

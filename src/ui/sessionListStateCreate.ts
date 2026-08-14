@@ -48,3 +48,5 @@ export function sessionListStateCreate(navigation: Accessor<SessionNavigationSta
     },
   }
 }
+
+export type SessionListState = ReturnType<typeof sessionListStateCreate>

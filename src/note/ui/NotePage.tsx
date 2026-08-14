@@ -2,27 +2,27 @@ import { For, Match, Show, Switch } from "solid-js"
 import { NoteBackLink } from "./NoteBackLink.js"
 import { NoteContentField } from "./NoteContentField.js"
 import { NoteViewModeSwitcher } from "./NoteViewModeSwitcher.js"
-import { notePageStateCreate } from "./notePageStateCreate.js"
+import type { NoteScreenView } from "./noteScreenView.js"
 
-export function NotePage(props: { noteId: string }) {
-  const state = notePageStateCreate({ noteId: props.noteId })
+export function NotePage(props: { state: NoteScreenView }) {
+  const state = props.state
 
   return (
     <main class="min-h-0 overflow-auto px-5 py-8 sm:px-8 lg:px-10" aria-labelledby="note-heading">
       <div class="mx-auto max-w-3xl">
         <NoteBackLink />
-        <header class="mb-6 flex items-end justify-between gap-4 border-[#30342a] border-b pb-5">
+        <header class="mb-6 flex items-end justify-between gap-4 border-line border-b pb-5">
           <div class="min-w-0">
-            <p class="mb-2 font-mono text-[10px] font-bold tracking-[0.14em] text-[#d8ff72] uppercase">Notes</p>
+            <p class="mb-2 font-mono text-[10px] font-bold tracking-[0.14em] text-accent uppercase">Notes</p>
             <h1 class="m-0 truncate text-3xl font-semibold tracking-[-0.04em]" id="note-heading">
               {state.title()}
             </h1>
           </div>
           <div class="flex items-center gap-2">
             <NoteViewModeSwitcher viewMode={state.viewMode} viewModeSelect={state.viewModeSelect} />
-            <Show when={state.note() !== undefined}>
+            <Show when={state.hasNote()}>
               <button
-                class="grid size-9 place-items-center rounded-lg border border-[#30342a] text-[#969b8d] hover:border-[#d6a28b] hover:text-[#d6a28b]"
+                class="grid size-9 place-items-center rounded-lg border border-line text-faint hover:border-danger hover:text-danger"
                 type="button"
                 aria-label="Delete note"
                 title="Delete note"
@@ -45,13 +45,13 @@ export function NotePage(props: { noteId: string }) {
 
         <Switch>
           <Match when={state.isLoading()}>
-            <p class="text-sm text-[#969b8d]" role="status">
+            <p class="text-sm text-faint" role="status">
               Loading note...
             </p>
           </Match>
           <Match when={state.isNotFound()}>
-            <div class="rounded-xl border border-[#30342a] border-dashed px-6 py-14 text-center">
-              <p class="m-0 text-sm text-[#969b8d]">This note no longer exists.</p>
+            <div class="rounded-xl border border-line border-dashed px-6 py-14 text-center">
+              <p class="m-0 text-sm text-faint">This note no longer exists.</p>
             </div>
           </Match>
           <Match when={true}>
@@ -59,30 +59,31 @@ export function NotePage(props: { noteId: string }) {
               <NoteContentField
                 content={() => state.content()}
                 contentUpdate={state.contentUpdate}
+                state={state.contentField}
                 viewMode={state.viewMode}
               />
 
               <div class="mt-4 grid gap-2">
-                <label class="text-xs font-semibold tracking-[0.06em] text-[#969b8d] uppercase" for="note-project">
+                <label class="text-xs font-semibold tracking-[0.06em] text-faint uppercase" for="note-project">
                   Project
                 </label>
                 <select
-                  class="w-full appearance-none rounded-lg border border-[#30342a] bg-[#1c1f19] px-3 py-2.5 text-sm text-[#ebece5]"
+                  class="w-full appearance-none rounded-lg border border-line bg-surface-raised px-3 py-2.5 text-sm text-strong"
                   id="note-project"
-                  value={state.projectPath()}
-                  onChange={state.projectPathUpdate}
+                  value={state.projectId()}
+                  onChange={state.projectIdUpdate}
                 >
                   <option value="">Unassigned</option>
-                  <For each={state.projectPaths()}>{(path) => <option value={path}>{path}</option>}</For>
+                  <For each={state.projects()}>{(project) => <option value={project.id}>{project.label}</option>}</For>
                 </select>
               </div>
 
               <div class="mt-4 flex items-center justify-between gap-4">
-                <p class="m-0 text-sm text-[#d6a28b]" role="alert">
+                <p class="m-0 text-sm text-danger" role="alert">
                   {state.hasError() ? "Couldn't save the note. Try again." : ""}
                 </p>
                 <button
-                  class="rounded-lg bg-[#d8ff72] px-5 py-2.5 text-sm font-semibold text-[#171a13] disabled:cursor-not-allowed disabled:opacity-50"
+                  class="rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-accent-contrast disabled:cursor-not-allowed disabled:opacity-50"
                   type="submit"
                   disabled={state.isSaving() || state.content().trim() === "" || !state.isDirty()}
                 >
@@ -94,9 +95,9 @@ export function NotePage(props: { noteId: string }) {
         </Switch>
 
         <Show when={state.isDeleteConfirmOpen()}>
-          <div class="fixed inset-0 z-20 grid place-items-center bg-[rgb(10_12_9_/_72%)] p-5">
+          <div class="fixed inset-0 z-20 grid place-items-center bg-[var(--overlay)] p-5">
             <div
-              class="w-full max-w-md rounded-xl border border-[#30342a] bg-[#171a15] p-6"
+              class="w-full max-w-md rounded-xl border border-line bg-surface p-6"
               role="dialog"
               aria-modal="true"
               aria-labelledby="note-delete-heading"
@@ -104,19 +105,19 @@ export function NotePage(props: { noteId: string }) {
               <h2 class="m-0 text-lg font-semibold tracking-[-0.02em]" id="note-delete-heading">
                 Delete note
               </h2>
-              <p class="mt-3 mb-0 text-sm text-[#969b8d]">
+              <p class="mt-3 mb-0 text-sm text-faint">
                 {`This permanently deletes ${state.lineCount()} ${state.lineCount() === 1 ? "line" : "lines"} of note content. This can't be undone.`}
               </p>
               <div class="mt-6 flex justify-end gap-3">
                 <button
-                  class="rounded-lg border border-[#30342a] px-4 py-2 text-sm text-[#a4a99c]"
+                  class="rounded-lg border border-line px-4 py-2 text-sm text-faint"
                   type="button"
                   onClick={state.deleteConfirmClose}
                 >
                   Cancel
                 </button>
                 <button
-                  class="rounded-lg bg-[#d6a28b] px-4 py-2 text-sm font-semibold text-[#171a13] disabled:opacity-50"
+                  class="rounded-lg bg-danger px-4 py-2 text-sm font-semibold text-accent-contrast disabled:opacity-50"
                   type="button"
                   disabled={state.isSaving()}
                   onClick={state.deleteConfirm}

@@ -1,19 +1,15 @@
 import { useQuery } from "@rocicorp/zero/solid"
 import { codelineQueries } from "../../ui/codelineQueries.js"
+import { noteGroupsDerive } from "./noteGroupsDerive.js"
+import { noteProjectListStateCreate } from "./noteProjectListStateCreate.js"
+import type { NotesScreenView } from "./notesScreenView.js"
 
-export function notesPageStateCreate() {
+export function notesPageStateCreate(): NotesScreenView {
   const [notes, result] = useQuery(() => codelineQueries.notes())
+  const projectList = noteProjectListStateCreate()
 
   return {
-    groups: () => {
-      const groups = new Map<string | null, ReturnType<typeof notes>>()
-      for (const note of notes()) {
-        const group = groups.get(note.projectPath) ?? []
-        group.push(note)
-        groups.set(note.projectPath, group)
-      }
-      return [...groups].map(([projectPath, groupedNotes]) => ({ projectPath, notes: groupedNotes }))
-    },
+    groups: () => noteGroupsDerive(notes(), projectList.projects()),
     isEmpty: () => result().type === "complete" && notes().length === 0,
     isLoading: () => result().type === "unknown" && notes().length === 0,
     isError: () => result().type === "error",

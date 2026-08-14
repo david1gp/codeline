@@ -1,21 +1,13 @@
-import { sessionRenameControlStateCreate } from "./sessionRenameControlStateCreate.js"
+import type { sessionRenameControlStateCreate } from "./sessionRenameControlStateCreate.js"
 
 type SessionRenameControlProps = {
-  fetcher?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
-  onRenamed?: (title: string) => void
-  sessionId: string
-  title: string
+  state: ReturnType<typeof sessionRenameControlStateCreate>
 }
 
 export function SessionRenameControl(props: SessionRenameControlProps) {
-  const inputId = `session-rename-title-${encodeURIComponent(props.sessionId)}`
-  const errorId = `session-rename-error-${encodeURIComponent(props.sessionId)}`
-  const state = sessionRenameControlStateCreate({
-    fetcher: props.fetcher,
-    onRenamed: props.onRenamed,
-    sessionId: () => props.sessionId,
-    title: () => props.title,
-  })
+  const state = props.state
+  const inputId = "session-rename-title"
+  const errorId = "session-rename-error"
 
   return (
     <div class="min-w-0">
@@ -25,7 +17,7 @@ export function SessionRenameControl(props: SessionRenameControlProps) {
             Session title
           </label>
           <input
-            class="min-w-0 rounded-lg border border-[#30342a] bg-[#171a15] px-3 py-2 text-sm text-[#ebece5] outline-none focus:border-[#768d3d] disabled:opacity-60"
+            class="min-w-0 rounded-lg border border-line bg-surface px-3 py-2 text-sm text-strong outline-none focus:border-accent-border disabled:opacity-60"
             id={inputId}
             name="title"
             type="text"
@@ -39,13 +31,13 @@ export function SessionRenameControl(props: SessionRenameControlProps) {
             onKeyDown={state.inputKeyDown}
           />
           {state.errorMessage() ? (
-            <p class="m-0 text-xs text-[#d6a28b]" id={errorId} role="alert">
+            <p class="m-0 text-xs text-danger" id={errorId} role="alert">
               {state.errorMessage()}
             </p>
           ) : null}
           <div class="flex justify-end gap-2">
             <button
-              class="rounded-lg border border-[#30342a] px-3 py-1.5 text-xs text-[#a4a99c] disabled:opacity-50"
+              class="rounded-lg border border-line px-3 py-1.5 text-xs text-faint disabled:opacity-50"
               type="button"
               disabled={state.isSaving()}
               onClick={state.cancel}
@@ -53,7 +45,7 @@ export function SessionRenameControl(props: SessionRenameControlProps) {
               Cancel
             </button>
             <button
-              class="rounded-lg bg-[#d8ff72] px-3 py-1.5 text-xs font-semibold text-[#171a13] disabled:cursor-not-allowed disabled:opacity-50"
+              class="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-accent-contrast disabled:cursor-not-allowed disabled:opacity-50"
               type="submit"
               disabled={!state.canSave()}
             >
@@ -65,7 +57,7 @@ export function SessionRenameControl(props: SessionRenameControlProps) {
         <div class="flex min-w-0 items-center gap-2">
           <h2 class="m-0 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">{state.displayedTitle()}</h2>
           <button
-            class="shrink-0 rounded-md border border-[#30342a] px-2 py-1 text-xs text-[#a4a99c] hover:border-[#768d3d] hover:text-[#d8ff72]"
+            class="shrink-0 rounded-md border border-line px-2 py-1 text-xs text-faint hover:border-accent-border hover:text-accent"
             type="button"
             aria-label={`Rename ${state.displayedTitle()}`}
             ref={state.editButtonBind}

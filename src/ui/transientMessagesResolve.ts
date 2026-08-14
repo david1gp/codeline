@@ -1,4 +1,7 @@
+import type { TransientActivity } from "./transientMessageActivitiesResolve.js"
+
 export type TransientMessage = {
+  activities?: ReadonlyArray<TransientActivity>
   content: string
   id: string
   role: "assistant" | "user"
@@ -31,7 +34,11 @@ export function transientMessagesResolve(
 
   const remaining: Array<TransientMessage> = []
   for (const message of transient) {
-    if (message.content.trim().length === 0) continue
+    if (message.content.trim().length === 0) {
+      // A turn that only produced tool or thinking activity still has to render.
+      if ((message.activities?.length ?? 0) > 0) remaining.push(message)
+      continue
+    }
     const key = transientMessageKey(message.role, message.content)
     const covered = durableCounts.get(key) ?? 0
     if (covered > 0) {
