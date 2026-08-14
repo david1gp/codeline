@@ -1,9 +1,9 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
-import { eq, inArray } from "drizzle-orm"
+import { inArray } from "drizzle-orm"
+import { agentTable } from "../agents/db/agentTable.js"
 import type { DatabaseClient, DatabaseExecutor } from "./databaseClient.js"
 import { databaseTransactionRun } from "./databaseTransactionRun.js"
 import { exampleDataFixture } from "./exampleDataFixture.js"
-import { agentTable } from "../agents/db/agentTable.js"
 import { developmentUserTable } from "../identity/db/developmentUserTable.js"
 import { messageTable } from "../message/db/messageTable.js"
 import { serverTable } from "../servers/db/serverTable.js"
@@ -19,8 +19,6 @@ async function exampleDataRowsDelete(database: DatabaseExecutor): Promise<void> 
 
   await database.delete(messageTable).where(inArray(messageTable.id, messageIds))
   await database.delete(sessionTable).where(inArray(sessionTable.id, sessionIds))
-  await database.delete(agentTable).where(eq(agentTable.id, exampleDataFixture.agent.id))
-  await database.delete(serverTable).where(eq(serverTable.id, exampleDataFixture.server.id))
 }
 
 async function exampleDataRowsReconcile(
