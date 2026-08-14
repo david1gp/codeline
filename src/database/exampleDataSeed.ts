@@ -1,12 +1,15 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import { inArray } from "drizzle-orm"
 import { agentTable } from "../agents/db/agentTable.js"
-import { developmentUserTable } from "../identity/db/developmentUserTable.js"
+import type { ConfigurationStore } from "../configuration/configurationStore.js"
+import { applicationUserTable } from "../identity/db/applicationUserTable.js"
+import { externalIdentityUpsert } from "../identity/db/externalIdentityUpsert.js"
 import { messageTable } from "../message/db/messageTable.js"
 import { serverTable } from "../servers/db/serverTable.js"
 import { sessionTable } from "../session/db/sessionTable.js"
 import type { DatabaseClient, DatabaseExecutor } from "./databaseClient.js"
 import { databaseTransactionRun } from "./databaseTransactionRun.js"
+import { exampleDataConfigurationReconcile } from "./exampleDataConfigurationReconcile.js"
 import { exampleDataFixture } from "./exampleDataFixture.js"
 
 function date(value: string): Date {
@@ -27,75 +30,83 @@ async function exampleDataRowsReconcile(
 
   try {
     const [user] = await database
-      .insert(developmentUserTable)
+      .insert(applicationUserTable)
       .values({
         id: fixtureUser.id,
-        identityKey: fixtureUser.identityKey,
         displayName: fixtureUser.displayName,
         email: fixtureUser.email,
         createdAt: date(fixtureUser.createdAt),
         updatedAt: date(fixtureUser.updatedAt),
       })
       .onConflictDoUpdate({
-        target: developmentUserTable.identityKey,
+        target: applicationUserTable.id,
         set: {
           displayName: fixtureUser.displayName,
           email: fixtureUser.email,
           updatedAt: date(fixtureUser.updatedAt),
         },
       })
-      .returning({ id: developmentUserTable.id })
+      .returning({ id: applicationUserTable.id })
     if (user?.id !== fixtureUser.id) return createResultError(op, "The local-development user has an unexpected ID.")
 
-    const server = exampleDataFixture.server
-    await database
-      .insert(serverTable)
-      .values({
-        id: server.id,
-        ownerUserId: fixtureUser.id,
-        name: server.name,
-        endpoint: server.endpoint,
-        metadata: server.metadata,
-        createdAt: date(server.createdAt),
-        updatedAt: date(server.updatedAt),
-      })
-      .onConflictDoUpdate({
-        target: serverTable.id,
-        set: {
+    const externalIdentity = await externalIdentityUpsert(database, {
+      userId: fixtureUser.id,
+      issuer: "urn:codeline:development",
+      subject: "local-development",
+    })
+    if (!externalIdentity.success) return createResultError(op, externalIdentity.errorMessage)
+
+    for (const server of exampleDataFixture.servers) {
+      await database
+        .insert(serverTable)
+        .values({
+          id: server.id,
           ownerUserId: fixtureUser.id,
           name: server.name,
           endpoint: server.endpoint,
           metadata: server.metadata,
           createdAt: date(server.createdAt),
           updatedAt: date(server.updatedAt),
-        },
-      })
+        })
+        .onConflictDoUpdate({
+          target: serverTable.id,
+          set: {
+            ownerUserId: fixtureUser.id,
+            name: server.name,
+            endpoint: server.endpoint,
+            metadata: server.metadata,
+            createdAt: date(server.createdAt),
+            updatedAt: date(server.updatedAt),
+          },
+        })
+    }
 
-    const agent = exampleDataFixture.agent
-    await database
-      .insert(agentTable)
-      .values({
-        id: agent.id,
-        serverId: server.id,
-        name: agent.name,
-        role: agent.role,
-        configuration: agent.configuration,
-        sortOrder: agent.sortOrder,
-        createdAt: date(agent.createdAt),
-        updatedAt: date(agent.updatedAt),
-      })
-      .onConflictDoUpdate({
-        target: agentTable.id,
-        set: {
-          serverId: server.id,
+    for (const agent of exampleDataFixture.agents) {
+      await database
+        .insert(agentTable)
+        .values({
+          id: agent.id,
+          serverId: agent.serverId,
           name: agent.name,
           role: agent.role,
           configuration: agent.configuration,
           sortOrder: agent.sortOrder,
           createdAt: date(agent.createdAt),
           updatedAt: date(agent.updatedAt),
-        },
-      })
+        })
+        .onConflictDoUpdate({
+          target: agentTable.id,
+          set: {
+            serverId: agent.serverId,
+            name: agent.name,
+            role: agent.role,
+            configuration: agent.configuration,
+            sortOrder: agent.sortOrder,
+            createdAt: date(agent.createdAt),
+            updatedAt: date(agent.updatedAt),
+          },
+        })
+    }
 
     for (const fixtureSession of exampleDataFixture.sessions) {
       await database
@@ -103,8 +114,8 @@ async function exampleDataRowsReconcile(
         .values({
           id: fixtureSession.id,
           userId: fixtureUser.id,
-          serverId: server.id,
-          primaryAgentId: agent.id,
+          serverId: fixtureSession.serverId,
+          primaryAgentId: fixtureSession.primaryAgentId,
           parentSessionId: fixtureSession.parentSessionId,
           title: fixtureSession.title,
           clientRequestId: fixtureSession.clientRequestId,
@@ -117,8 +128,8 @@ async function exampleDataRowsReconcile(
           target: sessionTable.id,
           set: {
             userId: fixtureUser.id,
-            serverId: server.id,
-            primaryAgentId: agent.id,
+            serverId: fixtureSession.serverId,
+            primaryAgentId: fixtureSession.primaryAgentId,
             parentSessionId: fixtureSession.parentSessionId,
             title: fixtureSession.title,
             clientRequestId: fixtureSession.clientRequestId,
@@ -135,7 +146,7 @@ async function exampleDataRowsReconcile(
           .values({
             id: fixtureMessage.id,
             sessionId: fixtureSession.id,
-            agentId: agent.id,
+            agentId: fixtureSession.primaryAgentId,
             role: fixtureMessage.role,
             sequence: fixtureMessage.sequence,
             content: fixtureMessage.content,
@@ -148,7 +159,7 @@ async function exampleDataRowsReconcile(
             target: messageTable.id,
             set: {
               sessionId: fixtureSession.id,
-              agentId: agent.id,
+              agentId: fixtureSession.primaryAgentId,
               role: fixtureMessage.role,
               sequence: fixtureMessage.sequence,
               content: fixtureMessage.content,
@@ -172,15 +183,20 @@ async function exampleDataRowsReconcile(
 
 export async function exampleDataSeed(
   database: DatabaseClient,
-  options: { reset: boolean } = { reset: false },
+  options: { configurationStore?: ConfigurationStore; reset?: boolean } = { reset: false },
 ): Promise<Result<{ sessionCount: number; messageCount: number }>> {
   const op = "exampleDataSeed"
-  return databaseTransactionRun(database, async (transaction) => {
+  const seeded = await databaseTransactionRun(database, async (transaction) => {
     try {
-      if (options.reset) await exampleDataMessagesDelete(transaction)
+      if (options.reset === true) await exampleDataMessagesDelete(transaction)
       return await exampleDataRowsReconcile(transaction)
     } catch (_error) {
       return createResultError(op, "The example data seed transaction failed.")
     }
   })
+  if (!seeded.success || options.configurationStore === undefined) return seeded
+
+  const configuration = await exampleDataConfigurationReconcile(options.configurationStore)
+  if (!configuration.success) return createResultError(op, configuration.errorMessage)
+  return seeded
 }

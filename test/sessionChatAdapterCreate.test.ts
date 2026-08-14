@@ -12,8 +12,8 @@ import { configurationStoreWrite } from "../src/configuration/configurationStore
 import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
 import { databaseSchema } from "../src/database/databaseSchema.js"
 import { databaseTransactionRun } from "../src/database/databaseTransactionRun.js"
-import { developmentUserTable } from "../src/identity/db/developmentUserTable.js"
-import { developmentUserUpsert } from "../src/identity/db/developmentUserUpsert.js"
+import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
+import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
 import { messageAppend } from "../src/message/actions/messageAppend.js"
 import { messageTable } from "../src/message/db/messageTable.js"
 import {
@@ -91,7 +91,7 @@ async function sessionCreateForTest(ownerUserId: string, title: string, serverId
   return result.data.session.id
 }
 
-async function configurationStoreForTest() {
+async function configurationStoreForTest(model = "lifecycle-test") {
   const configDirectory = mkdtempSync(join(Bun.env.TMPDIR ?? "/tmp", "codeline-chat-lifecycle-"))
   const storeResult = await configurationStoreCreate({
     authorEmail: "session-chat-lifecycle@example.com",
@@ -104,7 +104,7 @@ async function configurationStoreForTest() {
   const configuration = await configurationStoreWrite(storeResult.data, {
     agentConfigurations: [
       {
-        configuration: { model: "lifecycle-test", provider: "deterministic" },
+        configuration: { model, provider: "deterministic" },
         target: { agentId: fixture.agentId, serverId: fixture.serverId },
       },
     ],
@@ -149,7 +149,13 @@ async function runRowsForTest(sessionId: string, runId: string) {
     .from(runTable)
     .where(and(eq(runTable.sessionId, sessionId), eq(runTable.clientRunId, runId)))
   const attempts =
-    runs[0] === undefined ? [] : await database.select().from(attemptTable).where(eq(attemptTable.runId, runs[0].id))
+    runs[0] === undefined
+      ? []
+      : await database
+          .select()
+          .from(attemptTable)
+          .where(eq(attemptTable.runId, runs[0].id))
+          .orderBy(asc(attemptTable.ordinal))
   return { attempts, runs }
 }
 
@@ -211,6 +217,7 @@ async function privateStreamEvents(streamId: string, sessionId: string) {
     .select()
     .from(streamEventTable)
     .where(and(eq(streamEventTable.sessionId, sessionId), eq(streamEventTable.streamId, streamId)))
+    .orderBy(asc(streamEventTable.sequence))
 }
 
 function runStartedChunk(input: ChatAdapterInput): StreamChunk {
@@ -225,14 +232,14 @@ function runStartedChunk(input: ChatAdapterInput): StreamChunk {
 beforeAll(async () => {
   if (!databaseAvailable) return
 
-  const user = await developmentUserUpsert(database, {
+  const user = await developmentIdentityUpsert(database, {
     displayName: "Session Chat User",
     identityKey: fixture.userKey,
   })
   if (!user.success) throw new Error(user.errorMessage)
   userId = user.data.id
 
-  const otherUser = await developmentUserUpsert(database, {
+  const otherUser = await developmentIdentityUpsert(database, {
     displayName: "Other Session Chat User",
     identityKey: fixture.otherUserKey,
   })
@@ -285,9 +292,9 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  if (userId !== undefined) await database.delete(developmentUserTable).where(eq(developmentUserTable.id, userId))
+  if (userId !== undefined) await database.delete(applicationUserTable).where(eq(applicationUserTable.id, userId))
   if (otherUserId !== undefined)
-    await database.delete(developmentUserTable).where(eq(developmentUserTable.id, otherUserId))
+    await database.delete(applicationUserTable).where(eq(applicationUserTable.id, otherUserId))
   await client.end()
 })
 
@@ -1654,6 +1661,198 @@ test.skipIf(!databaseAvailable)(
         { role: "assistant" },
       ])
       expect(await messageRows(sessionId)).toHaveLength(2)
+    } finally {
+      rmSync(lifecycle.configDirectory, { force: true, recursive: true })
+    }
+  },
+)
+
+test.skipIf(!databaseAvailable)(
+  "simulation scenarios use the real chat API for durable messages, stream events, and attempt transitions",
+  async () => {
+    if (userId === undefined) return
+
+    const scenarios = [
+      {
+        assistant: "The deterministic workspace check is streaming. No provider connection is required.",
+        attemptStatuses: ["succeeded"],
+        eventTypes: [
+          "RUN_STARTED",
+          "TEXT_MESSAGE_START",
+          "TEXT_MESSAGE_CONTENT",
+          "TEXT_MESSAGE_CONTENT",
+          "TEXT_MESSAGE_END",
+          "RUN_FINISHED",
+        ],
+        model: "simulation-streaming",
+        runStatus: "succeeded",
+      },
+      {
+        assistant: "Discovery stayed synthetic and provider-free.",
+        attemptStatuses: ["succeeded"],
+        eventTypes: [
+          "RUN_STARTED",
+          "REASONING_START",
+          "TOOL_CALL_START",
+          "TOOL_CALL_END",
+          "TOOL_CALL_RESULT",
+          "TOOL_CALL_START",
+          "TOOL_CALL_END",
+          "TOOL_CALL_RESULT",
+          "REASONING_END",
+          "TEXT_MESSAGE_START",
+          "TEXT_MESSAGE_CONTENT",
+          "TEXT_MESSAGE_END",
+          "RUN_FINISHED",
+        ],
+        model: "simulation-thinking-tools",
+        runStatus: "succeeded",
+      },
+      {
+        assistant: "The retry completed successfully.",
+        attemptStatuses: ["failed", "succeeded"],
+        eventTypes: [
+          "RUN_STARTED",
+          "TEXT_MESSAGE_START",
+          "TEXT_MESSAGE_CONTENT",
+          "RUN_ERROR",
+          "RUN_STARTED",
+          "TEXT_MESSAGE_START",
+          "TEXT_MESSAGE_CONTENT",
+          "TEXT_MESSAGE_END",
+          "RUN_FINISHED",
+        ],
+        model: "simulation-retry-success",
+        runStatus: "succeeded",
+      },
+      {
+        assistant: undefined,
+        attemptStatuses: ["failed", "failed"],
+        eventTypes: [
+          "RUN_STARTED",
+          "TEXT_MESSAGE_START",
+          "TEXT_MESSAGE_CONTENT",
+          "RUN_ERROR",
+          "RUN_STARTED",
+          "TEXT_MESSAGE_START",
+          "TEXT_MESSAGE_CONTENT",
+          "RUN_ERROR",
+        ],
+        model: "simulation-retry-exhausted",
+        runStatus: "failed",
+      },
+      {
+        assistant: undefined,
+        attemptStatuses: ["failed"],
+        eventTypes: ["RUN_STARTED", "RUN_ERROR"],
+        model: "simulation-terminal-error",
+        runStatus: "failed",
+      },
+    ] as const
+
+    for (const scenario of scenarios) {
+      const sessionId = await sessionCreateForTest(
+        userId,
+        `Simulation ${scenario.model}`,
+        fixture.serverId,
+        fixture.agentId,
+      )
+      const lifecycle = await configurationStoreForTest(scenario.model)
+
+      try {
+        const runId = `session-chat-simulation-${scenario.model}-${uuidv7()}`
+        const scenarioApp = appCreate({ configuration, configurationStore: lifecycle.store, database })
+        const response = await scenarioApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+          body: JSON.stringify(chatBody(sessionId, runId, "run this deterministic scenario")),
+          headers: { "Content-Type": "application/json" },
+          method: "POST",
+        })
+        const events = await sseEvents(response)
+        const rows = await runRowsForTest(sessionId, runId)
+        const messages = await messageRows(sessionId)
+        const persistedEvents = (
+          await Promise.all(rows.attempts.map((attempt) => privateStreamEvents(attempt.streamId, sessionId)))
+        ).flat()
+
+        expect(response.status).toBe(200)
+        expect(events.map((event) => event.type)).toEqual([...scenario.eventTypes])
+        expect(persistedEvents.map((event) => event.eventType)).toEqual([...scenario.eventTypes])
+        expect(persistedEvents.map((event) => event.payload)).toEqual(events)
+        expect(messages.map(({ content, role }) => ({ content, role }))).toEqual([
+          { content: "run this deterministic scenario", role: "user" },
+          ...(scenario.assistant === undefined ? [] : [{ content: scenario.assistant, role: "assistant" }]),
+        ])
+        expect(rows.runs[0]).toMatchObject({ status: scenario.runStatus })
+        expect(rows.attempts.map((attempt) => attempt.status)).toEqual([...scenario.attemptStatuses])
+        if (scenario.model === "simulation-retry-success") {
+          expect(events.filter((event) => event.type === "RUN_ERROR")).toHaveLength(1)
+          expect(rows.attempts[0]?.failure).toMatchObject({ code: "provider_timeout" })
+        }
+        if (scenario.model === "simulation-retry-exhausted") {
+          expect(events.filter((event) => event.type === "RUN_ERROR")).toHaveLength(2)
+          expect(rows.attempts[1]?.failure).toMatchObject({ code: "provider_unavailable" })
+        }
+        if (scenario.model === "simulation-terminal-error") {
+          expect(events.at(-1)).toMatchObject({ code: "assistant_empty", type: "RUN_ERROR" })
+          expect(rows.runs[0]?.failure).toMatchObject({ code: "assistant_empty" })
+        }
+      } finally {
+        rmSync(lifecycle.configDirectory, { force: true, recursive: true })
+      }
+    }
+  },
+)
+
+test.skipIf(!databaseAvailable)(
+  "simulation cancellation aborts the real API run and records its terminal stream event",
+  async () => {
+    if (userId === undefined) return
+    const sessionId = await sessionCreateForTest(userId, "Simulation cancellation", fixture.serverId, fixture.agentId)
+    const lifecycle = await configurationStoreForTest("simulation-cancellation")
+
+    try {
+      const runId = `session-chat-simulation-cancellation-${uuidv7()}`
+      const scenarioApp = appCreate({ configuration, configurationStore: lifecycle.store, database })
+      const response = await scenarioApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+        body: JSON.stringify(chatBody(sessionId, runId, "cancel this deterministic scenario")),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      })
+      const bodyPromise = response.text()
+      let running = false
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        const rows = await runRowsForTest(sessionId, runId)
+        if (rows.runs[0]?.status === "running") {
+          running = true
+          break
+        }
+        await new Promise((resolve) => setTimeout(resolve, 5))
+      }
+      expect(running).toBe(true)
+
+      const cancelled = await scenarioApp.request(
+        `http://codeline.test/api/sessions/${sessionId}/runs/${runId}/cancel`,
+        {
+          method: "POST",
+        },
+      )
+      expect(cancelled.status).toBe(200)
+      expect((await cancelled.json()).signalledRunIds).toHaveLength(1)
+      await bodyPromise
+
+      const rows = await runRowsForTest(sessionId, runId)
+      const events =
+        rows.attempts[0] === undefined ? [] : await privateStreamEvents(rows.attempts[0].streamId, sessionId)
+      expect(rows.runs[0]).toMatchObject({ cancellationKind: "requested", status: "aborted" })
+      expect(rows.attempts[0]).toMatchObject({ status: "aborted" })
+      expect(events.at(-1)).toMatchObject({
+        eventType: "RUN_ERROR",
+        payload: { code: "chat_aborted", type: "RUN_ERROR" },
+      })
+      expect(await messageRows(sessionId)).toMatchObject([
+        { content: "cancel this deterministic scenario", role: "user" },
+      ])
+      expect(await messageRows(sessionId)).toHaveLength(1)
     } finally {
       rmSync(lifecycle.configDirectory, { force: true, recursive: true })
     }

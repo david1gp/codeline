@@ -1,0 +1,51 @@
+export const simulationScenarioSessionMetadata = {
+  streaming: {
+    href: "/simulate/streaming",
+    label: "Streaming",
+    model: "simulation-streaming",
+    agentId: "example-agent-simulation-streaming",
+    sessionId: "example-session-simulation-streaming",
+  },
+  "thinking-tools": {
+    href: "/simulate/thinking-tools",
+    label: "Thinking and tools",
+    model: "simulation-thinking-tools",
+    agentId: "example-agent-simulation-thinking-tools",
+    sessionId: "example-session-simulation-thinking-tools",
+  },
+  "retry-success": {
+    href: "/simulate/retry-success",
+    label: "Retry success",
+    model: "simulation-retry-success",
+    agentId: "example-agent-simulation-retry-success",
+    sessionId: "example-session-simulation-retry-success",
+  },
+  "retry-exhausted": {
+    href: "/simulate/retry-exhausted",
+    label: "Retry exhausted",
+    model: "simulation-retry-exhausted",
+    agentId: "example-agent-simulation-retry-exhausted",
+    sessionId: "example-session-simulation-retry-exhausted",
+  },
+  "terminal-error": {
+    href: "/simulate/terminal-error",
+    label: "Terminal error",
+    model: "simulation-terminal-error",
+    agentId: "example-agent-simulation-terminal-error",
+    sessionId: "example-session-simulation-terminal-error",
+  },
+  "unexpected-end": {
+    href: "/simulate/unexpected-end",
+    label: "Unexpected end",
+    model: "simulation-unexpected-end",
+    agentId: "example-agent-simulation-unexpected-end",
+    sessionId: "example-session-simulation-unexpected-end",
+  },
+  cancellation: {
+    href: "/simulate/cancellation",
+    label: "Cancellation",
+    model: "simulation-cancellation",
+    agentId: "example-agent-simulation-cancellation",
+    sessionId: "example-session-simulation-cancellation",
+  },
+} as const

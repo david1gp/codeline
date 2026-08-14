@@ -6,6 +6,7 @@ import {
   type CliProxyApiAdapterInput,
   cliProxyApiAdapterCreate,
 } from "./cliProxyApiAdapterCreate.js"
+import { providerDeterministicScenarioResolve } from "./providerDeterministicScenarioResolve.js"
 
 export type ProviderRuntimeAdapterOptions = {
   chunks?: readonly string[]
@@ -36,11 +37,11 @@ export function providerRuntimeAdapterCreate(options: ProviderRuntimeAdapterOpti
   })
 }
 
-async function providerRuntimeAdapterWait(signal: AbortSignal): Promise<boolean> {
+async function providerRuntimeAdapterWait(signal: AbortSignal, delayMs = 0): Promise<boolean> {
   if (signal.aborted) return false
 
   return new Promise((resolve) => {
-    const timer = setTimeout(() => finish(true), 0)
+    const timer = setTimeout(() => finish(true), delayMs)
     const onAbort = () => finish(false)
     const finish = (ready: boolean) => {
       clearTimeout(timer)
@@ -78,6 +79,12 @@ async function* providerRuntimeDeterministicGenerate(
   input: CliProxyApiAdapterInput,
 ): AsyncGenerator<StreamChunk> {
   if (input.signal.aborted) return
+
+  const scenario = providerDeterministicScenarioResolve(options.configuration.model)
+  if (scenario !== null) {
+    yield* providerRuntimeDeterministicScenarioGenerate(scenario, input)
+    return
+  }
 
   yield {
     type: EventType.RUN_STARTED,
@@ -178,5 +185,121 @@ async function* providerRuntimeDeterministicGenerate(
     outcome: { type: "success" },
     finishReason: "stop",
     timestamp: Date.now(),
+  }
+}
+
+async function* providerRuntimeDeterministicScenarioGenerate(
+  scenario: NonNullable<ReturnType<typeof providerDeterministicScenarioResolve>>,
+  input: CliProxyApiAdapterInput,
+): AsyncGenerator<StreamChunk> {
+  if (input.signal.aborted) return
+
+  yield {
+    type: EventType.RUN_STARTED,
+    threadId: input.sessionId,
+    runId: input.runId,
+    timestamp: Date.now(),
+  }
+
+  const attemptOrdinal = input.attemptOrdinal ?? 1
+  const attempt = scenario.attempts.find(({ ordinal }) => ordinal === attemptOrdinal) ?? scenario.attempts.at(-1)
+  if (attempt === undefined) return
+
+  const messageId = `assistant-${input.runId}`
+  let messageStarted = false
+  let messageEnded = false
+
+  for (const step of attempt.steps) {
+    if (!(await providerRuntimeAdapterWait(input.signal, step.delayMs))) return
+
+    const event = step.event
+    if (event.eventType === "text_delta") {
+      if (!messageStarted) {
+        messageStarted = true
+        yield {
+          type: EventType.TEXT_MESSAGE_START,
+          messageId,
+          role: "assistant",
+          timestamp: Date.now(),
+        }
+      }
+      yield {
+        type: EventType.TEXT_MESSAGE_CONTENT,
+        messageId,
+        delta: event.payload.delta,
+        timestamp: Date.now(),
+      }
+      continue
+    }
+
+    if (event.eventType === "thinking_status") {
+      yield {
+        type: event.payload.status === "started" ? EventType.REASONING_START : EventType.REASONING_END,
+        messageId,
+        timestamp: Date.now(),
+      }
+      continue
+    }
+
+    if (event.eventType === "tool_start") {
+      yield {
+        type: EventType.TOOL_CALL_START,
+        toolCallId: event.payload.toolCallId,
+        toolCallName: event.payload.toolName,
+        toolName: event.payload.toolName,
+        timestamp: Date.now(),
+      }
+      continue
+    }
+
+    if (event.eventType === "tool_output") {
+      yield {
+        type: EventType.TOOL_CALL_END,
+        output: event.payload.output,
+        toolCallId: event.payload.toolCallId,
+        timestamp: Date.now(),
+      }
+      continue
+    }
+
+    if (event.eventType === "tool_result") {
+      yield {
+        content: event.payload.result,
+        messageId,
+        state: event.payload.outcome === "success" ? "output-available" : "output-error",
+        toolCallId: event.payload.toolCallId,
+        type: EventType.TOOL_CALL_RESULT,
+        timestamp: Date.now(),
+      }
+      continue
+    }
+
+    if (event.eventType !== "terminal") continue
+    if (event.payload.status === "error") {
+      yield {
+        code: event.payload.code,
+        message: event.payload.message,
+        timestamp: Date.now(),
+        type: EventType.RUN_ERROR,
+      }
+      return
+    }
+    if (messageStarted && !messageEnded) {
+      messageEnded = true
+      yield {
+        type: EventType.TEXT_MESSAGE_END,
+        messageId,
+        timestamp: Date.now(),
+      }
+    }
+    yield {
+      finishReason: "stop",
+      outcome: { type: "success" },
+      runId: input.runId,
+      threadId: input.sessionId,
+      timestamp: Date.now(),
+      type: EventType.RUN_FINISHED,
+    }
+    return
   }
 }
