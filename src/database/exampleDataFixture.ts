@@ -26,6 +26,7 @@ type ExampleDataFixture = {
   }
   sessions: readonly {
     id: string
+    parentSessionId: string | null
     title: string
     clientRequestId: string
     metadata: { fixture: string }
@@ -74,6 +75,7 @@ export const exampleDataFixture = {
   sessions: [
     {
       id: "example-session-active-1",
+      parentSessionId: null,
       title: "Build the workspace shell",
       clientRequestId: "example-session-request-active-1",
       metadata: { fixture: "codeline-example-v1" },
@@ -105,6 +107,7 @@ export const exampleDataFixture = {
     },
     {
       id: "example-session-active-2",
+      parentSessionId: "example-session-active-1",
       title: "Verify synchronized messages",
       clientRequestId: "example-session-request-active-2",
       metadata: { fixture: "codeline-example-v1" },
@@ -136,6 +139,7 @@ export const exampleDataFixture = {
     },
     {
       id: "example-session-archived-1",
+      parentSessionId: "example-session-active-2",
       title: "Archive the completed walkthrough",
       clientRequestId: "example-session-request-archived-1",
       metadata: { fixture: "codeline-example-v1" },

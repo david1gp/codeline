@@ -28,11 +28,20 @@ test("Zero exposes the durable application tables with matching PostgreSQL names
   expect(zeroSchema.tables.streamEvent.columns.sequence.type).toBe("number")
   expect(zeroSchema.tables.streamCheckpoint.columns.lastSequence.type).toBe("number")
   expect(zeroSchema.tables.note.columns.projectPath.optional).toBe(true)
+  expect(zeroSchema.tables.session.columns.parentSessionId.optional).toBe(true)
 })
 
 test("Zero relationships cover restart-safe session and stream ownership", () => {
   expect(zeroSchema.relationships.session).toHaveProperty("streamEvents")
   expect(zeroSchema.relationships.session).toHaveProperty("streamCheckpoints")
+  expect(zeroSchema.relationships.session).toHaveProperty("parent")
+  expect(zeroSchema.relationships.session).toHaveProperty("children")
+  expect(zeroSchema.relationships.session.parent[0]).toMatchObject({
+    sourceField: ["parentSessionId"],
+    destField: ["id"],
+    destSchema: "session",
+    cardinality: "one",
+  })
   expect(zeroSchema.relationships.streamEvent.session[0]).toMatchObject({
     sourceField: ["sessionId"],
     destField: ["id"],

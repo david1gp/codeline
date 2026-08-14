@@ -122,6 +122,20 @@ test.skipIf(!databaseAvailable)(
 )
 
 test.skipIf(!databaseAvailable)("session HTTP routes validate requests and cursors", async () => {
+  const arbitraryParent = await app.request("http://codeline.test/api/sessions", {
+    body: JSON.stringify({
+      clientRequestId: `session-http-parent-rejected-${uuidv7()}`,
+      metadata: {},
+      parentSessionId: "arbitrary-parent",
+      primaryAgentId: agentId,
+      serverId,
+      title: "Must reject arbitrary parent",
+    }),
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+  })
+  expect(arbitraryParent.status).toBe(400)
+
   const invalidCreate = await app.request("http://codeline.test/api/sessions", {
     body: JSON.stringify({ title: "missing identifiers" }),
     headers: { "Content-Type": "application/json" },

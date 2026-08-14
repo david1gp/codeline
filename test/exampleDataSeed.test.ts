@@ -10,8 +10,8 @@ import { exampleDataSeed } from "../src/database/exampleDataSeed.js"
 import { developmentUserTable } from "../src/identity/db/developmentUserTable.js"
 import { messageTable } from "../src/message/db/messageTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
-import { uuidv7 } from "../src/uuid/uuidv7.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
+import { uuidv7 } from "../src/uuid/uuidv7.js"
 
 const client = postgres(Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline")
 const database = drizzle(client, { schema: databaseSchema })
@@ -24,6 +24,7 @@ const unrelated = {
   userId: `development:seed-test-${uuidv7()}`,
   identityKey: `seed-test-${uuidv7()}`,
   sessionId: `seed-test-session-${uuidv7()}`,
+  descendantSessionId: `seed-test-descendant-session-${uuidv7()}`,
   messageId: `seed-test-message-${uuidv7()}`,
 }
 
@@ -66,8 +67,10 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  if (databaseAvailable)
+  if (databaseAvailable) {
+    await database.delete(sessionTable).where(eq(sessionTable.id, unrelated.descendantSessionId))
     await database.delete(developmentUserTable).where(eq(developmentUserTable.id, unrelated.userId))
+  }
   await client.end()
 })
 
@@ -79,9 +82,14 @@ test("the typed fixture has stable counts, IDs, timestamps, and content", () => 
   expect(exampleDataFixture.sessions.filter((session) => session.archivedAt === null)).toHaveLength(2)
   expect(exampleDataFixture.sessions.flatMap((session) => session.messages)).toHaveLength(6)
   expect(exampleDataFixture.sessions[0]?.messages[1]?.content).toBe("The workspace shell is ready for local sessions.")
+  expect(exampleDataFixture.sessions.map((session) => session.parentSessionId)).toEqual([
+    null,
+    "example-session-active-1",
+    "example-session-active-2",
+  ])
 })
 
-test.skipIf(!databaseAvailable)("default runs reconcile fixture rows and preserve unrelated data", async () => {
+test.skipIf(!databaseAvailable)("reset preserves unrelated data and descendant links", async () => {
   const first = await exampleDataSeed(database)
   expect(first).toEqual({ success: true, data: { sessionCount: 3, messageCount: 6 } })
   const second = await exampleDataSeed(database)
@@ -91,6 +99,9 @@ test.skipIf(!databaseAvailable)("default runs reconcile fixture rows and preserv
   const messages = await database.select().from(messageTable).where(inArray(messageTable.id, messageIds))
   expect(sessions).toHaveLength(3)
   expect(sessions.filter((session) => session.archivedAt === null)).toHaveLength(2)
+  expect(sessions.find((session) => session.id === "example-session-active-2")?.parentSessionId).toBe(
+    "example-session-active-1",
+  )
   expect(messages).toHaveLength(6)
   expect(messages.find((message) => message.id === "example-message-active-2-assistant")?.content).toBe(
     "The synchronized message view is available.",
@@ -119,8 +130,23 @@ test.skipIf(!databaseAvailable)("default runs reconcile fixture rows and preserv
     .where(eq(sessionTable.id, unrelated.sessionId))
   expect(unrelatedRows).toEqual([{ sessionId: unrelated.sessionId, messageId: unrelated.messageId }])
 
+  await database.insert(sessionTable).values({
+    id: unrelated.descendantSessionId,
+    userId: exampleDataFixture.user.id,
+    serverId: exampleDataFixture.server.id,
+    primaryAgentId: exampleDataFixture.agent.id,
+    parentSessionId: "example-session-active-1",
+    title: "User-created fixture descendant",
+    clientRequestId: `seed-test-descendant-request-${uuidv7()}`,
+  })
+
   const reset = await exampleDataSeed(database, { reset: true })
   expect(reset).toEqual(first)
   const afterReset = await database.select().from(messageTable).where(inArray(messageTable.id, messageIds))
   expect(afterReset).toHaveLength(6)
+  const descendantAfterReset = await database
+    .select({ parentSessionId: sessionTable.parentSessionId })
+    .from(sessionTable)
+    .where(eq(sessionTable.id, unrelated.descendantSessionId))
+  expect(descendantAfterReset).toEqual([{ parentSessionId: "example-session-active-1" }])
 })

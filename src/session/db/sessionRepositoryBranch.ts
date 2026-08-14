@@ -39,6 +39,7 @@ export async function sessionRepositoryBranch(
         clientRequestId: input.clientRequestId,
         id: uuidv7(),
         metadata: source.metadata,
+        parentSessionId: source.id,
         primaryAgentId: source.primaryAgentId,
         serverId: source.serverId,
         title: source.title,

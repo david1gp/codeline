@@ -1,3 +1,4 @@
+import type { AnyPgColumn } from "drizzle-orm/pg-core"
 import { foreignKey, index, jsonb, pgTable, text, timestamp, unique } from "drizzle-orm/pg-core"
 import { agentTable } from "../../agents/db/agentTable.js"
 import { developmentUserTable } from "../../identity/db/developmentUserTable.js"
@@ -16,6 +17,9 @@ export const sessionTable = pgTable(
     primaryAgentId: text("primary_agent_id")
       .notNull()
       .references(() => agentTable.id, { onDelete: "restrict" }),
+    parentSessionId: text("parent_session_id").references((): AnyPgColumn => sessionTable.id, {
+      onDelete: "set null",
+    }),
     title: text("title").notNull(),
     clientRequestId: text("client_request_id").notNull(),
     metadata: jsonb("metadata").notNull().default({}),
@@ -33,5 +37,6 @@ export const sessionTable = pgTable(
     index("session_user_updated_idx").on(table.userId, table.updatedAt),
     index("session_user_archived_idx").on(table.userId, table.archivedAt),
     index("session_server_idx").on(table.serverId),
+    index("session_parent_idx").on(table.parentSessionId),
   ],
 )

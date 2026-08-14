@@ -113,7 +113,10 @@ test.skipIf(!databaseAvailable)("branches an owned active session through a fina
   })
   expect(response.status).toBe(201)
   const body = await response.json()
-  expect(body).toMatchObject({ created: true, session: { archivedAt: null, title: "Branch source" } })
+  expect(body).toMatchObject({
+    created: true,
+    session: { archivedAt: null, parentSessionId: sourceSessionId, title: "Branch source" },
+  })
   const targetSessionId = body.session.id as string
 
   const copied = await database

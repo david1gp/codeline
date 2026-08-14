@@ -1,24 +1,22 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import { inArray } from "drizzle-orm"
 import { agentTable } from "../agents/db/agentTable.js"
-import type { DatabaseClient, DatabaseExecutor } from "./databaseClient.js"
-import { databaseTransactionRun } from "./databaseTransactionRun.js"
-import { exampleDataFixture } from "./exampleDataFixture.js"
 import { developmentUserTable } from "../identity/db/developmentUserTable.js"
 import { messageTable } from "../message/db/messageTable.js"
 import { serverTable } from "../servers/db/serverTable.js"
 import { sessionTable } from "../session/db/sessionTable.js"
+import type { DatabaseClient, DatabaseExecutor } from "./databaseClient.js"
+import { databaseTransactionRun } from "./databaseTransactionRun.js"
+import { exampleDataFixture } from "./exampleDataFixture.js"
 
 function date(value: string): Date {
   return new Date(value)
 }
 
-async function exampleDataRowsDelete(database: DatabaseExecutor): Promise<void> {
-  const sessionIds = exampleDataFixture.sessions.map((session) => session.id)
+async function exampleDataMessagesDelete(database: DatabaseExecutor): Promise<void> {
   const messageIds = exampleDataFixture.sessions.flatMap((session) => session.messages.map((message) => message.id))
 
   await database.delete(messageTable).where(inArray(messageTable.id, messageIds))
-  await database.delete(sessionTable).where(inArray(sessionTable.id, sessionIds))
 }
 
 async function exampleDataRowsReconcile(
@@ -107,6 +105,7 @@ async function exampleDataRowsReconcile(
           userId: fixtureUser.id,
           serverId: server.id,
           primaryAgentId: agent.id,
+          parentSessionId: fixtureSession.parentSessionId,
           title: fixtureSession.title,
           clientRequestId: fixtureSession.clientRequestId,
           metadata: fixtureSession.metadata,
@@ -120,6 +119,7 @@ async function exampleDataRowsReconcile(
             userId: fixtureUser.id,
             serverId: server.id,
             primaryAgentId: agent.id,
+            parentSessionId: fixtureSession.parentSessionId,
             title: fixtureSession.title,
             clientRequestId: fixtureSession.clientRequestId,
             metadata: fixtureSession.metadata,
@@ -177,7 +177,7 @@ export async function exampleDataSeed(
   const op = "exampleDataSeed"
   return databaseTransactionRun(database, async (transaction) => {
     try {
-      if (options.reset) await exampleDataRowsDelete(transaction)
+      if (options.reset) await exampleDataMessagesDelete(transaction)
       return await exampleDataRowsReconcile(transaction)
     } catch (_error) {
       return createResultError(op, "The example data seed transaction failed.")
