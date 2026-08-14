@@ -1,14 +1,28 @@
+import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import { type StreamChunk, toServerSentEventsStream } from "@tanstack/ai"
 import type { Context } from "hono"
 import { Hono } from "hono"
+import * as v from "valibot"
 import { agentConfigurationExecutionResolve } from "../../agents/actions/agentConfigurationExecutionResolve.js"
 import type { AgentConfiguration } from "../../agents/schema/agentConfigurationSchema.js"
 import { apiRequestParse } from "../../api/apiRequestParse.js"
 import type { AppEnvironment } from "../../api/appEnvironment.js"
 import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.js"
+import type { ConfigurationStore } from "../../configuration/configurationStore.js"
+import type { DatabaseClient } from "../../database/databaseClient.js"
 import { databaseTransactionRun } from "../../database/databaseTransactionRun.js"
 import { providerRuntimeAdapterCreate } from "../../providers/runtime/providerRuntimeAdapterCreate.js"
 import { providerRuntimeAdapterResolve } from "../../providers/runtime/providerRuntimeAdapterResolve.js"
+import { runCreate } from "../../run/actions/runCreate.js"
+import { runExecutionSnapshotResolve } from "../../run/actions/runExecutionSnapshotResolve.js"
+import { runFailureClassResolve } from "../../run/actions/runFailureClassResolve.js"
+import { runLoad } from "../../run/actions/runLoad.js"
+import { runRetryAttemptCreate } from "../../run/actions/runRetryAttemptCreate.js"
+import { runTransition } from "../../run/actions/runTransition.js"
+import type { attemptTable } from "../../run/db/attemptTable.js"
+import type { runTable } from "../../run/db/runTable.js"
+import type { RunExecutionSnapshot } from "../../run/schema/runExecutionSnapshotSchema.js"
+import { runExecutionSnapshotSchema } from "../../run/schema/runExecutionSnapshotSchema.js"
 import { streamReplayServiceCreate } from "../../stream/actions/streamReplayServiceCreate.js"
 import { sessionArchive } from "../actions/sessionArchive.js"
 import { sessionChatAdapterCreate } from "../actions/sessionChatAdapterCreate.js"
@@ -49,8 +63,14 @@ function internalServerError(context: ApiContext) {
 }
 
 type ApiSessionRoutesOptions = {
+  configurationStore?: ConfigurationStore
   providerEnvironment?: Readonly<Record<string, string | undefined>>
   providerRuntimeAdapterCreate?: typeof providerRuntimeAdapterCreate
+  runCreate?: typeof runCreate
+  runExecutionSnapshotResolve?: typeof runExecutionSnapshotResolve
+  runLoad?: typeof runLoad
+  runRetryAttemptCreate?: typeof runRetryAttemptCreate
+  runTransition?: typeof runTransition
   sessionChatAdapter?: typeof sessionChatAdapterCreate
   streamInactivityTimeoutMs?: number
   streamReplayServiceCreate?: typeof streamReplayServiceCreate
@@ -70,6 +90,82 @@ async function* sessionChatStreamReplay(
     eventIds[index] = event.id
     yield event.payload as StreamChunk
   }
+}
+
+type SessionChatAdmission = {
+  attempt?: typeof attemptTable.$inferSelect
+  attempts?: Array<typeof attemptTable.$inferSelect>
+  run?: typeof runTable.$inferSelect
+  runtimeConfiguration?: AgentConfiguration
+  snapshot: RunExecutionSnapshot
+}
+
+async function sessionChatAdmissionResolve(
+  database: DatabaseClient,
+  userId: string,
+  sessionId: string,
+  runId: string,
+  target: { agentId: string; serverId: string },
+  forwardedExecution: unknown,
+  options: ApiSessionRoutesOptions,
+): Promise<Result<SessionChatAdmission>> {
+  const op = "sessionChatAdmissionResolve"
+  const loaded = await (options.runLoad ?? runLoad)(database, userId, sessionId, runId)
+  if (loaded.success) {
+    const parsedSnapshot = v.safeParse(runExecutionSnapshotSchema, loaded.data.run.snapshot)
+    if (!parsedSnapshot.success) return createResultError(op, "The persisted run snapshot is invalid.")
+    return createResult({
+      attempt: loaded.data.attempt,
+      attempts: loaded.data.attempts,
+      runtimeConfiguration: options.sessionChatAdapter === undefined ? parsedSnapshot.output.configuration : undefined,
+      run: loaded.data.run,
+      snapshot: parsedSnapshot.output,
+    })
+  }
+  if (loaded.errorMessage !== "The run could not be found.") return createResultError(op, loaded.errorMessage)
+  if (options.configurationStore === undefined) return createResultError(op, "The configuration store is unavailable.")
+
+  const resolved = (options.runExecutionSnapshotResolve ?? runExecutionSnapshotResolve)(
+    target,
+    options.configurationStore,
+  )
+  if (!resolved.success) return createResultError(op, resolved.errorMessage)
+
+  if (options.sessionChatAdapter !== undefined) return createResult({ snapshot: resolved.data })
+  const runtime = agentConfigurationExecutionResolve(resolved.data.configuration, forwardedExecution)
+  if (!runtime.success) return createResultError(op, runtime.errorMessage)
+  return createResult({ runtimeConfiguration: runtime.data, snapshot: resolved.data })
+}
+
+async function sessionChatReplayEventsLoad(
+  attempts: ReadonlyArray<typeof attemptTable.$inferSelect>,
+  options: {
+    database: DatabaseClient
+    inactivityTimeoutMs: number
+    sessionId: string
+    streamReplayServiceCreate: typeof streamReplayServiceCreate
+    userId: string
+  },
+): Promise<Result<Array<{ id: string; payload: unknown }>>> {
+  const op = "sessionChatReplayEventsLoad"
+  const events: Array<{ id: string; payload: unknown }> = []
+
+  for (const attempt of attempts) {
+    const replayService = options.streamReplayServiceCreate({
+      database: options.database,
+      inactivityTimeoutMs: options.inactivityTimeoutMs,
+      sessionId: options.sessionId,
+      streamId: attempt.streamId,
+      userId: options.userId,
+    })
+    const started = await replayService.start()
+    if (!started.success) return createResultError(op, started.errorMessage)
+    const replay = await replayService.replay({ limit: 100 })
+    if (!replay.success) return createResultError(op, replay.errorMessage)
+    events.push(...replay.data.events.map((event) => ({ id: event.id, payload: event.payload })))
+  }
+
+  return createResult(events)
 }
 
 export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessionRoutesOptions = {}): void {
@@ -126,12 +222,49 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
 
     let adapter = options.sessionChatAdapter
     let runtimeConfiguration: AgentConfiguration | undefined
-    if (adapter === undefined) {
-      const loaded = await sessionLoad(context.var.database, context.var.developmentUser.id, sessionId)
-      if (!loaded.success)
-        return loaded.errorMessage.includes("could not be found") ? notFound(context) : internalServerError(context)
-      if (loaded.data.session.archivedAt !== null) return conflict(context, "The session is archived.")
+    let admittedRun: typeof runTable.$inferSelect | undefined
+    let admittedAttempt: typeof attemptTable.$inferSelect | undefined
+    let admittedAttempts: Array<typeof attemptTable.$inferSelect> = []
+    const loaded = await sessionLoad(context.var.database, context.var.developmentUser.id, sessionId)
+    if (!loaded.success)
+      return loaded.errorMessage.includes("could not be found") ? notFound(context) : internalServerError(context)
+    if (loaded.data.session.archivedAt !== null) return conflict(context, "The session is archived.")
 
+    if (options.configurationStore !== undefined) {
+      const admission = await sessionChatAdmissionResolve(
+        context.var.database,
+        context.var.developmentUser.id,
+        sessionId,
+        parsed.data.runId,
+        { agentId: loaded.data.session.primaryAgentId, serverId: loaded.data.session.serverId },
+        parsed.data.forwardedProps?.codelineExecution,
+        options,
+      )
+      if (!admission.success) {
+        if (admission.errorMessage.includes("execution override")) return badRequest(context, admission.errorMessage)
+        return internalServerError(context)
+      }
+      runtimeConfiguration = admission.data.runtimeConfiguration
+
+      const created = await (options.runCreate ?? runCreate)(
+        context.var.database,
+        context.var.developmentUser.id,
+        sessionId,
+        {
+          clientRunId: parsed.data.runId,
+          snapshot: admission.data.snapshot,
+          streamId: sessionChatStreamIdCreate(sessionId, parsed.data.runId),
+        },
+      )
+      if (!created.success) {
+        if (created.errorMessage.includes("could not be found")) return notFound(context)
+        if (created.errorMessage.includes("conflicts")) return conflict(context, created.errorMessage)
+        return internalServerError(context)
+      }
+      admittedRun = created.data.run
+      admittedAttempt = created.data.attempt
+      admittedAttempts = admission.data.attempts ?? [created.data.attempt]
+    } else if (adapter === undefined) {
       const resolvedConfiguration = agentConfigurationExecutionResolve(
         loaded.data.agent.configuration,
         parsed.data.forwardedProps?.codelineExecution,
@@ -164,20 +297,34 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     if (requestSignal.aborted) abortController.abort(requestSignal.reason)
     else requestSignal.addEventListener("abort", onRequestAbort, { once: true })
 
-    const replayService = (options.streamReplayServiceCreate ?? streamReplayServiceCreate)({
+    const eventIds: Array<string | undefined> = []
+    const replayServiceCreate = options.streamReplayServiceCreate ?? streamReplayServiceCreate
+    const inactivityTimeoutMs = options.streamInactivityTimeoutMs ?? sessionChatDefaultInactivityTimeoutMs
+    let stream: AsyncIterable<StreamChunk>
+    const initialStreamId = admittedAttempt?.streamId ?? sessionChatStreamIdCreate(sessionId, parsed.data.runId)
+    const initialReplayService = replayServiceCreate({
       database: context.var.database,
-      inactivityTimeoutMs: options.streamInactivityTimeoutMs ?? sessionChatDefaultInactivityTimeoutMs,
+      inactivityTimeoutMs,
       sessionId,
-      streamId: sessionChatStreamIdCreate(sessionId, parsed.data.runId),
+      streamId: initialStreamId,
       userId: context.var.developmentUser.id,
     })
-    const started = await replayService.start()
+    const started = await initialReplayService.start()
     if (!started.success) return internalServerError(context)
 
-    const eventIds: Array<string | undefined> = []
-    let stream: AsyncIterable<StreamChunk>
-    if (started.data.checkpoint.lastSequence > 0) {
-      const replay = await replayService.replay({ limit: 100 })
+    if (admittedRun !== undefined && admittedRun.status !== "accepted") {
+      const replay = await sessionChatReplayEventsLoad(admittedAttempts, {
+        database: context.var.database,
+        inactivityTimeoutMs,
+        sessionId,
+        streamReplayServiceCreate: replayServiceCreate,
+        userId: context.var.developmentUser.id,
+      })
+      if (!replay.success) return internalServerError(context)
+      stream = sessionChatStreamReplay(replay.data, eventIds)
+      requestSignal.removeEventListener("abort", onRequestAbort)
+    } else if (started.data.checkpoint.lastSequence > 0) {
+      const replay = await initialReplayService.replay({ limit: 100 })
       if (!replay.success) return internalServerError(context)
       stream = sessionChatStreamReplay(replay.data.events, eventIds)
       requestSignal.removeEventListener("abort", onRequestAbort)
@@ -191,22 +338,100 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
         if (!resolved.success) return internalServerError(context)
         adapter = resolved.data
       }
-      stream = sessionChatStreamCreate({
-        adapter,
-        cleanup: () => requestSignal.removeEventListener("abort", onRequestAbort),
-        database: context.var.database,
-        history: prepared.data.history,
-        prompt,
-        replayService,
-        requestId: parsed.data.runId,
-        runId: parsed.data.runId,
-        sessionId,
-        signal: abortController.signal,
-        userId: context.var.developmentUser.id,
-        onEventId: (sequence, eventId) => {
-          eventIds[sequence - 1] = eventId
-        },
-      })
+
+      if (admittedRun !== undefined && admittedAttempt !== undefined) {
+        const transitioned = await (options.runTransition ?? runTransition)(
+          context.var.database,
+          context.var.developmentUser.id,
+          sessionId,
+          admittedRun.id,
+          { status: "running" },
+        )
+        if (!transitioned.success) return internalServerError(context)
+      }
+
+      stream = (async function* () {
+        let currentAttempt = admittedAttempt
+        let replayService = initialReplayService
+
+        try {
+          while (true) {
+            let nextAttempt: typeof attemptTable.$inferSelect | undefined
+            const attemptStream = sessionChatStreamCreate({
+              adapter: adapter as NonNullable<typeof adapter>,
+              database: context.var.database,
+              history: prepared.data.history,
+              onEventId: (_sequence, eventId) => {
+                eventIds[eventIds.length] = eventId
+              },
+              onTerminal: async (terminal) => {
+                if (admittedRun === undefined || currentAttempt === undefined) return
+                const transitioned = await (options.runTransition ?? runTransition)(
+                  context.var.database,
+                  context.var.developmentUser.id,
+                  sessionId,
+                  admittedRun.id,
+                  terminal,
+                )
+                if (!transitioned.success) throw new Error(transitioned.errorMessage)
+                if (terminal.status !== "failed" || terminal.failure === undefined) return
+                if (runFailureClassResolve(terminal.failure) !== "retryable") return
+
+                const retry = await (options.runRetryAttemptCreate ?? runRetryAttemptCreate)(
+                  context.var.database,
+                  context.var.developmentUser.id,
+                  sessionId,
+                  admittedRun.id,
+                )
+                if (!retry.success) {
+                  if (retry.errorMessage.includes("The run retry was not admitted:")) return
+                  throw new Error(retry.errorMessage)
+                }
+                if (retry.data.attempt.status !== "accepted") return
+                nextAttempt = retry.data.attempt
+                if (!admittedAttempts.some(({ id }) => id === retry.data.attempt.id)) {
+                  admittedAttempts.push(retry.data.attempt)
+                }
+              },
+              prompt,
+              replayService,
+              requestId: parsed.data.runId,
+              runId: parsed.data.runId,
+              sessionId,
+              signal: abortController.signal,
+              userId: context.var.developmentUser.id,
+            })
+
+            for await (const chunk of attemptStream) yield chunk
+            if (nextAttempt === undefined) return
+
+            currentAttempt = nextAttempt
+            const nextReplayService = replayServiceCreate({
+              database: context.var.database,
+              inactivityTimeoutMs,
+              sessionId,
+              streamId: nextAttempt.streamId,
+              userId: context.var.developmentUser.id,
+            })
+            const nextStarted = await nextReplayService.start()
+            if (!nextStarted.success) throw new Error(nextStarted.errorMessage)
+            replayService = nextReplayService
+
+            if (admittedRun !== undefined) {
+              const transitioned = await (options.runTransition ?? runTransition)(
+                context.var.database,
+                context.var.developmentUser.id,
+                sessionId,
+                admittedRun.id,
+                { status: "running" },
+              )
+              if (!transitioned.success) throw new Error(transitioned.errorMessage)
+            }
+          }
+        } finally {
+          requestSignal.removeEventListener("abort", onRequestAbort)
+        }
+      })()
     }
     const sse = toServerSentEventsStream(stream, abortController, (_chunk, index) => eventIds[index])
 

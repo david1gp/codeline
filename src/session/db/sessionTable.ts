@@ -29,6 +29,7 @@ export const sessionTable = pgTable(
   },
   (table) => [
     unique("session_user_client_request_unique").on(table.userId, table.clientRequestId),
+    unique("session_user_id_unique").on(table.userId, table.id),
     foreignKey({
       name: "session_server_primary_agent_consistency_fk",
       columns: [table.serverId, table.primaryAgentId],

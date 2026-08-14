@@ -1,10 +1,14 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
+import { mkdtempSync, rmSync } from "node:fs"
+import { join } from "node:path"
 import { EventType, type StreamChunk } from "@tanstack/ai"
-import { asc, eq } from "drizzle-orm"
+import { and, asc, eq } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/postgres-js"
 import postgres from "postgres"
 import { agentTable } from "../src/agents/db/agentTable.js"
 import { type AppCreateOptions, appCreate } from "../src/app/appCreate.js"
+import { configurationStoreCreate } from "../src/configuration/configurationStoreCreate.js"
+import { configurationStoreWrite } from "../src/configuration/configurationStoreWrite.js"
 import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
 import { databaseSchema } from "../src/database/databaseSchema.js"
 import { databaseTransactionRun } from "../src/database/databaseTransactionRun.js"
@@ -16,6 +20,9 @@ import {
   type ProviderRuntimeAdapterOptions,
   providerRuntimeAdapterCreate,
 } from "../src/providers/runtime/providerRuntimeAdapterCreate.js"
+import { runCreate } from "../src/run/actions/runCreate.js"
+import { attemptTable } from "../src/run/db/attemptTable.js"
+import { runTable } from "../src/run/db/runTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionArchive } from "../src/session/actions/sessionArchive.js"
 import { sessionChatAdapterCreate } from "../src/session/actions/sessionChatAdapterCreate.js"
@@ -78,6 +85,39 @@ async function sessionCreateForTest(ownerUserId: string, title: string, serverId
   })
   if (!result.success) throw new Error(result.errorMessage)
   return result.data.session.id
+}
+
+async function configurationStoreForTest() {
+  const configDirectory = mkdtempSync(join(Bun.env.TMPDIR ?? "/tmp", "codeline-chat-lifecycle-"))
+  const storeResult = await configurationStoreCreate({
+    authorEmail: "session-chat-lifecycle@example.com",
+    authorName: "Codeline Session Chat Lifecycle Test",
+    branch: "main",
+    dir: configDirectory,
+  })
+  if (!storeResult.success) throw new Error(storeResult.errorMessage)
+
+  const configuration = await configurationStoreWrite(storeResult.data, {
+    agentConfigurations: [
+      {
+        configuration: { model: "lifecycle-test", provider: "deterministic" },
+        target: { agentId: fixture.agentId, serverId: fixture.serverId },
+      },
+    ],
+    version: 1,
+  })
+  if (!configuration.success) throw new Error(configuration.errorMessage)
+  return { configDirectory, store: storeResult.data }
+}
+
+async function runRowsForTest(sessionId: string, runId: string) {
+  const runs = await database
+    .select()
+    .from(runTable)
+    .where(and(eq(runTable.sessionId, sessionId), eq(runTable.clientRunId, runId)))
+  const attempts =
+    runs[0] === undefined ? [] : await database.select().from(attemptTable).where(eq(attemptTable.runId, runs[0].id))
+  return { attempts, runs }
 }
 
 async function sseEvents(response: Response): Promise<Array<Record<string, unknown>>> {
@@ -480,6 +520,477 @@ test.skipIf(!databaseAvailable)(
     })
     expect(conflicting.status).toBe(409)
     expect(await messageRows(sessionId)).toHaveLength(2)
+  },
+)
+
+test.skipIf(!databaseAvailable)(
+  "chat admission persists the committed snapshot and one initial attempt across repeated run IDs",
+  async () => {
+    if (userId === undefined) return
+    const sessionId = await sessionCreateForTest(userId, "Chat durable admission", fixture.serverId, fixture.agentId)
+    const configDirectory = mkdtempSync(join(Bun.env.TMPDIR ?? "/tmp", "codeline-chat-admission-"))
+
+    try {
+      const storeResult = await configurationStoreCreate({
+        authorEmail: "session-chat-admission@example.com",
+        authorName: "Codeline Session Chat Admission Test",
+        branch: "main",
+        dir: configDirectory,
+      })
+      expect(storeResult.success).toBe(true)
+      if (!storeResult.success) return
+
+      const store = storeResult.data
+      const firstConfiguration = {
+        agentConfigurations: [
+          {
+            configuration: { model: "committed-first", provider: "deterministic" },
+            target: { agentId: fixture.agentId, serverId: fixture.serverId },
+          },
+        ],
+        version: 1 as const,
+      }
+      const firstRevision = await configurationStoreWrite(store, firstConfiguration)
+      expect(firstRevision.success).toBe(true)
+      if (!firstRevision.success) return
+
+      const admissionApp = appCreate({ configuration, configurationStore: store, database })
+      const runId = `session-chat-admission-${uuidv7()}`
+      const body = chatBody(sessionId, runId, "persist this snapshot")
+      const first = await admissionApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+        body: JSON.stringify(body),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      })
+      expect(first.status).toBe(200)
+      const firstEvents = await sseEvents(first)
+
+      const secondRevision = await configurationStoreWrite(store, {
+        ...firstConfiguration,
+        agentConfigurations: [
+          {
+            ...firstConfiguration.agentConfigurations[0]!,
+            configuration: { model: "committed-second", provider: "deterministic" },
+          },
+        ],
+      })
+      expect(secondRevision.success).toBe(true)
+
+      const repeated = await admissionApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+        body: JSON.stringify(body),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      })
+      expect(repeated.status).toBe(200)
+      expect(await sseEvents(repeated)).toEqual(firstEvents)
+
+      const runs = await database
+        .select()
+        .from(runTable)
+        .where(and(eq(runTable.sessionId, sessionId), eq(runTable.clientRunId, runId)))
+      expect(runs).toHaveLength(1)
+      expect(runs[0]).toMatchObject({
+        snapshot: {
+          configuration: { model: "committed-first", provider: "deterministic" },
+          configurationRevision: firstRevision.data,
+          target: { agentId: fixture.agentId, serverId: fixture.serverId },
+        },
+        status: "succeeded",
+      })
+      const attempts = await database.select().from(attemptTable).where(eq(attemptTable.runId, runs[0]!.id))
+      expect(attempts).toHaveLength(1)
+      expect(attempts[0]).toMatchObject({
+        ordinal: 1,
+        snapshot: runs[0]!.snapshot,
+        status: "succeeded",
+      })
+    } finally {
+      rmSync(configDirectory, { force: true, recursive: true })
+    }
+  },
+)
+
+test.skipIf(!databaseAvailable)("chat transitions the admitted run and attempt to succeeded", async () => {
+  if (userId === undefined) return
+  const sessionId = await sessionCreateForTest(userId, "Chat lifecycle success", fixture.serverId, fixture.agentId)
+  const lifecycle = await configurationStoreForTest()
+  try {
+    const lifecycleApp = appCreate({ configuration, configurationStore: lifecycle.store, database })
+    const runId = `session-chat-lifecycle-success-${uuidv7()}`
+    const response = await lifecycleApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+      body: JSON.stringify(chatBody(sessionId, runId, "succeed")),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+
+    expect(response.status).toBe(200)
+    expect((await sseEvents(response)).at(-1)?.type).toBe("RUN_FINISHED")
+    const rows = await runRowsForTest(sessionId, runId)
+    expect(rows.runs).toHaveLength(1)
+    expect(rows.attempts).toHaveLength(1)
+    expect(rows.runs[0]).toMatchObject({ failure: null, status: "succeeded" })
+    expect(rows.attempts[0]).toMatchObject({ failure: null, ordinal: 1, status: "succeeded" })
+    expect(rows.runs[0]?.startedAt).toBeInstanceOf(Date)
+    expect(rows.runs[0]?.finishedAt).toBeInstanceOf(Date)
+  } finally {
+    rmSync(lifecycle.configDirectory, { force: true, recursive: true })
+  }
+})
+
+test.skipIf(!databaseAvailable)("chat transitions a provider failure to failed", async () => {
+  if (userId === undefined) return
+  const sessionId = await sessionCreateForTest(userId, "Chat lifecycle failure", fixture.serverId, fixture.agentId)
+  const lifecycle = await configurationStoreForTest()
+  const failingAdapter: ChatAdapter = (input) =>
+    (async function* () {
+      yield runStartedChunk(input)
+      yield {
+        code: "provider_failed",
+        message: "The provider failed.",
+        timestamp: Date.now(),
+        type: EventType.RUN_ERROR,
+      }
+    })()
+
+  try {
+    const lifecycleApp = appCreate({
+      configuration,
+      configurationStore: lifecycle.store,
+      database,
+      sessionChatAdapter: failingAdapter,
+    })
+    const runId = `session-chat-lifecycle-failure-${uuidv7()}`
+    const response = await lifecycleApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+      body: JSON.stringify(chatBody(sessionId, runId, "fail")),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+
+    expect(response.status).toBe(200)
+    expect((await sseEvents(response)).at(-1)).toMatchObject({ code: "provider_failed", type: "RUN_ERROR" })
+    const rows = await runRowsForTest(sessionId, runId)
+    expect(rows.runs).toHaveLength(1)
+    expect(rows.attempts).toHaveLength(1)
+    expect(rows.runs[0]).toMatchObject({
+      failure: { code: "provider_failed", message: "The provider failed." },
+      status: "failed",
+    })
+    expect(rows.attempts[0]).toMatchObject({
+      failure: { code: "provider_failed", message: "The provider failed." },
+      ordinal: 1,
+      status: "failed",
+    })
+  } finally {
+    rmSync(lifecycle.configDirectory, { force: true, recursive: true })
+  }
+})
+
+test.skipIf(!databaseAvailable)("chat automatically executes an admitted retry after a retryable failure", async () => {
+  if (userId === undefined) return
+  const sessionId = await sessionCreateForTest(userId, "Chat automatic retry", fixture.serverId, fixture.agentId)
+  const lifecycle = await configurationStoreForTest()
+  let adapterCalls = 0
+  const retryAdapter: ChatAdapter = (input) => {
+    adapterCalls += 1
+    if (adapterCalls !== 1) return sessionChatAdapterCreate(input)
+    return (async function* () {
+      yield runStartedChunk(input)
+      yield {
+        code: "provider_failed",
+        message: "The provider failed once.",
+        timestamp: Date.now(),
+        type: EventType.RUN_ERROR,
+      }
+    })()
+  }
+
+  try {
+    const lifecycleApp = appCreate({
+      configuration,
+      configurationStore: lifecycle.store,
+      database,
+      runCreate: (database, ownerUserId, ownerSessionId, input) =>
+        runCreate(database, ownerUserId, ownerSessionId, {
+          ...input,
+          budget: { maxAttempts: 2 },
+        }),
+      sessionChatAdapter: retryAdapter,
+    })
+    const runId = `session-chat-automatic-retry-${uuidv7()}`
+    const response = await lifecycleApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+      body: JSON.stringify(chatBody(sessionId, runId, "retry this")),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+
+    expect(response.status).toBe(200)
+    const events = await sseEvents(response)
+    expect(events.filter((event) => event.type === "RUN_ERROR")).toHaveLength(1)
+    expect(events.at(-1)?.type).toBe("RUN_FINISHED")
+    expect(adapterCalls).toBe(2)
+
+    const rows = await runRowsForTest(sessionId, runId)
+    expect(rows.runs).toHaveLength(1)
+    expect(rows.attempts).toHaveLength(2)
+    expect(rows.attempts.map((attempt) => [attempt.ordinal, attempt.status])).toEqual([
+      [1, "failed"],
+      [2, "succeeded"],
+    ])
+    expect(rows.runs[0]).toMatchObject({ status: "succeeded", failure: null })
+  } finally {
+    rmSync(lifecycle.configDirectory, { force: true, recursive: true })
+  }
+})
+
+test.skipIf(!databaseAvailable)("chat stops automatic retries at the persisted attempt budget", async () => {
+  if (userId === undefined) return
+  const sessionId = await sessionCreateForTest(userId, "Chat exhausted retry", fixture.serverId, fixture.agentId)
+  const lifecycle = await configurationStoreForTest()
+  let adapterCalls = 0
+  const failingAdapter: ChatAdapter = (input) => {
+    adapterCalls += 1
+    return (async function* () {
+      yield runStartedChunk(input)
+      yield {
+        code: "provider_failed",
+        message: `The provider failed on attempt ${adapterCalls}.`,
+        timestamp: Date.now(),
+        type: EventType.RUN_ERROR,
+      }
+    })()
+  }
+
+  try {
+    const lifecycleApp = appCreate({
+      configuration,
+      configurationStore: lifecycle.store,
+      database,
+      runCreate: (database, ownerUserId, ownerSessionId, input) =>
+        runCreate(database, ownerUserId, ownerSessionId, {
+          ...input,
+          budget: { maxAttempts: 2 },
+        }),
+      sessionChatAdapter: failingAdapter,
+    })
+    const runId = `session-chat-exhausted-retry-${uuidv7()}`
+    const response = await lifecycleApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+      body: JSON.stringify(chatBody(sessionId, runId, "exhaust this")),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+
+    expect(response.status).toBe(200)
+    const events = await sseEvents(response)
+    expect(events.filter((event) => event.type === "RUN_ERROR")).toHaveLength(2)
+    expect(events.at(-1)).toMatchObject({ code: "provider_failed", type: "RUN_ERROR" })
+    expect(adapterCalls).toBe(2)
+
+    const rows = await runRowsForTest(sessionId, runId)
+    expect(rows.runs[0]).toMatchObject({ status: "failed" })
+    expect(rows.attempts).toHaveLength(2)
+    expect(rows.attempts.every((attempt) => attempt.status === "failed")).toBe(true)
+  } finally {
+    rmSync(lifecycle.configDirectory, { force: true, recursive: true })
+  }
+})
+
+test.skipIf(!databaseAvailable)("chat replays a completed automatic retry without re-execution", async () => {
+  if (userId === undefined) return
+  const sessionId = await sessionCreateForTest(userId, "Chat automatic retry replay", fixture.serverId, fixture.agentId)
+  const lifecycle = await configurationStoreForTest()
+  let adapterCalls = 0
+  const retryAdapter: ChatAdapter = (input) => {
+    adapterCalls += 1
+    if (adapterCalls !== 1) return sessionChatAdapterCreate(input)
+    return (async function* () {
+      yield runStartedChunk(input)
+      yield {
+        code: "provider_failed",
+        message: "The provider failed before replay.",
+        timestamp: Date.now(),
+        type: EventType.RUN_ERROR,
+      }
+    })()
+  }
+
+  try {
+    const lifecycleApp = appCreate({
+      configuration,
+      configurationStore: lifecycle.store,
+      database,
+      runCreate: (database, ownerUserId, ownerSessionId, input) =>
+        runCreate(database, ownerUserId, ownerSessionId, {
+          ...input,
+          budget: { maxAttempts: 2 },
+        }),
+      sessionChatAdapter: retryAdapter,
+    })
+    const runId = `session-chat-automatic-retry-replay-${uuidv7()}`
+    const body = chatBody(sessionId, runId, "replay retry")
+    const first = await lifecycleApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+      body: JSON.stringify(body),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+    const firstEvents = await sseEvents(first)
+
+    const repeated = await lifecycleApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+      body: JSON.stringify(body),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+    expect(repeated.status).toBe(200)
+    expect(await sseEvents(repeated)).toEqual(firstEvents)
+    expect(adapterCalls).toBe(2)
+  } finally {
+    rmSync(lifecycle.configDirectory, { force: true, recursive: true })
+  }
+})
+
+test.skipIf(!databaseAvailable)("chat finalizes one assistant message across automatic retries", async () => {
+  if (userId === undefined) return
+  const sessionId = await sessionCreateForTest(userId, "Chat retry cardinality", fixture.serverId, fixture.agentId)
+  const lifecycle = await configurationStoreForTest()
+  let adapterCalls = 0
+  const retryAdapter: ChatAdapter = (input) => {
+    adapterCalls += 1
+    if (adapterCalls !== 1) return sessionChatAdapterCreate(input)
+    return (async function* () {
+      yield runStartedChunk(input)
+      yield {
+        code: "provider_failed",
+        message: "The provider failed before finalization.",
+        timestamp: Date.now(),
+        type: EventType.RUN_ERROR,
+      }
+    })()
+  }
+
+  try {
+    const lifecycleApp = appCreate({
+      configuration,
+      configurationStore: lifecycle.store,
+      database,
+      runCreate: (database, ownerUserId, ownerSessionId, input) =>
+        runCreate(database, ownerUserId, ownerSessionId, {
+          ...input,
+          budget: { maxAttempts: 2 },
+        }),
+      sessionChatAdapter: retryAdapter,
+    })
+    const runId = `session-chat-retry-cardinality-${uuidv7()}`
+    const response = await lifecycleApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+      body: JSON.stringify(chatBody(sessionId, runId, "one assistant")),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+    await sseEvents(response)
+
+    const messages = await messageRows(sessionId)
+    expect(messages).toHaveLength(2)
+    expect(messages.filter((message) => message.role === "user")).toHaveLength(1)
+    expect(messages.filter((message) => message.role === "assistant")).toHaveLength(1)
+    expect(messages.at(-1)).toMatchObject({ content: "Deterministic response: one assistant", role: "assistant" })
+  } finally {
+    rmSync(lifecycle.configDirectory, { force: true, recursive: true })
+  }
+})
+
+test.skipIf(!databaseAvailable)("chat transitions an aborted stream to aborted", async () => {
+  if (userId === undefined) return
+  const sessionId = await sessionCreateForTest(userId, "Chat lifecycle abort", fixture.serverId, fixture.agentId)
+  const lifecycle = await configurationStoreForTest()
+  let startedResolve: () => void = () => {}
+  const started = new Promise<void>((resolve) => {
+    startedResolve = resolve
+  })
+  const abortAdapter: ChatAdapter = (input) =>
+    (async function* () {
+      startedResolve()
+      yield runStartedChunk(input)
+      await new Promise<void>((resolve) => {
+        if (input.signal.aborted) {
+          resolve()
+          return
+        }
+        input.signal.addEventListener("abort", () => resolve(), { once: true })
+      })
+    })()
+
+  try {
+    const lifecycleApp = appCreate({
+      configuration,
+      configurationStore: lifecycle.store,
+      database,
+      sessionChatAdapter: abortAdapter,
+    })
+    const runId = `session-chat-lifecycle-abort-${uuidv7()}`
+    const controller = new AbortController()
+    const response = await lifecycleApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+      body: JSON.stringify(chatBody(sessionId, runId, "abort")),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+      signal: controller.signal,
+    })
+    const bodyPromise = response.text()
+    await started
+    controller.abort()
+    await bodyPromise
+
+    const rows = await runRowsForTest(sessionId, runId)
+    expect(rows.runs).toHaveLength(1)
+    expect(rows.attempts).toHaveLength(1)
+    expect(rows.runs[0]).toMatchObject({ failure: null, status: "aborted" })
+    expect(rows.attempts[0]).toMatchObject({ failure: null, ordinal: 1, status: "aborted" })
+  } finally {
+    rmSync(lifecycle.configDirectory, { force: true, recursive: true })
+  }
+})
+
+test.skipIf(!databaseAvailable)(
+  "chat replays a completed lifecycle run without a second provider execution",
+  async () => {
+    if (userId === undefined) return
+    const sessionId = await sessionCreateForTest(userId, "Chat lifecycle replay", fixture.serverId, fixture.agentId)
+    const lifecycle = await configurationStoreForTest()
+    let adapterCalls = 0
+    const observingAdapter: ChatAdapter = (input) => {
+      adapterCalls += 1
+      return sessionChatAdapterCreate(input)
+    }
+
+    try {
+      const lifecycleApp = appCreate({
+        configuration,
+        configurationStore: lifecycle.store,
+        database,
+        sessionChatAdapter: observingAdapter,
+      })
+      const runId = `session-chat-lifecycle-replay-${uuidv7()}`
+      const body = chatBody(sessionId, runId, "replay")
+      const first = await lifecycleApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+        body: JSON.stringify(body),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      })
+      const firstEvents = await sseEvents(first)
+
+      const repeated = await lifecycleApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+        body: JSON.stringify(body),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      })
+      expect(await sseEvents(repeated)).toEqual(firstEvents)
+      expect(adapterCalls).toBe(1)
+
+      const rows = await runRowsForTest(sessionId, runId)
+      expect(rows.runs).toHaveLength(1)
+      expect(rows.attempts).toHaveLength(1)
+      expect(rows.runs[0]).toMatchObject({ status: "succeeded" })
+      expect(rows.attempts[0]).toMatchObject({ ordinal: 1, status: "succeeded" })
+    } finally {
+      rmSync(lifecycle.configDirectory, { force: true, recursive: true })
+    }
   },
 )
 

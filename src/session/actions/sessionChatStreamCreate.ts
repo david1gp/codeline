@@ -20,6 +20,10 @@ type SessionChatStreamCreateOptions = {
   signal: AbortSignal
   userId: string
   onEventId?: (sequence: number, eventId: string) => void
+  onTerminal?: (terminal: {
+    failure?: { code: string; message: string }
+    status: "succeeded" | "failed" | "aborted"
+  }) => Promise<void>
 }
 
 export function sessionChatStreamCreate(options: SessionChatStreamCreateOptions): AsyncIterable<StreamChunk> {
@@ -37,6 +41,16 @@ function sessionChatRunErrorCreate(message: string, code: string): StreamChunk {
 
 function sessionChatAdapterErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "The chat adapter failed."
+}
+
+function sessionChatFailureCreate(chunk: StreamChunk, fallbackCode: string, fallbackMessage: string) {
+  if (chunk.type === EventType.RUN_ERROR) {
+    return {
+      code: chunk.code ?? fallbackCode,
+      message: chunk.message ?? fallbackMessage,
+    }
+  }
+  return { code: fallbackCode, message: fallbackMessage }
 }
 
 async function* sessionChatStreamGenerate(options: SessionChatStreamCreateOptions): AsyncGenerator<StreamChunk> {
@@ -77,6 +91,10 @@ async function* sessionChatStreamGenerate(options: SessionChatStreamCreateOption
         if (chunk.type === EventType.RUN_ERROR) {
           await eventPersist(chunk)
           terminalPersisted = true
+          await options.onTerminal?.({
+            failure: sessionChatFailureCreate(chunk, "provider_failed", "The provider reported a failed run."),
+            status: "failed",
+          })
           yield chunk
           return
         }
@@ -84,6 +102,10 @@ async function* sessionChatStreamGenerate(options: SessionChatStreamCreateOption
           if (chunk.outcome?.type !== "success") {
             await eventPersist(chunk)
             terminalPersisted = true
+            await options.onTerminal?.({
+              failure: sessionChatFailureCreate(chunk, "provider_failed", "The provider reported a failed run."),
+              status: "failed",
+            })
             yield chunk
             return
           }
@@ -100,6 +122,10 @@ async function* sessionChatStreamGenerate(options: SessionChatStreamCreateOption
       const errorChunk = sessionChatRunErrorCreate(sessionChatAdapterErrorMessage(error), "chat_adapter_error")
       await eventPersist(errorChunk)
       terminalPersisted = true
+      await options.onTerminal?.({
+        failure: sessionChatFailureCreate(errorChunk, "chat_adapter_error", "The chat adapter failed."),
+        status: "failed",
+      })
       yield errorChunk
       return
     }
@@ -109,6 +135,10 @@ async function* sessionChatStreamGenerate(options: SessionChatStreamCreateOption
       const errorChunk = sessionChatRunErrorCreate("The chat adapter ended before completion.", "chat_interrupted")
       await eventPersist(errorChunk)
       terminalPersisted = true
+      await options.onTerminal?.({
+        failure: sessionChatFailureCreate(errorChunk, "chat_interrupted", "The chat adapter ended before completion."),
+        status: "failed",
+      })
       yield errorChunk
       return
     }
@@ -116,6 +146,14 @@ async function* sessionChatStreamGenerate(options: SessionChatStreamCreateOption
       const errorChunk = sessionChatRunErrorCreate("The chat adapter returned no assistant text.", "assistant_empty")
       await eventPersist(errorChunk)
       terminalPersisted = true
+      await options.onTerminal?.({
+        failure: sessionChatFailureCreate(
+          errorChunk,
+          "assistant_empty",
+          "The chat adapter returned no assistant text.",
+        ),
+        status: "failed",
+      })
       yield errorChunk
       return
     }
@@ -137,17 +175,25 @@ async function* sessionChatStreamGenerate(options: SessionChatStreamCreateOption
       const errorChunk = sessionChatRunErrorCreate(persisted.errorMessage, "assistant_persistence_error")
       await eventPersist(errorChunk)
       terminalPersisted = true
+      await options.onTerminal?.({
+        failure: sessionChatFailureCreate(errorChunk, "assistant_persistence_error", persisted.errorMessage),
+        status: "failed",
+      })
       yield errorChunk
       return
     }
 
     await eventPersist(terminal)
     terminalPersisted = true
+    await options.onTerminal?.({ status: "succeeded" })
     yield terminal
   } finally {
     if (!terminalPersisted && options.replayService !== undefined) {
       const errorChunk = sessionChatRunErrorCreate("The chat run was aborted.", "chat_aborted")
       await eventPersist(errorChunk).catch(() => undefined)
+      if (options.signal.aborted) {
+        await options.onTerminal?.({ status: "aborted" })
+      }
     }
     options.cleanup?.()
   }

@@ -4,6 +4,7 @@ import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.j
 import { apiRequestParse } from "../../api/apiRequestParse.js"
 import { agentList } from "../actions/agentList.js"
 import { agentQuerySchema } from "../schema/agentQuerySchema.js"
+import type { AgentListResponse } from "./agentListResponseSchema.js"
 
 export function apiAgentRoutesAdd(api: Hono<AppEnvironment>): void {
   api.get("/servers/:serverId/agents", async (context) => {
@@ -32,6 +33,14 @@ export function apiAgentRoutesAdd(api: Hono<AppEnvironment>): void {
       return context.json(response, notFound ? 404 : 500)
     }
 
-    return context.json({ agents: result.data.map((row) => row.agent) })
+    const response = {
+      agents: result.data.map(({ agent }) => ({
+        id: agent.id,
+        name: agent.name,
+        role: agent.role,
+        serverId: agent.serverId,
+      })),
+    } satisfies AgentListResponse
+    return context.json(response)
   })
 }

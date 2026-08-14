@@ -4,6 +4,7 @@ import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.j
 import { apiRequestParse } from "../../api/apiRequestParse.js"
 import { serverList } from "../actions/serverList.js"
 import { serverQuerySchema } from "../schema/serverQuerySchema.js"
+import type { ServerListResponse } from "./serverListResponseSchema.js"
 
 export function apiServerRoutesAdd(api: Hono<AppEnvironment>): void {
   api.get("/servers", async (context) => {
@@ -23,6 +24,9 @@ export function apiServerRoutesAdd(api: Hono<AppEnvironment>): void {
       return context.json(response, 500)
     }
 
-    return context.json({ servers: result.data })
+    const response = {
+      servers: result.data.map((server) => ({ id: server.id, name: server.name })),
+    } satisfies ServerListResponse
+    return context.json(response)
   })
 }
