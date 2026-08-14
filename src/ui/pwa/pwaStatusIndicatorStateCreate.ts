@@ -1,4 +1,3 @@
-import { badgeVariant } from "@adaptive-ds/solid-ui/static/badge/badgeCva"
 import { createSignalObject } from "@adaptive-ds/solid-ui/utils/createSignalObject"
 import { onCleanup, onMount } from "solid-js"
 import { pwaBrowserStatusResolve } from "./pwaBrowserStatusResolve.js"
@@ -7,12 +6,19 @@ import { pwaServiceWorkerRegister } from "./pwaServiceWorkerRegister.js"
 
 export function pwaStatusIndicatorStateCreate() {
   const online = createSignalObject(typeof navigator === "undefined" ? true : navigator.onLine)
+  const offlineSince = createSignalObject<number | undefined>(online.get() ? undefined : Date.now())
   const updateReady = createSignalObject(false)
   const installPrompt = createSignalObject<PwaInstallPromptEvent | undefined>(undefined)
 
   onMount(() => {
-    const setOnline = () => online.set(true)
-    const setOffline = () => online.set(false)
+    const setOnline = () => {
+      online.set(true)
+      offlineSince.set(undefined)
+    }
+    const setOffline = () => {
+      online.set(false)
+      if (offlineSince.get() === undefined) offlineSince.set(Date.now())
+    }
     const captureInstall = (event: Event) => {
       event.preventDefault()
       installPrompt.set(event as PwaInstallPromptEvent)
@@ -43,7 +49,7 @@ export function pwaStatusIndicatorStateCreate() {
       if (status() === "update-ready") return "App update ready"
       return "App online"
     },
-    variant: () => (status() === "online" ? badgeVariant.filledGreen : badgeVariant.subtle),
+    disconnectedSince: () => (status() === "offline" ? offlineSince.get() : undefined),
     installable: () => installPrompt.get() !== undefined,
     reloadForUpdate: () => window.location.reload(),
     install: async () => {
