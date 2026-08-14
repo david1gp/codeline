@@ -1,0 +1,153 @@
+{
+  "schemaVersion": 1,
+  "bun": {
+    "version": "1.3.14"
+  },
+  "inputs": {
+    "zero": {
+      "label": "Zero",
+      "checkout": {
+        "environmentVariable": "ZERO_CHECKOUT",
+        "defaultPath": "/home/david/opensource/zero"
+      },
+      "packagePath": "packages/zero",
+      "packageName": "@rocicorp/zero",
+      "packageVersion": "1.10.0",
+      "sourceRevision": "9a8ca356a54b5a2f32b4065c483cad0411881b21",
+      "buildExports": {
+        ".": {
+          "types": "./out/zero/src/zero.d.ts",
+          "default": "./out/zero/src/zero.js"
+        },
+        "./analyze": {
+          "types": "./out/zero/src/analyze.d.ts",
+          "default": "./out/zero/src/analyze.js"
+        },
+        "./bindings": {
+          "types": "./out/zero/src/bindings.d.ts",
+          "default": "./out/zero/src/bindings.js"
+        },
+        "./change-protocol/v0": {
+          "types": "./out/zero/src/change-protocol/v0.d.ts",
+          "default": "./out/zero/src/change-protocol/v0.js"
+        },
+        "./expo-sqlite": {
+          "types": "./out/zero/src/expo-sqlite.d.ts",
+          "default": "./out/zero/src/expo-sqlite.js"
+        },
+        "./op-sqlite": {
+          "types": "./out/zero/src/op-sqlite.d.ts",
+          "default": "./out/zero/src/op-sqlite.js"
+        },
+        "./pg": {
+          "types": "./out/zero/src/pg.d.ts",
+          "default": "./out/zero/src/pg.js"
+        },
+        "./react": {
+          "types": "./out/zero/src/react.d.ts",
+          "default": "./out/zero/src/react.js"
+        },
+        "./react-native": {
+          "types": "./out/zero/src/react-native.d.ts",
+          "default": "./out/zero/src/react-native.js"
+        },
+        "./server": {
+          "types": "./out/zero/src/server.d.ts",
+          "default": "./out/zero/src/server.js"
+        },
+        "./server/adapters/drizzle": {
+          "types": "./out/zero/src/adapters/drizzle.d.ts",
+          "default": "./out/zero/src/adapters/drizzle.js"
+        },
+        "./server/adapters/kysely": {
+          "types": "./out/zero/src/adapters/kysely.d.ts",
+          "default": "./out/zero/src/adapters/kysely.js"
+        },
+        "./server/adapters/prisma": {
+          "types": "./out/zero/src/adapters/prisma.d.ts",
+          "default": "./out/zero/src/adapters/prisma.js"
+        },
+        "./server/adapters/pg": {
+          "types": "./out/zero/src/adapters/pg.d.ts",
+          "default": "./out/zero/src/adapters/pg.js"
+        },
+        "./server/adapters/postgresjs": {
+          "types": "./out/zero/src/adapters/postgresjs.d.ts",
+          "default": "./out/zero/src/adapters/postgresjs.js"
+        },
+        "./solid": {
+          "types": "./out/zero/src/solid.d.ts",
+          "default": "./out/zero/src/solid.js"
+        },
+        "./sqlite": {
+          "types": "./out/zero/src/sqlite.d.ts",
+          "default": "./out/zero/src/sqlite.js"
+        },
+        "./zqlite": {
+          "types": "./out/zero/src/zqlite.d.ts",
+          "default": "./out/zero/src/zqlite.js"
+        }
+      },
+      "requiredBuiltOutputs": [
+        "out/zero/src/adapters/drizzle.d.ts",
+        "out/zero/src/adapters/drizzle.js",
+        "out/zero/src/adapters/kysely.d.ts",
+        "out/zero/src/adapters/kysely.js",
+        "out/zero/src/adapters/pg.d.ts",
+        "out/zero/src/adapters/pg.js",
+        "out/zero/src/adapters/postgresjs.d.ts",
+        "out/zero/src/adapters/postgresjs.js",
+        "out/zero/src/adapters/prisma.d.ts",
+        "out/zero/src/adapters/prisma.js",
+        "out/zero/src/analyze.d.ts",
+        "out/zero/src/analyze.js",
+        "out/zero/src/bindings.d.ts",
+        "out/zero/src/bindings.js",
+        "out/zero/src/change-protocol/v0.d.ts",
+        "out/zero/src/change-protocol/v0.js",
+        "out/zero/src/expo-sqlite.d.ts",
+        "out/zero/src/expo-sqlite.js",
+        "out/zero/src/op-sqlite.d.ts",
+        "out/zero/src/op-sqlite.js",
+        "out/zero/src/pg.d.ts",
+        "out/zero/src/pg.js",
+        "out/zero/src/react-native.d.ts",
+        "out/zero/src/react-native.js",
+        "out/zero/src/react.d.ts",
+        "out/zero/src/react.js",
+        "out/zero/src/server.d.ts",
+        "out/zero/src/server.js",
+        "out/zero/src/solid.d.ts",
+        "out/zero/src/solid.js",
+        "out/zero/src/sqlite.d.ts",
+        "out/zero/src/sqlite.js",
+        "out/zero/src/zero.d.ts",
+        "out/zero/src/zero.js",
+        "out/zero/src/zqlite.d.ts",
+        "out/zero/src/zqlite.js"
+      ]
+    },
+    "gitStore": {
+      "label": "git-store",
+      "checkout": {
+        "environmentVariable": "GIT_STORE_CHECKOUT",
+        "defaultPath": "../git-store-clean-779c05b"
+      },
+      "packagePath": ".",
+      "packageName": "@adaptive-ds/git-store",
+      "packageVersion": "0.1.0",
+      "sourceRevision": "779c05be1e099e8d4024e90ff48bb27646a7080e",
+      "buildExports": {
+        ".": {
+          "types": "./dist/index.d.ts",
+          "import": "./dist/index.js"
+        },
+        "./*.js": {
+          "types": "./dist/*.d.ts",
+          "import": "./dist/*.js"
+        }
+      },
+      "requiredBuiltOutputs": ["dist/index.d.ts", "dist/index.js"]
+    }
+  }
+}
