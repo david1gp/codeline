@@ -4,7 +4,7 @@ import { appKnownRouteResolve } from "../src/app/appKnownRouteResolve.js"
 
 const app = appCreate({ uiShellPath: "./index.html" })
 
-test("known application and registered demo paths resolve to the UI shell", async () => {
+test("known application, demo, and simulation paths resolve to the UI shell", async () => {
   const paths = [
     "/",
     "/files/",
@@ -15,6 +15,9 @@ test("known application and registered demo paths resolve to the UI shell", asyn
     "/demo",
     "/demo/conversation/",
     "/demo/written-files",
+    "/simulate",
+    "/simulate/streaming/",
+    "/simulate/retry-success",
   ]
 
   for (const path of paths) {
@@ -28,13 +31,17 @@ test("known application and registered demo paths resolve to the UI shell", asyn
 test("known-route resolution rejects unknown paths and malformed parameter paths", () => {
   expect(appKnownRouteResolve("/unknown")).toBe(false)
   expect(appKnownRouteResolve("/demo/unknown")).toBe(false)
+  expect(appKnownRouteResolve("/simulate")).toBe(true)
+  expect(appKnownRouteResolve("/simulate/")).toBe(true)
+  expect(appKnownRouteResolve("/simulate/retry-success/")).toBe(true)
+  expect(appKnownRouteResolve("/simulate/unknown")).toBe(false)
   expect(appKnownRouteResolve("/notes/")).toBe(true)
   expect(appKnownRouteResolve("/notes/one/two")).toBe(false)
   expect(appKnownRouteResolve("/api/health")).toBe(false)
 })
 
 test("unknown server paths remain JSON 404 responses", async () => {
-  for (const path of ["/unknown", "/demo/unknown", "/api/unknown", "/assets/unknown.js"]) {
+  for (const path of ["/unknown", "/demo/unknown", "/simulate/unknown", "/api/unknown", "/assets/unknown.js"]) {
     const response = await app.request(`http://codeline.test${path}`)
     const body = await response.json()
 
