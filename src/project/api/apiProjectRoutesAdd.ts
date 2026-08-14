@@ -1,10 +1,14 @@
 import { Readable } from "node:stream"
+import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import type { Context } from "hono"
 import { Hono } from "hono"
+import * as v from "valibot"
 import { apiRequestParse } from "../../api/apiRequestParse.js"
 import type { AppEnvironment } from "../../api/appEnvironment.js"
 import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.js"
 import { projectDirectoryList } from "../projectDirectoryList.js"
+import { type ProjectDiscoveryEntriesReadResult, projectDiscoveryEntriesRead } from "../projectDiscoveryEntriesRead.js"
+import { projectDiscoveryList } from "../projectDiscoveryList.js"
 import { projectDownloadPrepare } from "../projectDownloadPrepare.js"
 import { projectGitBranchDelete } from "../projectGitBranchDelete.js"
 import { projectGitBranchListRead } from "../projectGitBranchListRead.js"
@@ -17,19 +21,23 @@ import type { ProjectLimits } from "../projectLimitsSchema.js"
 import { projectMetadataRead } from "../projectMetadataRead.js"
 import { projectPreviewPrepare } from "../projectPreviewPrepare.js"
 import { projectPreviewRead } from "../projectPreviewRead.js"
+import { projectResolve } from "../projectResolve.js"
 import { projectTextRead } from "../projectTextRead.js"
 import type { ProjectApiDirectoryResponse } from "./projectApiDirectoryResponseSchema.js"
+import type { ProjectApiListResponse } from "./projectApiListResponseSchema.js"
 import type { ProjectApiMetadataResponse } from "./projectApiMetadataResponseSchema.js"
 import { projectApiPathQuerySchema } from "./projectApiPathQuerySchema.js"
 import type { ProjectApiPreviewResponse } from "./projectApiPreviewResponseSchema.js"
+import { projectApiProjectQuerySchema } from "./projectApiProjectQuerySchema.js"
 import type { ProjectApiTextResponse } from "./projectApiTextResponseSchema.js"
-import * as v from "valibot"
 
 type ApiContext = Context<AppEnvironment>
 
 type ApiProjectRoutesOptions = {
+  discoveryEntriesRead?: typeof projectDiscoveryEntriesRead
   limits?: ProjectLimits
-  rootDir: string
+  rootDir?: string
+  rootDirs?: readonly string[]
 }
 
 function errorResponse(context: ApiContext, errorMessage: string) {
@@ -49,8 +57,76 @@ function errorResponse(context: ApiContext, errorMessage: string) {
   return context.json(response, response.error.code === "internal_server_error" ? 500 : notFound ? 404 : 400)
 }
 
-function queryParse(context: ApiContext) {
-  return apiRequestParse("projectApiPathQueryParse", projectApiPathQuerySchema, context.req.query())
+type DiscoveryRead = () => Promise<Result<ProjectDiscoveryEntriesReadResult>>
+
+function queryParse(context: ApiContext, scoped: boolean) {
+  const query = context.req.query()
+  if (!scoped) {
+    return {
+      parsed: apiRequestParse("projectApiPathQueryParse", projectApiPathQuerySchema, query),
+      projectId: undefined,
+    }
+  }
+
+  const projectId = query.project
+  const { project: _project, ...pathQuery } = query
+  return {
+    parsed: apiRequestParse("projectApiPathQueryParse", projectApiPathQuerySchema, pathQuery),
+    projectId,
+  }
+}
+
+async function projectRootResolve(
+  options: ApiProjectRoutesOptions,
+  projectId: unknown,
+  discoveryRead?: DiscoveryRead,
+): Promise<Result<string>> {
+  const op = "projectRootResolve"
+  if (options.rootDir !== undefined) return createResult(options.rootDir)
+
+  const parsed = v.safeParse(projectApiProjectQuerySchema, { project: projectId })
+  if (!parsed.success) return createResultError(op, "The project selection is invalid.")
+
+  const discovered = discoveryRead === undefined ? undefined : await discoveryRead()
+  if (discovered !== undefined && !discovered.success) {
+    return createResultError(op, "The requested project was not found.")
+  }
+
+  const resolved = await projectResolve(options.rootDirs ?? [], parsed.output.project, {
+    ...(discovered === undefined ? {} : { discovered: discovered.data }),
+  })
+  if (!resolved.success) return createResultError(op, "The requested project was not found.")
+  return createResult(resolved.data.rootDir)
+}
+
+async function projectGitRootResolve(
+  context: ApiContext,
+  options: ApiProjectRoutesOptions,
+  discoveryRead?: DiscoveryRead,
+): Promise<Result<string>> {
+  if (options.rootDir !== undefined) return createResult(options.rootDir)
+
+  const parsed = apiRequestParse("projectApiProjectQueryParse", projectApiProjectQuerySchema, context.req.query())
+  if (!parsed.success) {
+    return createResultError("projectRootResolve", "The project selection is invalid.")
+  }
+  return projectRootResolve(options, parsed.data.project, discoveryRead)
+}
+
+function projectRootErrorResponse(context: ApiContext, errorMessage: string) {
+  const invalid = errorMessage === "The project selection is invalid."
+  const notFound = errorMessage === "The requested project was not found."
+  const response = {
+    error: {
+      code: invalid ? "bad_request" : notFound ? "not_found" : "internal_server_error",
+      message: invalid
+        ? "The project selection is invalid."
+        : notFound
+          ? "The requested project was not found."
+          : "The project selection could not be resolved.",
+    },
+  } satisfies ApiErrorResponse
+  return context.json(response, invalid ? 400 : notFound ? 404 : 500)
 }
 
 const projectGitBranchRequestSchema = v.strictObject({ branch: projectGitBranchNameSchema })
@@ -86,65 +162,154 @@ function safeDownloadName(name: string): string {
   return safeName || "download"
 }
 
-function previewContentUrl(context: ApiContext, relativePath: string): string {
+function previewContentUrl(context: ApiContext, relativePath: string, projectId?: string): string {
   const requestPath = new URL(context.req.url).pathname
   const routePrefix = requestPath.slice(0, requestPath.lastIndexOf("/project/preview"))
-  return `${routePrefix}/project/preview/content?path=${encodeURIComponent(relativePath)}`
+  const projectQuery = projectId === undefined ? "" : `&project=${encodeURIComponent(projectId)}`
+  return `${routePrefix}/project/preview/content?path=${encodeURIComponent(relativePath)}${projectQuery}`
 }
 
 export function apiProjectRoutesAdd(api: Hono<AppEnvironment>, options: ApiProjectRoutesOptions): void {
+  let cachedDiscovery: Result<ProjectDiscoveryEntriesReadResult> | undefined
+  let discoveryPromise: Promise<Result<ProjectDiscoveryEntriesReadResult>> | undefined
+  const discoveryEntriesRead = options.discoveryEntriesRead ?? projectDiscoveryEntriesRead
+  const discoveryRead: DiscoveryRead = async () => {
+    if (cachedDiscovery !== undefined) return cachedDiscovery
+    if (discoveryPromise !== undefined) return discoveryPromise
+
+    discoveryPromise = discoveryEntriesRead(options.rootDirs ?? []).then((result) => {
+      if (result.success) cachedDiscovery = result
+      discoveryPromise = undefined
+      return result
+    })
+    return discoveryPromise
+  }
+  const discoveryRefresh: DiscoveryRead = async () => {
+    cachedDiscovery = undefined
+    return discoveryRead()
+  }
+
+  api.get("/project/list", async (context) => {
+    if (options.rootDir !== undefined) {
+      context.header("X-Codeline-Project-Mode", "legacy-single-root")
+      const response = { projects: [], truncated: false } satisfies ProjectApiListResponse
+      return context.json(response)
+    }
+
+    const discovered = await discoveryRefresh()
+    if (!discovered.success) {
+      const response = {
+        error: { code: "internal_server_error", message: "The projects could not be loaded." },
+      } satisfies ApiErrorResponse
+      return context.json(response, 500)
+    }
+
+    const result = await projectDiscoveryList(options.rootDirs ?? [], { discovered: discovered.data })
+    if (!result.success) {
+      const response = {
+        error: { code: "internal_server_error", message: "The projects could not be loaded." },
+      } satisfies ApiErrorResponse
+      return context.json(response, 500)
+    }
+
+    const response = result.data satisfies ProjectApiListResponse
+    return context.json(response)
+  })
+
   api.get("/project/git/status", async (context) => {
-    const result = await projectGitStatusRead(options.rootDir)
+    const root = await projectGitRootResolve(
+      context,
+      options,
+      options.rootDir === undefined ? discoveryRead : undefined,
+    )
+    if (!root.success) return projectRootErrorResponse(context, root.errorMessage)
+    const result = await projectGitStatusRead(root.data)
     return result.success ? context.json(result.data) : projectGitErrorResponse(context, result.errorMessage)
   })
 
   api.get("/project/git/diff-summary", async (context) => {
-    const result = await projectGitDiffSummaryRead(options.rootDir)
+    const root = await projectGitRootResolve(
+      context,
+      options,
+      options.rootDir === undefined ? discoveryRead : undefined,
+    )
+    if (!root.success) return projectRootErrorResponse(context, root.errorMessage)
+    const result = await projectGitDiffSummaryRead(root.data)
     return result.success ? context.json(result.data) : projectGitErrorResponse(context, result.errorMessage)
   })
 
   api.get("/project/git/branches", async (context) => {
-    const result = await projectGitBranchListRead(options.rootDir)
+    const root = await projectGitRootResolve(
+      context,
+      options,
+      options.rootDir === undefined ? discoveryRead : undefined,
+    )
+    if (!root.success) return projectRootErrorResponse(context, root.errorMessage)
+    const result = await projectGitBranchListRead(root.data)
     return result.success ? context.json(result.data) : projectGitErrorResponse(context, result.errorMessage)
   })
 
   api.post("/project/git/branches/switch", async (context) => {
+    const root = await projectGitRootResolve(
+      context,
+      options,
+      options.rootDir === undefined ? discoveryRead : undefined,
+    )
+    if (!root.success) return projectRootErrorResponse(context, root.errorMessage)
     const body = await context.req.json<unknown>().catch(() => undefined)
     const parsed = apiRequestParse("projectGitBranchSwitchRequestParse", projectGitBranchRequestSchema, body)
     if (!parsed.success) return projectGitErrorResponse(context, parsed.errorMessage, 400)
-    const status = await projectGitStatusRead(options.rootDir)
+    const status = await projectGitStatusRead(root.data)
     if (!status.success) return projectGitErrorResponse(context, status.errorMessage)
     if (status.data.isDirty) return projectGitErrorResponse(context, "The working tree is dirty.", 409)
-    const result = await projectGitBranchSwitch(options.rootDir, parsed.data.branch)
+    const result = await projectGitBranchSwitch(root.data, parsed.data.branch)
     return result.success ? context.json({ success: true }) : projectGitErrorResponse(context, result.errorMessage)
   })
 
   api.post("/project/git/branches/rename", async (context) => {
+    const root = await projectGitRootResolve(
+      context,
+      options,
+      options.rootDir === undefined ? discoveryRead : undefined,
+    )
+    if (!root.success) return projectRootErrorResponse(context, root.errorMessage)
     const body = await context.req.json<unknown>().catch(() => undefined)
     const parsed = apiRequestParse("projectGitBranchRenameRequestParse", projectGitBranchRenameRequestSchema, body)
     if (!parsed.success) return projectGitErrorResponse(context, parsed.errorMessage, 400)
-    const result = await projectGitBranchRename(options.rootDir, parsed.data.branch, parsed.data.newBranch)
+    const result = await projectGitBranchRename(root.data, parsed.data.branch, parsed.data.newBranch)
     return result.success ? context.json({ success: true }) : projectGitErrorResponse(context, result.errorMessage)
   })
 
   api.post("/project/git/branches/delete", async (context) => {
+    const root = await projectGitRootResolve(
+      context,
+      options,
+      options.rootDir === undefined ? discoveryRead : undefined,
+    )
+    if (!root.success) return projectRootErrorResponse(context, root.errorMessage)
     const body = await context.req.json<unknown>().catch(() => undefined)
     const parsed = apiRequestParse("projectGitBranchDeleteRequestParse", projectGitBranchRequestSchema, body)
     if (!parsed.success) return projectGitErrorResponse(context, parsed.errorMessage, 400)
-    const result = await projectGitBranchDelete(options.rootDir, parsed.data.branch)
+    const result = await projectGitBranchDelete(root.data, parsed.data.branch)
     return result.success ? context.json({ success: true }) : projectGitErrorResponse(context, result.errorMessage)
   })
 
   api.get("/project/directory", async (context) => {
-    const parsed = queryParse(context)
-    if (!parsed.success) {
+    const query = queryParse(context, options.rootDir === undefined)
+    if (!query.parsed.success) {
       const response = {
         error: { code: "bad_request", message: "The project path query is invalid." },
       } satisfies ApiErrorResponse
       return context.json(response, 400)
     }
 
-    const result = await projectDirectoryList(options.rootDir, parsed.data.path, options.limits)
+    const root = await projectRootResolve(
+      options,
+      query.projectId,
+      options.rootDir === undefined ? discoveryRead : undefined,
+    )
+    if (!root.success) return projectRootErrorResponse(context, root.errorMessage)
+    const result = await projectDirectoryList(root.data, query.parsed.data.path, options.limits)
     if (!result.success) return errorResponse(context, result.errorMessage)
 
     const response = {
@@ -154,15 +319,21 @@ export function apiProjectRoutesAdd(api: Hono<AppEnvironment>, options: ApiProje
   })
 
   api.get("/project/metadata", async (context) => {
-    const parsed = queryParse(context)
-    if (!parsed.success) {
+    const query = queryParse(context, options.rootDir === undefined)
+    if (!query.parsed.success) {
       const response = {
         error: { code: "bad_request", message: "The project path query is invalid." },
       } satisfies ApiErrorResponse
       return context.json(response, 400)
     }
 
-    const result = await projectMetadataRead(options.rootDir, parsed.data.path)
+    const root = await projectRootResolve(
+      options,
+      query.projectId,
+      options.rootDir === undefined ? discoveryRead : undefined,
+    )
+    if (!root.success) return projectRootErrorResponse(context, root.errorMessage)
+    const result = await projectMetadataRead(root.data, query.parsed.data.path)
     if (!result.success) return errorResponse(context, result.errorMessage)
 
     const response = {
@@ -174,15 +345,21 @@ export function apiProjectRoutesAdd(api: Hono<AppEnvironment>, options: ApiProje
   })
 
   api.get("/project/text", async (context) => {
-    const parsed = queryParse(context)
-    if (!parsed.success) {
+    const query = queryParse(context, options.rootDir === undefined)
+    if (!query.parsed.success) {
       const response = {
         error: { code: "bad_request", message: "The project path query is invalid." },
       } satisfies ApiErrorResponse
       return context.json(response, 400)
     }
 
-    const result = await projectTextRead(options.rootDir, parsed.data.path, options.limits)
+    const root = await projectRootResolve(
+      options,
+      query.projectId,
+      options.rootDir === undefined ? discoveryRead : undefined,
+    )
+    if (!root.success) return projectRootErrorResponse(context, root.errorMessage)
+    const result = await projectTextRead(root.data, query.parsed.data.path, options.limits)
     if (!result.success) return errorResponse(context, result.errorMessage)
 
     const response = { ...result.data } satisfies ProjectApiTextResponse
@@ -190,34 +367,46 @@ export function apiProjectRoutesAdd(api: Hono<AppEnvironment>, options: ApiProje
   })
 
   api.get("/project/preview", async (context) => {
-    const parsed = queryParse(context)
-    if (!parsed.success) {
+    const query = queryParse(context, options.rootDir === undefined)
+    if (!query.parsed.success) {
       const response = {
         error: { code: "bad_request", message: "The project path query is invalid." },
       } satisfies ApiErrorResponse
       return context.json(response, 400)
     }
 
-    const result = await projectPreviewRead(options.rootDir, parsed.data.path, options.limits)
+    const root = await projectRootResolve(
+      options,
+      query.projectId,
+      options.rootDir === undefined ? discoveryRead : undefined,
+    )
+    if (!root.success) return projectRootErrorResponse(context, root.errorMessage)
+    const result = await projectPreviewRead(root.data, query.parsed.data.path, options.limits)
     if (!result.success) return errorResponse(context, result.errorMessage)
 
     const response =
       result.data.kind === "text" || result.data.kind === "unsupported"
         ? result.data
-        : { ...result.data, url: previewContentUrl(context, result.data.path) }
+        : { ...result.data, url: previewContentUrl(context, result.data.path, query.projectId) }
     return context.json(response satisfies ProjectApiPreviewResponse)
   })
 
   api.get("/project/preview/content", async (context) => {
-    const parsed = queryParse(context)
-    if (!parsed.success) {
+    const query = queryParse(context, options.rootDir === undefined)
+    if (!query.parsed.success) {
       const response = {
         error: { code: "bad_request", message: "The project path query is invalid." },
       } satisfies ApiErrorResponse
       return context.json(response, 400)
     }
 
-    const result = await projectPreviewPrepare(options.rootDir, parsed.data.path, options.limits)
+    const root = await projectRootResolve(
+      options,
+      query.projectId,
+      options.rootDir === undefined ? discoveryRead : undefined,
+    )
+    if (!root.success) return projectRootErrorResponse(context, root.errorMessage)
+    const result = await projectPreviewPrepare(root.data, query.parsed.data.path, options.limits)
     if (!result.success) return errorResponse(context, result.errorMessage)
 
     return new Response(Readable.toWeb(result.data.createReadStream()) as unknown as BodyInit, {
@@ -233,15 +422,21 @@ export function apiProjectRoutesAdd(api: Hono<AppEnvironment>, options: ApiProje
   })
 
   api.get("/project/download", async (context) => {
-    const parsed = queryParse(context)
-    if (!parsed.success) {
+    const query = queryParse(context, options.rootDir === undefined)
+    if (!query.parsed.success) {
       const response = {
         error: { code: "bad_request", message: "The project path query is invalid." },
       } satisfies ApiErrorResponse
       return context.json(response, 400)
     }
 
-    const result = await projectDownloadPrepare(options.rootDir, parsed.data.path, options.limits)
+    const root = await projectRootResolve(
+      options,
+      query.projectId,
+      options.rootDir === undefined ? discoveryRead : undefined,
+    )
+    if (!root.success) return projectRootErrorResponse(context, root.errorMessage)
+    const result = await projectDownloadPrepare(root.data, query.parsed.data.path, options.limits)
     if (!result.success) return errorResponse(context, result.errorMessage)
 
     return new Response(Readable.toWeb(result.data.createReadStream()) as unknown as BodyInit, {

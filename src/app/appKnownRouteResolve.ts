@@ -1,5 +1,4 @@
-import { simulateScenarioHref } from "../ui/simulate/simulateScenarioHref.js"
-import { simulateScenarioRegistry } from "../ui/simulate/simulateScenarioRegistry.js"
+import { simulationScenarioSessionMetadata } from "../simulation/simulationScenarioSessionMetadata.js"
 import { demoCatalogRouteResolve } from "../ui/demo/demoCatalogRouteResolve.js"
 import { demoScenarioRegistry } from "../ui/demo/demoScenarioRegistry.js"
 
@@ -18,7 +17,7 @@ export function appKnownRouteResolve(pathname: string): boolean {
 
   if (normalizedPathname === "/simulate") return true
 
-  if (simulateScenarioRegistry.some((scenario) => simulateScenarioHref(scenario.slug) === normalizedPathname))
+  if (Object.values(simulationScenarioSessionMetadata).some((scenario) => scenario.href === normalizedPathname))
     return true
 
   if (

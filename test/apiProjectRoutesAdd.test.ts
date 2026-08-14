@@ -8,9 +8,11 @@ import type { AppEnvironment } from "../src/api/appEnvironment.js"
 import { apiErrorResponseSchema } from "../src/api/errors/apiErrorResponseSchema.js"
 import { apiProjectRoutesAdd } from "../src/project/api/apiProjectRoutesAdd.js"
 import { projectApiDirectoryResponseSchema } from "../src/project/api/projectApiDirectoryResponseSchema.js"
+import { projectApiListResponseSchema } from "../src/project/api/projectApiListResponseSchema.js"
 import { projectApiMetadataResponseSchema } from "../src/project/api/projectApiMetadataResponseSchema.js"
 import { projectApiPreviewResponseSchema } from "../src/project/api/projectApiPreviewResponseSchema.js"
 import { projectApiTextResponseSchema } from "../src/project/api/projectApiTextResponseSchema.js"
+import { projectDiscoveryEntriesRead } from "../src/project/projectDiscoveryEntriesRead.js"
 
 describe("project HTTP routes", () => {
   let rootDir: string
@@ -47,6 +49,17 @@ describe("project HTTP routes", () => {
     const textBody = await text.json()
     expect(v.safeParse(projectApiTextResponseSchema, textBody).success).toBe(true)
     expect(textBody.content).toBe("export const example = true\n")
+  })
+
+  test("marks the legacy single-root list without changing the direct-route contract", async () => {
+    const list = await app.request("http://codeline.test/project/list")
+
+    expect(list.status).toBe(200)
+    expect(list.headers.get("X-Codeline-Project-Mode")).toBe("legacy-single-root")
+    expect(await list.json()).toEqual({ projects: [], truncated: false })
+
+    const directory = await app.request("http://codeline.test/project/directory?path=src")
+    expect(directory.status).toBe(200)
   })
 
   test("downloads a bounded regular file without exposing the root", async () => {
@@ -124,5 +137,113 @@ describe("project HTTP routes", () => {
 
     const extraQuery = await app.request("http://codeline.test/project/text?path=src/example.ts&root=/etc")
     expect(extraQuery.status).toBe(400)
+  })
+
+  test("lists and scopes configured projects without accepting client root paths", async () => {
+    const projectsRoot = await fs.mkdtemp(path.join(os.tmpdir(), "project-api-roots-test-"))
+    const firstProjectRoot = path.join(projectsRoot, "first-project")
+    const secondProjectRoot = path.join(projectsRoot, "second-project")
+    await Promise.all([fs.mkdir(firstProjectRoot), fs.mkdir(secondProjectRoot)])
+    await fs.writeFile(path.join(firstProjectRoot, "README.md"), "first\n", "utf8")
+    await fs.writeFile(path.join(secondProjectRoot, "README.md"), "second\n", "utf8")
+
+    try {
+      const scopedApp = new Hono<AppEnvironment>()
+      apiProjectRoutesAdd(scopedApp, { rootDirs: [projectsRoot] })
+
+      const list = await scopedApp.request("http://codeline.test/project/list")
+      expect(list.status).toBe(200)
+      const listBody = await list.json()
+      expect(v.safeParse(projectApiListResponseSchema, listBody).success).toBe(true)
+      expect(listBody.truncated).toBe(false)
+      expect(listBody.projects.map((project: { label: string }) => project.label)).toEqual([
+        "first-project",
+        "second-project",
+      ])
+
+      const firstProject = listBody.projects.find((project: { label: string }) => project.label === "first-project")
+      expect(firstProject).toBeDefined()
+      if (firstProject === undefined) return
+
+      const missingSelection = await scopedApp.request("http://codeline.test/project/text?path=README.md")
+      expect(missingSelection.status).toBe(400)
+
+      const pathSelection = await scopedApp.request(
+        `http://codeline.test/project/text?project=${encodeURIComponent(firstProjectRoot)}&path=README.md`,
+      )
+      expect(pathSelection.status).toBe(400)
+      expect(JSON.stringify(await pathSelection.json())).not.toContain(projectsRoot)
+
+      const firstText = await scopedApp.request(
+        `http://codeline.test/project/text?project=${firstProject.id}&path=README.md`,
+      )
+      expect(firstText.status).toBe(200)
+      expect(await firstText.json()).toMatchObject({ content: "first\n" })
+
+      const unknownProject = await scopedApp.request(
+        `http://codeline.test/project/text?project=${"0".repeat(64)}&path=README.md`,
+      )
+      expect(unknownProject.status).toBe(404)
+      expect(JSON.stringify(await unknownProject.json())).not.toContain(projectsRoot)
+    } finally {
+      await fs.rm(projectsRoot, { force: true, recursive: true })
+    }
+  })
+
+  test("surfaces only a sanitized truncation flag from project discovery", async () => {
+    const scopedApp = new Hono<AppEnvironment>()
+    apiProjectRoutesAdd(scopedApp, {
+      discoveryEntriesRead: async () => ({ success: true as const, data: { entries: [], truncated: true } }),
+      rootDirs: [],
+    })
+
+    const list = await scopedApp.request("http://codeline.test/project/list")
+    expect(list.status).toBe(200)
+    const body = await list.json()
+    expect(body).toEqual({ projects: [], truncated: true })
+    expect(JSON.stringify(body)).not.toContain("/")
+  })
+
+  test("reuses one discovery snapshot for scoped operations and revalidates its directory", async () => {
+    const projectsRoot = await fs.mkdtemp(path.join(os.tmpdir(), "project-api-cache-test-"))
+    const projectRoot = path.join(projectsRoot, "cached-project")
+    const outsideRoot = await fs.mkdtemp(path.join(os.tmpdir(), "project-api-cache-outside-"))
+    await fs.mkdir(projectRoot)
+    await fs.writeFile(path.join(projectRoot, "README.md"), "cached\n", "utf8")
+    await fs.writeFile(path.join(outsideRoot, "README.md"), "outside\n", "utf8")
+    let discoveryCalls = 0
+
+    try {
+      const scopedApp = new Hono<AppEnvironment>()
+      apiProjectRoutesAdd(scopedApp, {
+        discoveryEntriesRead: async (rootDirs) => {
+          discoveryCalls += 1
+          return projectDiscoveryEntriesRead(rootDirs)
+        },
+        rootDirs: [projectsRoot],
+      })
+
+      const list = await scopedApp.request("http://codeline.test/project/list")
+      const project = (await list.json()).projects[0] as { id: string }
+      const responses = await Promise.all([
+        scopedApp.request(`http://codeline.test/project/text?project=${project.id}&path=README.md`),
+        scopedApp.request(`http://codeline.test/project/directory?project=${project.id}`),
+      ])
+      expect(responses.map((response) => response.status)).toEqual([200, 200])
+      expect(discoveryCalls).toBe(1)
+
+      await fs.rm(projectRoot, { recursive: true })
+      await fs.symlink(outsideRoot, projectRoot)
+      const replaced = await scopedApp.request(`http://codeline.test/project/text?project=${project.id}&path=README.md`)
+      expect(replaced.status).toBe(404)
+      const replacedBody = await replaced.json()
+      expect(JSON.stringify(replacedBody)).not.toContain(outsideRoot)
+      expect(discoveryCalls).toBe(1)
+    } finally {
+      await Promise.all([
+        fs.rm(projectsRoot, { force: true, recursive: true }),
+        fs.rm(outsideRoot, { force: true, recursive: true }),
+      ])
+    }
   })
 })

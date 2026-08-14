@@ -71,4 +71,48 @@ describe("project Git HTTP routes", () => {
     })
     expect(remove.status).toBe(200)
   })
+
+  test("requires a discovered project for configured Git routes", async () => {
+    const projectsRoot = await fs.mkdtemp(path.join(os.tmpdir(), "project-git-api-roots-test-"))
+    const firstProjectRoot = path.join(projectsRoot, "first-project")
+    const secondProjectRoot = path.join(projectsRoot, "second-project")
+    await Promise.all([fs.mkdir(firstProjectRoot), fs.mkdir(secondProjectRoot)])
+
+    try {
+      await gitRun(firstProjectRoot, ["init", "--initial-branch=first"])
+      await gitRun(secondProjectRoot, ["init", "--initial-branch=second"])
+      for (const [projectRoot, branch] of [
+        [firstProjectRoot, "first"],
+        [secondProjectRoot, "second"],
+      ] as const) {
+        await gitRun(projectRoot, ["config", "user.email", "test@example.test"])
+        await gitRun(projectRoot, ["config", "user.name", "Codeline Test"])
+        await fs.writeFile(path.join(projectRoot, "tracked.txt"), `${branch}\n`)
+        await gitRun(projectRoot, ["add", "tracked.txt"])
+        await gitRun(projectRoot, ["commit", "-m", "initial"])
+      }
+
+      const scopedApp = new Hono<AppEnvironment>()
+      apiProjectRoutesAdd(scopedApp, { rootDirs: [projectsRoot] })
+      const list = await scopedApp.request("http://codeline.test/project/list")
+      const projects = (await list.json()).projects as Array<{ id: string; label: string }>
+
+      const missingSelection = await scopedApp.request("http://codeline.test/project/git/status")
+      expect(missingSelection.status).toBe(400)
+
+      for (const [label, branch] of [
+        ["first-project", "first"],
+        ["second-project", "second"],
+      ] as const) {
+        const project = projects.find((candidate) => candidate.label === label)
+        expect(project).toBeDefined()
+        if (project === undefined) continue
+        const status = await scopedApp.request(`http://codeline.test/project/git/status?project=${project.id}`)
+        expect(status.status).toBe(200)
+        expect(await status.json()).toMatchObject({ branch, isGitRepository: true })
+      }
+    } finally {
+      await fs.rm(projectsRoot, { force: true, recursive: true })
+    }
+  })
 })

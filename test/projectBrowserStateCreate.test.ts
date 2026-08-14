@@ -3,12 +3,14 @@ import { createRoot } from "solid-js/dist/solid.js"
 import { projectBrowserStateCreate } from "../src/project/projectBrowserStateCreate.js"
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
+const projectId = "a".repeat(64)
 
 test("project browser navigates only through listed directories and returns to their parent", async () => {
   const calls: string[] = []
   const root = createRoot((dispose) => ({
     dispose,
     state: projectBrowserStateCreate({
+      projectId,
       fetcher: async (input) => {
         const url = String(input)
         calls.push(url)
@@ -44,11 +46,11 @@ test("project browser navigates only through listed directories and returns to t
   root.state.directoryOpen(root.state.entries()[0]!)
   await tick()
   expect(root.state.currentPath()).toBe("src")
-  expect(calls[1]).toBe("/api/project/directory?path=src")
+  expect(calls[1]).toBe(`/api/project/directory?project=${projectId}&path=src`)
   root.state.parentOpen()
   await tick()
   expect(root.state.currentPath()).toBe("")
-  expect(calls[2]).toBe("/api/project/directory?path=")
+  expect(calls[2]).toBe(`/api/project/directory?project=${projectId}&path=`)
   root.dispose()
 })
 
@@ -58,6 +60,7 @@ test("project browser validates bounded previews and keeps an encoded download a
     dispose,
     state: projectBrowserStateCreate({
       apiBase: "/project",
+      projectId,
       fetcher: async (input) => {
         const url = String(input)
         if (url.startsWith("/project/directory")) {
@@ -78,7 +81,7 @@ test("project browser validates bounded previews and keeps an encoded download a
   root.state.fileOpen(root.state.entries()[0]!)
   await tick()
   expect(root.state.previewStatus()).toBe("error")
-  expect(root.state.downloadUrl()).toBe("/project/download?path=notes%2Fa%20b.txt")
+  expect(root.state.downloadUrl()).toBe(`/project/download?project=${projectId}&path=notes%2Fa%20b.txt`)
   root.state.retryPreview()
   await tick()
   expect(root.state.previewStatus()).toBe("complete")
@@ -96,6 +99,7 @@ test("project browser accepts browser-safe image, PDF, and unsupported preview r
   const root = createRoot((dispose) => ({
     dispose,
     state: projectBrowserStateCreate({
+      projectId,
       fetcher: async (input) => {
         const url = new URL(String(input), "https://codeline.test")
         if (url.pathname.endsWith("/directory")) return Response.json({ entries: files })
@@ -129,6 +133,7 @@ test("project browser opens, selects, and closes multiple viewed files", async (
   const root = createRoot((dispose) => ({
     dispose,
     state: projectBrowserStateCreate({
+      projectId,
       fetcher: async (input) => {
         const url = new URL(String(input), "https://codeline.test")
         if (url.pathname.endsWith("/directory")) return Response.json({ entries: files })
@@ -164,6 +169,7 @@ test("project browser defaults Markdown to source and renders only sanitized pre
   const root = createRoot((dispose) => ({
     dispose,
     state: projectBrowserStateCreate({
+      projectId,
       fetcher: async (input) => {
         const url = new URL(String(input), "https://codeline.test")
         if (url.pathname.endsWith("/directory")) {
@@ -202,4 +208,39 @@ test("project browser defaults Markdown to source and renders only sanitized pre
   expect(root.state.markdownPreviewHtml()).not.toContain("<script>")
   expect(root.state.markdownPreviewHtml()).not.toContain('href="javascript:')
   root.dispose()
+})
+
+test("project browser preserves direct legacy-root requests and resets when recreated for another project", async () => {
+  const legacyCalls: string[] = []
+  const legacyRoot = createRoot((dispose) => ({
+    dispose,
+    state: projectBrowserStateCreate({
+      fetcher: async (input) => {
+        legacyCalls.push(String(input))
+        return Response.json({ entries: [] })
+      },
+    }),
+  }))
+
+  await tick()
+  expect(legacyCalls).toEqual(["/api/project/directory?path="])
+  legacyRoot.dispose()
+
+  const projectCalls: string[] = []
+  const projectRoot = createRoot((dispose) => ({
+    dispose,
+    state: projectBrowserStateCreate({
+      projectId,
+      fetcher: async (input) => {
+        projectCalls.push(String(input))
+        return Response.json({ entries: [] })
+      },
+    }),
+  }))
+
+  await tick()
+  expect(projectRoot.state.currentPath()).toBe("")
+  expect(projectRoot.state.tabs()).toEqual([])
+  expect(projectCalls).toEqual([`/api/project/directory?project=${projectId}&path=`])
+  projectRoot.dispose()
 })
