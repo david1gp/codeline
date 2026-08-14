@@ -1,5 +1,6 @@
 import { Route, Router } from "@solidjs/router"
 import { ApplicationRoot } from "./ApplicationRoot.js"
+import { LoginPage } from "../identity/ui/LoginPage.js"
 import { DemoApp } from "./demo/DemoApp.js"
 import { FilesRoutePage } from "./FilesRoutePage.js"
 import { NewNoteRoutePage } from "./NewNoteRoutePage.js"
@@ -27,6 +28,7 @@ export function UiRouter() {
         <Route path="/simulate/cancellation" component={SimulateApp} />
         <Route path="/simulate/*unknownSimulation" component={SimulateApp} />
       </Route>
+      <Route path="/login" component={LoginPage} />
       <Route path="/demo" component={DemoApp} />
       <Route path="/demo/*unknownDemo" component={DemoApp} />
     </Router>

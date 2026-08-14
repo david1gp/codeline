@@ -2,7 +2,7 @@ import { simulationScenarioSessionMetadata } from "../simulation/simulationScena
 import { demoCatalogRouteResolve } from "../ui/demo/demoCatalogRouteResolve.js"
 import { demoScenarioRegistry } from "../ui/demo/demoScenarioRegistry.js"
 
-const applicationRoutePaths = ["/", "/files", "/notes", "/notes/new"] as const
+const applicationRoutePaths = ["/", "/files", "/login", "/notes", "/notes/new"] as const
 const demoSectionPaths = ["/demo/components", "/demo/screens"] as const
 
 export function appKnownRouteResolve(pathname: string): boolean {

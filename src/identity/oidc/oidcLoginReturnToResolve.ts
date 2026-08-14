@@ -29,6 +29,7 @@ export function oidcLoginReturnToResolve(
     target.password !== "" ||
     target.search !== "" ||
     target.hash !== "" ||
+    target.pathname === "/login" ||
     !pathIsKnown(target.pathname)
   ) {
     return createResultError(op, "The login return path is invalid.")

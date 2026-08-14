@@ -111,8 +111,11 @@ test("OIDC login rejects unknown and cross-origin return paths before discovery"
   const unknown = await app.request("https://codeline.test/api/auth/login?returnTo=/unknown")
   const crossOrigin = await app.request("https://codeline.test/api/auth/login?returnTo=https://attacker.test/")
 
+  const loginLoop = await app.request("https://codeline.test/api/auth/login?returnTo=/login")
+
   expect(unknown.status).toBe(400)
   expect(crossOrigin.status).toBe(400)
+  expect(loginLoop.status).toBe(400)
   expect(discoveryRequests).toBe(0)
 })
 
@@ -131,5 +134,37 @@ test("OIDC discovery requires the configured issuer, HTTPS endpoints, code flow,
     })
     const result = await providerDiscovery(configuration.oidcIssuer)
     expect(result.success).toBe(false)
+  }
+})
+
+test("OIDC discovery preserves exact root-slash and path issuer equality", async () => {
+  const cases = [
+    {
+      configuredIssuer: "https://issuer.codeline.test",
+      metadataIssuer: "https://issuer.codeline.test",
+      success: true,
+    },
+    {
+      configuredIssuer: "https://issuer.codeline.test/",
+      metadataIssuer: "https://issuer.codeline.test",
+      success: false,
+    },
+    {
+      configuredIssuer: "https://issuer.codeline.test/tenant",
+      metadataIssuer: "https://issuer.codeline.test/tenant",
+      success: true,
+    },
+  ]
+
+  for (const testCase of cases) {
+    const providerDiscovery = oidcProviderDiscoveryCreate({
+      fetch: async () =>
+        new Response(JSON.stringify({ ...metadata, issuer: testCase.metadataIssuer }), {
+          headers: { "content-type": "application/json" },
+        }),
+    })
+    const result = await providerDiscovery(testCase.configuredIssuer)
+    expect(result.success).toBe(testCase.success)
+    if (result.success) expect(result.data.issuer).toBe(testCase.metadataIssuer)
   }
 })

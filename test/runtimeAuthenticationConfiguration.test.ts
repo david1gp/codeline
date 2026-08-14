@@ -71,6 +71,26 @@ test("OIDC configuration derives the provider-neutral callback URL", () => {
   expect(result.data.oidcCallbackUrl).toBe("https://codeline.example.test/api/auth/callback")
 })
 
+test("OIDC configuration preserves the issuer's root slash and path spelling", () => {
+  for (const oidcIssuer of [
+    "https://issuer.example.test",
+    "https://issuer.example.test/",
+    "https://issuer.example.test/tenant",
+  ]) {
+    const result = runtimeConfigurationParse({
+      authMode: "oidc",
+      databaseUrl: "postgres://codeline.test/codeline",
+      nodeEnv: "production",
+      oidcClientId: "client-id-value",
+      oidcIssuer,
+      publicOrigin: "https://codeline.example.test",
+    })
+
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.oidcIssuer).toBe(oidcIssuer)
+  }
+})
+
 test("Zitadel aliases normalize to provider-neutral fields and preserve the provisioned callback path", () => {
   const result = runtimeConfigurationParse({
     AUTH_MODE: "oidc",

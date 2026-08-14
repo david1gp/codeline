@@ -3,18 +3,16 @@ import type { JSX } from "solid-js"
 import { zeroSchema } from "../database/zeroSchema.js"
 import { noteMutators } from "../note/noteMutators.js"
 
-const localDevelopmentUserId = "development:local-development"
-
-export function CodelineZeroProvider(props: { children: JSX.Element }) {
+export function CodelineZeroProvider(props: { children: JSX.Element; userId: string }) {
   return (
     <ZeroProvider
       cacheURL={import.meta.env.VITE_ZERO_CACHE_URL ?? window.location.origin}
-      context={{ userId: localDevelopmentUserId }}
+      context={{ userId: props.userId }}
       mutateURL={import.meta.env.VITE_ZERO_MUTATE_URL ?? `${window.location.origin}/api/mutate`}
       mutators={noteMutators}
       queryURL={import.meta.env.VITE_ZERO_QUERY_URL ?? `${window.location.origin}/api/query`}
       schema={zeroSchema}
-      userID={localDevelopmentUserId}
+      userID={props.userId}
     >
       {props.children}
     </ZeroProvider>

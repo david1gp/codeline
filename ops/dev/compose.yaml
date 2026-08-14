@@ -47,12 +47,16 @@ services:
       ZERO_NUM_SYNC_WORKERS: 1
       ZERO_PORT: 4848
       ZERO_MUTATE_URL: ${ZERO_MUTATE_URL:?ZERO_MUTATE_URL is required}
+      ZERO_MUTATE_FORWARD_COOKIES: ${ZERO_MUTATE_FORWARD_COOKIES:-true}
       ZERO_REPLICA_FILE: ${ZERO_REPLICA_FILE:?ZERO_REPLICA_FILE is required}
       ZERO_QUERY_URL: ${ZERO_QUERY_URL:?ZERO_QUERY_URL is required}
+      ZERO_QUERY_FORWARD_COOKIES: ${ZERO_QUERY_FORWARD_COOKIES:-true}
+      ZERO_AUTH_REVALIDATE_INTERVAL_SECONDS: ${ZERO_AUTH_REVALIDATE_INTERVAL_SECONDS:-300}
       ZERO_UPSTREAM_DB: ${ZERO_UPSTREAM_DB:?ZERO_UPSTREAM_DB is required}
       ZERO_UPSTREAM_MAX_CONNS: 6
       ZERO_CVR_MAX_CONNS: 6
     extra_hosts:
+      - "host.containers.internal:host-gateway"
       - "preview.codeline.work:host-gateway"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:4848/"]

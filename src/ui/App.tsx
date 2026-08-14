@@ -1,11 +1,13 @@
 import { A } from "@solidjs/router"
 import type { JSX } from "solid-js"
+import { Show } from "solid-js"
+import type { AuthShellView } from "../identity/ui/authShellView.js"
 import type { AppShellView } from "./appShellView.js"
 import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator.js"
 import { PwaStatusActions } from "./pwa/PwaStatusActions.js"
 import { ThemeSwitcher } from "./ThemeSwitcher.js"
 
-export function App(props: { children: JSX.Element; state: AppShellView }) {
+export function App(props: { auth?: AuthShellView; children: JSX.Element; state: AppShellView }) {
   return (
     <div class="grid h-screen min-h-screen grid-rows-[64px_minmax(0,1fr)] max-[760px]:h-auto max-[760px]:grid-rows-[auto_minmax(0,1fr)]">
       <header class="z-10 grid grid-cols-[240px_1fr_auto] items-center gap-6 border-[var(--border)] border-b bg-[var(--header-background)] px-6 backdrop-blur-[18px] max-[760px]:min-h-[62px] max-[760px]:grid-cols-[1fr_auto] max-[760px]:gap-3 max-[760px]:px-4 max-[760px]:py-2">
@@ -74,6 +76,20 @@ export function App(props: { children: JSX.Element; state: AppShellView }) {
           <ThemeSwitcher state={props.state.theme} />
           <PwaStatusActions state={props.state.pwa} />
           <ConnectionStatusIndicator state={props.state.connection} />
+          <Show when={props.auth}>
+            {(auth) => (
+              <button
+                class="rounded-lg border border-[var(--border)] px-3 py-[7px] text-[13px] text-[var(--muted-foreground)] hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-60"
+                type="button"
+                disabled={auth().busy()}
+                aria-label="Sign out"
+                title="Sign out"
+                onClick={auth().logout}
+              >
+                Sign out
+              </button>
+            )}
+          </Show>
         </div>
       </header>
 

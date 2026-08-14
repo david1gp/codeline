@@ -83,6 +83,52 @@ test("OIDC callback uses the exact configured path, validates the mocked token a
   expect(JSON.stringify(storedProfile)).not.toContain("access-token")
 })
 
+test("OIDC callback accepts proxied internal HTTP, preserves query parameters, and ignores forwarded authority", async () => {
+  let tokenRequestBody = ""
+  const app = callbackApp({
+    providerFetch: async (input, init) => {
+      if (String(input) === metadata.tokenEndpoint) {
+        tokenRequestBody = await new Request(input, init).text()
+        return tokenResponse(await signedIdToken({}))
+      }
+      return jwksResponse()
+    },
+  })
+
+  const response = await app.request(
+    "http://127.0.0.1/login/zitadel/callback?code=authorization-code&state=state-value",
+    {
+      headers: {
+        "x-forwarded-host": "attacker.example.test",
+        "x-forwarded-proto": "https",
+        Cookie: "__Host-codeline-oidc-binding=browser-binding",
+      },
+    },
+  )
+
+  expect(response.status).toBe(302)
+  expect(tokenRequestBody).toContain("code=authorization-code")
+  expect(tokenRequestBody).toContain("redirect_uri=https%3A%2F%2Fcodeline.test%2Flogin%2Fzitadel%2Fcallback")
+})
+
+test("OIDC callback rejects a path that is not the exact configured callback path", async () => {
+  let consumed = false
+  const app = callbackApp({
+    consume: async () => {
+      consumed = true
+      return createResult(transaction)
+    },
+  })
+
+  const response = await app.request(
+    "http://127.0.0.1/login/zitadel/callback/extra?code=authorization-code&state=state-value",
+    { headers: { Cookie: "__Host-codeline-oidc-binding=browser-binding" } },
+  )
+
+  expect(response.status).toBe(404)
+  expect(consumed).toBe(false)
+})
+
 test("OIDC callback rejects replay, state, and browser-binding failures with cleared no-store flow state", async () => {
   for (const request of [
     { cookie: "browser-binding", state: "state-value", expected: "consumed" },

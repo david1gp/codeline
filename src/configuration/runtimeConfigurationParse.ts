@@ -87,7 +87,7 @@ export function runtimeConfigurationParse(input: unknown): Result<RuntimeConfigu
   return createResult({
     ...parsed.output,
     oidcCallbackUrl: oidcCallback.toString(),
-    oidcIssuer: oidcIssuer.toString(),
+    oidcIssuer: oidcIssuerValue,
     publicOrigin: publicOrigin.toString(),
   })
 }

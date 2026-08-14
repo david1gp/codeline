@@ -2,6 +2,8 @@ import { resolve } from "node:path"
 import tailwindcss from "@tailwindcss/vite"
 import { defineConfig, loadEnv } from "vite"
 import solid from "vite-plugin-solid"
+import { oidcCallbackPathResolve } from "./src/configuration/oidcCallbackPathResolve.js"
+import { oidcCallbackProxyContextResolve } from "./src/configuration/oidcCallbackProxyContextResolve.js"
 
 const solidUiRoot = resolve(import.meta.dirname, "ui")
 const dependenciesRoot = resolve(import.meta.dirname, "node_modules")
@@ -11,6 +13,7 @@ export default defineConfig(({ mode }) => {
   const apiPort = Number(env.PORT ?? 6001)
   const uiPort = Number(env.UI_PORT ?? 6000)
   const zeroCachePort = Number(env.ZERO_PORT ?? 6003)
+  const oidcCallbackPath = oidcCallbackPathResolve(env)
   const solidRuntime = mode === "development" ? "solid-js/dist/dev.js" : "solid-js/dist/solid.js"
   const solidStoreRuntime = mode === "development" ? "solid-js/store/dist/dev.js" : "solid-js/store/dist/store.js"
 
@@ -47,6 +50,11 @@ export default defineConfig(({ mode }) => {
       strictPort: true,
       allowedHosts: ["preview.codeline.work"],
       proxy: {
+        ...(oidcCallbackPath === undefined
+          ? {}
+          : {
+              [oidcCallbackProxyContextResolve(oidcCallbackPath)]: `http://127.0.0.1:${apiPort}`,
+            }),
         "/api": `http://127.0.0.1:${apiPort}`,
         "/sync": {
           target: `ws://127.0.0.1:${zeroCachePort}`,

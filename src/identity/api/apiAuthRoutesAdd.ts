@@ -1,32 +1,33 @@
-import { Hono } from "hono"
-import type { Context } from "hono"
 import { createHash, randomBytes } from "node:crypto"
-import * as oauth from "oauth4webapi"
 import type { Result } from "@adaptive-ds/result"
+import type { Context } from "hono"
+import { Hono } from "hono"
+import * as oauth from "oauth4webapi"
 import type { AppEnvironment } from "../../api/appEnvironment.js"
 import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.js"
 import { appKnownRouteResolve } from "../../app/appKnownRouteResolve.js"
+import { oidcCallbackRequestUrlResolve } from "../../configuration/oidcCallbackRequestUrlResolve.js"
 import type { RuntimeConfiguration } from "../../configuration/runtimeConfigurationSchema.js"
 import type { DatabaseClient, DatabaseExecutor } from "../../database/databaseClient.js"
 import { databaseTransactionRun } from "../../database/databaseTransactionRun.js"
+import { uuidv7 } from "../../uuid/uuidv7.js"
 import { identitySessionCreate } from "../actions/identitySessionCreate.js"
 import { identitySessionLoad } from "../actions/identitySessionLoad.js"
 import { identitySessionRevoke } from "../actions/identitySessionRevoke.js"
 import { oidcIdentityUpsert } from "../actions/oidcIdentityUpsert.js"
-import { oidcLoginTransactionCreate } from "../db/oidcLoginTransactionCreate.js"
 import { oidcLoginTransactionConsume } from "../db/oidcLoginTransactionConsume.js"
+import { oidcLoginTransactionCreate } from "../db/oidcLoginTransactionCreate.js"
 import { oidcLoginReturnToResolve } from "../oidc/oidcLoginReturnToResolve.js"
 import { oidcProviderDiscoveryCreate } from "../oidc/oidcProviderDiscoveryCreate.js"
 import type { OidcProviderFetch } from "../oidc/oidcProviderFetch.js"
-import { uuidv7 } from "../../uuid/uuidv7.js"
-import { identitySessionCookieRead } from "./identitySessionCookieRead.js"
-import { identitySessionCookieSet } from "./identitySessionCookieSet.js"
-import { oidcLoginBrowserBindingCookieSet } from "./oidcLoginBrowserBindingCookieSet.js"
-import { oidcLoginBrowserBindingCookieClear } from "./oidcLoginBrowserBindingCookieClear.js"
-import { oidcLoginBrowserBindingCookieRead } from "./oidcLoginBrowserBindingCookieRead.js"
-import { identitySessionCookieClear } from "./identitySessionCookieClear.js"
 import type { AuthLogoutResponse } from "./authLogoutResponseSchema.js"
 import type { AuthSessionResponse } from "./authSessionResponseSchema.js"
+import { identitySessionCookieClear } from "./identitySessionCookieClear.js"
+import { identitySessionCookieRead } from "./identitySessionCookieRead.js"
+import { identitySessionCookieSet } from "./identitySessionCookieSet.js"
+import { oidcLoginBrowserBindingCookieClear } from "./oidcLoginBrowserBindingCookieClear.js"
+import { oidcLoginBrowserBindingCookieRead } from "./oidcLoginBrowserBindingCookieRead.js"
+import { oidcLoginBrowserBindingCookieSet } from "./oidcLoginBrowserBindingCookieSet.js"
 
 type ApiAuthRoutesOptions = {
   configuration?: RuntimeConfiguration
@@ -244,11 +245,12 @@ async function oidcCallbackHandle(
   const callbackUri = oidcCallbackUriResolve(configuration)
   const requestUrl = new URL(context.req.url)
   const configuredCallback = new URL(callbackUri)
-  if (requestUrl.origin !== configuredCallback.origin || requestUrl.pathname !== configuredCallback.pathname) {
+  const callbackRequestUrl = oidcCallbackRequestUrlResolve(configuredCallback, requestUrl)
+  if (callbackRequestUrl.pathname !== configuredCallback.pathname) {
     return oidcCallbackError(context, 400)
   }
 
-  const callbackParameters = requestUrl.searchParams
+  const callbackParameters = callbackRequestUrl.searchParams
   const states = callbackParameters.getAll("state")
   const state = states[0]
   if (states.length !== 1 || state === undefined || state.length === 0) return oidcCallbackError(context, 400)
