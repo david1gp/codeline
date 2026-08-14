@@ -8,8 +8,8 @@ import { agentTable } from "../src/agents/db/agentTable.js"
 import { appCreate } from "../src/app/appCreate.js"
 import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
 import { databaseSchema } from "../src/database/databaseSchema.js"
-import { developmentUserTable } from "../src/identity/db/developmentUserTable.js"
-import { developmentUserUpsert } from "../src/identity/db/developmentUserUpsert.js"
+import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
+import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
 import { serverListResponseSchema } from "../src/servers/api/serverListResponseSchema.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionTargetCreateResponseSchema } from "../src/session/api/sessionTargetCreateResponseSchema.js"
@@ -39,7 +39,7 @@ const app = appCreate({
 beforeAll(async () => {
   if (!databaseAvailable) return
 
-  const user = await developmentUserUpsert(database, { displayName: "Switching Test User", identityKey })
+  const user = await developmentIdentityUpsert(database, { displayName: "Switching Test User", identityKey })
   if (!user.success) throw new Error(user.errorMessage)
 
   await database.insert(serverTable).values([
@@ -54,7 +54,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  if (databaseAvailable) await database.delete(developmentUserTable).where(eq(developmentUserTable.id, userId))
+  if (databaseAvailable) await database.delete(applicationUserTable).where(eq(applicationUserTable.id, userId))
   await client.end()
 })
 

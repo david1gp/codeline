@@ -3,7 +3,6 @@ import type { JSX } from "solid-js"
 import { zeroSchema } from "../database/zeroSchema.js"
 import { noteMutators } from "../note/noteMutators.js"
 
-const localDevelopmentIdentity = "local-development"
 const localDevelopmentUserId = "development:local-development"
 
 export function CodelineZeroProvider(props: { children: JSX.Element }) {
@@ -15,7 +14,7 @@ export function CodelineZeroProvider(props: { children: JSX.Element }) {
       mutators={noteMutators}
       queryURL={import.meta.env.VITE_ZERO_QUERY_URL ?? `${window.location.origin}/api/query`}
       schema={zeroSchema}
-      userID={localDevelopmentIdentity}
+      userID={localDevelopmentUserId}
     >
       {props.children}
     </ZeroProvider>

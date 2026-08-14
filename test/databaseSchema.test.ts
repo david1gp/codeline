@@ -5,7 +5,7 @@ import { databaseSchema } from "../src/database/databaseSchema.js"
 import { zeroSchema } from "../src/database/zeroSchema.js"
 
 const expectedTables = [
-  "development_user",
+  "user",
   "server",
   "agent",
   "session",
@@ -21,17 +21,36 @@ const expectedTables = [
 test("Zero exposes the durable application tables with matching PostgreSQL names", () => {
   const zeroTables = Object.values(zeroSchema.tables) as readonly { name: string; serverName?: string }[]
   const zeroTableNames = zeroTables.map((table) => table.serverName ?? table.name).sort()
-  const databaseTableNames = Object.values(databaseSchema)
+  const databaseTableNames = [
+    databaseSchema.applicationUserTable,
+    databaseSchema.serverTable,
+    databaseSchema.agentTable,
+    databaseSchema.sessionTable,
+    databaseSchema.messageTable,
+    databaseSchema.noteTable,
+    databaseSchema.streamEventTable,
+    databaseSchema.streamCheckpointTable,
+    databaseSchema.runTable,
+    databaseSchema.attemptTable,
+    databaseSchema.runDelegationTable,
+  ]
     .map((table) => getTableName(table))
     .sort()
 
-  expect(Object.keys(databaseSchema).length).toBe(expectedTables.length)
   expect(zeroTableNames).toEqual([...expectedTables].sort())
   expect(databaseTableNames).toEqual([...expectedTables].sort())
+  expect(getTableConfig(databaseSchema.externalIdentityTable).schema).toBe("identity")
+  expect(getTableConfig(databaseSchema.identitySessionTable).schema).toBe("identity")
+  expect(getTableConfig(databaseSchema.oidcLoginTransactionTable).schema).toBe("identity")
+  expect(zeroTableNames).not.toContain("external_identity")
+  expect(zeroTableNames).not.toContain("oidc_login_transaction")
   expect(zeroSchema.tables.streamEvent.primaryKey).toEqual(["id"])
+  expect(Object.keys(zeroSchema.tables.user.columns).sort()).toEqual(["createdAt", "displayName", "id", "updatedAt"])
   expect(zeroSchema.tables.streamEvent.columns.sequence.type).toBe("number")
   expect(zeroSchema.tables.streamCheckpoint.columns.lastSequence.type).toBe("number")
   expect(zeroSchema.tables.note.columns.projectPath.optional).toBe(true)
+  expect(zeroSchema.tables.note.columns.sortOrder.type).toBe("number")
+  expect(zeroSchema.tables.note.columns.sortOrder.optional).toBe(true)
   expect(zeroSchema.tables.session.columns.parentSessionId.optional).toBe(true)
   expect(zeroSchema.tables.run.columns.snapshot.type).toBe("json")
   expect(zeroSchema.tables.run.columns.deadlineAt.type).toBe("number")
@@ -48,6 +67,14 @@ test("Zero exposes the durable application tables with matching PostgreSQL names
     ["parentRunId", "parentAttemptId", "delegationKey"],
     ["rootRunId", "rootOrdinal"],
   ])
+})
+
+test("Drizzle keeps note ordering nullable for compatibility", () => {
+  const noteColumns = getTableConfig(databaseSchema.noteTable).columns
+  const sortOrder = noteColumns.find((column) => column.name === "sort_order")
+
+  expect(sortOrder?.dataType).toBe("number")
+  expect(sortOrder?.notNull).toBe(false)
 })
 
 test("Drizzle keeps run and attempt stream IDs and ownership unique", () => {
@@ -95,7 +122,7 @@ test("Drizzle keeps run and attempt stream IDs and ownership unique", () => {
     "run_delegation_parent_attempt_consistency_fk",
     "run_delegation_parent_ownership_consistency_fk",
     "run_delegation_root_ownership_consistency_fk",
-    "run_delegation_user_id_development_user_id_fk",
+    "run_delegation_user_id_user_id_fk",
   ])
 })
 
@@ -116,13 +143,13 @@ test("Zero relationships cover restart-safe session and stream ownership", () =>
     destSchema: "session",
     cardinality: "one",
   })
-  expect(zeroSchema.relationships.developmentUser).toHaveProperty("notes")
+  expect(zeroSchema.relationships.user).toHaveProperty("notes")
   expect(zeroSchema.relationships.session).toHaveProperty("runs")
   expect(zeroSchema.relationships.run).toHaveProperty("attempts")
   expect(zeroSchema.relationships.run).toHaveProperty("user")
   expect(zeroSchema.relationships.run).toHaveProperty("session")
   expect(zeroSchema.relationships.attempt).toHaveProperty("run")
-  expect(zeroSchema.relationships.developmentUser).toHaveProperty("delegations")
+  expect(zeroSchema.relationships.user).toHaveProperty("delegations")
   expect(zeroSchema.relationships.session).toHaveProperty("delegations")
   expect(zeroSchema.relationships.run).toHaveProperty("childDelegations")
   expect(zeroSchema.relationships.run).toHaveProperty("rootDelegations")
@@ -131,7 +158,7 @@ test("Zero relationships cover restart-safe session and stream ownership", () =>
   expect(zeroSchema.relationships.note.user[0]).toMatchObject({
     sourceField: ["userId"],
     destField: ["id"],
-    destSchema: "developmentUser",
+    destSchema: "user",
     cardinality: "one",
   })
 })
