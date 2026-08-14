@@ -2,6 +2,7 @@
 node_modules/
 
 # Bun package manager
+bun.lock
 bun.lockb
 
 # Build output
