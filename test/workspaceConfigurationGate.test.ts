@@ -13,7 +13,7 @@ test("the workspace shows setup until a conversation is selected", async () => {
   )
 })
 
-test("the setup panel distinguishes server and agent states and exposes configuration actions", async () => {
+test("the setup panel exposes one local execution agent", async () => {
   const setupPanel = await Bun.file(new URL("../src/ui/WorkspaceSetupPanel.tsx", import.meta.url)).text()
 
   expect(setupPanel).toContain('props.configuration.status === "loading"')
@@ -21,12 +21,8 @@ test("the setup panel distinguishes server and agent states and exposes configur
   expect(setupPanel).toContain('props.configuration.status === "server-error"')
   expect(setupPanel).toContain('props.configuration.status === "no-agent"')
   expect(setupPanel).toContain('props.configuration.status === "agent-error"')
-  expect(setupPanel).toContain('aria-label="Codeline server"')
-  expect(setupPanel).toContain('aria-label="Execution agent"')
-  expect(setupPanel).toContain("props.configuration.modelsDiscover()")
-  expect(setupPanel).toContain("props.configuration.connectionTestStart()")
-  expect(setupPanel).toContain("props.configuration.save()")
+  expect(setupPanel).toContain("Ready for local execution")
+  expect(setupPanel).toContain("No local agent configured")
   expect(setupPanel).toContain("props.configuration.sessionCreateStart()")
-  expect(setupPanel).toContain('from "#ui/input/input/Input.jsx"')
   expect(setupPanel).toContain('from "#ui/interactive/button/Button.jsx"')
 })

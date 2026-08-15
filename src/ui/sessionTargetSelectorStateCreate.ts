@@ -625,6 +625,8 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
     isCreatingSession: () => sessionCreateStatus.get() === "creating",
     pendingTarget,
     selectedAgentId: selectedAgentId.get,
+    selectedAgentName: () =>
+      agents.get().find((agent) => agent.id === selectedAgentId.get())?.name ?? "Local execution agent",
     selectedServerId: selectedServerId.get,
     servers: servers.get,
     serverSelect: (serverId: string) => {

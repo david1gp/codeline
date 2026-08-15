@@ -91,6 +91,8 @@ export function demoSessionTargetSelectorStateCreate(
       return agentId === null || serverId === null || status() !== "ready" ? null : { agentId, serverId }
     },
     selectedAgentId: selectedAgentId.get,
+    selectedAgentName: () =>
+      agents().find((agent) => agent.id === selectedAgentId.get())?.name ?? "Local execution agent",
     selectedServerId: selectedServerId.get,
     servers,
     serverSelect: (serverId: string) => {

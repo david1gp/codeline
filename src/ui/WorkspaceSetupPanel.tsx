@@ -1,11 +1,8 @@
-import { Input } from "#ui/input/input/Input.jsx"
+import { Match, Show, Switch } from "solid-js"
 import { Label } from "#ui/input/label/Label.jsx"
 import { Button } from "#ui/interactive/button/Button.jsx"
-import { For, Match, Show, Switch } from "solid-js"
 import type { SessionTargetConfigurationView } from "./sessionTargetConfigurationView.js"
 
-const selectClass =
-  "min-h-10 w-full rounded-md border border-line bg-surface-raised px-3 py-2 text-sm text-strong focus-visible:outline-2 focus-visible:outline-accent"
 const fieldClass = "grid gap-1.5 text-xs font-semibold text-faint"
 
 export function WorkspaceSetupPanel(props: { configuration: SessionTargetConfigurationView }) {
@@ -58,64 +55,25 @@ export function WorkspaceSetupPanel(props: { configuration: SessionTargetConfigu
 
           <Match when={true}>
             <div class="mt-5">
-              <div class="flex items-start justify-between gap-4 max-[600px]:flex-col">
-                <div>
-                  <h2 id="workspace-setup-heading" class="m-0 text-xl font-semibold tracking-[-0.02em]">
-                    Configure an execution agent
-                  </h2>
-                  <p class="mt-2 mb-0 text-sm leading-6 text-faint">
-                    Select a server and agent, or add a Codex-LB or CLIProxyAPI agent.
-                  </p>
-                </div>
-                <Button variant="outline" onClick={props.configuration.agentCreateBegin}>
-                  New agent
-                </Button>
+              <div>
+                <h2 id="workspace-setup-heading" class="m-0 text-xl font-semibold tracking-[-0.02em]">
+                  Ready for local execution
+                </h2>
+                <p class="mt-2 mb-0 text-sm leading-6 text-faint">New conversations use the local execution agent.</p>
               </div>
 
-              <div class="mt-6 grid grid-cols-2 gap-4 max-[600px]:grid-cols-1">
-                <Label class={fieldClass}>
-                  Server
-                  <select
-                    class={selectClass}
-                    aria-label="Codeline server"
-                    value={props.configuration.selectedServerId ?? ""}
-                    onChange={(event) => props.configuration.serverSelect(event.currentTarget.value)}
-                  >
-                    <For each={props.configuration.servers}>
-                      {(server) => <option value={server.id}>{server.name}</option>}
-                    </For>
-                  </select>
-                </Label>
-
+              <div class="mt-6 grid gap-4">
                 <Label class={fieldClass}>
                   Execution agent
-                  <select
-                    class={selectClass}
-                    aria-label="Execution agent"
-                    disabled={props.configuration.agents.length === 0}
-                    value={props.configuration.isCreatingAgent ? "" : (props.configuration.selectedAgentId ?? "")}
-                    onChange={(event) => props.configuration.agentSelect(event.currentTarget.value)}
-                  >
-                    <Show when={props.configuration.isCreatingAgent || props.configuration.agents.length === 0}>
-                      <option value="">
-                        {props.configuration.agents.length === 0 ? "No agents configured" : "New agent"}
-                      </option>
-                    </Show>
-                    <For each={props.configuration.agents}>
-                      {(agent) => (
-                        <option value={agent.id}>
-                          {agent.name} · {agent.role}
-                        </option>
-                      )}
-                    </For>
-                  </select>
+                  <div class="min-h-10 rounded-md border border-line bg-surface-raised px-3 py-2 text-sm text-strong">
+                    {props.configuration.agents.find((agent) => agent.id === props.configuration.selectedAgentId)
+                      ?.name ?? "No local agent configured"}
+                  </div>
                 </Label>
               </div>
 
               <Show when={props.configuration.status === "no-agent"}>
-                <p class="mt-4 mb-0 text-sm text-faint">
-                  No execution agent exists on this server. Create the first one below.
-                </p>
+                <p class="mt-4 mb-0 text-sm text-faint">No local execution agent is available.</p>
               </Show>
               <Show when={props.configuration.status === "agent-error"}>
                 <div class="mt-4 flex items-center justify-between gap-3" role="alert">
@@ -124,116 +82,6 @@ export function WorkspaceSetupPanel(props: { configuration: SessionTargetConfigu
                     Retry agent
                   </Button>
                 </div>
-              </Show>
-
-              <Show when={props.configuration.isConfigurableAgent}>
-                <form
-                  class="mt-6 grid gap-4 border-line-subtle border-t pt-6"
-                  onSubmit={(event) => event.preventDefault()}
-                >
-                  <h3 class="m-0 text-sm font-semibold">
-                    {props.configuration.isCreatingAgent ? "New agent configuration" : "Agent configuration"}
-                  </h3>
-                  <div class="grid grid-cols-2 gap-4 max-[600px]:grid-cols-1">
-                    <Label class={fieldClass}>
-                      Name
-                      <Input
-                        value={props.configuration.draft.name}
-                        maxlength={200}
-                        onInput={(event) => props.configuration.draftNameChange(event.currentTarget.value)}
-                      />
-                    </Label>
-                    <Label class={fieldClass}>
-                      Role
-                      <Input
-                        value={props.configuration.draft.role}
-                        maxlength={200}
-                        onInput={(event) => props.configuration.draftRoleChange(event.currentTarget.value)}
-                      />
-                    </Label>
-                    <Label class={fieldClass}>
-                      Provider
-                      <select
-                        class={selectClass}
-                        value={props.configuration.draft.provider}
-                        onChange={(event) =>
-                          props.configuration.draftProviderChange(
-                            event.currentTarget.value as "cliproxyapi" | "codex-lb",
-                          )
-                        }
-                      >
-                        <option value="codex-lb">Codex-LB</option>
-                        <option value="cliproxyapi">CLIProxyAPI</option>
-                      </select>
-                    </Label>
-                    <Label class={fieldClass}>
-                      Secret reference
-                      <Input value={props.configuration.draft.secretReference} readOnly aria-readonly="true" />
-                    </Label>
-                  </div>
-                  <Label class={fieldClass}>
-                    Base URL
-                    <Input
-                      type="url"
-                      placeholder="https://gateway.example.com/v1"
-                      value={props.configuration.draft.baseUrl}
-                      onInput={(event) => props.configuration.draftBaseUrlChange(event.currentTarget.value)}
-                    />
-                  </Label>
-                  <Label class={fieldClass}>
-                    Model
-                    <Input
-                      list="workspace-agent-models"
-                      value={props.configuration.draft.model}
-                      maxlength={200}
-                      onInput={(event) => props.configuration.draftModelChange(event.currentTarget.value)}
-                    />
-                    <datalist id="workspace-agent-models">
-                      <For each={props.configuration.models}>
-                        {(model) => <option value={model.id}>{model.name ?? model.id}</option>}
-                      </For>
-                    </datalist>
-                  </Label>
-
-                  <div class="flex flex-wrap items-center gap-3">
-                    <Button
-                      variant="outline"
-                      disabled={props.configuration.modelsStatus === "loading"}
-                      onClick={() => void props.configuration.modelsDiscover()}
-                    >
-                      {props.configuration.modelsStatus === "loading" ? "Discovering…" : "Discover models"}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      disabled={props.configuration.connectionTestStatus === "testing"}
-                      onClick={() => void props.configuration.connectionTestStart()}
-                    >
-                      {props.configuration.connectionTestStatus === "testing" ? "Testing…" : "Test connection"}
-                    </Button>
-                    <Button
-                      variant="contrast"
-                      disabled={props.configuration.saveStatus === "saving"}
-                      onClick={() => void props.configuration.save()}
-                    >
-                      {props.configuration.saveStatus === "saving" ? "Saving…" : "Save agent"}
-                    </Button>
-                  </div>
-                  <Show when={props.configuration.modelsStatus === "success"}>
-                    <p class="m-0 text-xs text-faint" role="status">
-                      Found {props.configuration.models.length} models.
-                    </p>
-                  </Show>
-                  <Show when={props.configuration.connectionTestStatus === "success"}>
-                    <p class="m-0 text-xs text-success" role="status">
-                      Connection succeeded for {props.configuration.connectionTest?.model}.
-                    </p>
-                  </Show>
-                  <Show when={props.configuration.saveStatus === "success"}>
-                    <p class="m-0 text-xs text-success" role="status">
-                      Agent saved and target readiness refreshed.
-                    </p>
-                  </Show>
-                </form>
               </Show>
 
               <Show when={props.configuration.errorMessage !== null}>
