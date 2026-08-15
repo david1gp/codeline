@@ -262,11 +262,42 @@ test("creating a session posts the selected target once and navigates", async ()
   expect(JSON.parse(bodies[0] ?? "{}")).toEqual({
     clientRequestId: "deterministic-request",
     primaryAgentId: "example-agent-local-review",
+    projectPath: "~",
     serverId: "example-server-local",
     title: "New session",
   })
   expect(selected).toEqual(["created-session"])
   expect(state?.sessionCreateStatus()).toBe("idle")
+  dispose()
+})
+
+test("session creation requires and sends the active project", async () => {
+  const bodies: unknown[] = []
+  let projectPath: string | null = null
+  let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
+  const dispose = createRoot((rootDispose) => {
+    state = sessionTargetSelectorStateCreate({
+      activeProjectPath: () => projectPath,
+      fetch: async (input, init) => {
+        if (String(input) === "/api/sessions" && init?.method === "POST") bodies.push(JSON.parse(String(init.body)))
+        return fetchDefaultCreate([])(input, init)
+      },
+      selectedSessionId: () => null,
+      sessionSelect: () => undefined,
+    })
+    return rootDispose
+  })
+  await effectsSettle()
+
+  expect(state?.canCreateSession()).toBe(false)
+  await state?.sessionCreateStart()
+  expect(state?.sessionCreateErrorMessage()).toBe("Select a project before creating a conversation.")
+  expect(bodies).toEqual([])
+
+  projectPath = "/workspace/codeline"
+  expect(state?.canCreateSession()).toBe(true)
+  await state?.sessionCreateStart()
+  expect(bodies).toEqual([expect.objectContaining({ projectPath: "/workspace/codeline" })])
   dispose()
 })
 

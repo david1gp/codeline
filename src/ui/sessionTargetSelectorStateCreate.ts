@@ -32,6 +32,7 @@ type AgentDraft = {
 }
 
 type SessionTargetSelectorStateOptions = {
+  activeProjectPath?: Accessor<string | null>
   clientRequestIdCreate?: () => string
   fetch?: SessionTargetSelectorFetch
   selectedSessionId: Accessor<string | null>
@@ -119,6 +120,7 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
   const fetchImplementation = options.fetch ?? globalThis.fetch
   const clientRequestIdCreate = options.clientRequestIdCreate ?? (() => crypto.randomUUID())
   const storage = sessionTargetSelectionStorageResolve(options.storage)
+  const activeProjectPath = options.activeProjectPath ?? (() => "~")
   const savedSelections = sessionTargetSelectionRead(storage)
   const servers = signalObjectCreate<SessionTargetServer[]>([])
   const agents = signalObjectCreate<SessionTargetAgent[]>([])
@@ -324,8 +326,8 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
     return result.success ? result.output : null
   }
 
-  const pendingCreateRequestIdResolve = (target: { agentId: string; serverId: string }) => {
-    const key = `${target.serverId}/${target.agentId}`
+  const pendingCreateRequestIdResolve = (target: { agentId: string; serverId: string }, projectPath: string) => {
+    const key = `${target.serverId}/${target.agentId}/${projectPath}`
     if (pendingCreateKey !== key || pendingCreateRequestId === null) {
       pendingCreateKey = key
       pendingCreateRequestId = clientRequestIdCreate()
@@ -563,15 +565,22 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
 
   const sessionCreateStart = async () => {
     const target = pendingTarget()
+    const projectPath = activeProjectPath()
     if (target === null || sessionCreateStatus.get() === "creating" || isDisposed) return null
+    if (projectPath === null) {
+      sessionCreateErrorMessage.set("Select a project before creating a conversation.")
+      sessionCreateStatus.set("error")
+      return null
+    }
 
-    const clientRequestId = pendingCreateRequestIdResolve(target)
+    const clientRequestId = pendingCreateRequestIdResolve(target, projectPath)
     sessionCreateStatus.set("creating")
     try {
       const response = await fetchImplementation("/api/sessions", {
         body: JSON.stringify({
           clientRequestId,
           primaryAgentId: target.agentId,
+          projectPath,
           serverId: target.serverId,
           title: "New session",
         }),
@@ -620,7 +629,8 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
       agentReloadToken.set(agentReloadToken.get() + 1)
     },
     agentStatus: agentStatus.get,
-    canCreateSession: () => pendingTarget() !== null && sessionCreateStatus.get() !== "creating",
+    canCreateSession: () =>
+      pendingTarget() !== null && activeProjectPath() !== null && sessionCreateStatus.get() !== "creating",
     configurationReadiness,
     isCreatingSession: () => sessionCreateStatus.get() === "creating",
     pendingTarget,

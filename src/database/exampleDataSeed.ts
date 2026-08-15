@@ -1,3 +1,5 @@
+import { dirname, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import { inArray } from "drizzle-orm"
 import { agentTable } from "../agents/db/agentTable.js"
@@ -6,18 +8,16 @@ import type { ConfigurationStore } from "../configuration/configurationStore.js"
 import { applicationUserTable } from "../identity/db/applicationUserTable.js"
 import { externalIdentityUpsert } from "../identity/db/externalIdentityUpsert.js"
 import { messageTable } from "../message/db/messageTable.js"
+import { providerAgentCatalogAgentNameCreate } from "../providers/catalog/providerAgentCatalogAgentNameCreate.js"
+import { providerAgentCatalogConfigurationCompile } from "../providers/catalog/providerAgentCatalogConfigurationCompile.js"
+import { providerAgentCatalogLoad } from "../providers/catalog/providerAgentCatalogLoad.js"
+import type { ProviderCatalog } from "../providers/schema/providerCatalogSchema.js"
 import { serverTable } from "../servers/db/serverTable.js"
 import { sessionTable } from "../session/db/sessionTable.js"
 import type { DatabaseClient, DatabaseExecutor } from "./databaseClient.js"
 import { databaseTransactionRun } from "./databaseTransactionRun.js"
 import { exampleDataConfigurationReconcile } from "./exampleDataConfigurationReconcile.js"
 import { exampleDataFixture } from "./exampleDataFixture.js"
-import { dirname, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
-import type { ProviderCatalog } from "../providers/schema/providerCatalogSchema.js"
-import { providerAgentCatalogConfigurationCompile } from "../providers/catalog/providerAgentCatalogConfigurationCompile.js"
-import { providerAgentCatalogLoad } from "../providers/catalog/providerAgentCatalogLoad.js"
-import { providerAgentCatalogAgentNameCreate } from "../providers/catalog/providerAgentCatalogAgentNameCreate.js"
 
 function date(value: string): Date {
   return new Date(value)
@@ -131,6 +131,7 @@ async function exampleDataRowsReconcile(
           userId: fixtureUser.id,
           serverId: fixtureSession.serverId,
           primaryAgentId: fixtureSession.primaryAgentId,
+          projectPath: fixtureSession.projectPath,
           parentSessionId: fixtureSession.parentSessionId,
           title: fixtureSession.title,
           clientRequestId: fixtureSession.clientRequestId,
@@ -138,6 +139,7 @@ async function exampleDataRowsReconcile(
           archivedAt: fixtureSession.archivedAt === null ? null : date(fixtureSession.archivedAt),
           createdAt: date(fixtureSession.createdAt),
           updatedAt: date(fixtureSession.updatedAt),
+          watched: fixtureSession.watched,
         })
         .onConflictDoUpdate({
           target: sessionTable.id,
@@ -145,6 +147,7 @@ async function exampleDataRowsReconcile(
             userId: fixtureUser.id,
             serverId: fixtureSession.serverId,
             primaryAgentId: fixtureSession.primaryAgentId,
+            projectPath: fixtureSession.projectPath,
             parentSessionId: fixtureSession.parentSessionId,
             title: fixtureSession.title,
             clientRequestId: fixtureSession.clientRequestId,
@@ -152,6 +155,7 @@ async function exampleDataRowsReconcile(
             archivedAt: fixtureSession.archivedAt === null ? null : date(fixtureSession.archivedAt),
             createdAt: date(fixtureSession.createdAt),
             updatedAt: date(fixtureSession.updatedAt),
+            watched: fixtureSession.watched,
           },
         })
 

@@ -18,12 +18,18 @@ import { projectGitBranchSwitch } from "../projectGitBranchSwitch.js"
 import { projectGitDiffSummaryRead } from "../projectGitDiffSummaryRead.js"
 import { projectGitStatusRead } from "../projectGitStatusRead.js"
 import type { ProjectLimits } from "../projectLimitsSchema.js"
+import { projectDirectoryConfirm } from "../projectDirectoryConfirm.js"
+import { projectDirectorySuggestionsRead } from "../projectDirectorySuggestionsRead.js"
 import { projectMetadataRead } from "../projectMetadataRead.js"
 import { projectPreviewPrepare } from "../projectPreviewPrepare.js"
 import { projectPreviewRead } from "../projectPreviewRead.js"
 import { projectResolve } from "../projectResolve.js"
 import { projectTextRead } from "../projectTextRead.js"
 import type { ProjectApiDirectoryResponse } from "./projectApiDirectoryResponseSchema.js"
+import type { ProjectApiDirectoryConfirmResponse } from "./projectApiDirectoryConfirmResponseSchema.js"
+import { projectApiDirectoryConfirmRequestSchema } from "./projectApiDirectoryConfirmRequestSchema.js"
+import type { ProjectApiDirectorySuggestionsResponse } from "./projectApiDirectorySuggestionsResponseSchema.js"
+import { projectApiDirectorySuggestionsQuerySchema } from "./projectApiDirectorySuggestionsQuerySchema.js"
 import type { ProjectApiListResponse } from "./projectApiListResponseSchema.js"
 import type { ProjectApiMetadataResponse } from "./projectApiMetadataResponseSchema.js"
 import { projectApiPathQuerySchema } from "./projectApiPathQuerySchema.js"
@@ -127,6 +133,10 @@ function projectRootErrorResponse(context: ApiContext, errorMessage: string) {
     },
   } satisfies ApiErrorResponse
   return context.json(response, invalid ? 400 : notFound ? 404 : 500)
+}
+
+function projectConfiguredRootsResolve(options: ApiProjectRoutesOptions): readonly string[] {
+  return options.rootDir === undefined ? (options.rootDirs ?? []) : [options.rootDir]
 }
 
 const projectGitBranchRequestSchema = v.strictObject({ branch: projectGitBranchNameSchema })
@@ -315,6 +325,57 @@ export function apiProjectRoutesAdd(api: Hono<AppEnvironment>, options: ApiProje
     const response = {
       entries: result.data.map((entry) => ({ ...entry, modifiedAt: entry.modifiedAt.toISOString() })),
     } satisfies ProjectApiDirectoryResponse
+    return context.json(response)
+  })
+
+  api.get("/project/suggestions", async (context) => {
+    const parsed = apiRequestParse(
+      "projectApiDirectorySuggestionsQueryParse",
+      projectApiDirectorySuggestionsQuerySchema,
+      context.req.query(),
+    )
+    if (!parsed.success) {
+      const response = {
+        error: { code: "bad_request", message: "The project path query is invalid." },
+      } satisfies ApiErrorResponse
+      return context.json(response, 400)
+    }
+
+    const result = await projectDirectorySuggestionsRead(projectConfiguredRootsResolve(options), parsed.data.path)
+    if (!result.success) {
+      const response = {
+        error: { code: "internal_server_error", message: "The project folders could not be loaded." },
+      } satisfies ApiErrorResponse
+      return context.json(response, 500)
+    }
+
+    const response = { suggestions: result.data } satisfies ProjectApiDirectorySuggestionsResponse
+    return context.json(response)
+  })
+
+  api.post("/project/confirm", async (context) => {
+    const body = await context.req.json<unknown>().catch(() => undefined)
+    const parsed = apiRequestParse(
+      "projectApiDirectoryConfirmRequestParse",
+      projectApiDirectoryConfirmRequestSchema,
+      body,
+    )
+    if (!parsed.success) {
+      const response = {
+        error: { code: "bad_request", message: "The project directory request is invalid." },
+      } satisfies ApiErrorResponse
+      return context.json(response, 400)
+    }
+
+    const result = await projectDirectoryConfirm(parsed.data.path, projectConfiguredRootsResolve(options))
+    if (!result.success) {
+      const response = {
+        error: { code: "bad_request", message: "The project directory is invalid." },
+      } satisfies ApiErrorResponse
+      return context.json(response, 400)
+    }
+
+    const response = { project: result.data } satisfies ProjectApiDirectoryConfirmResponse
     return context.json(response)
   })
 

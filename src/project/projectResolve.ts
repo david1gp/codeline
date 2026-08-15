@@ -1,5 +1,5 @@
-import * as fs from "node:fs/promises"
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
+import { projectDirectoryCanonicalPathResolve } from "./projectDirectoryCanonicalPathResolve.js"
 import {
   type ProjectDiscoveryEntriesReadOptions,
   type ProjectDiscoveryEntriesReadResult,
@@ -13,21 +13,6 @@ export type ProjectResolveOptions = ProjectDiscoveryEntriesReadOptions & {
 export type ProjectResolved = {
   id: string
   rootDir: string
-}
-
-async function projectDirectoryCanonicalPathValidate(canonicalPath: string): Promise<boolean> {
-  try {
-    const currentStat = await fs.lstat(canonicalPath)
-    if (currentStat.isSymbolicLink() || !currentStat.isDirectory()) return false
-
-    const currentCanonicalPath = await fs.realpath(canonicalPath)
-    if (currentCanonicalPath !== canonicalPath) return false
-
-    const canonicalStat = await fs.lstat(currentCanonicalPath)
-    return !canonicalStat.isSymbolicLink() && canonicalStat.isDirectory()
-  } catch (_error) {
-    return false
-  }
 }
 
 export async function projectResolve(
@@ -49,7 +34,8 @@ export async function projectResolve(
 
   const project = discovered.data.entries.find((entry) => entry.id === projectId)
   if (project === undefined) return createResultError(op, "The project identifier is not discovered.")
-  if (!(await projectDirectoryCanonicalPathValidate(project.canonicalPath))) {
+  const canonical = await projectDirectoryCanonicalPathResolve(project.canonicalPath)
+  if (!canonical.success) {
     return createResultError(op, "The selected project directory is unavailable.")
   }
 

@@ -5,6 +5,7 @@ import * as path from "node:path"
 import { projectDirectoryList } from "../src/project/projectDirectoryList.js"
 import { projectDownloadPrepare } from "../src/project/projectDownloadPrepare.js"
 import { projectMetadataRead } from "../src/project/projectMetadataRead.js"
+import { projectPathReferenceResolve } from "../src/project/projectPathReferenceResolve.js"
 import { projectPathResolve } from "../src/project/projectPathResolve.js"
 import { projectPathValidate } from "../src/project/projectPathValidate.js"
 import { projectPreviewPolicyResolve } from "../src/project/projectPreviewPolicy.js"
@@ -131,6 +132,24 @@ describe("project-filesystem core", () => {
       expect(projectPathValidate("foo/../bar").success).toBe(false)
       expect(projectPathValidate("foo/./bar").success).toBe(false)
       expect(projectPathValidate("..").success).toBe(false)
+    })
+  })
+
+  describe("projectPathReferenceResolve", () => {
+    test("resolves the stable home reference through the runtime home", async () => {
+      const result = await projectPathReferenceResolve(undefined, [tempDir])
+      expect(result).toEqual({ success: true, data: "~" })
+    })
+
+    test("accepts canonical real directories within configured roots", async () => {
+      const result = await projectPathReferenceResolve(path.join(tempDir, "Alpha_Dir"), [tempDir])
+      expect(result).toEqual({ success: true, data: path.join(tempDir, "Alpha_Dir") })
+    })
+
+    test("rejects files, symlinks, and paths outside configured roots", async () => {
+      expect((await projectPathReferenceResolve(path.join(tempDir, "a_file.txt"), [tempDir])).success).toBe(false)
+      expect((await projectPathReferenceResolve(path.join(tempDir, "symlink_dir"), [tempDir])).success).toBe(false)
+      expect((await projectPathReferenceResolve("/", [tempDir])).success).toBe(false)
     })
   })
 

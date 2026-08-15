@@ -9,6 +9,7 @@ import type { SessionNavigationState } from "./sessionNavigationStateCreate.js"
 import { sessionChatStateCacheCreate } from "./sessionChatStateCacheCreate.js"
 import { sessionChatStateCreate } from "./sessionChatStateCreate.js"
 import { sessionInitialMessageStateCreate } from "./sessionInitialMessageStateCreate.js"
+import { sessionWatchToggleStateCreate } from "./sessionWatchToggleStateCreate.js"
 
 type SelectedSessionStateOptions = {
   codelineExecution: Accessor<CodelineExecution | null>
@@ -35,6 +36,7 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
       copyState: copyStates.get(message.id) ?? copyStateCreate(copyStates, message.id, message.content),
     }))
   const renameStates = new Map<string, ReturnType<typeof sessionRenameControlStateCreate>>()
+  const watchStates = new Map<string, ReturnType<typeof sessionWatchToggleStateCreate>>()
   const renameState = () => {
     const current = session()
     if (!current) return undefined
@@ -45,6 +47,18 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
       title: () => current.title,
     })
     renameStates.set(current.id, created)
+    return created
+  }
+  const watchState = () => {
+    const current = session()
+    if (!current) return undefined
+    const existing = watchStates.get(current.id)
+    if (existing) return existing
+    const created = sessionWatchToggleStateCreate({
+      sessionId: () => current.id,
+      watched: () => session()?.watched ?? current.watched,
+    })
+    watchStates.set(current.id, created)
     return created
   }
 
@@ -87,6 +101,7 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
     isInitialChatVisible: initialMessage.isVisible,
     messages: durableMessages,
     renameState,
+    watchState,
     hasSelection: () => selectedSessionId() !== null,
     isSessionLoading: () =>
       selectedSessionId() !== null && sessionResult().type === "unknown" && session() === undefined,

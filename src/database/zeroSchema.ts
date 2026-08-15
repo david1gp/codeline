@@ -1,4 +1,4 @@
-import { createSchema, enumeration, json, number, relationships, string, table } from "@rocicorp/zero"
+import { boolean, createSchema, enumeration, json, number, relationships, string, table } from "@rocicorp/zero"
 import type { AttemptStatus } from "../run/schema/attemptStatusSchema.js"
 import type { RunCancellationKind } from "../run/schema/runCancellationKindSchema.js"
 import type { RunStatus } from "../run/schema/runStatusSchema.js"
@@ -46,10 +46,12 @@ const session = table("session")
     userId: string().from("user_id"),
     serverId: string().from("server_id"),
     primaryAgentId: string().from("primary_agent_id"),
+    projectPath: string().from("project_path"),
     parentSessionId: string().from("parent_session_id").optional(),
     title: string(),
     clientRequestId: string().from("client_request_id"),
     metadata: json(),
+    watched: boolean(),
     archivedAt: number().from("archived_at").optional(),
     createdAt: number().from("created_at"),
     updatedAt: number().from("updated_at"),

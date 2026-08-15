@@ -3,6 +3,7 @@ import { appConnectionDetailsResolve } from "../appConnectionDetailsResolve.js"
 import { connectionStatusIndicatorStateCreate } from "../connectionStatusIndicatorStateCreate.js"
 import type { DemoSessionScreenVariant } from "./demoSessionScreenVariant.js"
 import { demoThemeSwitcherStateCreate } from "./demoThemeSwitcherStateCreate.js"
+import { activeProjectStateCreate } from "../activeProjectStateCreate.js"
 
 /** Supplies deterministic header status without API, Zero, or service workers. */
 export function demoAppShellStateCreate(variant: () => DemoSessionScreenVariant): AppShellView {
@@ -55,6 +56,7 @@ export function demoAppShellStateCreate(variant: () => DemoSessionScreenVariant)
   const healthDisconnectedSince = () => (healthStatus() === "unavailable" ? disconnectedSince() : undefined)
 
   return {
+    activeProject: activeProjectStateCreate(),
     connection: connectionStatusIndicatorStateCreate({
       details: () =>
         appConnectionDetailsResolve({

@@ -1,10 +1,14 @@
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
+import { projectPathReferenceResolve } from "../../project/projectPathReferenceResolve.js"
 import { sessionRepositoryCreate } from "../db/sessionRepositoryCreate.js"
 
-export function sessionCreate(
+export async function sessionCreate(
   database: DatabaseExecutor,
   userId: string,
-  input: Parameters<typeof sessionRepositoryCreate>[2],
+  input: Omit<Parameters<typeof sessionRepositoryCreate>[2], "projectPath" | "watched"> & { projectPath?: string },
+  options: { projectRootDirs?: readonly string[] } = {},
 ): ReturnType<typeof sessionRepositoryCreate> {
-  return sessionRepositoryCreate(database, userId, input)
+  const projectPath = await projectPathReferenceResolve(input.projectPath, options.projectRootDirs ?? [])
+  if (!projectPath.success) return projectPath
+  return sessionRepositoryCreate(database, userId, { ...input, projectPath: projectPath.data, watched: true })
 }

@@ -5,6 +5,7 @@ import { connectionStatusIndicatorStateCreate } from "./connectionStatusIndicato
 import { pwaStatusIndicatorStateCreate } from "./pwa/pwaStatusIndicatorStateCreate.js"
 import { themeSwitcherStateCreate } from "./themeSwitcherStateCreate.js"
 import { zeroConnectionIndicatorStateCreate } from "./zeroConnectionIndicatorStateCreate.js"
+import { activeProjectStateCreate } from "./activeProjectStateCreate.js"
 
 export function appShellStateCreate(): AppShellView {
   const app = appStateCreate()
@@ -13,6 +14,7 @@ export function appShellStateCreate(): AppShellView {
 
   return {
     ...app,
+    activeProject: activeProjectStateCreate(),
     connection: connectionStatusIndicatorStateCreate({
       details: () =>
         appConnectionDetailsResolve({

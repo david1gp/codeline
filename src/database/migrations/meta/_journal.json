@@ -78,6 +78,13 @@
       "when": 1786740000006,
       "tag": "0010_oidc_login_binding",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1786740000007,
+      "tag": "0011_session_projects_watched",
+      "breakpoints": true
     }
   ]
 }

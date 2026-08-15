@@ -8,11 +8,13 @@ import { demoSelectedSessionStateCreate } from "./demoSelectedSessionStateCreate
 import { demoSessionListStateCreate } from "./demoSessionListStateCreate.js"
 import type { DemoSessionScreenVariant } from "./demoSessionScreenVariant.js"
 import { demoSessionTargetSelectorStateCreate } from "./demoSessionTargetSelectorStateCreate.js"
+import { activeProjectStateCreate } from "../activeProjectStateCreate.js"
 
 export function demoWorkspaceScreenStateCreate(variant: () => DemoSessionScreenVariant): WorkspaceScreenView {
   const selectedSessionId = createSignalObject<string | null>(null)
 
   return {
+    activeProject: activeProjectStateCreate(),
     drawer: workspacePageStateCreate(),
     files: demoFilesScreenStateCreate(variant),
     providerModelSelector: demoProviderModelSelectorStateCreate(variant),

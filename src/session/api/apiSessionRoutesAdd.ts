@@ -11,16 +11,16 @@ import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.j
 import type { ConfigurationStore } from "../../configuration/configurationStore.js"
 import type { DatabaseClient } from "../../database/databaseClient.js"
 import { databaseTransactionRun } from "../../database/databaseTransactionRun.js"
+import { providerAgentCatalogExecutionResolve } from "../../providers/catalog/providerAgentCatalogExecutionResolve.js"
 import type { CliProxyApiAdapter } from "../../providers/runtime/cliProxyApiAdapterCreate.js"
 import { providerDelegationAdapterCreate } from "../../providers/runtime/providerDelegationAdapterCreate.js"
 import { providerDelegationToolLoopCreate } from "../../providers/runtime/providerDelegationToolLoopCreate.js"
 import { providerDeterministicScenarioResolve } from "../../providers/runtime/providerDeterministicScenarioResolve.js"
 import { providerExecutionEventFromStreamChunk } from "../../providers/runtime/providerExecutionEventFromStreamChunk.js"
 import type { ProviderModelDiscoveryOptions } from "../../providers/runtime/providerModelDiscovery.js"
-import type { ProviderCatalog } from "../../providers/schema/providerCatalogSchema.js"
-import { providerAgentCatalogExecutionResolve } from "../../providers/catalog/providerAgentCatalogExecutionResolve.js"
 import { providerRuntimeAdapterCreate } from "../../providers/runtime/providerRuntimeAdapterCreate.js"
 import { providerRuntimeAdapterResolve } from "../../providers/runtime/providerRuntimeAdapterResolve.js"
+import type { ProviderCatalog } from "../../providers/schema/providerCatalogSchema.js"
 import { runCancellationCoordinatorCreate } from "../../run/actions/runCancellationCoordinatorCreate.js"
 import { runChildCreate } from "../../run/actions/runChildCreate.js"
 import { runCreate } from "../../run/actions/runCreate.js"
@@ -48,9 +48,11 @@ import { sessionCreate } from "../actions/sessionCreate.js"
 import { sessionDelete } from "../actions/sessionDelete.js"
 import { sessionList } from "../actions/sessionList.js"
 import { sessionLoad } from "../actions/sessionLoad.js"
+import { sessionWatch } from "../actions/sessionWatch.js"
 import { sessionChatRequestSchema } from "../schema/sessionChatRequestSchema.js"
 import { sessionCreateRequestSchema } from "../schema/sessionCreateRequestSchema.js"
 import { sessionQuerySchema } from "../schema/sessionQuerySchema.js"
+import { sessionWatchRequestSchema } from "../schema/sessionWatchRequestSchema.js"
 
 type ApiContext = Context<AppEnvironment>
 
@@ -83,6 +85,8 @@ type ApiSessionRoutesOptions = {
   providerAgentCatalog?: ProviderCatalog
   providerEnvironment?: Readonly<Record<string, string | undefined>>
   providerFetch?: NonNullable<ProviderModelDiscoveryOptions["fetch"]>
+  projectRootDir?: string
+  projectRootDirs?: readonly string[]
   providerDelegationToolLoopCreate?: typeof providerDelegationToolLoopCreate
   providerRuntimeAdapterCreate?: typeof providerRuntimeAdapterCreate
   runCreate?: typeof runCreate
@@ -286,9 +290,13 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     if (!parsed.success) return badRequest(context, "The session request is invalid.")
 
     const result = await databaseTransactionRun(context.var.database, (transaction) =>
-      sessionCreate(transaction, userId, parsed.data),
+      sessionCreate(transaction, userId, parsed.data, {
+        projectRootDirs: options.projectRootDir === undefined ? options.projectRootDirs : [options.projectRootDir],
+      }),
     )
     if (!result.success) {
+      if (result.errorMessage.includes("project path"))
+        return badRequest(context, "The session project path is invalid.")
       if (result.errorMessage.includes("could not be found")) return notFound(context)
       return internalServerError(context)
     }
@@ -657,6 +665,27 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     if (!result.success)
       return result.errorMessage.includes("could not be found") ? notFound(context) : internalServerError(context)
     return context.json(result.data)
+  })
+
+  api.patch("/sessions/:sessionId/watch", async (context) => {
+    const body = await context.req.json<unknown>().catch(() => undefined)
+    const parsed = apiRequestParse("sessionWatchRequestParse", sessionWatchRequestSchema, body)
+    if (!parsed.success) return badRequest(context, "The session watch request is invalid.")
+
+    const result = await databaseTransactionRun(context.var.database, (transaction) =>
+      sessionWatch(
+        transaction,
+        context.var.requestIdentity.userId,
+        context.req.param("sessionId"),
+        parsed.data.watched,
+      ),
+    )
+    if (!result.success) {
+      if (result.errorMessage === "The session is archived.") return conflict(context, result.errorMessage)
+      if (result.errorMessage.includes("could not be found")) return notFound(context)
+      return internalServerError(context)
+    }
+    return context.json({ session: result.data })
   })
 
   api.post("/sessions/:sessionId/archive", async (context) => {

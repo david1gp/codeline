@@ -1,6 +1,8 @@
 import { createSignalObject } from "@adaptive-ds/solid-ui/utils/createSignalObject"
 import { sessionBranchTreeStateCreate } from "../sessionBranchTreeStateCreate.js"
 import type { SessionListState } from "../sessionListStateCreate.js"
+import { sessionSidebarDerive } from "../sessionSidebarDerive.js"
+import type { SessionSidebarTab } from "../sessionSidebarTab.js"
 import type { DemoSessionScreenVariant } from "./demoSessionScreenVariant.js"
 import { demoWorkspaceSessionsFixture } from "./demoWorkspaceSessionsFixture.js"
 
@@ -12,6 +14,18 @@ type DemoSessionListStateOptions = {
 export function demoSessionListStateCreate(options: DemoSessionListStateOptions): SessionListState {
   const query = createSignalObject("")
   const isEmptyVariant = () => options.variant() === "empty"
+  const activeTab = createSignalObject<SessionSidebarTab>("recent")
+  const sidebarTabs = () =>
+    sessionSidebarDerive(
+      isEmptyVariant()
+        ? []
+        : demoWorkspaceSessionsFixture.map((session) => ({
+            ...session,
+            projectPath: "~",
+            watched: true,
+          })),
+      [],
+    )
   const sessions = () => {
     if (isEmptyVariant()) return []
     const term = query.get().trim().toLowerCase()
@@ -34,9 +48,23 @@ export function demoSessionListStateCreate(options: DemoSessionListStateOptions)
     retry: () => query.set(""),
     roots: branchTree.roots,
     selectedAncestry: branchTree.selectedAncestry,
-    selectSession: (sessionId: string) => {
-      if (branchTree.isLeaf(sessionId)) options.selectedSessionId.set(sessionId)
+    sidebar: {
+      activeTab: activeTab.get,
+      activeRows: () => {
+        const tab = activeTab.get()
+        if (tab === "projects") return []
+        return sidebarTabs()[tab]
+      },
+      projectGroups: () => sidebarTabs().projects,
+      selectTab: activeTab.set,
+      tabs: sidebarTabs,
     },
-    updateQuery: query.set,
+    selectSession: (sessionId: string) => {
+      options.selectedSessionId.set(sessionId)
+    },
+    updateQuery: (value: string) => {
+      activeTab.set("search")
+      query.set(value)
+    },
   }
 }

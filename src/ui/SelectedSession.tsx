@@ -1,4 +1,6 @@
+import { mdiEyeOffOutline, mdiEyeOutline } from "@mdi/js"
 import { For, Match, Show, Switch } from "solid-js"
+import { ButtonIconOnly } from "#ui/interactive/button/ButtonIconOnly.jsx"
 import { FinalizedMessage } from "../message/ui/FinalizedMessage.js"
 import type { providerModelSelectorStateCreate } from "../providers/ui/providerModelSelectorStateCreate.js"
 import { SessionRenameControl } from "../session/ui/SessionRenameControl.js"
@@ -50,9 +52,28 @@ export function SelectedSession(props: {
                 <div class="mx-auto w-full max-w-[820px] min-w-0">
                   <header class="mb-4 border-line-subtle border-b pb-3">
                     <p class="m-0 text-[11px] text-faint">Conversation</p>
-                    <div class="mt-1 text-lg font-semibold tracking-[-0.02em]">
-                      <SessionRenameControl state={props.state.renameState()!} />
+                    <div class="mt-1 flex min-w-0 items-start justify-between gap-2 text-lg font-semibold tracking-[-0.02em]">
+                      <div class="min-w-0 flex-1">
+                        <SessionRenameControl state={props.state.renameState()!} />
+                      </div>
+                      <ButtonIconOnly
+                        class="mt-0.5 size-8 shrink-0 text-faint hover:bg-surface-hover hover:text-accent"
+                        icon={props.state.watchState()!.watched() ? mdiEyeOutline : mdiEyeOffOutline}
+                        iconClass="size-4"
+                        isLoading={props.state.watchState()!.isSaving()}
+                        title={props.state.watchState()!.watched() ? "Stop watching session" : "Watch session"}
+                        aria-label={props.state.watchState()!.watched() ? "Stop watching session" : "Watch session"}
+                        aria-pressed={props.state.watchState()!.watched()}
+                        onClick={props.state.watchState()!.toggle}
+                      />
                     </div>
+                    <Show when={props.state.watchState()!.errorMessage()}>
+                      {(message) => (
+                        <p class="mt-1 mb-0 text-xs font-normal text-danger" role="alert">
+                          {message()}
+                        </p>
+                      )}
+                    </Show>
                   </header>
 
                   <Switch>

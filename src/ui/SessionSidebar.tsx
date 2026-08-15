@@ -1,9 +1,14 @@
+import { mdiPlus } from "@mdi/js"
 import { Show } from "solid-js"
+import { ButtonIcon } from "#ui/interactive/button/ButtonIcon.jsx"
+import { NewProjectDialog } from "./NewProjectDialog.js"
 import { SessionList } from "./SessionList.js"
+import type { ActiveProjectState } from "./activeProjectStateCreate.js"
 import type { SessionListState } from "./sessionListStateCreate.js"
 import type { SessionTargetSelectorState } from "./sessionTargetSelectorStateCreate.js"
 
 export function SessionSidebar(props: {
+  activeProject: ActiveProjectState
   close?: () => void
   headingId?: string
   idPrefix?: string
@@ -19,29 +24,6 @@ export function SessionSidebar(props: {
             Sessions
           </h2>
           <div class="flex items-center gap-1.5">
-            <button
-              class="flex h-8 items-center justify-center gap-1.5 rounded-[7px] border border-line bg-surface-hover px-2.5 text-xs font-medium text-faint transition-colors hover:border-accent-border hover:bg-surface-sunken hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
-              type="button"
-              disabled={!props.sessionTarget.canCreateSession()}
-              title="Start a new session with the selected agent"
-              onClick={() => void props.sessionTarget.sessionCreateStart()}
-            >
-              <svg
-                width="12"
-                height="12"
-                viewBox="0 0 12 12"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                aria-hidden="true"
-              >
-                <path d="M6 1v10M1 6h10" />
-              </svg>
-              <Show when={props.sessionTarget.isCreatingSession()} fallback="New">
-                Creating
-              </Show>
-            </button>
             <Show when={props.close !== undefined}>
               <button
                 class="flex h-8 items-center justify-center rounded-[7px] border border-line bg-surface-hover px-2.5 text-xs text-faint hover:text-strong"
@@ -55,9 +37,23 @@ export function SessionSidebar(props: {
             </Show>
           </div>
         </div>
+        <ButtonIcon
+          class="mt-3 h-9 w-full justify-center rounded-[7px] border border-accent-border bg-accent-soft px-3 text-sm font-semibold text-accent hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={!props.sessionTarget.canCreateSession()}
+          icon={mdiPlus}
+          iconClass="size-4"
+          isLoading={props.sessionTarget.isCreatingSession()}
+          title="Start a new session with the selected agent"
+          onClick={() => void props.sessionTarget.sessionCreateStart()}
+        >
+          New Session
+        </ButtonIcon>
+        <div class="mt-1">
+          <NewProjectDialog activeProject={props.activeProject} idPrefix={props.idPrefix ?? "desktop-session"} />
+        </div>
         <Show when={props.sessionTarget.sessionCreateStatus() === "error"}>
           <p class="mt-2 mb-0 text-[11px] text-danger" role="alert">
-            The new session could not be created. Select New to retry.
+            The new session could not be created. Select New Session to retry.
           </p>
         </Show>
       </header>

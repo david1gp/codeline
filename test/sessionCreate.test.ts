@@ -14,6 +14,7 @@ import { sessionDelete } from "../src/session/actions/sessionDelete.js"
 import { sessionList } from "../src/session/actions/sessionList.js"
 import { sessionLoad } from "../src/session/actions/sessionLoad.js"
 import { sessionRename } from "../src/session/actions/sessionRename.js"
+import { sessionWatch } from "../src/session/actions/sessionWatch.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
 
@@ -68,7 +69,10 @@ test.skipIf(!databaseAvailable)("session actions create idempotently and enforce
   }
 
   const created = await sessionCreate(database, userId, input)
-  expect(created).toMatchObject({ success: true, data: { created: true, session: { title: "Initial title" } } })
+  expect(created).toMatchObject({
+    success: true,
+    data: { created: true, session: { projectPath: "~", title: "Initial title", watched: true } },
+  })
   if (!created.success) return
 
   const repeated = await sessionCreate(database, userId, { ...input, title: "Changed title" })
@@ -96,10 +100,24 @@ test.skipIf(!databaseAvailable)("session actions create idempotently and enforce
   )
   expect(unauthorizedRename).toMatchObject({ success: false, errorMessage: "The session could not be found." })
 
+  const unwatched = await sessionWatch(database, userId, created.data.session.id, false)
+  expect(unwatched).toMatchObject({ success: true, data: { watched: false } })
+  const unauthorizedWatch = await sessionWatch(
+    database,
+    "development:unknown-session-user",
+    created.data.session.id,
+    true,
+  )
+  expect(unauthorizedWatch).toMatchObject({ success: false, errorMessage: "The session could not be found." })
+  const watched = await sessionWatch(database, userId, created.data.session.id, true)
+  expect(watched).toMatchObject({ success: true, data: { watched: true } })
+
   const archived = await sessionArchive(database, userId, created.data.session.id)
   expect(archived).toMatchObject({ success: true, data: { archivedAt: expect.any(Date) } })
   const renamedArchived = await sessionRename(database, userId, created.data.session.id, "Archived title")
   expect(renamedArchived).toMatchObject({ success: false, errorMessage: "The session is archived." })
+  const watchedArchived = await sessionWatch(database, userId, created.data.session.id, false)
+  expect(watchedArchived).toMatchObject({ success: false, errorMessage: "The session is archived." })
   const withoutArchived = await sessionList(database, userId, { includeArchived: false, limit: 100 })
   expect(withoutArchived).toMatchObject({ success: true, data: { rows: [] } })
   const withArchived = await sessionList(database, userId, { includeArchived: true, limit: 100 })

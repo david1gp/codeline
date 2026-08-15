@@ -7,7 +7,9 @@ import * as v from "valibot"
 import type { AppEnvironment } from "../src/api/appEnvironment.js"
 import { apiErrorResponseSchema } from "../src/api/errors/apiErrorResponseSchema.js"
 import { apiProjectRoutesAdd } from "../src/project/api/apiProjectRoutesAdd.js"
+import { projectApiDirectoryConfirmResponseSchema } from "../src/project/api/projectApiDirectoryConfirmResponseSchema.js"
 import { projectApiDirectoryResponseSchema } from "../src/project/api/projectApiDirectoryResponseSchema.js"
+import { projectApiDirectorySuggestionsResponseSchema } from "../src/project/api/projectApiDirectorySuggestionsResponseSchema.js"
 import { projectApiListResponseSchema } from "../src/project/api/projectApiListResponseSchema.js"
 import { projectApiMetadataResponseSchema } from "../src/project/api/projectApiMetadataResponseSchema.js"
 import { projectApiPreviewResponseSchema } from "../src/project/api/projectApiPreviewResponseSchema.js"
@@ -49,6 +51,32 @@ describe("project HTTP routes", () => {
     const textBody = await text.json()
     expect(v.safeParse(projectApiTextResponseSchema, textBody).success).toBe(true)
     expect(textBody.content).toBe("export const example = true\n")
+  })
+
+  test("suggests configured directories and confirms a canonical project folder", async () => {
+    const suggestions = await app.request("http://codeline.test/project/suggestions?path=s")
+    expect(suggestions.status).toBe(200)
+    const suggestionsBody = await suggestions.json()
+    expect(v.safeParse(projectApiDirectorySuggestionsResponseSchema, suggestionsBody).success).toBe(true)
+    expect(suggestionsBody).toEqual({ suggestions: [{ label: "src", path: path.join(rootDir, "src") }] })
+
+    const confirmed = await app.request("http://codeline.test/project/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: path.join(rootDir, "src") }),
+    })
+    expect(confirmed.status).toBe(200)
+    const confirmedBody = await confirmed.json()
+    expect(v.safeParse(projectApiDirectoryConfirmResponseSchema, confirmedBody).success).toBe(true)
+    expect(confirmedBody).toEqual({ project: { label: "src", path: path.join(rootDir, "src") } })
+
+    const outside = await app.request("http://codeline.test/project/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: os.tmpdir() }),
+    })
+    expect(outside.status).toBe(400)
+    expect(JSON.stringify(await outside.json())).not.toContain(rootDir)
   })
 
   test("marks the legacy single-root list without changing the direct-route contract", async () => {

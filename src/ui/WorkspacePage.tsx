@@ -14,7 +14,11 @@ export function WorkspacePage(props: { state: WorkspaceScreenView }) {
     <ApplicationShell
       state={props.state.shell}
       leftSidebar={
-        <SessionSidebar sessionList={props.state.sessionList} sessionTarget={props.state.sessionTargetSelector} />
+        <SessionSidebar
+          activeProject={props.state.activeProject}
+          sessionList={props.state.sessionList}
+          sessionTarget={props.state.sessionTargetSelector}
+        />
       }
       rightPanel={<FilesPanel close={props.state.shell.rightPanelClose} state={props.state.files} />}
       rightPanelLabel="Project files"
@@ -35,6 +39,7 @@ export function WorkspacePage(props: { state: WorkspaceScreenView }) {
           ref={state.sessionDrawerElement}
         >
           <SessionSidebar
+            activeProject={props.state.activeProject}
             close={state.sessionDrawerClose}
             headingId="mobile-session-drawer-heading"
             idPrefix="mobile-session"

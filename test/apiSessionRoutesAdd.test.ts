@@ -75,7 +75,10 @@ test.skipIf(!databaseAvailable)(
     })
     const createdBody = await created.json()
     expect(created.status).toBe(201)
-    expect(createdBody).toMatchObject({ created: true, session: { title: "HTTP session" } })
+    expect(createdBody).toMatchObject({
+      created: true,
+      session: { projectPath: "~", title: "HTTP session", watched: true },
+    })
     const sessionId = createdBody.session.id as string
 
     const repeated = await app.request("http://codeline.test/api/sessions", {
@@ -102,9 +105,24 @@ test.skipIf(!databaseAvailable)(
     expect(renamed.status).toBe(200)
     expect(await renamed.json()).toMatchObject({ session: { title: "Renamed HTTP session" } })
 
+    const unwatched = await app.request(`http://codeline.test/api/sessions/${sessionId}/watch`, {
+      body: JSON.stringify({ watched: false }),
+      headers: { "Content-Type": "application/json" },
+      method: "PATCH",
+    })
+    expect(unwatched.status).toBe(200)
+    expect(await unwatched.json()).toMatchObject({ session: { id: sessionId, watched: false } })
+
     const archived = await app.request(`http://codeline.test/api/sessions/${sessionId}/archive`, { method: "POST" })
     expect(archived.status).toBe(200)
     expect(await archived.json()).toMatchObject({ session: { id: sessionId, archivedAt: expect.any(String) } })
+
+    const watchArchived = await app.request(`http://codeline.test/api/sessions/${sessionId}/watch`, {
+      body: JSON.stringify({ watched: true }),
+      headers: { "Content-Type": "application/json" },
+      method: "PATCH",
+    })
+    expect(watchArchived.status).toBe(409)
 
     const defaultList = await app.request("http://codeline.test/api/sessions")
     expect(defaultList.status).toBe(200)
@@ -143,6 +161,21 @@ test.skipIf(!databaseAvailable)("session HTTP routes validate requests and curso
   })
   expect(invalidCreate.status).toBe(400)
   expect(await invalidCreate.json()).toMatchObject({ error: { code: "bad_request" } })
+
+  const invalidProject = await app.request("http://codeline.test/api/sessions", {
+    body: JSON.stringify({
+      clientRequestId: `session-http-invalid-project-${uuidv7()}`,
+      metadata: {},
+      primaryAgentId: agentId,
+      projectPath: "/",
+      serverId,
+      title: "Invalid project path",
+    }),
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+  })
+  expect(invalidProject.status).toBe(400)
+  expect(await invalidProject.json()).toMatchObject({ error: { code: "bad_request" } })
 
   const invalidQuery = await app.request("http://codeline.test/api/sessions?limit=0")
   expect(invalidQuery.status).toBe(400)

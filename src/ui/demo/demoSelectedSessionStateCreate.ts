@@ -6,6 +6,7 @@ import { demoSessionMessagesFixture } from "./demoSessionMessagesFixture.js"
 import type { DemoSessionScreenVariant } from "./demoSessionScreenVariant.js"
 import { demoSessionRenameFetch } from "./demoSessionRenameFetch.js"
 import { demoWorkspaceSessionsFixture } from "./demoWorkspaceSessionsFixture.js"
+import { sessionWatchToggleStateCreate } from "../sessionWatchToggleStateCreate.js"
 
 type DemoSelectedSessionStateOptions = {
   selectedSessionId: { get: () => string | null }
@@ -16,10 +17,25 @@ export function demoSelectedSessionStateCreate(options: DemoSelectedSessionState
   const chat = demoSessionChatStateCreate(options.variant)
   const copyStates = new Map<string, ReturnType<typeof finalizedMessageCopyStateCreate>>()
   const renameStates = new Map<string, ReturnType<typeof sessionRenameControlStateCreate>>()
+  const watchStates = new Map<string, ReturnType<typeof sessionWatchToggleStateCreate>>()
   const session = () => {
     if (options.variant() === "empty") return undefined
     const sessionId = options.selectedSessionId.get()
-    return demoWorkspaceSessionsFixture.find((candidate) => candidate.id === sessionId)
+    const current = demoWorkspaceSessionsFixture.find((candidate) => candidate.id === sessionId)
+    return current === undefined ? undefined : { ...current, watched: true }
+  }
+  const watchState = () => {
+    const current = session()
+    if (!current) return undefined
+    const existing = watchStates.get(current.id)
+    if (existing) return existing
+    const created = sessionWatchToggleStateCreate({
+      fetcher: async () => Response.json({ session: current }),
+      sessionId: () => current.id,
+      watched: () => current.watched,
+    })
+    watchStates.set(current.id, created)
+    return created
   }
   const messages = () =>
     options.variant() === "ready" || options.variant() === "streaming"
@@ -58,6 +74,7 @@ export function demoSelectedSessionStateCreate(options: DemoSelectedSessionState
     retryMessages: () => undefined,
     retrySession: () => undefined,
     session,
+    watchState,
   }
 }
 

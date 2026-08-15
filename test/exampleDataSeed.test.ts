@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
+import { dirname, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 import { and, eq, inArray } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/postgres-js"
 import postgres from "postgres"
@@ -9,13 +11,11 @@ import { exampleDataFixture } from "../src/database/exampleDataFixture.js"
 import { exampleDataSeed } from "../src/database/exampleDataSeed.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { messageTable } from "../src/message/db/messageTable.js"
+import { providerAgentCatalogLoad } from "../src/providers/catalog/providerAgentCatalogLoad.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
 import { simulationScenarioSessionMetadata } from "../src/simulation/simulationScenarioSessionMetadata.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
-import { providerAgentCatalogLoad } from "../src/providers/catalog/providerAgentCatalogLoad.js"
-import { dirname, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
 
 const client = postgres(Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline")
 const database = drizzle(client, { schema: databaseSchema })
@@ -122,6 +122,8 @@ test("the typed fixture has stable counts, IDs, timestamps, and content", () => 
   expect(exampleDataFixture.sessions.slice(4).map((session) => session.primaryAgentId)).toEqual(
     Object.values(simulationScenarioSessionMetadata).map((scenario) => scenario.agentId),
   )
+  expect(exampleDataFixture.sessions.every((session) => session.projectPath === "~")).toBe(true)
+  expect(exampleDataFixture.sessions.map((session) => session.watched).slice(0, 4)).toEqual([true, false, true, true])
 })
 
 test.skipIf(!databaseAvailable)("reset preserves unrelated data and descendant links", async () => {
@@ -202,6 +204,8 @@ test.skipIf(!databaseAvailable)("reset preserves unrelated data and descendant l
   expect(sessions.find((session) => session.id === "example-session-active-2")?.parentSessionId).toBe(
     "example-session-active-1",
   )
+  expect(sessions.find((session) => session.id === "example-session-active-2")?.projectPath).toBe("~")
+  expect(sessions.find((session) => session.id === "example-session-active-2")?.watched).toBe(false)
   expect(messages).toHaveLength(8)
   expect(messages.find((message) => message.id === "example-message-active-2-assistant")?.content).toBe(
     "The synchronized message view is available.",

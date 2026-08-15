@@ -1,6 +1,7 @@
 import type { SessionChatState } from "./sessionChatStateCreate.js"
 import type { finalizedMessageCopyStateCreate } from "../message/ui/finalizedMessageCopyStateCreate.js"
 import type { sessionRenameControlStateCreate } from "../session/ui/sessionRenameControlStateCreate.js"
+import type { sessionWatchToggleStateCreate } from "./sessionWatchToggleStateCreate.js"
 
 export type SelectedSessionViewMessage = {
   copyState: ReturnType<typeof finalizedMessageCopyStateCreate>
@@ -30,6 +31,7 @@ export type SelectedSessionView = {
   isSessionLoading: () => boolean
   messages: () => ReadonlyArray<SelectedSessionViewMessage>
   renameState: () => ReturnType<typeof sessionRenameControlStateCreate> | undefined
+  watchState: () => ReturnType<typeof sessionWatchToggleStateCreate> | undefined
   retryMessages: () => void
   retrySession: () => void
   session: () => SelectedSessionViewSession | undefined

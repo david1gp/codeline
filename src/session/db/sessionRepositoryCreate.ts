@@ -1,7 +1,7 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import { and, eq } from "drizzle-orm"
-import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { agentTable } from "../../agents/db/agentTable.js"
+import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { serverTable } from "../../servers/db/serverTable.js"
 import { uuidv7 } from "../../uuid/uuidv7.js"
 import { sessionTable } from "./sessionTable.js"
@@ -12,9 +12,11 @@ export async function sessionRepositoryCreate(
   input: {
     clientRequestId: string
     primaryAgentId: string
+    projectPath?: string
     serverId: string
     title: string
     metadata: Record<string, string>
+    watched?: boolean
   },
 ): Promise<Result<{ created: boolean; session: typeof sessionTable.$inferSelect }>> {
   const op = "sessionRepositoryCreate"
@@ -48,9 +50,11 @@ export async function sessionRepositoryCreate(
         clientRequestId: input.clientRequestId,
         metadata: input.metadata,
         primaryAgentId: input.primaryAgentId,
+        projectPath: input.projectPath ?? "~",
         serverId: input.serverId,
         title: input.title,
         userId,
+        watched: input.watched ?? true,
       })
       .onConflictDoNothing({ target: [sessionTable.userId, sessionTable.clientRequestId] })
       .returning()
