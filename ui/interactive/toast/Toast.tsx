@@ -44,7 +44,6 @@ function ToastHeader(p: ToastHeaderProps) {
         variant={buttonVariant.ghost}
         title={p.texts.close}
         icon={mdiClose}
-        iconClass={"text-white fill-white"}
         onClick={() => toastDismiss(p.id)}
       />
     </div>
