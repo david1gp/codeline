@@ -32,13 +32,18 @@ Provider OAuth, Pi ecosystem integrations, MCP, full-text web search, custom scr
 
 ## Source Layout
 
-Top-level folders under `src/` are bounded contexts. Each domain context owns its own layers:
+The repository root contains checked-in provider model definitions and agent configurations alongside application source code:
 
 ```txt
+providers/
+├── cliproxyapi/{model}.yml
+└── codex-lb/{model}.yml
+agents/
+└── {name}.md
 src/
 ├── identity/{api,db}
 ├── servers/{api,actions,db,schema}
-├── agents/{api,actions,db,schema}
+├── agents/{actions,api,db,schema}
 ├── session/{api,actions,db,schema}
 ├── message/{api,actions,db,schema}
 ├── stream/db
@@ -46,10 +51,13 @@ src/
 ├── api/
 ├── app/
 ├── configuration/
+├── providers/{api,catalog,runtime,schema,ui}
 ├── server/
 └── ui/
 ```
 
+- `providers/{provider}/{model}.yml` defines provider model metadata, connection parameters, capabilities, costs, and effort variants.
+- `agents/{name}.md` defines primary agents and subagents via YAML frontmatter and Markdown prompt bodies.
 - `schema/` holds Valibot request and query contracts for that context.
 - `api/` holds Hono route registration only.
 - `actions/` holds application operations such as `sessionCreate` and `serverList`.
@@ -67,9 +75,14 @@ Health and readiness:
 - `GET /health` and `GET /api/health` return the Codeline health response.
 - `GET /api/ready` reports process readiness.
 
-Workspace data:
+Workspace and catalog data:
 
 - `GET /api/servers` and `GET /api/servers/:serverId/agents`
+- `GET /api/servers/:serverId/agents/:agentId`, `POST /api/servers/:serverId/agents`, `PATCH /api/servers/:serverId/agents/:agentId`
+- `POST /api/servers/:serverId/agents/models`, `POST /api/servers/:serverId/agents/connection-test`
+- `POST /api/servers/:serverId/agents/:agentId/models`, `POST /api/servers/:serverId/agents/:agentId/connection-test`
+- `GET /api/providers/catalog` (returns redacted catalog providers, models, and agents)
+- `POST /api/providers/models`, `POST /api/providers/connection-test`
 - `GET /api/sessions`, `POST /api/sessions`
 - `GET /api/sessions/:sessionId`, `PATCH /api/sessions/:sessionId`
 - `POST /api/sessions/:sessionId/archive`, `DELETE /api/sessions/:sessionId`
@@ -80,6 +93,54 @@ Test seams:
 - `POST /api/testing/echo` accepts `{ "message": "..." }` and rejects an empty or invalid message with a structured `400`.
 - `GET /api/testing/errors/bad-request` and `GET /api/testing/errors/internal-server-error` return deterministic structured errors.
 - `GET /api/testing/stream` returns `text/event-stream` events with sequential IDs. `scenario` is `normal`, `error`, `unexpected-end`, or `idle-timeout`; optional `delayMs` and `idleTimeoutMs` values must be between 1 and 60000 milliseconds.
+
+## Provider and Agent Catalogs
+
+Codeline defines provider models and agent configurations through checked-in filesystem files in the repository root.
+
+### Provider Model Catalog (`providers/{provider}/{model}.yml`)
+
+- **ID and File Naming**:
+  - Provider ID derives from the parent directory name `providers/{provider}` (`cliproxy` normalizes to `cliproxyapi`). IDs use lowercase alphanumeric characters, dots, underscores, and hyphens (`[a-z0-9](?:[a-z0-9._-]*[a-z0-9_-])?`).
+  - Model ID derives from the filename stem `{model}.yml`. This exact model ID is used for execution and selection. If specified in YAML, `model:` must match the filename stem.
+- **Provider Connection Agreement**: Every model file is self-contained. All files within a provider directory must agree on provider-level settings (`baseUrl`, `apiKey`, `env`, `transport`, `providerOptions`, `providerDisplayName` / `name`, `providerEnabled` / `enabled`).
+- **Environment-Reference Credentials**: Credentials (`apiKey`, `env`, or nested `options.apiKey`) must use uppercase environment variable references (e.g. `apiKey: $CODEX_LB_API_TOKEN`, `env: [$SUBS_CONTENTOREN_DE_API_KEY]`). Literal secret values are never committed or exposed via API responses; secrets resolve at execution time from server environment variables.
+- **Transports and Disabled Models**: Supported transports are `openai/completions` and `openai/responses`. Other transport metadata, including `aisdk` and `anthropic/messages`, remains cataloged, but models using those transports are disabled for execution and selection until a matching adapter exists. Models explicitly set to `enabled: false` / `disabled: true` are also disabled.
+- **Model Metadata**:
+  - `name`: Display name (defaults to the model ID).
+  - `family`: Optional model family string (e.g. `gpt-5.6`).
+  - `status`: Lifecycle status (`active`, `alpha`, `beta`, `deprecated`; defaults to `active`).
+  - `reasoning`: Boolean indicating reasoning capability.
+  - `limit`: Context window and output limits (e.g. `context: 272000`, `output: 128000`, optional `input`).
+  - `modalities` / `capabilities`: Modality arrays for `input` and `output` (e.g. `[text, image]`), and `tools` boolean.
+  - `cost`: Tiered pricing array with `input`, `output`, `cacheRead`, `cacheWrite`, and optional context tier (`tier: { type: "context", size: 200000 }`).
+  - `variants`: Array of model variants defining reasoning effort (`minimal`, `low`, `medium`, `high`, `xhigh`, `max`) and variant-specific `options`.
+
+### Agent Catalog (`agents/{name}.md`)
+
+- **ID and File Naming**: Agent ID derives from the filename stem `agents/{name}.md`.
+- **Frontmatter**:
+  - `description`: Agent purpose and role summary.
+  - `mode`: `primary` (direct implementation) or `subagent` (delegated execution; default).
+  - `model`: Model reference (e.g. `codex-lb/gpt-5.6-sol` or `gpt-5.6-luna`). If omitted, inherits the project catalog default.
+  - `provider`: Optional provider ID override.
+  - `variant` / `effort`: Model variant or reasoning effort choice (`low`, `medium`, `high`, `xhigh`, `max`).
+  - `permission`: Bounded nested permission rules (`allow`, `ask`, `deny`) for actions like `task` and `question`.
+  - `generation`: Optional transport-supported generation parameters (e.g. `reasoningEffort`). Stale or unsupported generation defaults (such as arbitrary `maxTokens: 100000` or `temperature: 0.7`) are omitted.
+  - `enabled`: Boolean availability (defaults to `true`).
+- **Markdown Body**: The non-empty system prompt defining the agent's instructions, role, and workflow.
+
+### UI Grouped Selector Behavior
+
+The session model selector organizes available models into non-selectable provider group headers (e.g. `codex-lb`, `cliproxyapi`) with selectable model items underneath. Reasoning effort controls dynamically populate choices based on the selected model's configured `variants`.
+
+### Deterministic Seed and Reconcile
+
+Catalog models and agents are deterministically loaded, SHA-256 revisioned, and compiled into the Git-backed configuration store under `example-server-local` during seeding:
+
+```bash
+bun run db:seed
+```
 
 ## Local Development
 
@@ -167,7 +228,7 @@ bun run db:generate
 ./ops/dev/codeline-dev.sh migrate
 ```
 
-Seed deterministic local example data through the repository-owned command. It applies Drizzle migrations first, then reconciles the local-development user, two servers, three agents, three active sessions, one archived session, and finalized messages. Repeated default runs preserve unrelated rows; `--reset` removes and recreates only the known fixture-owned rows.
+Seed deterministic local example data through the repository-owned command. It applies Drizzle migrations first, reconciles the local-development user, two servers, three fixture agents, active and archived sessions, and finalized messages, and reconciles catalog provider models and agents from `providers/` and `agents/` into the Git-backed configuration store under `example-server-local`. Repeated default runs preserve unrelated rows; `--reset` removes and recreates only the known fixture-owned rows.
 
 ```bash
 bun run db:seed
