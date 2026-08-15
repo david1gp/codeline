@@ -45,7 +45,11 @@ required_env=(
   POSTGRES_USER
   DATABASE_URL
   PORT
+  PUBLIC_ORIGIN
   UI_PORT
+  VITE_ZERO_CACHE_URL
+  VITE_ZERO_MUTATE_URL
+  VITE_ZERO_QUERY_URL
   ZERO_ADMIN_PASSWORD
   ZERO_APP_ID
   ZERO_CHANGE_DB
@@ -63,6 +67,26 @@ for name in "${required_env[@]}"; do
 done
 [[ -d "$ZERO_CHECKOUT" ]] || fail "Zero checkout not found: $ZERO_CHECKOUT"
 
+# Browser and cache must share PUBLIC_ORIGIN. Loopback query URLs break the
+# Zero allowlist when the UI is reached through the HTTPS preview origin.
+public_origin=${PUBLIC_ORIGIN%/}
+[[ "$public_origin" == http://* || "$public_origin" == https://* ]] ||
+  fail "PUBLIC_ORIGIN must be an absolute http(s) origin"
+expected_zero_cache_url=$public_origin
+expected_zero_query_url="$public_origin/api/query"
+expected_zero_mutate_url="$public_origin/api/mutate"
+require_matching_url() {
+  local name=$1 expected=$2
+  [[ "${!name}" == "$expected" ]] ||
+    fail "$name must equal $expected (derived from PUBLIC_ORIGIN); do not point Zero query/mutate URLs at 127.0.0.1 while the UI uses the preview origin"
+}
+require_matching_url VITE_ZERO_CACHE_URL "$expected_zero_cache_url"
+require_matching_url VITE_ZERO_QUERY_URL "$expected_zero_query_url"
+require_matching_url VITE_ZERO_MUTATE_URL "$expected_zero_mutate_url"
+require_matching_url ZERO_QUERY_URL "$expected_zero_query_url"
+require_matching_url ZERO_MUTATE_URL "$expected_zero_mutate_url"
+export VITE_ZERO_CACHE_URL VITE_ZERO_QUERY_URL VITE_ZERO_MUTATE_URL ZERO_QUERY_URL ZERO_MUTATE_URL
+
 compose() {
   command -v podman >/dev/null 2>&1 || fail "podman is required"
   # Use the user's configured rootless defaults; Codeline must not create custom roots.
@@ -75,6 +99,7 @@ Usage: ops/dev/codeline-dev.sh <command> [args]
 
 Commands:
   build             Build the local Zero image from the sibling checkout; does not start containers.
+  clean             Stop the managed target if present, then remove containers and named volumes including the Zero replica.
   config            Resolve Compose configuration without printing it.
   down              Stop and remove containers, keeping named volumes.
   help              Show this help.
@@ -94,6 +119,12 @@ EOF
 
 case "${1:-help}" in
   build) compose build zero-cache ;;
+  clean)
+    if command -v systemctl >/dev/null 2>&1; then
+      systemctl --user stop codeline-dev.target 2>/dev/null || true
+    fi
+    compose down --remove-orphans --volumes
+    ;;
   config) compose config --quiet ;;
   down) compose down --remove-orphans ;;
   help) usage ;;
