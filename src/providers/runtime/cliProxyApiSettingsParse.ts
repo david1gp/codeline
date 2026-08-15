@@ -25,6 +25,7 @@ const cliProxyApiSettingsSchema = v.strictObject({
   ),
   model: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(200)),
   maxTokens: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(1_000_000)),
+  reasoningEffort: v.optional(v.picklist(["low", "medium", "high", "xhigh", "max"])),
   temperature: v.pipe(v.number(), v.finite(), v.minValue(0), v.maxValue(2)),
 })
 

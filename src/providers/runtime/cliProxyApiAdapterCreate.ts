@@ -124,6 +124,7 @@ async function* cliProxyApiAdapterProviderGenerate(
     modelOptions: {
       max_tokens: options.settings.maxTokens,
       temperature: options.settings.temperature,
+      ...(options.settings.reasoningEffort === undefined ? {} : { reasoning_effort: options.settings.reasoningEffort }),
       ...(input.tools !== undefined && input.tools.length > 0 ? { parallel_tool_calls: false } : {}),
     },
     request: { signal: input.signal },

@@ -211,7 +211,7 @@ async function sessionChatAdmissionResolve(
   if (!resolved.success) return createResultError(op, resolved.errorMessage)
 
   if (options.sessionChatAdapter !== undefined) return createResult({ snapshot: resolved.data })
-  const runtime = agentConfigurationExecutionResolve(resolved.data.configuration, forwardedExecution)
+  const runtime = agentConfigurationExecutionResolve(resolved.data.configuration, forwardedExecution, target.agentId)
   if (!runtime.success) return createResultError(op, runtime.errorMessage)
   return createResult({ runtimeConfiguration: runtime.data, snapshot: resolved.data })
 }
@@ -350,6 +350,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
       const resolvedConfiguration = agentConfigurationExecutionResolve(
         loaded.data.agent.configuration,
         parsed.data.forwardedProps?.codelineExecution,
+        loaded.data.session.primaryAgentId,
       )
       if (!resolvedConfiguration.success) {
         if (resolvedConfiguration.errorMessage.includes("execution override"))

@@ -32,6 +32,9 @@ export function providerRuntimeAdapterCreate(options: ProviderRuntimeAdapterOpti
       baseUrl: options.configuration.baseUrl,
       maxTokens: options.configuration.generation?.maxTokens ?? 4096,
       model: options.configuration.model,
+      ...(options.configuration.generation?.reasoningEffort === undefined
+        ? {}
+        : { reasoningEffort: options.configuration.generation.reasoningEffort }),
       temperature: options.configuration.generation?.temperature ?? 0.7,
     },
   })
