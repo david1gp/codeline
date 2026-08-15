@@ -55,6 +55,8 @@ required_env=(
   ZERO_REPLICA_FILE
   ZERO_QUERY_URL
   ZERO_UPSTREAM_DB
+  CODEX_LB_API_TOKEN
+  CLIPROXYAPI_API_KEY
 )
 for name in "${required_env[@]}"; do
   [[ "${loaded_env[$name]:-}" == 1 && -n "${!name:-}" ]] || fail "$name is required in .env"

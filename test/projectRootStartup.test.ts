@@ -181,3 +181,16 @@ test("explicitly empty project roots expose no projects or filesystem fallback",
   expect(response.status).toBe(400)
   expect(JSON.stringify(await response.json())).not.toContain(process.cwd())
 })
+
+test("unconfigured app composition exposes no broad working-directory fallback", async () => {
+  const app = appCreate()
+
+  const list = await app.request("http://codeline.test/api/project/list")
+  expect(list.status).toBe(200)
+  expect(await list.json()).toEqual({ projects: [], truncated: false })
+  expect(list.headers.get("X-Codeline-Project-Mode")).toBeNull()
+
+  const response = await app.request("http://codeline.test/api/project/text?path=README.md")
+  expect(response.status).toBe(400)
+  expect(JSON.stringify(await response.json())).not.toContain(process.cwd())
+})

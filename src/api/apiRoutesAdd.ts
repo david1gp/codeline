@@ -118,7 +118,10 @@ export function apiRoutesAdd(
     callbackRoute: options.authCallbackRoute ?? app,
   })
   apiServerRoutesAdd(api)
-  apiAgentRoutesAdd(api)
+  apiAgentRoutesAdd(api, {
+    environment: options.providerEnvironment,
+    fetch: options.providerFetch,
+  })
   apiSessionRoutesAdd(api, options)
   apiRunRoutesAdd(api, {
     runCancel: options.runCancel,
@@ -132,7 +135,7 @@ export function apiRoutesAdd(
   } else if (options.projectRootDirs !== undefined) {
     apiProjectRoutesAdd(api, { limits: options.projectLimits, rootDirs: options.projectRootDirs })
   } else {
-    apiProjectRoutesAdd(api, { limits: options.projectLimits, rootDir: process.cwd() })
+    apiProjectRoutesAdd(api, { limits: options.projectLimits, rootDirs: [] })
   }
   apiProviderRoutesAdd(api, {
     configuration: options.providerConfiguration ?? { model: "development-default", provider: "deterministic" },

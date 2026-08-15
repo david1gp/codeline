@@ -85,11 +85,37 @@ test("the typed fixture has stable counts, IDs, timestamps, and content", () => 
     "example-agent-local",
     "example-agent-local-review",
     "example-agent-remote",
+    "example-agent-codex-lb-luna",
+    "example-agent-cliproxyapi-luna",
     ...Object.values(simulationScenarioSessionMetadata).map((scenario) => scenario.agentId),
   ])
   expect(
     exampleDataFixture.agents.every((agent) => exampleDataFixture.servers.some((s) => s.id === agent.serverId)),
   ).toBe(true)
+  expect(
+    exampleDataFixture.agents
+      .filter((agent) => agent.id.endsWith("-luna"))
+      .map((agent) => ({ id: agent.id, configuration: agent.configuration })),
+  ).toEqual([
+    {
+      id: "example-agent-codex-lb-luna",
+      configuration: {
+        provider: "codex-lb",
+        model: "gpt-5.6-luna",
+        baseUrl: "https://codex.contentoren.de/v1",
+        apiKey: "$CODEX_LB_API_TOKEN",
+      },
+    },
+    {
+      id: "example-agent-cliproxyapi-luna",
+      configuration: {
+        provider: "cliproxyapi",
+        model: "gpt-5.6-luna",
+        baseUrl: "https://subs.contentoren.de/v1",
+        apiKey: "$CLIPROXYAPI_API_KEY",
+      },
+    },
+  ])
   expect(exampleDataFixture.sessions).toHaveLength(11)
   expect(exampleDataFixture.sessions.filter((session) => session.archivedAt === null)).toHaveLength(10)
   expect(exampleDataFixture.sessions.flatMap((session) => session.messages)).toHaveLength(8)
@@ -133,12 +159,24 @@ test.skipIf(!databaseAvailable)("reset preserves unrelated data and descendant l
   )
 
   const seededAgents = await database
-    .select({ id: agentTable.id, name: agentTable.name, role: agentTable.role, serverId: agentTable.serverId })
+    .select({
+      id: agentTable.id,
+      name: agentTable.name,
+      role: agentTable.role,
+      serverId: agentTable.serverId,
+      configuration: agentTable.configuration,
+    })
     .from(agentTable)
     .where(inArray(agentTable.id, agentIds))
   expect([...seededAgents].sort((left, right) => left.id.localeCompare(right.id))).toEqual(
     exampleDataFixture.agents
-      .map((agent) => ({ id: agent.id, name: agent.name, role: agent.role, serverId: agent.serverId }))
+      .map((agent) => ({
+        id: agent.id,
+        name: agent.name,
+        role: agent.role,
+        serverId: agent.serverId,
+        configuration: agent.configuration,
+      }))
       .sort((left, right) => left.id.localeCompare(right.id)),
   )
 

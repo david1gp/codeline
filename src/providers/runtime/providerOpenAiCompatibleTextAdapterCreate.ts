@@ -63,9 +63,21 @@ function providerAbortErrorResolve(error: unknown, signal: AbortSignal | null | 
   return details.name === "AbortError" || details.name === "APIUserAbortError" || details.code === "ERR_CANCELED"
 }
 
+function providerStreamChunkUndefinedFieldsRemove(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(providerStreamChunkUndefinedFieldsRemove)
+  if (value === null || typeof value !== "object") return value
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, entry]) => entry !== undefined)
+      .map(([key, entry]) => [key, providerStreamChunkUndefinedFieldsRemove(entry)]),
+  )
+}
+
 function providerStreamChunkSanitize(chunk: StreamChunk, fallbackCode?: ProviderFailureCode): StreamChunk {
-  if (chunk.type !== EventType.RUN_ERROR) return chunk
-  const code = fallbackCode ?? providerFailureCodeResolve(chunk.code)
+  const sanitizedChunk = providerStreamChunkUndefinedFieldsRemove(chunk) as StreamChunk
+  if (sanitizedChunk.type !== EventType.RUN_ERROR) return sanitizedChunk
+  const code = fallbackCode ?? providerFailureCodeResolve(sanitizedChunk.code)
   return {
     code,
     message: providerFailureMessages[code],

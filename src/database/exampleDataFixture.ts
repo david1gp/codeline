@@ -1,3 +1,4 @@
+import type { AgentConfiguration } from "../agents/schema/agentConfigurationSchema.js"
 import { simulationScenarioSessionMetadata } from "../simulation/simulationScenarioSessionMetadata.js"
 
 type ExampleDataFixture = {
@@ -21,7 +22,7 @@ type ExampleDataFixture = {
     serverId: string
     name: string
     role: string
-    configuration: { model: string; provider: "deterministic" }
+    configuration: AgentConfiguration
     sortOrder: number
     createdAt: string
     updatedAt: string
@@ -107,13 +108,43 @@ export const exampleDataFixture = {
       createdAt: "2026-08-12T08:02:40.000Z",
       updatedAt: "2026-08-12T08:02:40.000Z",
     },
+    {
+      id: "example-agent-codex-lb-luna",
+      serverId: "example-server-local",
+      name: "Codex-LB Luna Agent",
+      role: "coding",
+      configuration: {
+        provider: "codex-lb",
+        model: "gpt-5.6-luna",
+        baseUrl: "https://codex.contentoren.de/v1",
+        apiKey: "$CODEX_LB_API_TOKEN",
+      },
+      sortOrder: 2,
+      createdAt: "2026-08-12T08:02:50.000Z",
+      updatedAt: "2026-08-12T08:02:50.000Z",
+    },
+    {
+      id: "example-agent-cliproxyapi-luna",
+      serverId: "example-server-local",
+      name: "CLIProxyAPI Luna Agent",
+      role: "coding",
+      configuration: {
+        provider: "cliproxyapi",
+        model: "gpt-5.6-luna",
+        baseUrl: "https://subs.contentoren.de/v1",
+        apiKey: "$CLIPROXYAPI_API_KEY",
+      },
+      sortOrder: 3,
+      createdAt: "2026-08-12T08:03:10.000Z",
+      updatedAt: "2026-08-12T08:03:10.000Z",
+    },
     ...Object.values(simulationScenarioSessionMetadata).map((scenario, index) => ({
       id: scenario.agentId,
       serverId: "example-server-local",
       name: `Simulation ${scenario.model} Agent`,
       role: "simulation",
       configuration: { model: scenario.model, provider: "deterministic" as const },
-      sortOrder: index + 2,
+      sortOrder: index + 4,
       createdAt: `2026-08-12T08:${String(20 + index).padStart(2, "0")}:00.000Z`,
       updatedAt: `2026-08-12T08:${String(20 + index).padStart(2, "0")}:00.000Z`,
     })),

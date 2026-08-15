@@ -119,11 +119,13 @@ test("CLIProxyAPI and Codex-LB stream split tool-call fragments sequentially", a
     for await (const chunk of adapter.chatStream(streamInput(controller.signal, [tool]))) chunks.push(chunk)
 
     const body = JSON.parse(String(requests[0]?.init?.body)) as Record<string, unknown>
+    const runStarted = chunks.find((chunk) => chunk.type === EventType.RUN_STARTED)
     expect(requests).toHaveLength(1)
     expect(requests[0]?.init?.signal).toBeDefined()
     expect(new Headers(requests[0]?.init?.headers).get("authorization")).toBe(`Bearer ${secretValue}`)
     expect(body.model).toBe("provider-model")
     expect(body.parallel_tool_calls).toBe(false)
+    expect(runStarted === undefined || "parentRunId" in runStarted).toBe(false)
     expect(chunks.some((chunk) => chunk.type === EventType.TOOL_CALL_START && chunk.toolCallId === "call-1")).toBe(true)
     expect(chunks.filter((chunk) => chunk.type === EventType.TOOL_CALL_ARGS).map((chunk) => chunk.delta)).toEqual([
       '{\"value\":',
