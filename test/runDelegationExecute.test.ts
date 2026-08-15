@@ -112,6 +112,7 @@ function harnessCreate(options: { budget?: Parameters<typeof runCreate>[1]; fina
   const events: Array<{ eventType: string; payload: unknown; streamId: string }> = []
   const messages: Array<{ content: string; role: string }> = []
   const calls: number[] = []
+  let admittedSnapshot: unknown
   let clock = new Date("2030-01-01T00:00:01.000Z")
   let registeredController: AbortController | undefined
   let streamFactory: (attempt: typeof childAttempt, signal: AbortSignal) => AsyncIterable<ExecutionStreamEvent> =
@@ -131,7 +132,10 @@ function harnessCreate(options: { budget?: Parameters<typeof runCreate>[1]; fina
         if (registeredController === controller) registeredController = undefined
       }
     },
-    childCreate: async () => createResult({ attempt: childAttempt, created: true, delegation, run: childRun }),
+    childCreate: async (input) => {
+      admittedSnapshot = input.snapshot
+      return createResult({ attempt: childAttempt, created: true, delegation, run: childRun })
+    },
     delegationFinalize: async (_delegationId, result) => {
       delegation.finalizedResult = result
       childRun.status = result.status
@@ -187,20 +191,39 @@ function harnessCreate(options: { budget?: Parameters<typeof runCreate>[1]; fina
       registeredController?.abort()
     },
     calls,
+    get admittedSnapshot() {
+      return admittedSnapshot
+    },
   }
 }
 
-async function execute(harness: ReturnType<typeof harnessCreate>) {
+async function execute(harness: ReturnType<typeof harnessCreate>, childSnapshot?: unknown) {
   return runDelegationExecute(
     {
       delegationKey: "delegation-key",
       parentAttempt: harness.parent.parentAttempt,
       parentRun: harness.parent.parentRun,
+      ...(childSnapshot === undefined ? {} : { childSnapshot }),
       task: "private child task",
     },
     harness.optionsForAction,
   )
 }
+
+test("admits a delegated child with its immutable execution snapshot", async () => {
+  const harness = harnessCreate()
+  const childSnapshot = {
+    agentPrompt: "Child prompt",
+    configuration: { model: "child-model", provider: "deterministic" },
+    configurationRevision: "child-revision",
+    target: { agentId: "child-agent", serverId: "delegation-test-server" },
+  }
+
+  const result = await execute(harness, childSnapshot)
+
+  expect(result.success).toBe(true)
+  expect(harness.admittedSnapshot).toEqual(childSnapshot)
+})
 
 test("executes a child successfully with a bounded private result", async () => {
   const harness = harnessCreate()

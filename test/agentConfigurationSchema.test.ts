@@ -23,6 +23,14 @@ test("agent configuration accepts strict deterministic and CLIProxyAPI variants"
   ).toBe(true)
   expect(
     v.safeParse(agentConfigurationSchema, {
+      apiKey: "$SUBS_CONTENTOREN_DE_API_KEY",
+      baseUrl: "https://subs.contentoren.de/v1",
+      model: "gpt-test",
+      provider: "cliproxyapi",
+    }).success,
+  ).toBe(true)
+  expect(
+    v.safeParse(agentConfigurationSchema, {
       apiKey: "$CODEX_LB_API_TOKEN",
       baseUrl: "https://codex.provider.test/v1",
       model: "gpt-test",
@@ -99,6 +107,12 @@ test("secret resolution is allowlisted and does not expose values in failures", 
     expect(resolved.data.value).toBe(secret)
     expect(JSON.stringify(resolved)).not.toContain(secret)
   }
+
+  const catalogSecret = secretReferenceResolve("$SUBS_CONTENTOREN_DE_API_KEY", {
+    SUBS_CONTENTOREN_DE_API_KEY: secret,
+  })
+  expect(catalogSecret.success).toBe(true)
+  if (catalogSecret.success) expect(JSON.stringify(catalogSecret)).not.toContain(secret)
 
   const disallowed = secretReferenceResolve("$DATABASE_URL", { DATABASE_URL: secret })
   expect(disallowed.success).toBe(false)

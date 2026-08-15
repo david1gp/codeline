@@ -13,10 +13,16 @@ import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
 import { simulationScenarioSessionMetadata } from "../src/simulation/simulationScenarioSessionMetadata.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
+import { providerAgentCatalogLoad } from "../src/providers/catalog/providerAgentCatalogLoad.js"
+import { dirname, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 
 const client = postgres(Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline")
 const database = drizzle(client, { schema: databaseSchema })
 const databaseAvailable = await databaseReadyCheck(database).then((result) => result.success)
+const catalogResult = await providerAgentCatalogLoad(resolve(dirname(fileURLToPath(import.meta.url)), ".."))
+if (!catalogResult.success) throw new Error(catalogResult.errorMessage)
+const catalogAgentIds = catalogResult.data.agents.map((agent) => agent.id)
 const serverIds = exampleDataFixture.servers.map((server) => server.id)
 const agentIds = exampleDataFixture.agents.map((agent) => agent.id)
 const sessionIds = exampleDataFixture.sessions.map((session) => session.id)
@@ -85,37 +91,13 @@ test("the typed fixture has stable counts, IDs, timestamps, and content", () => 
     "example-agent-local",
     "example-agent-local-review",
     "example-agent-remote",
-    "example-agent-codex-lb-luna",
-    "example-agent-cliproxyapi-luna",
     ...Object.values(simulationScenarioSessionMetadata).map((scenario) => scenario.agentId),
   ])
   expect(
     exampleDataFixture.agents.every((agent) => exampleDataFixture.servers.some((s) => s.id === agent.serverId)),
   ).toBe(true)
-  expect(
-    exampleDataFixture.agents
-      .filter((agent) => agent.id.endsWith("-luna"))
-      .map((agent) => ({ id: agent.id, configuration: agent.configuration })),
-  ).toEqual([
-    {
-      id: "example-agent-codex-lb-luna",
-      configuration: {
-        provider: "codex-lb",
-        model: "gpt-5.6-luna",
-        baseUrl: "https://codex.contentoren.de/v1",
-        apiKey: "$CODEX_LB_API_TOKEN",
-      },
-    },
-    {
-      id: "example-agent-cliproxyapi-luna",
-      configuration: {
-        provider: "cliproxyapi",
-        model: "gpt-5.6-luna",
-        baseUrl: "https://subs.contentoren.de/v1",
-        apiKey: "$CLIPROXYAPI_API_KEY",
-      },
-    },
-  ])
+  expect(exampleDataFixture.agents.every((agent) => agent.configuration.provider === "deterministic")).toBe(true)
+  expect(catalogAgentIds).toHaveLength(11)
   expect(exampleDataFixture.sessions).toHaveLength(11)
   expect(exampleDataFixture.sessions.filter((session) => session.archivedAt === null)).toHaveLength(10)
   expect(exampleDataFixture.sessions.flatMap((session) => session.messages)).toHaveLength(8)
@@ -179,6 +161,25 @@ test.skipIf(!databaseAvailable)("reset preserves unrelated data and descendant l
       }))
       .sort((left, right) => left.id.localeCompare(right.id)),
   )
+
+  const catalogAgents = await database
+    .select({
+      id: agentTable.id,
+      name: agentTable.name,
+      role: agentTable.role,
+      parentAgentId: agentTable.parentAgentId,
+      configuration: agentTable.configuration,
+    })
+    .from(agentTable)
+    .where(inArray(agentTable.id, catalogAgentIds))
+  expect(catalogAgents).toHaveLength(11)
+  expect(catalogAgents.map((agent) => agent.id).sort()).toEqual([...catalogAgentIds].sort())
+  expect(catalogAgents.find((agent) => agent.id === "delegate")?.parentAgentId).toBeNull()
+  expect(catalogAgents.find((agent) => agent.id === "luna-high")?.parentAgentId).toBe("delegate")
+  expect(catalogAgents.find((agent) => agent.id === "luna-high")?.configuration).toMatchObject({
+    model: "gpt-5.6-luna",
+    provider: "codex-lb",
+  })
 
   const sessions = await database.select().from(sessionTable).where(inArray(sessionTable.id, sessionIds))
   const messages = await database.select().from(messageTable).where(inArray(messageTable.id, messageIds))

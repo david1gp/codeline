@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test"
+import { resolve } from "node:path"
 import { EventType } from "@tanstack/ai"
+import { providerAgentCatalogConfigurationCompile } from "../src/providers/catalog/providerAgentCatalogConfigurationCompile.js"
+import { providerAgentCatalogLoad } from "../src/providers/catalog/providerAgentCatalogLoad.js"
 import { providerRuntimeAdapterCreate } from "../src/providers/runtime/providerRuntimeAdapterCreate.js"
 
 const input = {
@@ -8,6 +11,34 @@ const input = {
   runId: "run-runtime",
   sessionId: "session-runtime",
   signal: new AbortController().signal,
+}
+
+const catalogResult = await providerAgentCatalogLoad(resolve(import.meta.dir, ".."))
+if (!catalogResult.success) throw new Error(catalogResult.errorMessage)
+const compiledCatalogResult = providerAgentCatalogConfigurationCompile(catalogResult.data)
+if (!compiledCatalogResult.success) throw new Error(compiledCatalogResult.errorMessage)
+
+async function runtimeRequestCapture(
+  configuration: Parameters<typeof providerRuntimeAdapterCreate>[0]["configuration"],
+) {
+  const requests: Array<{ init?: RequestInit; input: RequestInfo | URL }> = []
+  const adapter = providerRuntimeAdapterCreate({
+    configuration,
+    environment: {
+      CLIPROXYAPI_API_KEY: "cliproxy-secret",
+      CODEX_LB_API_TOKEN: "codex-secret",
+      SUBS_CONTENTOREN_DE_API_KEY: "cliproxy-secret",
+    },
+    fetch: async (requestInput, init) => {
+      requests.push({ init, input: requestInput })
+      return new Response(JSON.stringify({ error: { message: "request rejected" } }), { status: 400 })
+    },
+  })
+  const chunks = []
+  for await (const chunk of adapter(input)) chunks.push(chunk)
+  const request = requests[0]
+  if (request === undefined) throw new Error("The provider request was not captured.")
+  return { body: JSON.parse(String(request.init?.body)) as Record<string, unknown>, chunks, request }
 }
 
 test("provider runtime factory selects the deterministic adapter", async () => {
@@ -73,6 +104,52 @@ test("credentialed provider runtime adapters report unavailable secrets", async 
 
   expect(chunks.some((chunk) => chunk.type === EventType.RUN_ERROR)).toBe(true)
   expect(chunks.some((chunk) => chunk.type === EventType.RUN_FINISHED)).toBe(false)
+})
+
+test("catalog Codex-LB Responses models map provider options into the Responses payload", async () => {
+  const configuration = compiledCatalogResult.data.find(({ agent }) => agent.id === "sol-high")?.configuration
+  if (configuration === undefined) throw new Error("Expected the catalog sol-high configuration")
+
+  const captured = await runtimeRequestCapture(configuration)
+  expect(String(captured.request.input)).toBe("https://codex.contentoren.de/v1/responses")
+  expect(captured.body).toMatchObject({
+    include: ["reasoning.encrypted_content"],
+    model: "gpt-5.6-sol",
+    reasoning: { effort: "high", summary: "detailed" },
+    store: false,
+    text: { verbosity: "low" },
+  })
+  expect(captured.body).not.toHaveProperty("npm")
+  expect(captured.body).not.toHaveProperty("blacklist")
+  expect(captured.body).not.toHaveProperty("max_tokens")
+  expect(captured.body).not.toHaveProperty("max_output_tokens")
+  expect(captured.body).not.toHaveProperty("temperature")
+})
+
+test("catalog CLIProxyAPI completion models retain the compatible payload without catalog metadata", async () => {
+  const configuration = compiledCatalogResult.data.find(({ agent }) => agent.id === "gemini-flash")?.configuration
+  if (configuration === undefined) throw new Error("Expected the catalog Gemini configuration")
+
+  const captured = await runtimeRequestCapture(configuration)
+  expect(String(captured.request.input)).toBe("https://subs.contentoren.de/v1/chat/completions")
+  expect(captured.body).toMatchObject({ model: "gemini-3.7-flash-high", reasoning_effort: "medium" })
+  expect(captured.body).not.toHaveProperty("npm")
+  expect(captured.body).not.toHaveProperty("blacklist")
+  expect(captured.body).not.toHaveProperty("max_tokens")
+  expect(captured.body).not.toHaveProperty("temperature")
+  expect(captured.body).not.toHaveProperty("reasoning")
+})
+
+test("legacy provider configurations retain compatible fallback request defaults", async () => {
+  const captured = await runtimeRequestCapture({
+    apiKey: "$CODEX_LB_API_TOKEN",
+    baseUrl: "https://legacy.example.test/v1",
+    model: "legacy-model",
+    provider: "codex-lb",
+  })
+
+  expect(String(captured.request.input)).toBe("https://legacy.example.test/v1/chat/completions")
+  expect(captured.body).toMatchObject({ max_tokens: 4096, model: "legacy-model", temperature: 0.7 })
 })
 
 test("deterministic provider runtime adapters preserve injected failure behavior", async () => {

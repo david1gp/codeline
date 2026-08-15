@@ -165,6 +165,34 @@ test("remote runtime chat delegates sequentially with durable history for both p
   }
 })
 
+test("remote runtime injects the immutable agent prompt as the system instruction", async () => {
+  let request: Record<string, unknown> | undefined
+  const adapter = providerRuntimeAdapterCreate({
+    configuration: providerConfiguration("cliproxyapi"),
+    environment: { CLIPROXYAPI_API_KEY: secretValue },
+    fetch: async (_input, init) => {
+      request = JSON.parse(String(init?.body)) as Record<string, unknown>
+      return textResponse("done")
+    },
+    systemPrompt: "Inspect the repository before changing it.",
+  })
+
+  await collect(
+    adapter({
+      history: [],
+      prompt: "user task",
+      runId: "prompt-run",
+      sessionId: "prompt-session",
+      signal: new AbortController().signal,
+    }),
+  )
+
+  expect((request?.messages as Array<{ content: string; role: string }>)[0]).toEqual({
+    content: "Inspect the repository before changing it.",
+    role: "system",
+  })
+})
+
 test("remote runtime chat classifies failures and cancellation canonically without leaking secrets", async () => {
   for (const provider of ["cliproxyapi", "codex-lb"] as const) {
     const configuration = providerConfiguration(provider)

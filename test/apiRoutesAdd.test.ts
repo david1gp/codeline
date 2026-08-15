@@ -1,12 +1,13 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
-import { createResult } from "@adaptive-ds/result"
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
+import { createResult } from "@adaptive-ds/result"
 import { Hono } from "hono"
 import { apiRoutesAdd } from "../src/api/apiRoutesAdd.js"
 import type { AppEnvironment } from "../src/api/appEnvironment.js"
 import { appCreate } from "../src/app/appCreate.js"
+import { providerAgentCatalogLoad } from "../src/providers/catalog/providerAgentCatalogLoad.js"
 
 let rootDir: string
 const app = new Hono<AppEnvironment>()
@@ -14,6 +15,9 @@ const app = new Hono<AppEnvironment>()
 beforeAll(async () => {
   rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "api-composition-test-"))
   await fs.writeFile(path.join(rootDir, "README.md"), "Codeline\n", "utf8")
+  const catalog = await providerAgentCatalogLoad(process.cwd())
+  expect(catalog.success).toBe(true)
+  if (!catalog.success) return
 
   app.use("*", async (context, next) => {
     context.set("database", {} as never)
@@ -22,6 +26,7 @@ beforeAll(async () => {
   })
   apiRoutesAdd(app, async () => ({ success: true, data: undefined }), {
     projectRootDir: rootDir,
+    providerAgentCatalog: catalog.data,
     streamReplayServiceCreate: () => ({
       append: async () => ({ success: true, data: {} as never }),
       replay: async () => ({ success: true, data: { checkpoint: {} as never, events: [], stale: false } }),
@@ -59,6 +64,16 @@ test("shared API composition mounts provider routes with the development provide
 
   expect(response.status).toBe(200)
   expect(await response.json()).toEqual({ models: [{ id: "development-default" }] })
+})
+
+test("shared API composition forwards the loaded provider catalog route", async () => {
+  const response = await app.request("http://codeline.test/api/providers/catalog")
+
+  expect(response.status).toBe(200)
+  expect((await response.json()).providers.map((provider: { id: string }) => provider.id)).toEqual([
+    "cliproxyapi",
+    "codex-lb",
+  ])
 })
 
 test("app composition forwards provider configuration and runtime dependencies", async () => {

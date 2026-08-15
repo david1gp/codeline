@@ -15,6 +15,7 @@ import { apiProjectRoutesAdd } from "../project/api/apiProjectRoutesAdd.js"
 import type { ProjectLimits } from "../project/projectLimitsSchema.js"
 import { apiProviderRoutesAdd } from "../providers/api/apiProviderRoutesAdd.js"
 import type { ProviderModelDiscoveryOptions } from "../providers/runtime/providerModelDiscovery.js"
+import type { ProviderCatalog } from "../providers/schema/providerCatalogSchema.js"
 import { providerRuntimeAdapterCreate } from "../providers/runtime/providerRuntimeAdapterCreate.js"
 import { providerDelegationToolLoopCreate } from "../providers/runtime/providerDelegationToolLoopCreate.js"
 import { apiRunRoutesAdd } from "../run/api/apiRunRoutesAdd.js"
@@ -48,6 +49,7 @@ type ApiRoutesAddOptions = {
   projectRootDirs?: readonly string[]
   projectRootDir?: string
   providerConfiguration?: unknown
+  providerAgentCatalog?: ProviderCatalog
   providerEnvironment?: Readonly<Record<string, string | undefined>>
   providerDelegationToolLoopCreate?: typeof providerDelegationToolLoopCreate
   providerFetch?: NonNullable<ProviderModelDiscoveryOptions["fetch"]>
@@ -141,6 +143,7 @@ export function apiRoutesAdd(
     configuration: options.providerConfiguration ?? { model: "development-default", provider: "deterministic" },
     environment: options.providerEnvironment ?? Bun.env,
     fetch: options.providerFetch ?? globalThis.fetch,
+    providerAgentCatalog: options.providerAgentCatalog,
   })
   apiStreamRoutesAdd(api, {
     childStreamResolve: options.runChildStreamResolve,

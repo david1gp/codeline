@@ -17,6 +17,8 @@ import { providerDelegationToolLoopCreate } from "../../providers/runtime/provid
 import { providerDeterministicScenarioResolve } from "../../providers/runtime/providerDeterministicScenarioResolve.js"
 import { providerExecutionEventFromStreamChunk } from "../../providers/runtime/providerExecutionEventFromStreamChunk.js"
 import type { ProviderModelDiscoveryOptions } from "../../providers/runtime/providerModelDiscovery.js"
+import type { ProviderCatalog } from "../../providers/schema/providerCatalogSchema.js"
+import { providerAgentCatalogExecutionResolve } from "../../providers/catalog/providerAgentCatalogExecutionResolve.js"
 import { providerRuntimeAdapterCreate } from "../../providers/runtime/providerRuntimeAdapterCreate.js"
 import { providerRuntimeAdapterResolve } from "../../providers/runtime/providerRuntimeAdapterResolve.js"
 import { runCancellationCoordinatorCreate } from "../../run/actions/runCancellationCoordinatorCreate.js"
@@ -78,6 +80,7 @@ function internalServerError(context: ApiContext) {
 
 type ApiSessionRoutesOptions = {
   configurationStore?: ConfigurationStore
+  providerAgentCatalog?: ProviderCatalog
   providerEnvironment?: Readonly<Record<string, string | undefined>>
   providerFetch?: NonNullable<ProviderModelDiscoveryOptions["fetch"]>
   providerDelegationToolLoopCreate?: typeof providerDelegationToolLoopCreate
@@ -176,6 +179,7 @@ type SessionChatAdmission = {
   attempts?: Array<typeof attemptTable.$inferSelect>
   run?: typeof runTable.$inferSelect
   runtimeConfiguration?: AgentConfiguration
+  agentPrompt?: string
   snapshot: RunExecutionSnapshot
 }
 
@@ -197,6 +201,7 @@ async function sessionChatAdmissionResolve(
       attempt: loaded.data.attempt,
       attempts: loaded.data.attempts,
       runtimeConfiguration: options.sessionChatAdapter === undefined ? parsedSnapshot.output.configuration : undefined,
+      agentPrompt: parsedSnapshot.output.agentPrompt,
       run: loaded.data.run,
       snapshot: parsedSnapshot.output,
     })
@@ -207,13 +212,17 @@ async function sessionChatAdmissionResolve(
   const resolved = (options.runExecutionSnapshotResolve ?? runExecutionSnapshotResolve)(
     target,
     options.configurationStore,
+    { catalog: options.providerAgentCatalog, execution: forwardedExecution },
   )
   if (!resolved.success) return createResultError(op, resolved.errorMessage)
 
-  if (options.sessionChatAdapter !== undefined) return createResult({ snapshot: resolved.data })
-  const runtime = agentConfigurationExecutionResolve(resolved.data.configuration, forwardedExecution, target.agentId)
-  if (!runtime.success) return createResultError(op, runtime.errorMessage)
-  return createResult({ runtimeConfiguration: runtime.data, snapshot: resolved.data })
+  if (options.sessionChatAdapter !== undefined)
+    return createResult({ agentPrompt: resolved.data.agentPrompt, snapshot: resolved.data })
+  return createResult({
+    agentPrompt: resolved.data.agentPrompt,
+    runtimeConfiguration: resolved.data.configuration,
+    snapshot: resolved.data,
+  })
 }
 
 async function sessionChatReplayEventsLoad(
@@ -309,6 +318,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     let admittedAttempts: Array<typeof attemptTable.$inferSelect> = []
     let activeRun: typeof runTable.$inferSelect | undefined
     let activeAttempt: typeof attemptTable.$inferSelect | undefined
+    let runtimeAgentPrompt: string | undefined
     const loaded = await sessionLoad(context.var.database, userId, sessionId)
     if (!loaded.success)
       return loaded.errorMessage.includes("could not be found") ? notFound(context) : internalServerError(context)
@@ -325,10 +335,12 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
         options,
       )
       if (!admission.success) {
-        if (admission.errorMessage.includes("execution override")) return badRequest(context, admission.errorMessage)
+        if (admission.errorMessage.includes("execution override") || admission.errorMessage.includes("catalog"))
+          return badRequest(context, admission.errorMessage)
         return internalServerError(context)
       }
       runtimeConfiguration = admission.data.runtimeConfiguration
+      runtimeAgentPrompt = admission.data.agentPrompt
 
       const created = await (options.runCreate ?? runCreate)(context.var.database, userId, sessionId, {
         budget: sessionChatRootBudgetResolve(runtimeConfiguration ?? admission.data.snapshot.configuration),
@@ -347,36 +359,81 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
       activeRun = admittedRun
       activeAttempt = admittedAttempt
     } else if (adapter === undefined) {
-      const resolvedConfiguration = agentConfigurationExecutionResolve(
-        loaded.data.agent.configuration,
-        parsed.data.forwardedProps?.codelineExecution,
-        loaded.data.session.primaryAgentId,
-      )
-      if (!resolvedConfiguration.success) {
-        if (resolvedConfiguration.errorMessage.includes("execution override"))
-          return badRequest(context, resolvedConfiguration.errorMessage)
-        return internalServerError(context)
-      }
+      if (options.providerAgentCatalog?.agents.some((agent) => agent.id === loaded.data.session.primaryAgentId)) {
+        const resolved = providerAgentCatalogExecutionResolve(
+          options.providerAgentCatalog,
+          loaded.data.session.primaryAgentId,
+          loaded.data.agent.configuration,
+          parsed.data.forwardedProps?.codelineExecution,
+        )
+        if (!resolved.success) return badRequest(context, resolved.errorMessage)
+        runtimeConfiguration = resolved.data.configuration
+        runtimeAgentPrompt = resolved.data.prompt
+      } else {
+        const resolvedConfiguration = agentConfigurationExecutionResolve(
+          loaded.data.agent.configuration,
+          parsed.data.forwardedProps?.codelineExecution,
+          loaded.data.session.primaryAgentId,
+        )
+        if (!resolvedConfiguration.success) {
+          if (resolvedConfiguration.errorMessage.includes("execution override"))
+            return badRequest(context, resolvedConfiguration.errorMessage)
+          return internalServerError(context)
+        }
 
-      runtimeConfiguration = resolvedConfiguration.data
+        runtimeConfiguration = resolvedConfiguration.data
+      }
     }
 
-    const delegatedTaskExecute = async (input: { signal: AbortSignal; task: string; toolCallId: string }) => {
+    if (options.configurationStore === undefined && options.providerAgentCatalog !== undefined) {
+      const agent = options.providerAgentCatalog.agents.find(({ id }) => id === loaded.data.session.primaryAgentId)
+      runtimeAgentPrompt = agent?.prompt
+    }
+
+    const delegatedTaskExecute = async (input: {
+      agentId?: string
+      signal: AbortSignal
+      task: string
+      toolCallId: string
+    }) => {
       if (activeRun === undefined || activeAttempt === undefined) throw new Error("The parent chat run is unavailable.")
+
+      let childSnapshot: RunExecutionSnapshot | undefined
+      if (input.agentId !== undefined) {
+        if (options.configurationStore === undefined) throw new Error("The child agent configuration is unavailable.")
+        const parentSnapshot = v.safeParse(runExecutionSnapshotSchema, activeRun.snapshot)
+        if (!parentSnapshot.success) throw new Error("The parent execution snapshot is invalid.")
+        const childCatalogAgent = options.providerAgentCatalog?.agents.some(({ id }) => id === input.agentId)
+        const resolved = (options.runExecutionSnapshotResolve ?? runExecutionSnapshotResolve)(
+          { agentId: input.agentId, serverId: parentSnapshot.output.target.serverId },
+          options.configurationStore,
+          {
+            catalog: options.providerAgentCatalog,
+            configurationRevision: parentSnapshot.output.configurationRevision,
+            ...(childCatalogAgent === true ? { configuration: parentSnapshot.output.configuration } : {}),
+          },
+        )
+        if (!resolved.success) throw new Error(resolved.errorMessage)
+        childSnapshot = resolved.data
+      }
 
       const childExecute = await (options.runDelegationExecute ?? runDelegationExecute)(
         {
           delegationKey: input.toolCallId,
           parentAttempt: activeAttempt,
           parentRun: activeRun,
+          ...(childSnapshot === undefined ? {} : { childSnapshot }),
           task: input.task,
         },
         {
           attemptStreamCreate: ({ run, signal, task }) => {
-            const resolved = providerRuntimeAdapterResolve(run.snapshot.configuration, {
+            const snapshot = v.safeParse(runExecutionSnapshotSchema, run.snapshot)
+            if (!snapshot.success) throw new Error("The child execution snapshot is invalid.")
+            const resolved = providerRuntimeAdapterResolve(snapshot.output.configuration, {
               environment: options.providerEnvironment ?? Bun.env,
               ...(options.providerFetch === undefined ? {} : { fetch: options.providerFetch }),
               runtimeAdapterCreate: options.providerRuntimeAdapterCreate,
+              systemPrompt: snapshot.output.agentPrompt,
             })
             if (!resolved.success) throw new Error(resolved.errorMessage)
             return sessionChatChildExecutionStreamCreate({ adapter: resolved.data, run, signal, task })
@@ -450,6 +507,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
           environment: options.providerEnvironment ?? Bun.env,
           ...(options.providerFetch === undefined ? {} : { fetch: options.providerFetch }),
           runtimeAdapterCreate: options.providerRuntimeAdapterCreate,
+          ...(runtimeAgentPrompt === undefined ? {} : { systemPrompt: runtimeAgentPrompt }),
         })
         if (!resolved.success) return internalServerError(context)
         const deterministicScenario =

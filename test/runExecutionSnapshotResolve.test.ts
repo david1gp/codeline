@@ -6,6 +6,7 @@ import { configurationStoreCreate } from "../src/configuration/configurationStor
 import { configurationStoreRead } from "../src/configuration/configurationStoreRead.js"
 import { configurationStoreWrite } from "../src/configuration/configurationStoreWrite.js"
 import { runExecutionSnapshotResolve } from "../src/run/actions/runExecutionSnapshotResolve.js"
+import { providerAgentCatalogLoad } from "../src/providers/catalog/providerAgentCatalogLoad.js"
 
 const tmpRoot = Bun.env.TMPDIR ?? "/tmp"
 const directories: string[] = []
@@ -131,4 +132,48 @@ test("run execution snapshot rejects an unconfigured session target", async () =
     errorMessage: "The run execution target is not configured.",
     success: false,
   })
+})
+
+test("run execution snapshot freezes the catalog revision, model metadata, prompt, and override", async () => {
+  const store = await createStore()
+  const written = await configurationStoreWrite(store, {
+    agentConfigurations: [
+      {
+        configuration: { model: "legacy-model", provider: "deterministic" },
+        target: { agentId: "build", serverId: "server-1" },
+      },
+    ],
+    version: 1,
+  })
+  expect(written.success).toBe(true)
+  if (!written.success) return
+
+  const catalogResult = await providerAgentCatalogLoad(process.cwd())
+  expect(catalogResult.success).toBe(true)
+  if (!catalogResult.success) return
+
+  const resolved = runExecutionSnapshotResolve({ agentId: "build", serverId: "server-1" }, store, {
+    catalog: catalogResult.data,
+    execution: { model: "grok-4.5", provider: "cliproxyapi", reasoningEffort: "high" },
+  })
+
+  expect(resolved).toMatchObject({
+    success: true,
+    data: {
+      agentPrompt: expect.stringContaining("Complete the user's software task directly."),
+      catalogRevision: catalogResult.data.revision,
+      configuration: { model: "grok-4.5", provider: "cliproxyapi" },
+      modelMetadata: { id: "grok-4.5" },
+    },
+  })
+  if (!resolved.success) return
+  expect(Object.isFrozen(resolved.data.modelMetadata)).toBe(true)
+  expect(Object.isFrozen(resolved.data.configuration)).toBe(true)
+  if (resolved.data.configuration.provider === "cliproxyapi")
+    expect(resolved.data.configuration.apiKey).toBe("$SUBS_CONTENTOREN_DE_API_KEY")
+  const buildAgent = catalogResult.data.agents.find(({ id }) => id === "build")
+  if (buildAgent === undefined) return
+  const snapshotPrompt = resolved.data.agentPrompt
+  buildAgent.prompt = "Changed after admission."
+  expect(resolved.data.agentPrompt).toBe(snapshotPrompt)
 })

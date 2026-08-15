@@ -6,6 +6,7 @@ import { runChildCreateInputSchema } from "../schema/runChildCreateInputSchema.j
 import { runDelegationResultSchema, type RunDelegationResult } from "../schema/runDelegationResultSchema.js"
 import type { RunFailureMetadata } from "../schema/runFailureMetadataSchema.js"
 import type { RunTransitionInput } from "../schema/runTransitionInputSchema.js"
+import type { RunExecutionSnapshot } from "../schema/runExecutionSnapshotSchema.js"
 import { attemptTable } from "../db/attemptTable.js"
 import { runDelegationTable } from "../db/runDelegationTable.js"
 import { runTable } from "../db/runTable.js"
@@ -48,6 +49,7 @@ type RunDelegationExecuteOptions = {
     delegationKey: string
     parentAttemptId: string
     parentRunId: string
+    snapshot?: RunExecutionSnapshot
     task: string
   }) => Promise<Result<RunDelegationChild>>
   delegationFinalize: (delegationId: string, result: RunDelegationResult) => Promise<Result<unknown>>
@@ -69,6 +71,7 @@ type RunDelegationExecuteInput = {
   delegationKey: string
   parentAttempt: typeof attemptTable.$inferSelect
   parentRun: typeof runTable.$inferSelect
+  childSnapshot?: unknown
   task: string
 }
 
@@ -318,6 +321,7 @@ export async function runDelegationExecute(
     delegationKey: input.delegationKey,
     parentAttemptId: input.parentAttempt.id,
     parentRunId: input.parentRun.id,
+    ...(input.childSnapshot === undefined ? {} : { snapshot: input.childSnapshot }),
     task: input.task,
   })
   if (!parsedInput.success) return createResultError(op, "The delegated child input is invalid.")

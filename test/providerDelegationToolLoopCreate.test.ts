@@ -109,6 +109,32 @@ test("runs delegate_task synchronously and collapses intermediate model lifecycl
   expect(scripted.calls[1]?.some((message) => message.role === "tool" && message.content === "child result")).toBe(true)
 })
 
+test("propagates the selected child agent through the delegation tool", async () => {
+  const scripted = scriptedAdapterCreate([
+    delegatedToolScript('{"agentId":"explore","task":"inspect the project"}'),
+    finalTextScript("Delegated task complete."),
+  ])
+  let selectedAgentId: string | undefined
+  const loop = providerDelegationToolLoopCreate({
+    adapter: scripted.adapter,
+    delegateTask: async (input) => {
+      selectedAgentId = input.agentId
+      return "child result"
+    },
+  })
+
+  await collect(
+    loop({
+      messages: [{ content: "Please delegate this task.", role: "user" }],
+      runId: "run-delegation",
+      signal: new AbortController().signal,
+      threadId: "thread-delegation",
+    }),
+  )
+
+  expect(selectedAgentId).toBe("explore")
+})
+
 test("validates raw delegate_task input and bounds returned text", async () => {
   const invalidScripted = scriptedAdapterCreate([
     delegatedToolScript('{"task":42}'),

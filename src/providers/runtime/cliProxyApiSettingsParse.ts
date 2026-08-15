@@ -21,12 +21,15 @@ const cliProxyApiSettingsSchema = v.strictObject({
   ),
   apiKey: v.pipe(
     secretReferenceSchema,
-    v.check((value) => value === "$CLIPROXYAPI_API_KEY"),
+    v.check((value) => value === "$CLIPROXYAPI_API_KEY" || value === "$SUBS_CONTENTOREN_DE_API_KEY"),
   ),
   model: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(200)),
-  maxTokens: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(1_000_000)),
+  maxTokens: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(1_000_000))),
+  modelOptions: v.optional(v.record(v.string(), v.unknown())),
+  providerOptions: v.optional(v.record(v.string(), v.unknown())),
   reasoningEffort: v.optional(v.picklist(["low", "medium", "high", "xhigh", "max"])),
-  temperature: v.pipe(v.number(), v.finite(), v.minValue(0), v.maxValue(2)),
+  temperature: v.optional(v.pipe(v.number(), v.finite(), v.minValue(0), v.maxValue(2))),
+  transport: v.optional(v.picklist(["openai/completions", "openai/responses"])),
 })
 
 export type CliProxyApiSettings = v.InferOutput<typeof cliProxyApiSettingsSchema>

@@ -2,7 +2,11 @@ import { createResult, createResultError, type Result } from "@adaptive-ds/resul
 import * as v from "valibot"
 import { secretReferenceSchema } from "../schema/secretReferenceSchema.js"
 
-const providerSecretEnvironmentNames = ["CLIPROXYAPI_API_KEY", "CODEX_LB_API_TOKEN"] as const
+const providerSecretEnvironmentNames = [
+  "CLIPROXYAPI_API_KEY",
+  "CODEX_LB_API_TOKEN",
+  "SUBS_CONTENTOREN_DE_API_KEY",
+] as const
 
 type ProviderSecretEnvironmentName = (typeof providerSecretEnvironmentNames)[number]
 

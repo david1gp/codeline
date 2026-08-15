@@ -10,6 +10,7 @@ export function providerRuntimeAdapterResolve(
     environment: Readonly<Record<string, string | undefined>>
     fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
     runtimeAdapterCreate?: typeof providerRuntimeAdapterCreate
+    systemPrompt?: string
   },
 ): Result<CliProxyApiAdapter> {
   const op = "providerRuntimeAdapterResolve"
@@ -23,6 +24,7 @@ export function providerRuntimeAdapterResolve(
       configuration: parsed.output,
       environment: options.environment,
       ...(options.fetch === undefined && !useDefaultRuntimeFetch ? {} : { fetch: options.fetch ?? globalThis.fetch }),
+      ...(options.systemPrompt === undefined ? {} : { systemPrompt: options.systemPrompt }),
     }),
   )
 }

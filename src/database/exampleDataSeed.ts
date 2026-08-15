@@ -1,6 +1,7 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import { inArray } from "drizzle-orm"
 import { agentTable } from "../agents/db/agentTable.js"
+import type { AgentConfiguration } from "../agents/schema/agentConfigurationSchema.js"
 import type { ConfigurationStore } from "../configuration/configurationStore.js"
 import { applicationUserTable } from "../identity/db/applicationUserTable.js"
 import { externalIdentityUpsert } from "../identity/db/externalIdentityUpsert.js"
@@ -11,9 +12,20 @@ import type { DatabaseClient, DatabaseExecutor } from "./databaseClient.js"
 import { databaseTransactionRun } from "./databaseTransactionRun.js"
 import { exampleDataConfigurationReconcile } from "./exampleDataConfigurationReconcile.js"
 import { exampleDataFixture } from "./exampleDataFixture.js"
+import { dirname, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
+import type { ProviderCatalog } from "../providers/schema/providerCatalogSchema.js"
+import { providerAgentCatalogConfigurationCompile } from "../providers/catalog/providerAgentCatalogConfigurationCompile.js"
+import { providerAgentCatalogLoad } from "../providers/catalog/providerAgentCatalogLoad.js"
+import { providerAgentCatalogAgentNameCreate } from "../providers/catalog/providerAgentCatalogAgentNameCreate.js"
 
 function date(value: string): Date {
   return new Date(value)
+}
+
+function catalogAgentMode(configuration: AgentConfiguration): "primary" | "subagent" {
+  if (configuration.provider === "deterministic") return "subagent"
+  return configuration.catalogAgent?.mode ?? "subagent"
 }
 
 async function exampleDataMessagesDelete(database: DatabaseExecutor): Promise<void> {
@@ -24,9 +36,12 @@ async function exampleDataMessagesDelete(database: DatabaseExecutor): Promise<vo
 
 async function exampleDataRowsReconcile(
   database: DatabaseExecutor,
+  catalog: ProviderCatalog,
 ): Promise<Result<{ sessionCount: number; messageCount: number }>> {
   const op = "exampleDataRowsReconcile"
   const fixtureUser = exampleDataFixture.user
+  const catalogConfigurations = providerAgentCatalogConfigurationCompile(catalog)
+  if (!catalogConfigurations.success) return createResultError(op, catalogConfigurations.errorMessage)
 
   try {
     const [user] = await database
@@ -172,6 +187,43 @@ async function exampleDataRowsReconcile(
       }
     }
 
+    const catalogAgents = [...catalogConfigurations.data].sort((left, right) => {
+      const leftMode = catalogAgentMode(left.configuration) === "primary" ? 0 : 1
+      const rightMode = catalogAgentMode(right.configuration) === "primary" ? 0 : 1
+      return leftMode - rightMode || left.agent.id.localeCompare(right.agent.id)
+    })
+    for (const catalogAgent of catalogAgents) {
+      const sortOrder = catalogConfigurations.data.findIndex(({ agent }) => agent.id === catalogAgent.agent.id)
+      const mode = catalogAgentMode(catalogAgent.configuration)
+      const timestamp = `2026-08-12T09:${String(sortOrder).padStart(2, "0")}:00.000Z`
+      await database
+        .insert(agentTable)
+        .values({
+          configuration: catalogAgent.configuration,
+          id: catalogAgent.agent.id,
+          name: providerAgentCatalogAgentNameCreate(catalogAgent.agent.id),
+          parentAgentId: mode === "subagent" ? "delegate" : null,
+          role: mode,
+          serverId: "example-server-local",
+          sortOrder,
+          createdAt: date(timestamp),
+          updatedAt: date(timestamp),
+        })
+        .onConflictDoUpdate({
+          target: agentTable.id,
+          set: {
+            configuration: catalogAgent.configuration,
+            name: providerAgentCatalogAgentNameCreate(catalogAgent.agent.id),
+            parentAgentId: mode === "subagent" ? "delegate" : null,
+            role: mode,
+            serverId: "example-server-local",
+            sortOrder,
+            createdAt: date(timestamp),
+            updatedAt: date(timestamp),
+          },
+        })
+    }
+
     return createResult({
       sessionCount: exampleDataFixture.sessions.length,
       messageCount: exampleDataFixture.sessions.reduce((count, session) => count + session.messages.length, 0),
@@ -183,20 +235,25 @@ async function exampleDataRowsReconcile(
 
 export async function exampleDataSeed(
   database: DatabaseClient,
-  options: { configurationStore?: ConfigurationStore; reset?: boolean } = { reset: false },
+  options: { catalog?: ProviderCatalog; configurationStore?: ConfigurationStore; reset?: boolean } = {},
 ): Promise<Result<{ sessionCount: number; messageCount: number }>> {
   const op = "exampleDataSeed"
+  const catalogResult =
+    options.catalog === undefined
+      ? await providerAgentCatalogLoad(resolve(dirname(fileURLToPath(import.meta.url)), "../.."))
+      : createResult(options.catalog)
+  if (!catalogResult.success) return createResultError(op, catalogResult.errorMessage)
   const seeded = await databaseTransactionRun(database, async (transaction) => {
     try {
       if (options.reset === true) await exampleDataMessagesDelete(transaction)
-      return await exampleDataRowsReconcile(transaction)
+      return await exampleDataRowsReconcile(transaction, catalogResult.data)
     } catch (_error) {
       return createResultError(op, "The example data seed transaction failed.")
     }
   })
   if (!seeded.success || options.configurationStore === undefined) return seeded
 
-  const configuration = await exampleDataConfigurationReconcile(options.configurationStore)
+  const configuration = await exampleDataConfigurationReconcile(options.configurationStore, catalogResult.data)
   if (!configuration.success) return createResultError(op, configuration.errorMessage)
   return seeded
 }

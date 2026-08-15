@@ -21,6 +21,7 @@ import type { OidcProviderFetch } from "../identity/oidc/oidcProviderFetch.js"
 import { appKnownRouteResolve } from "./appKnownRouteResolve.js"
 import type { ProjectLimits } from "../project/projectLimitsSchema.js"
 import type { ProviderModelDiscoveryOptions } from "../providers/runtime/providerModelDiscovery.js"
+import type { ProviderCatalog } from "../providers/schema/providerCatalogSchema.js"
 import { providerDelegationToolLoopCreate } from "../providers/runtime/providerDelegationToolLoopCreate.js"
 import { providerRuntimeAdapterCreate } from "../providers/runtime/providerRuntimeAdapterCreate.js"
 import { runCreate } from "../run/actions/runCreate.js"
@@ -59,6 +60,7 @@ export type AppCreateOptions = {
   projectRootDirs?: readonly string[]
   projectRootDir?: string
   providerConfiguration?: unknown
+  providerAgentCatalog?: ProviderCatalog
   providerEnvironment?: Readonly<Record<string, string | undefined>>
   providerDelegationToolLoopCreate?: typeof providerDelegationToolLoopCreate
   providerFetch?: NonNullable<ProviderModelDiscoveryOptions["fetch"]>
@@ -127,6 +129,7 @@ export function appCreate(options: AppCreateOptions = {}): App {
     projectRootDir: options.projectRootDir,
     projectRootDirs: options.projectRootDirs,
     providerConfiguration: options.providerConfiguration,
+    providerAgentCatalog: options.providerAgentCatalog,
     providerEnvironment: options.providerEnvironment,
     providerFetch: options.providerFetch,
     providerRuntimeAdapterCreate: options.providerRuntimeAdapterCreate,

@@ -7,8 +7,14 @@ import { configurationStoreRead } from "../src/configuration/configurationStoreR
 import { configurationStoreWrite } from "../src/configuration/configurationStoreWrite.js"
 import { exampleDataConfigurationReconcile } from "../src/database/exampleDataConfigurationReconcile.js"
 import { exampleDataFixture } from "../src/database/exampleDataFixture.js"
+import { providerAgentCatalogConfigurationCompile } from "../src/providers/catalog/providerAgentCatalogConfigurationCompile.js"
+import { providerAgentCatalogLoad } from "../src/providers/catalog/providerAgentCatalogLoad.js"
 
 const directories: string[] = []
+const catalogResult = await providerAgentCatalogLoad(new URL("../", import.meta.url).pathname)
+if (!catalogResult.success) throw new Error(catalogResult.errorMessage)
+const catalogConfigurations = providerAgentCatalogConfigurationCompile(catalogResult.data)
+if (!catalogConfigurations.success) throw new Error(catalogConfigurations.errorMessage)
 
 function tempDirectory(): string {
   const directory = mkdtempSync(join(Bun.env.TMPDIR ?? "/tmp", "codeline-example-configuration-"))
@@ -45,6 +51,24 @@ test("reconciles all fixture agents while preserving unrelated configuration ide
         configuration: { model: "stale-model", provider: "deterministic" },
         target: { agentId: fixtureAgent.id, serverId: fixtureAgent.serverId },
       },
+      {
+        configuration: {
+          apiKey: "$CODEX_LB_API_TOKEN",
+          baseUrl: "https://codex.provider.test/v1",
+          model: "gpt-5.6-luna",
+          provider: "codex-lb",
+        },
+        target: { agentId: "example-agent-codex-lb-luna", serverId: "example-server-local" },
+      },
+      {
+        configuration: {
+          apiKey: "$CLIPROXYAPI_API_KEY",
+          baseUrl: "https://cliproxy.provider.test/v1",
+          model: "gpt-5.6-luna",
+          provider: "cliproxyapi",
+        },
+        target: { agentId: "example-agent-cliproxyapi-luna", serverId: "example-server-local" },
+      },
     ],
     version: 1,
   })
@@ -60,12 +84,25 @@ test("reconciles all fixture agents while preserving unrelated configuration ide
     configuration: { model: "user-managed-model", provider: "deterministic" },
     target: { agentId: "user-managed-agent", serverId: "user-managed-server" },
   })
-  expect(read.data.configuration.agentConfigurations.slice(1)).toEqual(
-    exampleDataFixture.agents.map((agent) => ({
+  expect(read.data.configuration.agentConfigurations.slice(1)).toEqual([
+    ...exampleDataFixture.agents.map((agent) => ({
       configuration: agent.configuration,
       target: { agentId: agent.id, serverId: agent.serverId },
     })),
-  )
+    ...catalogConfigurations.data.map(({ agent, configuration }) => ({
+      configuration,
+      target: { agentId: agent.id, serverId: "example-server-local" },
+    })),
+  ])
+  expect(
+    read.data.configuration.agentConfigurations.find(({ target }) => target.agentId === "luna-high")?.configuration,
+  ).toMatchObject({ model: "gpt-5.6-luna", provider: "codex-lb" })
+  expect(
+    read.data.configuration.agentConfigurations.some(
+      ({ target }) =>
+        target.agentId === "example-agent-codex-lb-luna" || target.agentId === "example-agent-cliproxyapi-luna",
+    ),
+  ).toBe(false)
 
   const historyBefore = await gitStoreHistory(storeResult.data.gitStore)
   const repeated = await exampleDataConfigurationReconcile(storeResult.data)

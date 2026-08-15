@@ -154,6 +154,10 @@ export async function runRepositoryChildCreate(
       if (!parsedBudget.success) return createResultError(op, "The root run budget is invalid.")
       const parsedSnapshot = v.safeParse(runExecutionSnapshotSchema, parent.snapshot)
       if (!parsedSnapshot.success) return createResultError(op, "The parent execution snapshot is invalid.")
+      const childSnapshot = parsedInput.output.snapshot ?? parsedSnapshot.output
+      if (childSnapshot.target.serverId !== parsedSnapshot.output.target.serverId) {
+        return createResultError(op, "The child execution snapshot server does not match the parent.")
+      }
 
       const [descendantState] = await transaction
         .select({
@@ -192,7 +196,7 @@ export async function runRepositoryChildCreate(
           failure: null,
           id: childRunId,
           sessionId,
-          snapshot: parsedSnapshot.output,
+          snapshot: childSnapshot,
           status: "accepted",
           streamId: childStreamId,
           updatedAt: now,
@@ -210,7 +214,7 @@ export async function runRepositoryChildCreate(
           ordinal: 1,
           runId: childRunId,
           sessionId,
-          snapshot: parsedSnapshot.output,
+          snapshot: childSnapshot,
           status: "accepted",
           streamId: childStreamId,
           updatedAt: now,

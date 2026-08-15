@@ -1,4 +1,5 @@
-import { EventType, type AnyTool, type ModelMessage, type StreamChunk } from "@tanstack/ai"
+import { createResult, createResultError, type Result } from "@adaptive-ds/result"
+import { type AnyTool, EventType, type ModelMessage, type StreamChunk } from "@tanstack/ai"
 import { InternalLogger } from "@tanstack/ai/adapter-internals"
 import type { sessionChatAdapterCreate } from "../../session/actions/sessionChatAdapterCreate.js"
 import type { CliProxyApiSettings } from "./cliProxyApiSettingsParse.js"
@@ -19,9 +20,11 @@ export type CliProxyApiAdapterOptions = {
   failure?: CliProxyApiAdapterFailure
   label?: string
   settings: CliProxyApiSettings
+  systemPrompt?: string
 }
 
 export type CliProxyApiAdapterInput = Parameters<typeof sessionChatAdapterCreate>[0] & {
+  systemPrompt?: string
   tools?: Array<AnyTool>
 }
 
@@ -103,6 +106,130 @@ function cliProxyApiModelMessagesResolve(input: CliProxyApiAdapterInput): Array<
   return messages
 }
 
+function cliProxyApiOptionSecretsResolve(
+  value: unknown,
+  environment: Readonly<Record<string, string | undefined>>,
+): Result<unknown> {
+  const op = "cliProxyApiOptionSecretsResolve"
+  if (Array.isArray(value)) {
+    const resolved: unknown[] = []
+    for (const item of value) {
+      const result = cliProxyApiOptionSecretsResolve(item, environment)
+      if (!result.success) return result
+      resolved.push(result.data)
+    }
+    return createResult(resolved)
+  }
+  if (value === null || typeof value !== "object") return createResult(value)
+
+  const resolved: Record<string, unknown> = {}
+  for (const [key, item] of Object.entries(value)) {
+    if ((key === "apiKey" || key === "api_key") && typeof item === "string") {
+      const secret = secretReferenceResolve(item, environment)
+      if (!secret.success) return createResultError(op, secret.errorMessage)
+      resolved[key] = secret.data.value
+      continue
+    }
+    const result = cliProxyApiOptionSecretsResolve(item, environment)
+    if (!result.success) return result
+    resolved[key] = result.data
+  }
+  return createResult(resolved)
+}
+
+const cliProxyApiCatalogRequestOnlyOptionKeys = new Set([
+  "blacklist",
+  "include",
+  "npm",
+  "reasoningEffort",
+  "reasoningSummary",
+  "store",
+  "textVerbosity",
+])
+
+function cliProxyApiModelOptionsFilter(value: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(value).filter(([key]) => !cliProxyApiCatalogRequestOnlyOptionKeys.has(key)))
+}
+
+function cliProxyApiRecordResolve(value: unknown): Record<string, unknown> | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined
+  return value as Record<string, unknown>
+}
+
+function cliProxyApiStringResolve(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined
+}
+
+function cliProxyApiCodexResponsesOptionsResolve(
+  modelOptions: Record<string, unknown>,
+  providerOptions: Record<string, unknown>,
+  reasoningEffort: string | undefined,
+): Record<string, unknown> {
+  const request: Record<string, unknown> = {}
+  const modelReasoning = cliProxyApiRecordResolve(modelOptions.reasoning)
+  const modelText = cliProxyApiRecordResolve(modelOptions.text)
+  const reasoning = modelReasoning === undefined ? {} : { ...modelReasoning }
+  const text = modelText === undefined ? {} : { ...modelText }
+
+  const selectedReasoningEffort =
+    reasoningEffort ??
+    cliProxyApiStringResolve(modelOptions.reasoningEffort) ??
+    cliProxyApiStringResolve(providerOptions.reasoningEffort)
+  const selectedReasoningSummary =
+    cliProxyApiStringResolve(modelOptions.reasoningSummary) ??
+    cliProxyApiStringResolve(providerOptions.reasoningSummary)
+  const selectedTextVerbosity =
+    cliProxyApiStringResolve(modelOptions.textVerbosity) ?? cliProxyApiStringResolve(providerOptions.textVerbosity)
+
+  if (selectedReasoningEffort !== undefined) reasoning.effort = selectedReasoningEffort
+  if (selectedReasoningSummary !== undefined) reasoning.summary = selectedReasoningSummary
+  if (Object.keys(reasoning).length > 0) request.reasoning = reasoning
+
+  if (selectedTextVerbosity !== undefined) text.verbosity = selectedTextVerbosity
+  if (Object.keys(text).length > 0) request.text = text
+
+  const include = modelOptions.include ?? providerOptions.include
+  if (include !== undefined) request.include = include
+
+  const store = modelOptions.store ?? providerOptions.store
+  if (typeof store === "boolean") request.store = store
+
+  return request
+}
+
+function cliProxyApiRequestModelOptionsResolve(options: {
+  modelOptions: Record<string, unknown>
+  provider: string | undefined
+  providerOptions: Record<string, unknown>
+  reasoningEffort: string | undefined
+  temperature: number | undefined
+  maxTokens: number | undefined
+  transport: "openai/completions" | "openai/responses" | undefined
+}): Record<string, unknown> {
+  const modelOptions = cliProxyApiModelOptionsFilter(options.modelOptions)
+  if (options.transport === "openai/responses") {
+    return {
+      ...modelOptions,
+      ...(options.maxTokens === undefined ? {} : { max_output_tokens: options.maxTokens }),
+      ...(options.temperature === undefined ? {} : { temperature: options.temperature }),
+      ...(options.provider === "codex-lb"
+        ? cliProxyApiCodexResponsesOptionsResolve(
+            options.modelOptions,
+            options.providerOptions,
+            options.reasoningEffort,
+          )
+        : {}),
+    }
+  }
+
+  return {
+    ...modelOptions,
+    ...(options.maxTokens === undefined ? {} : { max_tokens: options.maxTokens }),
+    ...(options.temperature === undefined ? {} : { temperature: options.temperature }),
+    ...(options.reasoningEffort === undefined ? {} : { reasoning_effort: options.reasoningEffort }),
+  }
+}
+
 async function* cliProxyApiAdapterProviderGenerate(
   options: CliProxyApiAdapterOptions,
   input: CliProxyApiAdapterInput,
@@ -110,24 +237,53 @@ async function* cliProxyApiAdapterProviderGenerate(
 ): AsyncGenerator<StreamChunk> {
   if (options.fetch === undefined) return
 
+  const modelOptions = cliProxyApiOptionSecretsResolve(options.settings.modelOptions ?? {}, options.environment)
+  if (!modelOptions.success) {
+    yield {
+      code: modelOptions.op,
+      message: modelOptions.errorMessage,
+      timestamp: Date.now(),
+      type: EventType.RUN_ERROR,
+    }
+    return
+  }
+  const providerOptions = cliProxyApiOptionSecretsResolve(options.settings.providerOptions ?? {}, options.environment)
+  if (!providerOptions.success) {
+    yield {
+      code: providerOptions.op,
+      message: providerOptions.errorMessage,
+      timestamp: Date.now(),
+      type: EventType.RUN_ERROR,
+    }
+    return
+  }
+
   const adapter = providerOpenAiCompatibleTextAdapterCreate({
     baseUrl: options.settings.baseUrl,
     fetch: options.fetch,
     model: options.settings.model,
     provider: options.label === "Codex-LB" ? "codex-lb" : "cliproxyapi",
     resolvedBearerSecret: secret,
+    ...(options.settings.transport === undefined ? {} : { transport: options.settings.transport }),
   })
   const stream = adapter.chatStream({
     logger: cliProxyApiAdapterLoggerCreate(),
-    messages: cliProxyApiModelMessagesResolve(input),
+    messages: cliProxyApiModelMessagesResolve({ ...input, systemPrompt: options.systemPrompt }),
     model: options.settings.model,
     modelOptions: {
-      max_tokens: options.settings.maxTokens,
-      temperature: options.settings.temperature,
-      ...(options.settings.reasoningEffort === undefined ? {} : { reasoning_effort: options.settings.reasoningEffort }),
+      ...cliProxyApiRequestModelOptionsResolve({
+        maxTokens: options.settings.maxTokens,
+        modelOptions: modelOptions.data as Record<string, unknown>,
+        provider: options.label === "Codex-LB" ? "codex-lb" : "cliproxyapi",
+        providerOptions: providerOptions.data as Record<string, unknown>,
+        reasoningEffort: options.settings.reasoningEffort,
+        temperature: options.settings.temperature,
+        transport: options.settings.transport,
+      }),
       ...(input.tools !== undefined && input.tools.length > 0 ? { parallel_tool_calls: false } : {}),
     },
     request: { signal: input.signal },
+    ...(options.systemPrompt === undefined ? {} : { systemPrompts: [options.systemPrompt] }),
     runId: input.runId,
     threadId: input.sessionId,
     ...(input.tools === undefined ? {} : { tools: input.tools }),

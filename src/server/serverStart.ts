@@ -8,6 +8,10 @@ import type { RuntimeConfiguration } from "../configuration/runtimeConfiguration
 import type { DatabaseConnection } from "../database/databaseClient.js"
 import { databaseConnectionClose } from "../database/databaseConnectionClose.js"
 import { databaseCreate } from "../database/databaseCreate.js"
+import type { ProviderCatalog } from "../providers/schema/providerCatalogSchema.js"
+import { providerAgentCatalogLoad } from "../providers/catalog/providerAgentCatalogLoad.js"
+import { dirname, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 
 type Server = {
   stop: (closeActiveConnections?: boolean) => Promise<void>
@@ -32,12 +36,14 @@ type ServerStartOptions = {
     database: DatabaseConnection["db"]
     projectRootDirs: readonly string[]
     projectRootDir?: string
+    providerAgentCatalog?: ProviderCatalog
   }) => App
   configuration?: RuntimeConfiguration
   configurationStore?: ConfigurationStore
   database?: DatabaseConnection
   projectRootDirs?: readonly string[]
   projectRootDir?: string
+  providerAgentCatalog?: ProviderCatalog
   serve?: Serve
   signalSource?: SignalSource
 }
@@ -77,6 +83,12 @@ export async function serverStart(options: ServerStartOptions = {}): Promise<Ser
 
   const configurationStore = await managedConfigurationStoreResolve(options.configurationStore, configuration.data)
 
+  const providerAgentCatalogResult =
+    options.providerAgentCatalog === undefined
+      ? await providerAgentCatalogLoad(resolve(dirname(fileURLToPath(import.meta.url)), "../.."))
+      : { success: true as const, data: options.providerAgentCatalog }
+  if (!providerAgentCatalogResult.success) throw new Error(providerAgentCatalogResult.errorMessage)
+
   const database =
     options.database === undefined
       ? databaseCreate(configuration.data)
@@ -93,6 +105,7 @@ export async function serverStart(options: ServerStartOptions = {}): Promise<Ser
       database: database.data.db,
       ...(options.projectRootDir === undefined ? {} : { projectRootDir: options.projectRootDir }),
       projectRootDirs,
+      providerAgentCatalog: providerAgentCatalogResult.data,
     }).fetch,
     hostname,
     port,

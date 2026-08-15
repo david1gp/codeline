@@ -14,6 +14,7 @@ export type ProviderRuntimeAdapterOptions = {
   environment: Readonly<Record<string, string | undefined>>
   fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
   failure?: CliProxyApiAdapterFailure
+  systemPrompt?: string
 }
 
 export function providerRuntimeAdapterCreate(options: ProviderRuntimeAdapterOptions): CliProxyApiAdapter {
@@ -21,6 +22,7 @@ export function providerRuntimeAdapterCreate(options: ProviderRuntimeAdapterOpti
     return (input) => providerRuntimeDeterministicGenerate(options, input)
   }
 
+  const transport = options.configuration.modelMetadata?.connection.transport
   return cliProxyApiAdapterCreate({
     chunks: options.chunks,
     environment: options.environment,
@@ -30,13 +32,24 @@ export function providerRuntimeAdapterCreate(options: ProviderRuntimeAdapterOpti
     settings: {
       apiKey: options.configuration.apiKey,
       baseUrl: options.configuration.baseUrl,
-      maxTokens: options.configuration.generation?.maxTokens ?? 4096,
+      ...(options.configuration.generation?.maxTokens === undefined && options.configuration.modelMetadata !== undefined
+        ? {}
+        : { maxTokens: options.configuration.generation?.maxTokens ?? 4096 }),
       model: options.configuration.model,
+      ...(options.configuration.modelOptions === undefined ? {} : { modelOptions: options.configuration.modelOptions }),
+      ...(options.configuration.providerOptions === undefined
+        ? {}
+        : { providerOptions: options.configuration.providerOptions }),
       ...(options.configuration.generation?.reasoningEffort === undefined
         ? {}
         : { reasoningEffort: options.configuration.generation.reasoningEffort }),
-      temperature: options.configuration.generation?.temperature ?? 0.7,
+      ...(options.configuration.generation?.temperature === undefined &&
+      options.configuration.modelMetadata !== undefined
+        ? {}
+        : { temperature: options.configuration.generation?.temperature ?? 0.7 }),
+      ...(transport === "openai/completions" || transport === "openai/responses" ? { transport } : {}),
     },
+    ...(options.systemPrompt === undefined ? {} : { systemPrompt: options.systemPrompt }),
   })
 }
 

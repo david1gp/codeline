@@ -17,6 +17,7 @@ function providerDelegationStreamChunkJsonSafe(chunk: StreamChunk): StreamChunk 
 }
 
 const delegateTaskValidationSchema = v.strictObject({
+  agentId: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(200))),
   task: v.pipe(v.string(), v.minLength(1), v.maxLength(DELEGATE_TASK_INPUT_LIMIT)),
 })
 
@@ -26,6 +27,7 @@ const delegateTaskInputSchema: SchemaInput = {
       input: () => ({
         additionalProperties: false,
         properties: {
+          agentId: { maxLength: 200, minLength: 1, type: "string" },
           task: { maxLength: DELEGATE_TASK_INPUT_LIMIT, minLength: 1, type: "string" },
         },
         required: ["task"],
@@ -50,7 +52,12 @@ export type ProviderDelegationToolLoopInput = {
 
 export type ProviderDelegationToolLoopOptions = {
   adapter: AnyTextAdapter
-  delegateTask: (input: { signal: AbortSignal; task: string; toolCallId: string }) => Promise<string> | string
+  delegateTask: (input: {
+    agentId?: string
+    signal: AbortSignal
+    task: string
+    toolCallId: string
+  }) => Promise<string> | string
 }
 
 export type ProviderDelegationToolLoop = (input: ProviderDelegationToolLoopInput) => AsyncIterable<StreamChunk>
@@ -80,14 +87,19 @@ async function* providerDelegationToolLoopGenerate(
     const parsedInput = v.safeParse(delegateTaskValidationSchema, rawInput)
     if (!parsedInput.success) throw new Error("The delegate_task input is invalid.")
 
-    const { task } = parsedInput.output
+    const { agentId, task } = parsedInput.output
     const toolCallId = context?.toolCallId
     if (toolCallId === undefined || toolCallId === "") throw new Error("The delegation tool call ID is required.")
 
     const signal = context?.abortSignal ?? input.signal
     if (signal.aborted) throw new Error("The delegated task was cancelled.")
 
-    const result = await options.delegateTask({ signal, task, toolCallId })
+    const result = await options.delegateTask({
+      ...(agentId === undefined ? {} : { agentId }),
+      signal,
+      task,
+      toolCallId,
+    })
     if (typeof result !== "string") throw new Error("The delegated task result must be text.")
     return result.slice(0, DELEGATE_TASK_OUTPUT_LIMIT)
   })

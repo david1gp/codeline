@@ -16,6 +16,7 @@ export type ProviderOpenAiCompatibleTextAdapterOptions = {
   model: string
   provider: ProviderLabel
   resolvedBearerSecret: string
+  transport?: "openai/completions" | "openai/responses"
 }
 
 type OpenAiCompatibleTextAdapter = ReturnType<typeof openaiCompatibleText>
@@ -144,7 +145,7 @@ export function providerOpenAiCompatibleTextAdapterCreate(
 ): OpenAiCompatibleTextAdapter {
   const state: { code?: ProviderFailureCode } = {}
   const adapter = openaiCompatibleText(options.model, {
-    api: "chat-completions",
+    api: options.transport === "openai/responses" ? "responses" : "chat-completions",
     apiKey: options.resolvedBearerSecret,
     baseURL: options.baseUrl,
     fetch: providerFetchCreate(options, state),
