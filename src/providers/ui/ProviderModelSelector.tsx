@@ -1,56 +1,63 @@
-import { For, Match, Switch } from "solid-js"
-import { providerModelSelectorStateCreate } from "./providerModelSelectorStateCreate.js"
+import { For, Match, Show, Switch } from "solid-js"
+import type { ProviderModelSelectorState } from "./providerModelSelectorStateCreate.js"
 
 const selectClass =
   "h-8 max-w-[220px] min-w-0 cursor-pointer appearance-none truncate rounded-[9px] border-none bg-transparent px-2 text-xs text-faint hover:bg-surface-hover hover:text-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed"
-const effortLevels = ["low", "medium", "high", "xhigh", "max"] as const
-
-export function ProviderModelSelector(props: { state: ReturnType<typeof providerModelSelectorStateCreate> }) {
-  const state = props.state
-
+export function ProviderModelSelector(props: { state: ProviderModelSelectorState }) {
   return (
     <div class="flex min-w-0 items-center gap-1">
       <Switch>
-        <Match when={state.status() === "idle"}>
+        <Match when={props.state.status() === "idle"}>
           <select class={selectClass} aria-label="Provider model" disabled>
             <option>Select a conversation</option>
           </select>
         </Match>
-        <Match when={state.status() === "loading"}>
+        <Match when={props.state.status() === "loading"}>
           <select class={selectClass} aria-label="Provider model" disabled>
             <option>Loading models...</option>
           </select>
         </Match>
-        <Match when={state.status() === "error"}>
+        <Match when={props.state.status() === "error"}>
           <select class={`${selectClass} text-danger`} aria-label="Provider model" disabled>
             <option>Models unavailable</option>
           </select>
         </Match>
-        <Match when={state.status() === "ready"}>
+        <Match when={props.state.status() === "ready"}>
           <select
             class={selectClass}
             aria-label="Provider model"
             aria-describedby="provider-model-application"
-            value={state.selectedModel() ?? ""}
-            onChange={(event) => state.modelSelect(event.currentTarget.value)}
+            value={props.state.selectedModelValue()}
+            onChange={(event) => props.state.modelValueSelect(event.currentTarget.value)}
           >
-            <For each={state.models()}>{(model) => <option value={model.id}>{model.name ?? model.id}</option>}</For>
+            <For each={props.state.groups()}>
+              {(provider) => (
+                <optgroup label={provider.name}>
+                  <For each={provider.models}>{(model) => <option value={model.value}>{model.name}</option>}</For>
+                </optgroup>
+              )}
+            </For>
           </select>
         </Match>
       </Switch>
       <select
         class={selectClass}
         aria-label="Reasoning effort"
-        disabled={state.status() !== "ready"}
-        value={state.selectedReasoningEffort()}
-        onChange={(event) => state.reasoningEffortSelect(event.currentTarget.value as (typeof effortLevels)[number])}
+        disabled={props.state.status() !== "ready" || props.state.effortOptions().length === 0}
+        value={props.state.selectedReasoningEffort() ?? ""}
+        onChange={(event) => props.state.reasoningEffortValueSelect(event.currentTarget.value)}
       >
-        <For each={effortLevels}>{(effort) => <option value={effort}>{effort} effort</option>}</For>
+        <For each={props.state.effortOptions()}>{(effort) => <option value={effort}>{effort} effort</option>}</For>
+        <Show when={props.state.effortOptions().length === 0}>
+          <option value="">Default effort</option>
+        </Show>
       </select>
       <p class="sr-only m-0" id="provider-model-application">
         <Switch>
-          <Match when={state.status() === "ready"}>New messages use {state.selectedModel()}.</Match>
-          <Match when={state.status() === "error"}>Provider discovery is unavailable.</Match>
+          <Match when={props.state.status() === "ready"}>
+            New messages use {props.state.selectedModel()} from {props.state.selectedProvider()}.
+          </Match>
+          <Match when={props.state.status() === "error"}>Provider discovery is unavailable.</Match>
           <Match when={true}>Selection applies after choosing a conversation.</Match>
         </Switch>
       </p>

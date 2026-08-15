@@ -2,6 +2,7 @@ import * as v from "valibot"
 import { providerModelSelectionSchema } from "./providerModelSelectionSchema.js"
 
 export const providerModelSelectionPersistenceSchema = v.strictObject({
+  selectedProvider: v.optional(providerModelSelectionSchema.entries.provider),
   selections: v.pipe(
     v.array(providerModelSelectionSchema),
     v.maxLength(3),

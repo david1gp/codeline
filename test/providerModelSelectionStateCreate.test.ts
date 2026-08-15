@@ -59,18 +59,19 @@ test("persisted selections are scoped by provider and invalid choices are reject
     )
     expect(state.selectedModel()).toBe("cli-model")
     expect(state.persistedSelection()).toEqual({ model: "cli-model", provider: "cliproxyapi" })
-    expect(state.modelSelect("missing")).toBe(false)
+    expect(state.modelSelect("cliproxyapi", "missing")).toBe(false)
     expect(state.selectedModel()).toBe("cli-model")
-    expect(state.modelSelect("configured")).toBe(true)
+    expect(state.modelSelect("cliproxyapi", "configured")).toBe(true)
     expect(state.persistence()).toEqual({
       selections: [
         { model: "codex-model", provider: "codex-lb" },
         { model: "configured", provider: "cliproxyapi" },
       ],
+      selectedProvider: "cliproxyapi",
     })
     configuration = remoteConfiguration("codex-lb", "configured")
-    expect(state.selectedModel()).toBe("codex-model")
-    expect(state.persistedSelection()).toEqual({ model: "codex-model", provider: "codex-lb" })
+    expect(state.selectedModel()).toBe("configured")
+    expect(state.persistedSelection()).toBeNull()
     return rootDispose
   })
   dispose()
