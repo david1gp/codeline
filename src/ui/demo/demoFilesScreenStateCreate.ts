@@ -13,7 +13,6 @@ export function demoFilesScreenStateCreate(variant: () => DemoSessionScreenVaria
 
   return {
     browser: () => (hasProjects() ? browser : null),
-    legacySingleRoot: () => false,
     projects,
     projectSelect: (event) => {
       const projectId = event.currentTarget.value

@@ -45,6 +45,8 @@ export function demoSelectedSessionStateCreate(options: DemoSelectedSessionState
   return {
     chatCreate: () => chat,
     hasSelection: () => options.variant() !== "empty" && options.selectedSessionId.get() !== null,
+    initialChat: chat,
+    isInitialChatVisible: () => options.selectedSessionId.get() === null,
     isMessagesEmpty: () => messages().length === 0,
     isMessagesError: () => options.variant() === "error",
     isMessagesLoading: () => options.variant() === "loading",

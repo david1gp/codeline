@@ -5,7 +5,7 @@ import { projectGitPanelStateCreate } from "./projectGitPanelStateCreate.js"
 type ProjectBrowserViewOptions = {
   apiBase?: string
   fetcher?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
-  projectId?: string
+  projectId: string
 }
 
 /**

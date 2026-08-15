@@ -6,15 +6,33 @@ import { projectEntryAccessibleName } from "./projectEntryAccessibleName.js"
 import { projectEntryPresentationClassify } from "./projectEntryPresentationClassify.js"
 import { projectModifiedAtFormat } from "./projectModifiedAtFormat.js"
 
-export function ProjectBrowser(props: { state: ProjectBrowserView }) {
+export function ProjectBrowser(props: { compact?: boolean; state: ProjectBrowserView }) {
   const state = props.state
 
   return (
-    <section class="grid min-h-0 min-w-0 grid-cols-1 gap-4" aria-label="Project browser">
-      <ProjectGitPanel state={state.git} />
+    <section
+      class="grid min-h-0 min-w-0 grid-cols-1"
+      classList={{ "gap-4": !props.compact, "h-full": props.compact }}
+      aria-label="Project browser"
+    >
+      <Show when={!props.compact}>
+        <ProjectGitPanel state={state.git} />
+      </Show>
 
-      <div class="grid min-h-0 grid-cols-1 gap-4 lg:grid-cols-[minmax(16rem,0.75fr)_minmax(0,1.25fr)]">
-        <div class="min-h-0 rounded-xl border border-line bg-surface p-3">
+      <div
+        class="grid min-h-0 grid-cols-1"
+        classList={{
+          "gap-4 lg:grid-cols-[minmax(16rem,0.75fr)_minmax(0,1.25fr)]": !props.compact,
+          "h-full grid-rows-[minmax(10rem,2fr)_minmax(12rem,3fr)]": props.compact,
+        }}
+      >
+        <div
+          class="min-h-0 border-line bg-surface p-3"
+          classList={{
+            "overflow-auto border-b": props.compact,
+            "rounded-xl border": !props.compact,
+          }}
+        >
           <header class="mb-3 flex items-center gap-2 border-b border-line pb-3">
             <button
               class="rounded-md border border-line px-2 py-1 text-xs text-subtle hover:bg-surface-hover hover:text-strong disabled:border-disabled-border disabled:text-disabled disabled:hover:bg-transparent"
@@ -89,7 +107,13 @@ export function ProjectBrowser(props: { state: ProjectBrowserView }) {
           </Switch>
         </div>
 
-        <div class="min-h-[16rem] min-w-0 overflow-hidden rounded-xl border border-line bg-surface-sunken">
+        <div
+          class="min-w-0 overflow-hidden border-line bg-surface-sunken"
+          classList={{
+            "min-h-0 flex flex-col": props.compact,
+            "min-h-[16rem] rounded-xl border": !props.compact,
+          }}
+        >
           <Show when={state.tabs().length > 0}>
             <nav class="flex min-w-0 overflow-x-auto border-b border-line" aria-label="Open project files">
               <For each={state.tabs()}>
@@ -114,7 +138,7 @@ export function ProjectBrowser(props: { state: ProjectBrowserView }) {
               </For>
             </nav>
           </Show>
-          <div class="p-3">
+          <div class="p-3" classList={{ "min-h-0 flex-1 overflow-auto": props.compact }}>
             <Show when={state.selectedFile()} fallback={<p class="text-xs text-faint">Select a file to preview it.</p>}>
               {(file) => (
                 <>

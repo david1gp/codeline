@@ -1,0 +1,32 @@
+import { expect, test } from "bun:test"
+
+test("the workspace shows setup until a conversation is selected", async () => {
+  const workspacePage = await Bun.file(new URL("../src/ui/WorkspacePage.tsx", import.meta.url)).text()
+  const normalized = workspacePage.replace(/\s+/g, " ")
+
+  expect(normalized.match(/when=\{props\.state\.selectedSession\.hasSelection\(\)\}/g)).toHaveLength(2)
+  expect(normalized).toContain(
+    "fallback={<WorkspaceSetupPanel configuration={props.state.sessionTargetSelector.configurationReadiness()} />}",
+  )
+  expect(normalized).toContain(
+    "<SelectedSession providerModel={props.state.providerModelSelector} state={props.state.selectedSession} />",
+  )
+})
+
+test("the setup panel distinguishes server and agent states and exposes configuration actions", async () => {
+  const setupPanel = await Bun.file(new URL("../src/ui/WorkspaceSetupPanel.tsx", import.meta.url)).text()
+
+  expect(setupPanel).toContain('props.configuration.status === "loading"')
+  expect(setupPanel).toContain('props.configuration.status === "no-server"')
+  expect(setupPanel).toContain('props.configuration.status === "server-error"')
+  expect(setupPanel).toContain('props.configuration.status === "no-agent"')
+  expect(setupPanel).toContain('props.configuration.status === "agent-error"')
+  expect(setupPanel).toContain('aria-label="Codeline server"')
+  expect(setupPanel).toContain('aria-label="Execution agent"')
+  expect(setupPanel).toContain("props.configuration.modelsDiscover()")
+  expect(setupPanel).toContain("props.configuration.connectionTestStart()")
+  expect(setupPanel).toContain("props.configuration.save()")
+  expect(setupPanel).toContain("props.configuration.sessionCreateStart()")
+  expect(setupPanel).toContain('from "#ui/input/input/Input.jsx"')
+  expect(setupPanel).toContain('from "#ui/interactive/button/Button.jsx"')
+})

@@ -19,9 +19,6 @@ export function filesScreenViewCreate(options: FilesScreenViewOptions = {}): Fil
   const state = filesPageStateCreate(options)
 
   const browser = createMemo<ProjectBrowserView | null>(() => {
-    if (state.legacySingleRoot())
-      return projectBrowserViewCreate({ apiBase: options.apiBase, fetcher: options.fetcher })
-
     const projectId = state.selectedProject()?.id
     if (projectId === undefined) return null
     return projectBrowserViewCreate({ apiBase: options.apiBase, fetcher: options.fetcher, projectId })

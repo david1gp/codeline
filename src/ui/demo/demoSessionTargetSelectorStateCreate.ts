@@ -24,15 +24,66 @@ export function demoSessionTargetSelectorStateCreate(
   }
   const servers = () => (status() === "ready" ? demoServers : [])
   const agents = () => (status() === "ready" ? demoAgents : [])
+  const agentSelect = (agentId: string) => {
+    if (agents().some((agent) => agent.id === agentId)) selectedAgentId.set(agentId)
+  }
+  const retry = () => undefined
+
+  const configurationReadiness = () => {
+    const currentStatus = status()
+    const currentAgentId = selectedAgentId.get() ?? ""
+    return {
+      agents: agents(),
+      agentCreateBegin: () => undefined,
+      agentSelect,
+      connectionTest: null,
+      connectionTestStart: () => Promise.resolve(),
+      connectionTestStatus: "idle" as const,
+      draft: {
+        baseUrl: "https://gateway.example.com/v1",
+        model: "demo-model",
+        name: "Builder",
+        provider: "codex-lb" as const,
+        role: "primary",
+        secretReference: "$CODEX_LB_API_TOKEN" as const,
+      },
+      draftBaseUrlChange: () => undefined,
+      draftModelChange: () => undefined,
+      draftNameChange: () => undefined,
+      draftProviderChange: () => undefined,
+      draftRoleChange: () => undefined,
+      errorMessage: currentStatus === "error" ? "The demo agents could not be loaded." : null,
+      isConfigurableAgent: currentStatus === "ready",
+      isCreatingAgent: false,
+      models: [],
+      modelsDiscover: () => Promise.resolve(),
+      modelsStatus: "idle" as const,
+      retry,
+      save: () => Promise.resolve(),
+      saveStatus: "idle" as const,
+      selectedAgentId: currentStatus === "ready" ? currentAgentId : null,
+      selectedServerId: currentStatus === "ready" ? selectedServerId.get() : null,
+      serverSelect: () => undefined,
+      servers: servers(),
+      sessionCreateStart: () => Promise.resolve(null),
+      sessionCreateErrorMessage: currentStatus === "error" ? "The demo conversation could not be created." : null,
+      sessionCreateStatus: "idle" as const,
+      status:
+        currentStatus === "error"
+          ? ("server-error" as const)
+          : currentStatus === "empty"
+            ? ("no-server" as const)
+            : currentStatus,
+    }
+  }
 
   return {
     agents,
-    agentSelect: (agentId: string) => {
-      if (agents().some((agent) => agent.id === agentId)) selectedAgentId.set(agentId)
-    },
+    agentSelect,
     agentsReload: () => undefined,
     agentStatus: status,
     canCreateSession: () => status() === "ready",
+    configurationReadiness,
     isCreatingSession: () => false,
     pendingTarget: () => {
       const agentId = selectedAgentId.get()
@@ -47,7 +98,9 @@ export function demoSessionTargetSelectorStateCreate(
     },
     serversReload: () => undefined,
     serverStatus: status,
-    sessionCreateStart: () => Promise.resolve(),
+    sessionCreateErrorMessage: () =>
+      variant() === "error" ? "The demo conversation could not be created." : undefined,
+    sessionCreateStart: () => Promise.resolve(null),
     sessionCreateStatus: () => (variant() === "error" ? "error" : "idle"),
   }
 }

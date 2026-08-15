@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test"
 import { createRoot } from "solid-js/dist/solid.js"
 import { filesPageStateCreate } from "../src/ui/filesPageStateCreate.js"
+import { filesScreenViewCreate } from "../src/ui/filesScreenViewCreate.js"
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
 const firstProject = { id: "a".repeat(64), label: "alpha" }
@@ -58,20 +59,75 @@ test("Files page exposes empty, error, and retry states", async () => {
   root.dispose()
 })
 
-test("Files page restores the legacy single-root browser mode", async () => {
+test("Files page does not expose the legacy no-project root", async () => {
+  const calls: string[] = []
   const root = createRoot((dispose) => ({
     dispose,
-    state: filesPageStateCreate({
-      fetcher: async () =>
-        new Response(JSON.stringify({ projects: [], truncated: false }), {
+    state: filesScreenViewCreate({
+      fetcher: async (input) => {
+        calls.push(String(input))
+        return new Response(JSON.stringify({ projects: [], truncated: false }), {
           headers: { "Content-Type": "application/json", "X-Codeline-Project-Mode": "legacy-single-root" },
-        }),
+        })
+      },
     }),
   }))
 
   await tick()
-  expect(root.state.legacySingleRoot()).toBe(true)
+  expect(root.state.browser()).toBeNull()
+  expect(calls).toEqual(["/api/project/list"])
   expect(root.state.status()).toBe("ready")
+  root.dispose()
+})
+
+test("Files page restores and updates a validated selected project", async () => {
+  const values = new Map<string, string>([["codeline.explorer.selectedProjectId", secondProject.id]])
+  const storage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+  }
+  const fetcher = async () => Response.json({ projects: [firstProject, secondProject], truncated: false })
+  const firstRoot = createRoot((dispose) => ({ dispose, state: filesPageStateCreate({ fetcher, storage }) }))
+
+  await tick()
+  expect(firstRoot.state.selectedProject()).toEqual(secondProject)
+  firstRoot.state.projectSelect({ currentTarget: { value: firstProject.id } } as Event & {
+    currentTarget: HTMLSelectElement
+  })
+  expect(values.get("codeline.explorer.selectedProjectId")).toBe(firstProject.id)
+  firstRoot.dispose()
+
+  const reloadedRoot = createRoot((dispose) => ({ dispose, state: filesPageStateCreate({ fetcher, storage }) }))
+  await tick()
+  expect(reloadedRoot.state.selectedProject()).toEqual(firstProject)
+  reloadedRoot.dispose()
+})
+
+test("Files screen scopes its browser to the selected project", async () => {
+  const calls: string[] = []
+  const root = createRoot((dispose) => ({
+    dispose,
+    state: filesScreenViewCreate({
+      fetcher: async (input) => {
+        const url = String(input)
+        calls.push(url)
+        if (url === "/api/project/list")
+          return Response.json({ projects: [firstProject, secondProject], truncated: false })
+        return Response.json({ entries: [] })
+      },
+    }),
+  }))
+
+  await tick()
+  expect(calls).toContain(`/api/project/directory?project=${firstProject.id}&path=`)
+
+  root.state.projectSelect({ currentTarget: { value: secondProject.id } } as Event & {
+    currentTarget: HTMLSelectElement
+  })
+  await tick()
+
+  expect(calls).toContain(`/api/project/directory?project=${secondProject.id}&path=`)
+  expect(calls).not.toContain("/api/project/directory?path=")
   root.dispose()
 })
 

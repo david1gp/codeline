@@ -29,14 +29,15 @@ export function sessionChatStateCreate(options: SessionChatStateOptions) {
     keyDownHandle: (event: KeyboardEvent) => {
       if (event.key !== "Enter" || event.shiftKey || event.isComposing) return
       event.preventDefault()
-      composer.submit()
+      void composer.submit().catch(() => undefined)
     },
     pendingMessages: () => transientMessagesResolve(composer.transientMessages(), options.durableMessages()),
     recoveryStatus: composer.recoveryStatus,
     stopHandle: () => void composer.stop(),
+    submit: () => composer.submit(),
     submitHandle: (event: Event) => {
       event.preventDefault()
-      composer.submit()
+      void composer.submit().catch(() => undefined)
     },
   }
 }

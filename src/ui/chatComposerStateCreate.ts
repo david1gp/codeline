@@ -71,14 +71,20 @@ export function chatComposerStateCreate(options: ChatComposerOptions) {
       })),
   )
 
-  const submit = () => {
-    const prompt = draft.get().trim()
+  const submit = async () => {
+    const preservedDraft = draft.get()
+    const prompt = preservedDraft.trim()
     if (prompt.length === 0 || chat.isLoading() || stopping.get()) return
     draft.set("")
     stopError.set(undefined)
     activity.turnReset()
     syncForwardedProps()
-    void chat.sendMessage(prompt, { whenBusy: "drop" })
+    try {
+      await chat.sendMessage(prompt, { whenBusy: "drop" })
+    } catch (error) {
+      draft.set(preservedDraft)
+      throw error
+    }
   }
 
   const stop = () => {

@@ -20,6 +20,8 @@ export type SelectedSessionViewSession = {
 export type SelectedSessionView = {
   chatCreate: (sessionId: string) => SessionChatState
   hasSelection: () => boolean
+  initialChat: SessionChatState
+  isInitialChatVisible: () => boolean
   isMessagesEmpty: () => boolean
   isMessagesError: () => boolean
   isMessagesLoading: () => boolean

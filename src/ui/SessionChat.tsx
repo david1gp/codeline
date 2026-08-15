@@ -1,55 +1,56 @@
 import { For, Show } from "solid-js"
 import { MessageBody } from "../message/ui/MessageBody.js"
+import type { providerModelSelectorStateCreate } from "../providers/ui/providerModelSelectorStateCreate.js"
+import { ProviderModelSelector } from "../providers/ui/ProviderModelSelector.js"
 import type { SessionChatState } from "./sessionChatStateCreate.js"
 
-export function SessionChat(props: { state: SessionChatState }) {
+export function SessionChat(props: {
+  providerModel?: ReturnType<typeof providerModelSelectorStateCreate>
+  state: SessionChatState
+}) {
   return (
-    <section class="grid min-h-0 gap-3 px-7 pb-6 max-[760px]:px-3.5 max-[760px]:pb-3.5" aria-label="Chat input">
-      <Show when={props.state.pendingMessages().length > 0}>
-        <ol
-          class="mx-auto grid max-h-[30vh] w-[min(760px,100%)] list-none gap-6 overflow-y-auto p-0"
-          aria-label="In-flight messages"
-        >
-          <For each={props.state.pendingMessages()}>
-            {(message) => (
-              <li
-                class="border-l-2 border-dashed border-accent-border pl-4"
-                classList={{ "!border-line-strong": message.role === "assistant" }}
-              >
-                <span
-                  class="font-mono text-[10px] font-bold tracking-[0.12em] text-accent uppercase"
-                  classList={{ "!text-faint": message.role === "assistant" }}
-                >
-                  {message.role}
-                </span>
-                <Show when={(message.activities?.length ?? 0) > 0}>
-                  <ul class="my-1.5 grid list-none gap-1 p-0" aria-label="Response activity">
-                    <For each={message.activities ?? []}>
-                      {(activity) => (
-                        <li class="font-mono text-[10px] text-faint">
-                          <span class="text-accent">{activity.kind}</span>
-                          <span> · {activity.label}</span>
-                          <Show when={activity.status}>{(status) => <span> · {status()}</span>}</Show>
-                          <Show when={activity.detail}>
-                            {(detail) => <span class="text-placeholder"> · {detail().slice(0, 160)}</span>}
-                          </Show>
-                        </li>
-                      )}
-                    </For>
-                  </ul>
-                </Show>
-                <MessageBody content={message.content} />
-              </li>
-            )}
-          </For>
-        </ol>
-      </Show>
+    <section class="shrink-0 px-4 pb-2 max-[760px]:px-3" aria-label="Chat input">
+      <div class="mx-auto grid w-full max-w-[820px] gap-2">
+        <Show when={props.state.pendingMessages().length > 0}>
+          <ol class="grid max-h-[30vh] list-none gap-3 overflow-y-auto p-0" aria-label="In-flight messages">
+            <For each={props.state.pendingMessages()}>
+              {(message) => (
+                <li class="flex min-w-0 flex-col" classList={{ "items-end": message.role === "user" }}>
+                  <Show when={message.role !== "user"}>
+                    <span class="mb-1 text-[11px] text-faint">Assistant</span>
+                  </Show>
+                  <Show when={(message.activities?.length ?? 0) > 0}>
+                    <ul class="my-1 grid list-none gap-1 p-0" aria-label="Response activity">
+                      <For each={message.activities ?? []}>
+                        {(activity) => (
+                          <li class="text-[11px] text-faint">
+                            <span class="text-accent">{activity.kind}</span>
+                            <span> · {activity.label}</span>
+                            <Show when={activity.status}>{(status) => <span> · {status()}</span>}</Show>
+                            <Show when={activity.detail}>
+                              {(detail) => <span class="text-placeholder"> · {detail().slice(0, 160)}</span>}
+                            </Show>
+                          </li>
+                        )}
+                      </For>
+                    </ul>
+                  </Show>
+                  <div
+                    class="min-w-0 break-words"
+                    classList={{
+                      "max-w-[85%] rounded-xl border border-accent-border bg-accent-soft px-3 py-2 text-sm leading-relaxed":
+                        message.role === "user",
+                      "w-full": message.role !== "user",
+                    }}
+                  >
+                    <MessageBody content={message.content} />
+                  </div>
+                </li>
+              )}
+            </For>
+          </ol>
+        </Show>
 
-      <form
-        class="grid gap-2.5 rounded-xl border border-line bg-surface-raised p-3 shadow-[0_18px_48px_var(--shadow-color)]"
-        aria-label="Chat composer"
-        onSubmit={props.state.submitHandle}
-      >
         <Show when={props.state.errorMessage()}>
           {(message) => (
             <p class="m-0 text-xs text-danger" role="alert">
@@ -61,7 +62,7 @@ export function SessionChat(props: { state: SessionChatState }) {
           <ul class="m-0 grid list-none gap-1 p-0" aria-label="Run failures">
             <For each={props.state.failures()}>
               {(failure) => (
-                <li class="font-mono text-[10px] text-danger" role="alert">
+                <li class="text-[11px] text-danger" role="alert">
                   {failure.code} · {failure.message}
                 </li>
               )}
@@ -74,67 +75,80 @@ export function SessionChat(props: { state: SessionChatState }) {
           </p>
         </Show>
 
-        <textarea
-          class="min-h-[62px] w-full resize-y rounded-lg border border-line-subtle bg-transparent p-2.5 text-[13px] leading-[1.6] text-foreground placeholder:text-placeholder disabled:text-disabled"
-          aria-label="Message"
-          placeholder="Send a message. Enter sends, Shift+Enter adds a newline."
-          rows={3}
-          disabled={props.state.isBusy()}
-          value={props.state.draft()}
-          onInput={(event) => props.state.draftUpdate(event.currentTarget.value)}
-          onKeyDown={props.state.keyDownHandle}
-        />
-
-        <div class="flex items-center justify-end gap-2.5">
-          <Show when={props.state.isThinking()}>
-            <span class="mr-auto font-mono text-[10px] text-accent" role="status" aria-live="polite">
-              Thinking...
-            </span>
-          </Show>
-          <Show when={props.state.attemptCount() > 1}>
-            <span class="font-mono text-[10px] text-faint" role="status" aria-live="polite">
-              Attempt {props.state.attemptCount()}
-            </span>
-          </Show>
-          <Show when={props.state.isAborted()}>
-            <span class="font-mono text-[10px] text-faint" role="status" aria-live="polite">
-              Response cancelled.
-            </span>
-          </Show>
-          <Show when={props.state.recoveryStatus() === "recovering"}>
-            <span class="mr-auto font-mono text-[10px] text-faint" role="status" aria-live="polite">
-              Recovering saved response...
-            </span>
-          </Show>
-          <Show when={props.state.recoveryStatus() === "terminal"}>
-            <span class="mr-auto font-mono text-[10px] text-faint" role="status" aria-live="polite">
-              Response complete.
-            </span>
-          </Show>
-          <Show when={props.state.isBusy()}>
-            <Show when={props.state.recoveryStatus() !== "recovering"}>
-              <span class="mr-auto font-mono text-[10px] text-faint" role="status" aria-live="polite">
-                Streaming response...
-              </span>
-            </Show>
-            <button
-              class="cursor-pointer rounded-lg border border-accent-border bg-accent-soft px-3.5 py-2 text-accent"
-              type="button"
-              disabled={props.state.isStopping()}
-              onClick={props.state.stopHandle}
+        <form class="grid gap-2" aria-label="Chat composer" onSubmit={props.state.submitHandle}>
+          <div class="flex min-w-0 items-end gap-2 rounded-[14px] border border-line bg-surface px-3 py-2.5 shadow-[0_1px_2px_var(--shadow-color),0_8px_24px_-12px_var(--shadow-color-strong)] focus-within:border-accent-border">
+            <textarea
+              class="max-h-[200px] min-h-6 w-full flex-1 resize-none border-none bg-transparent text-sm leading-relaxed text-foreground outline-none placeholder:text-placeholder disabled:text-disabled"
+              aria-label="Message"
+              placeholder="Send a message. Enter sends, Shift+Enter adds a newline."
+              rows={2}
+              disabled={props.state.isBusy()}
+              value={props.state.draft()}
+              onInput={(event) => props.state.draftUpdate(event.currentTarget.value)}
+              onKeyDown={props.state.keyDownHandle}
+            />
+            <Show
+              when={props.state.isBusy()}
+              fallback={
+                <button
+                  class="flex shrink-0 cursor-pointer items-center gap-1.5 self-end rounded-lg border-none bg-accent px-3.5 py-1.5 text-[13px] font-semibold text-accent-contrast disabled:cursor-not-allowed disabled:bg-disabled-surface disabled:text-disabled"
+                  type="submit"
+                  disabled={!props.state.canSubmit()}
+                >
+                  Send
+                </button>
+              }
             >
-              Stop
-            </button>
-          </Show>
-          <button
-            class="cursor-pointer rounded-lg border border-accent-border bg-accent-soft px-3.5 py-2 text-accent disabled:cursor-not-allowed disabled:border-disabled-border disabled:bg-disabled-surface disabled:text-disabled"
-            type="submit"
-            disabled={!props.state.canSubmit()}
-          >
-            Send
-          </button>
-        </div>
-      </form>
+              <button
+                class="flex shrink-0 cursor-pointer items-center gap-1.5 self-end rounded-lg border border-accent-border bg-accent-soft px-3.5 py-1.5 text-[13px] font-semibold text-accent disabled:cursor-not-allowed"
+                type="button"
+                disabled={props.state.isStopping()}
+                onClick={props.state.stopHandle}
+              >
+                Stop
+              </button>
+            </Show>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2 text-[11px] text-faint">
+            <Show when={props.providerModel}>
+              {(providerModel) => <ProviderModelSelector state={providerModel()} />}
+            </Show>
+            <div class="ml-auto flex flex-wrap items-center gap-3">
+              <Show when={props.state.isThinking()}>
+                <span class="animate-pulse text-accent" role="status" aria-live="polite">
+                  Thinking...
+                </span>
+              </Show>
+              <Show when={props.state.isBusy() && props.state.recoveryStatus() !== "recovering"}>
+                <span class="animate-pulse" role="status" aria-live="polite">
+                  Streaming response...
+                </span>
+              </Show>
+              <Show when={props.state.recoveryStatus() === "recovering"}>
+                <span role="status" aria-live="polite">
+                  Recovering saved response...
+                </span>
+              </Show>
+              <Show when={props.state.recoveryStatus() === "terminal"}>
+                <span role="status" aria-live="polite">
+                  Response complete.
+                </span>
+              </Show>
+              <Show when={props.state.attemptCount() > 1}>
+                <span role="status" aria-live="polite">
+                  Attempt {props.state.attemptCount()}
+                </span>
+              </Show>
+              <Show when={props.state.isAborted()}>
+                <span role="status" aria-live="polite">
+                  Response cancelled.
+                </span>
+              </Show>
+            </div>
+          </div>
+        </form>
+      </div>
     </section>
   )
 }

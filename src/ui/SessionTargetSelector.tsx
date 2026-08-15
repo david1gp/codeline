@@ -14,105 +14,42 @@ export function SessionTargetSelector(props: { state: SessionTargetSelectorState
   const state = props.state
 
   return (
-    <>
-      <div class={groupClass}>
-        <label class={labelClass}>
-          <span>Server</span>
-          <Switch>
-            <Match when={state.serverStatus() === "loading"}>
-              <select class={disabledSelectClass} aria-label="Server for a new session" disabled>
-                <option>Loading servers...</option>
-              </select>
-            </Match>
-            <Match when={state.serverStatus() === "empty"}>
-              <select class={disabledSelectClass} aria-label="Server for a new session" disabled>
-                <option>No server available</option>
-              </select>
-            </Match>
-            <Match when={state.serverStatus() === "error"}>
-              <select class={disabledSelectClass} aria-label="Server for a new session" disabled>
-                <option>Servers unavailable</option>
-              </select>
-            </Match>
-            <Match when={state.serverStatus() === "ready"}>
-              <select
-                class={selectClass}
-                aria-label="Server for a new session"
-                value={state.selectedServerId() ?? ""}
-                onChange={(event) => state.serverSelect(event.currentTarget.value)}
-              >
-                <For each={state.servers()}>{(server) => <option value={server.id}>{server.name}</option>}</For>
-              </select>
-            </Match>
-          </Switch>
-        </label>
-        <Show when={state.serverStatus() === "error"}>
-          <button class={retryClass} type="button" aria-label="Retry loading servers" onClick={state.serversReload}>
-            Retry
-          </button>
-        </Show>
-      </div>
-
-      <span class="h-7 w-px bg-line max-[760px]:h-auto" aria-hidden="true" />
-
-      <div class={groupClass}>
-        <label class={labelClass}>
-          <span>Agent</span>
-          <Switch>
-            <Match when={state.agentStatus() === "loading"}>
-              <select class={disabledSelectClass} aria-label="Agent for a new session" disabled>
-                <option>Loading agents...</option>
-              </select>
-            </Match>
-            <Match when={state.agentStatus() === "empty"}>
-              <select class={disabledSelectClass} aria-label="Agent for a new session" disabled>
-                <option>No agent configured</option>
-              </select>
-            </Match>
-            <Match when={state.agentStatus() === "error"}>
-              <select class={disabledSelectClass} aria-label="Agent for a new session" disabled>
-                <option>Agents unavailable</option>
-              </select>
-            </Match>
-            <Match when={state.agentStatus() === "ready"}>
-              <select
-                class={selectClass}
-                aria-label="Agent for a new session"
-                value={state.selectedAgentId() ?? ""}
-                onChange={(event) => state.agentSelect(event.currentTarget.value)}
-              >
-                <For each={state.agents()}>{(agent) => <option value={agent.id}>{agent.name}</option>}</For>
-              </select>
-            </Match>
-          </Switch>
-        </label>
-        <Show when={state.agentStatus() === "error"}>
-          <button class={retryClass} type="button" aria-label="Retry loading agents" onClick={state.agentsReload}>
-            Retry
-          </button>
-        </Show>
-      </div>
-
-      <span class="h-7 w-px bg-line max-[760px]:h-auto" aria-hidden="true" />
-
-      <div class="grid gap-1">
-        <button
-          class="min-h-11 shrink-0 rounded-lg border border-accent-border bg-accent-soft px-4 text-sm font-semibold text-accent disabled:opacity-50"
-          type="button"
-          aria-label="Start a new session with the selected server and agent"
-          disabled={!state.canCreateSession()}
-          onClick={() => void state.sessionCreateStart()}
-        >
-          <Show when={state.isCreatingSession()} fallback="New session">
-            Creating...
-          </Show>
+    <div class={groupClass}>
+      <label class={labelClass}>
+        <span>Agent</span>
+        <Switch>
+          <Match when={state.agentStatus() === "loading"}>
+            <select class={disabledSelectClass} aria-label="Agent for a new session" disabled>
+              <option>Loading agents...</option>
+            </select>
+          </Match>
+          <Match when={state.agentStatus() === "empty"}>
+            <select class={disabledSelectClass} aria-label="Agent for a new session" disabled>
+              <option>No agent configured</option>
+            </select>
+          </Match>
+          <Match when={state.agentStatus() === "error"}>
+            <select class={disabledSelectClass} aria-label="Agent for a new session" disabled>
+              <option>Agents unavailable</option>
+            </select>
+          </Match>
+          <Match when={state.agentStatus() === "ready"}>
+            <select
+              class={selectClass}
+              aria-label="Agent for a new session"
+              value={state.selectedAgentId() ?? ""}
+              onChange={(event) => state.agentSelect(event.currentTarget.value)}
+            >
+              <For each={state.agents()}>{(agent) => <option value={agent.id}>{agent.name}</option>}</For>
+            </select>
+          </Match>
+        </Switch>
+      </label>
+      <Show when={state.agentStatus() === "error"}>
+        <button class={retryClass} type="button" aria-label="Retry loading agents" onClick={state.agentsReload}>
+          Retry
         </button>
-        <p class="m-0 max-w-64 text-[9px] leading-[1.35] text-faint" role="status">
-          <Switch fallback="Selection applies to a new session.">
-            <Match when={state.sessionCreateStatus() === "error"}>The new session could not be created.</Match>
-          </Switch>
-        </p>
-      </div>
-    </>
+      </Show>
+    </div>
   )
 }

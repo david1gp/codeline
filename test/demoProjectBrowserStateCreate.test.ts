@@ -12,7 +12,7 @@ test("Project files views stay view-only and receive injected state", async () =
 
   expect(filesPage).toContain("props: { state: FilesScreenView }")
   expect(filesPage).not.toContain("filesPageStateCreate")
-  expect(browser).toContain("props: { state: ProjectBrowserView }")
+  expect(browser).toContain("state: ProjectBrowserView")
   expect(browser).not.toContain("projectBrowserStateCreate")
   expect(gitPanel).toContain("props: { state: ProjectGitPanelView }")
   expect(gitPanel).not.toContain("projectGitPanelStateCreate")

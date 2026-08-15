@@ -41,25 +41,25 @@
 
 @layer base {
   :root {
-    --background: #f7f9f3;
-    --foreground: #1f2a18;
-    --foreground-strong: #10170c;
-    --foreground-subtle: #4a5643;
-    --foreground-faint: #626d5a;
-    --muted: #edf1e6;
-    --muted-foreground: #5a6552;
-    --placeholder: #79826f;
+    --background: #ffffff;
+    --foreground: #1a1a1a;
+    --foreground-strong: #1a1a1a;
+    --foreground-subtle: #4b5563;
+    --foreground-faint: #6b7280;
+    --muted: #f5f5f5;
+    --muted-foreground: #6b7280;
+    --placeholder: #9ca3af;
     --surface: #ffffff;
-    --surface-hover: #f1f5e8;
+    --surface-hover: #eeeeee;
     --surface-raised: #ffffff;
-    --surface-sunken: #f3f6ec;
-    --border: #dde4d1;
-    --border-subtle: #e8ede0;
-    --border-strong: #c5cfb6;
-    --accent: #4a7a12;
-    --accent-hover: #3d6610;
-    --accent-soft: #edf6da;
-    --accent-border: #b9d189;
+    --surface-sunken: #f5f5f5;
+    --border: #e0e0e0;
+    --border-subtle: #eeeeee;
+    --border-strong: #c7c7c7;
+    --accent: #2563eb;
+    --accent-hover: #1d4ed8;
+    --accent-soft: #eff6ff;
+    --accent-border: #bfdbfe;
     --accent-contrast: #ffffff;
     --disabled-foreground: #878f7e;
     --disabled-surface: #eef1e9;
@@ -70,45 +70,52 @@
     --success: #2f7d3f;
     --success-solid: #1f7047;
     --warning: #9a6b0f;
-    --header-background: rgb(247 249 243 / 82%);
-    --glow: rgb(116 153 44 / 7%);
+    --header-background: rgb(245 245 245 / 92%);
+    --glow: transparent;
     --code-background: #eff3e6;
     --code-surface: #f7f9f2;
     --quote-border: #b6c98c;
     --quote-foreground: #4e5a46;
     --heading-foreground: #10170c;
-    --link-color: #3d6410;
+    --link-color: #2563eb;
     --shadow-color: rgb(41 56 26 / 10%);
     --shadow-color-strong: rgb(41 56 26 / 16%);
     --overlay: rgb(31 42 20 / 42%);
     --emblem-from: #f4f9e8;
     --emblem-to: #ffffff;
-    --emblem-glow: rgb(74 122 18 / 6%);
+    --emblem-glow: rgb(37 99 235 / 8%);
+    --bg: var(--background);
+    --bg-panel: var(--muted);
+    --bg-hover: var(--surface-hover);
+    --bg-selected: #e8e8e8;
+    --text: var(--foreground);
+    --text-muted: var(--muted-foreground);
+    --text-dim: var(--placeholder);
     color-scheme: light;
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     font-synthesis: none;
   }
 
   :root.dark {
-    --background: #11130f;
-    --foreground: #ebece5;
-    --foreground-strong: #ebece5;
-    --foreground-subtle: #c8cbc1;
-    --foreground-faint: #9da392;
-    --muted: #22251e;
-    --muted-foreground: #969b8d;
-    --placeholder: #7b8174;
-    --surface: #171a15;
-    --surface-hover: #1c1f19;
-    --surface-raised: #1c1f19;
-    --surface-sunken: #11130f;
-    --border: #30342a;
-    --border-subtle: #25281f;
-    --border-strong: #59604e;
-    --accent: #d8ff72;
-    --accent-hover: #e3ff98;
-    --accent-soft: #2b341c;
-    --accent-border: #546333;
+    --background: #1a1a1a;
+    --foreground: #e8e8e8;
+    --foreground-strong: #e8e8e8;
+    --foreground-subtle: #c2c6cc;
+    --foreground-faint: #9ca3af;
+    --muted: #242424;
+    --muted-foreground: #9ca3af;
+    --placeholder: #6b7280;
+    --surface: #1a1a1a;
+    --surface-hover: #2e2e2e;
+    --surface-raised: #242424;
+    --surface-sunken: #1a1a1a;
+    --border: #3a3a3a;
+    --border-subtle: #2e2e2e;
+    --border-strong: #555555;
+    --accent: #60a5fa;
+    --accent-hover: #93c5fd;
+    --accent-soft: #1e293b;
+    --accent-border: #334c70;
     --accent-contrast: #171a13;
     --disabled-foreground: #82887a;
     --disabled-surface: #292d24;
@@ -119,20 +126,21 @@
     --success: #8fcf70;
     --success-solid: #1f7047;
     --warning: #e5c96b;
-    --header-background: rgb(17 19 15 / 88%);
-    --glow: rgb(116 153 44 / 8%);
+    --header-background: rgb(36 36 36 / 92%);
+    --glow: transparent;
     --code-background: #25281f;
     --code-surface: #171914;
     --quote-border: #657838;
     --quote-foreground: #b8bdae;
     --heading-foreground: #ebece5;
-    --link-color: #d8ff72;
+    --link-color: #60a5fa;
     --shadow-color: rgb(0 0 0 / 30%);
     --shadow-color-strong: rgb(0 0 0 / 45%);
     --overlay: rgb(10 12 9 / 72%);
     --emblem-from: #22271a;
     --emblem-to: #171914;
-    --emblem-glow: rgb(216 255 114 / 8%);
+    --emblem-glow: rgb(96 165 250 / 10%);
+    --bg-selected: #383838;
     color-scheme: dark;
   }
 
@@ -147,7 +155,7 @@
     min-width: 320px;
     min-height: 100vh;
     min-height: 100dvh;
-    background: radial-gradient(circle at 72% 30%, var(--glow), transparent 32rem), var(--background);
+    background: var(--background);
     color: var(--foreground);
   }
 
@@ -158,6 +166,116 @@
 
   a {
     color: inherit;
+  }
+}
+
+@layer components {
+  .application-shell {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    background: var(--background);
+  }
+
+  .application-shell-sidebar {
+    width: var(--sidebar-width, 260px);
+    min-width: var(--sidebar-width, 260px);
+    overflow: hidden;
+    border-right: 1px solid var(--border);
+    background: var(--muted);
+  }
+
+  .application-shell-content {
+    min-width: 0;
+    min-height: 0;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  .application-shell-resize-handle {
+    position: relative;
+    z-index: 20;
+    height: 100%;
+    width: 12px;
+    margin: 0 -6px;
+    flex: 0 0 12px;
+    cursor: col-resize;
+    touch-action: none;
+    outline: none;
+    border: 0;
+    padding: 0;
+  }
+
+  .application-shell-resize-handle::after {
+    position: absolute;
+    inset-block: 0;
+    left: 5px;
+    width: 2px;
+    background: transparent;
+    content: "";
+  }
+
+  .application-shell-resize-handle:hover::after,
+  .application-shell-resize-handle:focus-visible::after,
+  .application-shell-resize-handle.is-resizing::after {
+    background: color-mix(in srgb, var(--muted-foreground) 70%, var(--border));
+  }
+
+  .application-shell-right-panel {
+    width: var(--right-panel-width, 560px);
+    min-width: 300px;
+    overflow: hidden;
+    border-left: 1px solid var(--border);
+    background: var(--background);
+  }
+
+  .application-shell-right-backdrop {
+    display: none;
+  }
+}
+
+@media (max-width: 959px) {
+  .application-shell-right-resize-handle {
+    display: none;
+  }
+
+  .application-shell-right-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    display: block;
+    border: 0;
+    background: var(--overlay);
+  }
+
+  .application-shell-right-panel {
+    position: fixed;
+    inset-block: 0;
+    right: 0;
+    z-index: 40;
+    width: min(560px, calc(100vw - 48px));
+    box-shadow: -12px 0 32px var(--shadow-color-strong);
+  }
+}
+
+@media (max-width: 760px) {
+  .application-shell {
+    display: block;
+    overflow: visible;
+  }
+
+  .application-shell-sidebar,
+  .application-shell-sidebar-resize-handle {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .application-shell-right-panel {
+    inset: 0;
+    width: 100%;
+    min-width: 0;
   }
 }
 

@@ -1,33 +1,24 @@
 import { Show } from "solid-js"
-import { ProviderModelSelector } from "../providers/ui/ProviderModelSelector.js"
+import { ApplicationShell } from "./ApplicationShell.js"
+import { FilesPanel } from "./FilesPanel.js"
 import { SelectedSession } from "./SelectedSession.js"
-import { SessionList } from "./SessionList.js"
+import { SessionSidebar } from "./SessionSidebar.js"
 import { SessionTargetSelector } from "./SessionTargetSelector.js"
+import { WorkspaceSetupPanel } from "./WorkspaceSetupPanel.js"
 import type { WorkspaceScreenView } from "./workspaceScreenView.js"
 
 export function WorkspacePage(props: { state: WorkspaceScreenView }) {
   const state = props.state.drawer
 
   return (
-    <main class="grid min-h-0 grid-cols-[264px_minmax(0,1fr)] max-[760px]:block" id="workspace">
-      <aside
-        class="flex min-h-0 flex-col border-[var(--border)] border-r bg-[var(--surface)] px-[22px] pt-[30px] pb-5 max-[760px]:hidden"
-        aria-label="Workspace navigation"
-      >
-        <div>
-          <p class="mb-[9px] font-mono text-[10px] font-bold tracking-[0.14em] text-accent uppercase">Workspace</p>
-          <h1 class="m-0 text-[19px] font-semibold tracking-[-0.02em]">Local session</h1>
-          <p class="mt-2 mb-0 text-[13px] leading-[1.55] text-faint">No project or conversation is open.</p>
-        </div>
-
-        <SessionList state={props.state.sessionList} />
-
-        <div class="flex items-center justify-between gap-3 font-mono text-[10px] text-placeholder">
-          <span class="shortcut">Zero-synced foundation</span>
-          <span class="version">v0.1</span>
-        </div>
-      </aside>
-
+    <ApplicationShell
+      state={props.state.shell}
+      leftSidebar={
+        <SessionSidebar sessionList={props.state.sessionList} sessionTarget={props.state.sessionTargetSelector} />
+      }
+      rightPanel={<FilesPanel close={props.state.shell.rightPanelClose} state={props.state.files} />}
+      rightPanelLabel="Project files"
+    >
       <Show when={state.isSessionDrawerOpen()}>
         <div
           class="fixed inset-0 z-30 bg-[var(--overlay)] min-[761px]:hidden"
@@ -35,7 +26,7 @@ export function WorkspacePage(props: { state: WorkspaceScreenView }) {
           onClick={state.sessionDrawerClose}
         />
         <aside
-          class="fixed inset-y-0 left-0 z-40 flex w-[min(86vw,340px)] flex-col overflow-y-auto border-[var(--border)] border-r bg-[var(--surface)] px-[22px] py-5 shadow-[18px_0_50px_var(--shadow-color-strong)] min-[761px]:hidden"
+          class="fixed inset-y-0 left-0 z-40 flex w-[min(86vw,340px)] flex-col overflow-hidden border-[var(--border)] border-r bg-muted shadow-[18px_0_50px_var(--shadow-color-strong)] min-[761px]:hidden"
           id="mobile-session-drawer"
           role="dialog"
           aria-modal="true"
@@ -43,33 +34,22 @@ export function WorkspacePage(props: { state: WorkspaceScreenView }) {
           tabindex="-1"
           ref={state.sessionDrawerElement}
         >
-          <div class="flex min-h-11 items-center justify-between gap-4">
-            <h2 class="m-0 text-lg font-semibold" id="mobile-session-drawer-heading">
-              Sessions
-            </h2>
-            <button
-              class="min-h-11 min-w-11 rounded-lg border border-[var(--border)] px-3 text-sm text-[var(--muted-foreground)]"
-              type="button"
-              ref={state.sessionDrawerInitialFocus}
-              aria-label="Close sessions"
-              onClick={state.sessionDrawerClose}
-            >
-              Close
-            </button>
-          </div>
-          <SessionList
+          <SessionSidebar
+            close={state.sessionDrawerClose}
+            headingId="mobile-session-drawer-heading"
             idPrefix="mobile-session"
-            state={props.state.sessionList}
-            onSessionSelect={state.sessionSelectHandle}
+            initialFocus={state.sessionDrawerInitialFocus}
+            sessionList={props.state.sessionList}
+            sessionTarget={props.state.sessionTargetSelector}
           />
         </aside>
       </Show>
 
       <section
-        class="grid min-w-0 min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] max-[760px]:min-h-[calc(100dvh-110px)]"
+        class="relative flex h-full min-w-0 min-h-0 flex-col overflow-hidden max-[760px]:min-h-[calc(100dvh-110px)]"
         aria-label="Conversation workspace"
       >
-        <div class="flex min-h-[74px] items-center gap-[18px] border-line-subtle border-b px-7 py-3 max-[760px]:items-stretch max-[760px]:gap-[9px] max-[760px]:overflow-x-auto max-[760px]:px-4">
+        <div class="flex min-h-[56px] shrink-0 items-center gap-3 border-line-subtle border-b px-4 py-2 max-[760px]:items-stretch max-[760px]:gap-2 max-[760px]:overflow-x-auto">
           <button
             class="hidden min-h-11 shrink-0 items-center rounded-lg border border-accent-border bg-accent-soft px-4 text-sm font-semibold text-accent max-[760px]:flex"
             type="button"
@@ -80,13 +60,18 @@ export function WorkspacePage(props: { state: WorkspaceScreenView }) {
             Sessions
           </button>
 
-          <SessionTargetSelector state={props.state.sessionTargetSelector} />
-
-          <ProviderModelSelector state={props.state.providerModelSelector} />
+          <Show when={props.state.selectedSession.hasSelection()}>
+            <SessionTargetSelector state={props.state.sessionTargetSelector} />
+          </Show>
         </div>
 
-        <SelectedSession state={props.state.selectedSession} />
+        <Show
+          when={props.state.selectedSession.hasSelection()}
+          fallback={<WorkspaceSetupPanel configuration={props.state.sessionTargetSelector.configurationReadiness()} />}
+        >
+          <SelectedSession providerModel={props.state.providerModelSelector} state={props.state.selectedSession} />
+        </Show>
       </section>
-    </main>
+    </ApplicationShell>
   )
 }

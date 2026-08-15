@@ -8,10 +8,14 @@ import type { SelectedSessionView } from "./selectedSessionView.js"
 import type { SessionNavigationState } from "./sessionNavigationStateCreate.js"
 import { sessionChatStateCacheCreate } from "./sessionChatStateCacheCreate.js"
 import { sessionChatStateCreate } from "./sessionChatStateCreate.js"
+import { sessionInitialMessageStateCreate } from "./sessionInitialMessageStateCreate.js"
 
 type SelectedSessionStateOptions = {
   codelineExecution: Accessor<CodelineExecution | null>
   navigation: Accessor<SessionNavigationState>
+  sessionCreateStart: () => Promise<string | null>
+  sessionCreateErrorMessage: () => string | undefined
+  sessionTargetAvailable: () => boolean
 }
 
 export function selectedSessionStateCreate(options: SelectedSessionStateOptions): SelectedSessionView {
@@ -44,20 +48,43 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
     return created
   }
 
-  createEffect(() => {
-    if (selectedSessionId() === null || sessionResult().type !== "complete" || session() !== undefined) return
-    options.navigation().clearSession()
-  })
-
   const chatCreate = sessionChatStateCacheCreate({
     chatStateCreate: sessionChatStateCreate,
     codelineExecution: options.codelineExecution,
     durableMessages,
   })
+  const sessionReady = async (sessionId: string) => {
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      if (session()?.id === sessionId) return true
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    return false
+  }
+  const initialMessage = sessionInitialMessageStateCreate({
+    chatCreate,
+    selectedSessionId,
+    sessionCreateErrorMessage: options.sessionCreateErrorMessage,
+    sessionCreateStart: options.sessionCreateStart,
+    sessionReady,
+    sessionTargetAvailable: options.sessionTargetAvailable,
+  })
+
+  createEffect(() => {
+    if (
+      selectedSessionId() === null ||
+      initialMessage.isVisible() ||
+      sessionResult().type !== "complete" ||
+      session() !== undefined
+    )
+      return
+    options.navigation().clearSession()
+  })
 
   return {
     chatCreate,
     session,
+    initialChat: initialMessage.chat,
+    isInitialChatVisible: initialMessage.isVisible,
     messages: durableMessages,
     renameState,
     hasSelection: () => selectedSessionId() !== null,

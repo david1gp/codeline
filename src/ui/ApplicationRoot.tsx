@@ -4,6 +4,7 @@ import { authSessionStateCreate } from "../identity/ui/authSessionStateCreate.js
 import { App } from "./App.js"
 import { CodelineZeroProvider } from "./CodelineZeroProvider.js"
 import { appShellStateCreate } from "./appShellStateCreate.js"
+import { applicationShellStateCreate } from "./applicationShellStateCreate.js"
 import { protectedShellStateCreate } from "./protectedShellStateCreate.js"
 
 export function ApplicationRoot(props: { children?: JSX.Element }) {
@@ -46,10 +47,17 @@ export function ApplicationRoot(props: { children?: JSX.Element }) {
           </div>
         </main>
       </Match>
-      <Match when={session.status() === "signed-in" ? session.userId() : undefined} keyed>
-        {(userId) => (
-          <CodelineZeroProvider userId={userId}>
-            <ProtectedShell userId={userId} sessionClear={session.signOut}>
+      <Match
+        when={
+          session.status() === "signed-in" && session.userId() !== undefined && session.displayName() !== undefined
+            ? { displayName: session.displayName() as string, userId: session.userId() as string }
+            : undefined
+        }
+        keyed
+      >
+        {(user) => (
+          <CodelineZeroProvider userId={user.userId}>
+            <ProtectedShell displayName={user.displayName} userId={user.userId} sessionClear={session.signOut}>
               {props.children}
             </ProtectedShell>
           </CodelineZeroProvider>
@@ -59,15 +67,22 @@ export function ApplicationRoot(props: { children?: JSX.Element }) {
   )
 }
 
-function ProtectedShell(props: { children?: JSX.Element; sessionClear: () => void; userId: string }) {
+function ProtectedShell(props: {
+  children?: JSX.Element
+  displayName: string
+  sessionClear: () => void
+  userId: string
+}) {
   const state = appShellStateCreate()
+  const shell = applicationShellStateCreate()
   const auth = protectedShellStateCreate({
+    displayName: () => props.displayName,
     sessionClear: () => props.sessionClear(),
     userId: () => props.userId,
   })
 
   return (
-    <App auth={auth} state={state}>
+    <App applicationShell={shell} auth={auth} state={state}>
       {props.children}
     </App>
   )

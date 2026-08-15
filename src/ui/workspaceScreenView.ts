@@ -1,4 +1,6 @@
 import type { providerModelSelectorStateCreate } from "../providers/ui/providerModelSelectorStateCreate.js"
+import type { applicationShellStateCreate } from "./applicationShellStateCreate.js"
+import type { FilesScreenView } from "./filesScreenView.js"
 import type { SelectedSessionView } from "./selectedSessionView.js"
 import type { sessionListStateCreate } from "./sessionListStateCreate.js"
 import type { SessionTargetSelectorState } from "./sessionTargetSelectorStateCreate.js"
@@ -10,7 +12,9 @@ import type { workspacePageStateCreate } from "./workspacePageStateCreate.js"
  */
 export type WorkspaceScreenView = {
   drawer: ReturnType<typeof workspacePageStateCreate>
+  files: FilesScreenView
   providerModelSelector: ReturnType<typeof providerModelSelectorStateCreate>
+  shell: ReturnType<typeof applicationShellStateCreate>
   selectedSession: SelectedSessionView
   sessionList: ReturnType<typeof sessionListStateCreate>
   sessionTargetSelector: SessionTargetSelectorState

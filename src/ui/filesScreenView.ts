@@ -12,7 +12,6 @@ export type FilesScreenProject = {
  */
 export type FilesScreenView = {
   browser: () => ProjectBrowserView | null
-  legacySingleRoot: () => boolean
   projects: () => readonly FilesScreenProject[]
   projectSelect: (event: Event & { currentTarget: HTMLSelectElement }) => void
   retry: () => void

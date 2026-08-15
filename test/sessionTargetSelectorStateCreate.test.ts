@@ -28,6 +28,50 @@ const agentsByServer: Record<string, unknown> = {
     ],
   },
 }
+const agentDetails: Record<string, unknown> = {
+  "example-agent-local": {
+    agent: {
+      configuration: {
+        apiKey: "$CODEX_LB_API_TOKEN",
+        baseUrl: "https://codex.example.com/v1",
+        model: "codex-model",
+        provider: "codex-lb",
+      },
+      id: "example-agent-local",
+      name: "Example Coding Agent",
+      role: "coding",
+      serverId: "example-server-local",
+    },
+  },
+  "example-agent-local-review": {
+    agent: {
+      configuration: {
+        apiKey: "$CLIPROXYAPI_API_KEY",
+        baseUrl: "https://cli.example.com/v1",
+        model: "review-model",
+        provider: "cliproxyapi",
+      },
+      id: "example-agent-local-review",
+      name: "Example Review Agent",
+      role: "review",
+      serverId: "example-server-local",
+    },
+  },
+  "example-agent-remote": {
+    agent: {
+      configuration: {
+        apiKey: "$CODEX_LB_API_TOKEN",
+        baseUrl: "https://remote.example.com/v1",
+        model: "remote-model",
+        provider: "codex-lb",
+      },
+      id: "example-agent-remote",
+      name: "Example Remote Agent",
+      role: "coding",
+      serverId: "example-server-remote",
+    },
+  },
+}
 
 async function effectsSettle() {
   for (let index = 0; index < 12; index += 1) await new Promise((resolve) => setTimeout(resolve, 0))
@@ -44,6 +88,12 @@ function fetchDefaultCreate(requests: string[], overrides: Record<string, () => 
     if (agentMatch?.[1] !== undefined) {
       return response(agentsByServer[decodeURIComponent(agentMatch[1])] ?? { agents: [] })
     }
+    const agentDetailMatch = /^\/api\/servers\/[^/]+\/agents\/([^/]+)$/.exec(url)
+    if (agentDetailMatch?.[1] !== undefined) {
+      return response(agentDetails[decodeURIComponent(agentDetailMatch[1])] ?? {}, {
+        status: agentDetails[decodeURIComponent(agentDetailMatch[1])] === undefined ? 404 : 200,
+      })
+    }
     if (url.startsWith("/api/sessions/")) {
       return response({ session: { primaryAgentId: "example-agent-remote", serverId: "example-server-remote" } })
     }
@@ -51,7 +101,7 @@ function fetchDefaultCreate(requests: string[], overrides: Record<string, () => 
   }
 }
 
-test("selector loads servers and the agents of the default server", async () => {
+test("state loads agents from the deterministic default server", async () => {
   const requests: string[] = []
   let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
   const dispose = createRoot((rootDispose) => {
@@ -71,9 +121,47 @@ test("selector loads servers and the agents of the default server", async () => 
   expect(state?.selectedServerId()).toBe("example-server-local")
   expect(state?.selectedAgentId()).toBe("example-agent-local")
   expect(state?.pendingTarget()).toEqual({ agentId: "example-agent-local", serverId: "example-server-local" })
+  expect(state?.configurationReadiness()).toMatchObject({
+    agents: [
+      { id: "example-agent-local", name: "Example Coding Agent" },
+      { id: "example-agent-local-review", name: "Example Review Agent" },
+    ],
+    selectedAgentId: "example-agent-local",
+    status: "ready",
+  })
   expect(requests).toContain("GET /api/servers")
   expect(requests).toContain("GET /api/servers/example-server-local/agents")
   dispose()
+})
+
+test("hidden server selection remains available for session creation", async () => {
+  const requests: string[] = []
+  let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
+  const dispose = createRoot((rootDispose) => {
+    state = sessionTargetSelectorStateCreate({
+      fetch: fetchDefaultCreate(requests),
+      selectedSessionId: () => null,
+      sessionSelect: () => undefined,
+    })
+    return rootDispose
+  })
+  await effectsSettle()
+
+  state?.serverSelect("example-server-remote")
+  await effectsSettle()
+  await state?.sessionCreateStart()
+
+  expect(state?.pendingTarget()).toEqual({ agentId: "example-agent-remote", serverId: "example-server-remote" })
+  expect(requests).toContain("POST /api/sessions")
+  dispose()
+})
+
+test("workspace target controls hide server selection while retaining agent selection", async () => {
+  const source = await Bun.file(new URL("../src/ui/SessionTargetSelector.tsx", import.meta.url)).text()
+
+  expect(source).toContain('aria-label="Agent for a new session"')
+  expect(source).not.toContain("serverSelect")
+  expect(source).not.toContain("selectedServerId")
 })
 
 test("selecting another server reloads its agents without creating a session", async () => {
@@ -197,14 +285,80 @@ test("server errors surface a retry that reloads the list", async () => {
   await effectsSettle()
   expect(state?.serverStatus()).toBe("error")
   expect(state?.canCreateSession()).toBe(false)
+  expect(state?.configurationReadiness().status).toBe("server-error")
 
   failing = false
-  state?.serversReload()
+  state?.configurationReadiness().retry()
   await effectsSettle()
 
   expect(state?.serverStatus()).toBe("ready")
   expect(state?.selectedServerId()).toBe("example-server-local")
+  expect(state?.configurationReadiness().status).toBe("ready")
   expect(requests.filter((url) => url === "/api/servers")).toHaveLength(2)
+  dispose()
+})
+
+test("agent errors surface a readiness retry that restores the executable target", async () => {
+  const requests: string[] = []
+  let failing = true
+  let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
+  const dispose = createRoot((rootDispose) => {
+    state = sessionTargetSelectorStateCreate({
+      fetch: async (input, init) => {
+        const url = String(input)
+        requests.push(url)
+        const agentMatch = /^\/api\/servers\/([^/]+)\/agents$/.exec(url)
+        if (agentMatch?.[1] === "example-server-local" && failing) {
+          return response({ error: { code: "internal_server_error", message: "no" } }, { status: 500 })
+        }
+        return fetchDefaultCreate([])(input, init)
+      },
+      selectedSessionId: () => null,
+      sessionSelect: () => undefined,
+    })
+    return rootDispose
+  })
+  await effectsSettle()
+
+  expect(state?.agentStatus()).toBe("error")
+  expect(state?.canCreateSession()).toBe(false)
+  expect(state?.configurationReadiness().status).toBe("agent-error")
+
+  failing = false
+  state?.configurationReadiness().retry()
+  await effectsSettle()
+
+  expect(state?.agentStatus()).toBe("ready")
+  expect(state?.configurationReadiness().status).toBe("ready")
+  expect(state?.canCreateSession()).toBe(true)
+  expect(requests.filter((url) => url === "/api/servers/example-server-local/agents")).toHaveLength(2)
+  dispose()
+})
+
+test("the readiness contract owns agent choice and rejects unknown agents", async () => {
+  let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
+  const dispose = createRoot((rootDispose) => {
+    state = sessionTargetSelectorStateCreate({
+      fetch: fetchDefaultCreate([]),
+      selectedSessionId: () => null,
+      sessionSelect: () => undefined,
+    })
+    return rootDispose
+  })
+  await effectsSettle()
+
+  const configuration = state?.configurationReadiness()
+  configuration?.agentSelect("example-agent-local-review")
+  await effectsSettle()
+
+  expect(state?.configurationReadiness()).toMatchObject({
+    selectedAgentId: "example-agent-local-review",
+    status: "ready",
+  })
+  expect(state?.pendingTarget()).toEqual({ agentId: "example-agent-local-review", serverId: "example-server-local" })
+
+  configuration?.agentSelect("unknown-agent")
+  expect(state?.configurationReadiness().selectedAgentId).toBe("example-agent-local-review")
   dispose()
 })
 
@@ -224,6 +378,7 @@ test("an empty server list keeps the selector empty and blocks creation", async 
   expect(state?.agentStatus()).toBe("empty")
   expect(state?.pendingTarget()).toBeNull()
   expect(state?.canCreateSession()).toBe(false)
+  expect(state?.configurationReadiness()).toMatchObject({ agents: [], selectedAgentId: null, status: "no-server" })
   dispose()
 })
 
@@ -240,6 +395,183 @@ test("an invalid response body is rejected as an error", async () => {
   await effectsSettle()
 
   expect(state?.serverStatus()).toBe("error")
+  dispose()
+})
+
+test("workspace configuration loads an editable agent and uses persisted-agent provider APIs", async () => {
+  const requests: string[] = []
+  let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
+  const dispose = createRoot((rootDispose) => {
+    state = sessionTargetSelectorStateCreate({
+      fetch: async (input, init) => {
+        const url = String(input)
+        requests.push(`${init?.method ?? "GET"} ${url}`)
+        if (url.endsWith("/models")) {
+          return response({ models: [{ id: "codex-model" }, { id: "codex-next", name: "Codex Next" }] })
+        }
+        if (url.endsWith("/connection-test")) {
+          return response({
+            discoveredModelCount: 2,
+            model: "codex-model",
+            modelAvailable: true,
+            ok: true,
+            provider: "codex-lb",
+          })
+        }
+        return fetchDefaultCreate([])(input, init)
+      },
+      selectedSessionId: () => null,
+      sessionSelect: () => undefined,
+    })
+    return rootDispose
+  })
+  await effectsSettle()
+
+  expect(state?.configurationReadiness().draft).toMatchObject({
+    baseUrl: "https://codex.example.com/v1",
+    model: "codex-model",
+    name: "Example Coding Agent",
+    provider: "codex-lb",
+    secretReference: "$CODEX_LB_API_TOKEN",
+  })
+
+  await state?.configurationReadiness().modelsDiscover()
+  await state?.configurationReadiness().connectionTestStart()
+
+  expect(requests).toContain("POST /api/servers/example-server-local/agents/example-agent-local/models")
+  expect(requests).toContain("POST /api/servers/example-server-local/agents/example-agent-local/connection-test")
+  expect(state?.configurationReadiness().models.map((model) => model.id)).toEqual(["codex-model", "codex-next"])
+  expect(state?.configurationReadiness().connectionTestStatus).toBe("success")
+  dispose()
+})
+
+test("workspace configuration updates an agent with only the fixed provider secret reference", async () => {
+  let updateBody: unknown
+  let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
+  const dispose = createRoot((rootDispose) => {
+    state = sessionTargetSelectorStateCreate({
+      fetch: async (input, init) => {
+        const url = String(input)
+        if (url === "/api/servers/example-server-local/agents/example-agent-local" && init?.method === "PATCH") {
+          updateBody = JSON.parse(String(init.body))
+          return response({
+            agent: {
+              configuration: {
+                apiKey: "$CLIPROXYAPI_API_KEY",
+                baseUrl: "https://cli-updated.example.com/v1",
+                model: "cli-model",
+                provider: "cliproxyapi",
+              },
+              id: "example-agent-local",
+              name: "Updated agent",
+              role: "review",
+              serverId: "example-server-local",
+            },
+          })
+        }
+        return fetchDefaultCreate([])(input, init)
+      },
+      selectedSessionId: () => null,
+      sessionSelect: () => undefined,
+    })
+    return rootDispose
+  })
+  await effectsSettle()
+
+  let configuration = state?.configurationReadiness()
+  configuration?.draftNameChange("Updated agent")
+  configuration?.draftRoleChange("review")
+  configuration?.draftProviderChange("cliproxyapi")
+  configuration?.draftBaseUrlChange("https://cli-updated.example.com/v1")
+  configuration?.draftModelChange("cli-model")
+  await state?.configurationReadiness().save()
+
+  expect(updateBody).toEqual({
+    configuration: {
+      apiKey: "$CLIPROXYAPI_API_KEY",
+      baseUrl: "https://cli-updated.example.com/v1",
+      model: "cli-model",
+      provider: "cliproxyapi",
+    },
+    name: "Updated agent",
+    role: "review",
+  })
+  expect(JSON.stringify(updateBody)).not.toContain("secret-key")
+  dispose()
+})
+
+test("an agent-less server exposes creation and surfaces provider API errors", async () => {
+  let created = false
+  let createBody: unknown
+  let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
+  const dispose = createRoot((rootDispose) => {
+    state = sessionTargetSelectorStateCreate({
+      fetch: async (input, init) => {
+        const url = String(input)
+        if (url === "/api/servers/example-server-local/agents" && (init?.method ?? "GET") === "GET") {
+          return response(
+            created
+              ? {
+                  agents: [
+                    { id: "created-agent", name: "Created agent", role: "coding", serverId: "example-server-local" },
+                  ],
+                }
+              : { agents: [] },
+          )
+        }
+        if (url === "/api/servers/example-server-local/agents/models") {
+          return response(
+            { error: { code: "internal_server_error", message: "Gateway unavailable." } },
+            { status: 500 },
+          )
+        }
+        if (url === "/api/servers/example-server-local/agents" && init?.method === "POST") {
+          createBody = JSON.parse(String(init.body))
+          created = true
+          return response(
+            {
+              agent: {
+                ...(createBody as { name: string; role: string }),
+                configuration: (createBody as { configuration: unknown }).configuration,
+                id: "created-agent",
+                serverId: "example-server-local",
+              },
+            },
+            { status: 201 },
+          )
+        }
+        if (url === "/api/servers/example-server-local/agents/created-agent") {
+          return response({
+            agent: {
+              ...(createBody as { name: string; role: string }),
+              configuration: (createBody as { configuration: unknown }).configuration,
+              id: "created-agent",
+              serverId: "example-server-local",
+            },
+          })
+        }
+        return fetchDefaultCreate([])(input, init)
+      },
+      selectedSessionId: () => null,
+      sessionSelect: () => undefined,
+    })
+    return rootDispose
+  })
+  await effectsSettle()
+
+  expect(state?.configurationReadiness().status).toBe("no-agent")
+  const configuration = state?.configurationReadiness()
+  configuration?.draftNameChange("Created agent")
+  configuration?.draftBaseUrlChange("https://codex-created.example.com/v1")
+  configuration?.draftModelChange("created-model")
+  await state?.configurationReadiness().modelsDiscover()
+  expect(state?.configurationReadiness().errorMessage).toBe("Gateway unavailable.")
+
+  await state?.configurationReadiness().save()
+  await effectsSettle()
+  expect((createBody as { configuration: { apiKey: string } }).configuration.apiKey).toBe("$CODEX_LB_API_TOKEN")
+  expect(state?.selectedAgentId()).toBe("created-agent")
+  expect(state?.configurationReadiness().status).toBe("ready")
   dispose()
 })
 
@@ -264,6 +596,9 @@ test("a late agent response for a superseded server cannot overwrite the current
           gates.set(decodeURIComponent(agentMatch[1]), gate)
           await gate.promise
         }
+        if (String(input) === "/api/servers/example-server-local/agents") {
+          return response({ error: { code: "internal_server_error", message: "stale" } }, { status: 500 })
+        }
         return fetchDefaultCreate([])(input, init)
       },
       selectedSessionId: () => null,
@@ -285,6 +620,7 @@ test("a late agent response for a superseded server cannot overwrite the current
   await effectsSettle()
   expect(state?.selectedAgentId()).toBe("example-agent-remote")
   expect(state?.agents().map((agent) => agent.id)).toEqual(["example-agent-remote"])
+  expect(state?.configurationReadiness().status).toBe("ready")
 
   gates.get("example-server-local")?.resolve()
   await effectsSettle()
@@ -350,12 +686,14 @@ test("the agent state mirrors the server state while servers are loading or fail
     })
     return rootDispose
   })
+  expect(state?.configurationReadiness().status).toBe("loading")
   expect(state?.serverStatus()).toBe("loading")
   expect(state?.agentStatus()).toBe("loading")
 
   await effectsSettle()
   expect(state?.serverStatus()).toBe("error")
   expect(state?.agentStatus()).toBe("error")
+  expect(state?.configurationReadiness().status).toBe("server-error")
   dispose()
 })
 

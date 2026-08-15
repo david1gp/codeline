@@ -1,11 +1,12 @@
 import { Route, Router } from "@solidjs/router"
-import { ApplicationRoot } from "./ApplicationRoot.js"
 import { LoginPage } from "../identity/ui/LoginPage.js"
+import { ApplicationRoot } from "./ApplicationRoot.js"
 import { DemoApp } from "./demo/DemoApp.js"
 import { FilesRoutePage } from "./FilesRoutePage.js"
 import { NewNoteRoutePage } from "./NewNoteRoutePage.js"
 import { NoteRoutePage } from "./NoteRoutePage.js"
 import { NotesRoutePage } from "./NotesRoutePage.js"
+import { SettingsRoutePage } from "./SettingsRoutePage.js"
 import { SimulateApp } from "./simulate/SimulateApp.js"
 import { WorkspaceRoutePage } from "./WorkspaceRoutePage.js"
 
@@ -18,6 +19,7 @@ export function UiRouter() {
         <Route path="/notes" component={NotesRoutePage} />
         <Route path="/notes/new" component={NewNoteRoutePage} />
         <Route path="/notes/:noteId" component={NoteRoutePage} />
+        <Route path="/settings" component={SettingsRoutePage} />
         <Route path="/simulate" component={SimulateApp} />
         <Route path="/simulate/streaming" component={SimulateApp} />
         <Route path="/simulate/thinking-tools" component={SimulateApp} />

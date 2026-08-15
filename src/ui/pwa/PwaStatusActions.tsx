@@ -1,31 +1,45 @@
+import { mdiDownloadOutline, mdiUpdate } from "@mdi/js"
 import { Show } from "solid-js"
+import { ButtonIcon1 } from "#ui/interactive/button/ButtonIcon1.jsx"
+import { buttonVariant } from "#ui/interactive/button/buttonCva.js"
 import type { PwaStatusView } from "./pwaStatusView.js"
 
-export function PwaStatusActions(props: { state: PwaStatusView }) {
+export function PwaStatusActions(props: { placement: "settings" | "shell"; state: PwaStatusView }) {
   return (
-    <div class="flex items-center gap-2 max-[760px]:gap-1">
-      <Show when={props.state.installable()}>
-        <button
-          type="button"
-          class="rounded-lg border border-line px-2.5 py-[5px] text-faint text-xs hover:border-accent-border hover:text-accent max-[760px]:px-1.5"
-          onClick={() => void props.state.install()}
-        >
-          <span class="max-[760px]:sr-only">Install app</span>
-          <span class="hidden max-[760px]:inline" aria-hidden="true">
-            +
-          </span>
-        </button>
+    <>
+      <Show when={props.placement === "settings"}>
+        <div class="flex flex-wrap items-center gap-2">
+          <Show when={props.state.installable()}>
+            <ButtonIcon1
+              icon={mdiDownloadOutline}
+              iconClass="size-4 fill-current dark:fill-current"
+              variant={buttonVariant.outline}
+              onClick={() => void props.state.install()}
+            >
+              Install app
+            </ButtonIcon1>
+          </Show>
+          <Show when={!props.state.installable()}>
+            <p class="text-faint text-sm">
+              Codeline is already installed, or installation is unavailable in this browser.
+            </p>
+          </Show>
+        </div>
       </Show>
 
-      <Show when={props.state.status() === "update-ready"}>
-        <button
-          type="button"
-          class="rounded-lg border border-accent-border px-2.5 py-[5px] text-accent text-xs"
-          onClick={props.state.reloadForUpdate}
-        >
-          Reload to update
-        </button>
+      <Show when={props.placement === "shell" && props.state.status() === "update-ready"}>
+        <div class="flex flex-wrap items-center gap-2">
+          <ButtonIcon1
+            icon={mdiUpdate}
+            iconClass="size-4 fill-current dark:fill-current"
+            variant={buttonVariant.outline}
+            class="border-accent-border text-accent"
+            onClick={props.state.reloadForUpdate}
+          >
+            Reload to update
+          </ButtonIcon1>
+        </div>
       </Show>
-    </div>
+    </>
   )
 }
