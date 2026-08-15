@@ -21,7 +21,7 @@ export function demoSessionChatStateCreate(variant: () => DemoSessionScreenVaria
   const draft = createSignalObject("")
   const sent = createSignalObject<readonly TransientMessage[]>([])
   const isStreaming = () => variant() === "streaming"
-  const submit = () => {
+  const submit = async () => {
     const prompt = draft.get().trim()
     if (prompt.length === 0) return
     draft.set("")
@@ -48,6 +48,7 @@ export function demoSessionChatStateCreate(variant: () => DemoSessionScreenVaria
       transientMessagesResolve(isStreaming() ? [...streamingPending, ...sent.get()] : sent.get(), []),
     recoveryStatus: () => (isStreaming() ? "streaming" : "idle"),
     stopHandle: () => undefined,
+    submit,
     submitHandle: (event: Event) => {
       event.preventDefault()
       submit()

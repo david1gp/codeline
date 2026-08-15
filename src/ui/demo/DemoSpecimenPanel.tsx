@@ -113,7 +113,7 @@ export function DemoSpecimenPanel(props: {
         </div>
       </Match>
       <Match when={props.specimen.slug === "selected-session"}>
-        <div class="grid min-h-0 grid-rows-[minmax(0,1fr)_auto] p-6">
+        <div class="flex min-h-0 flex-col py-6">
           <SelectedSession state={props.state.selectedSession} />
         </div>
       </Match>

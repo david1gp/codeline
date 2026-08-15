@@ -29,7 +29,6 @@ export function demoSessionListStateCreate(options: DemoSessionListStateOptions)
     isEmpty: () => sessions().length === 0,
     isError: () => options.variant() === "error",
     isLoading: () => options.variant() === "loading",
-    isRefreshing: () => options.variant() === "streaming",
     isSelected: (sessionId: string) => options.selectedSessionId.get() === sessionId,
     query: query.get,
     retry: () => query.set(""),

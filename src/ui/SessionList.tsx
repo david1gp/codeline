@@ -21,28 +21,42 @@ function SessionBranchNodes(props: {
           <li>
             <button
               type="button"
-              class="relative w-full overflow-hidden rounded-lg border border-transparent bg-transparent py-2.5 pr-[11px] text-left text-xs leading-[1.4] text-faint transition-colors duration-150 hover:bg-surface-raised hover:text-strong disabled:cursor-default disabled:hover:bg-transparent"
+              class="flex h-[54px] w-full items-center gap-1.5 overflow-hidden border-0 border-transparent border-l-2 bg-transparent pr-2 text-left text-xs leading-[1.4] text-faint transition-colors duration-100 hover:bg-surface-hover hover:text-strong disabled:cursor-default disabled:hover:bg-transparent"
               classList={{
-                "border-accent-border bg-accent-soft text-accent": props.isSelected(node.session.id),
+                "border-l-accent bg-[var(--bg-selected)] font-medium text-strong": props.isSelected(node.session.id),
                 "text-subtle": isAncestor() && !props.isSelected(node.session.id),
               }}
-              style={{ "padding-left": `${11 + depth() * 14}px` }}
+              style={{ "padding-left": `${12 + depth() * 12}px` }}
               disabled={!isLeaf()}
               aria-current={props.isSelected(node.session.id) ? "page" : undefined}
               aria-label={`${node.session.title}${isLeaf() ? "" : ", branch"}`}
               onClick={() => props.selectSession(node.session.id)}
             >
               <Show when={depth() > 0}>
-                <span
-                  class="absolute top-0 bottom-0 border-line-strong border-l"
-                  style={{ left: `${17 + (depth() - 1) * 14}px` }}
+                <svg
+                  class="shrink-0 text-placeholder"
+                  width="10"
+                  height="10"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
                   aria-hidden="true"
-                />
+                >
+                  <path d="M6 3v12" />
+                  <circle cx="18" cy="6" r="3" />
+                  <circle cx="6" cy="18" r="3" />
+                  <path d="M18 9a9 9 0 0 1-9 9" />
+                </svg>
               </Show>
-              <span class="block overflow-hidden text-ellipsis whitespace-nowrap">{node.session.title}</span>
+              <span class="block min-w-0 overflow-hidden text-ellipsis whitespace-nowrap" title={node.session.title}>
+                {node.session.title}
+              </span>
             </button>
             <Show when={node.children.length > 0}>
-              <ul class="m-0 grid list-none gap-1 p-0">
+              <ul class="m-0 list-none p-0">
                 <SessionBranchNodes
                   ancestry={props.ancestry}
                   depth={depth() + 1}
@@ -68,13 +82,26 @@ export function SessionList(props: { idPrefix?: string; state: SessionListState;
   }
 
   return (
-    <div class="mt-[38px] flex-1" id={activityId()}>
-      <p class="mb-[9px] font-mono text-[10px] font-bold tracking-[0.14em] text-faint uppercase">Conversations</p>
-      <label class="relative mb-3 block" for={searchId()}>
+    <div class="flex min-h-0 flex-1 flex-col" id={activityId()}>
+      <label class="relative shrink-0 border-line border-b p-2.5" for={searchId()}>
         <span class="sr-only">Search conversations</span>
+        <svg
+          class="pointer-events-none absolute top-1/2 left-5 -translate-y-1/2 text-placeholder"
+          width="13"
+          height="13"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          aria-hidden="true"
+        >
+          <circle cx="11" cy="11" r="7" />
+          <path d="m20 20-4-4" />
+        </svg>
         <input
           id={searchId()}
-          class="w-full rounded-[9px] border border-line bg-surface-raised px-3 py-2.5 text-xs text-strong outline-none placeholder:text-placeholder focus:border-accent-border focus:ring-2 focus:ring-accent/20"
+          class="h-8 w-full rounded-[7px] border border-line bg-surface-raised pr-2.5 pl-8 text-xs text-strong outline-none placeholder:text-placeholder focus:border-accent-border"
           type="search"
           value={props.state.query()}
           placeholder="Search conversations"
@@ -82,51 +109,43 @@ export function SessionList(props: { idPrefix?: string; state: SessionListState;
           onInput={(event) => props.state.updateQuery(event.currentTarget.value)}
         />
       </label>
-      <Switch>
-        <Match when={props.state.isError()}>
-          <div
-            class="flex items-center justify-between gap-2.5 rounded-[9px] border border-dashed border-line p-3.5 text-xs leading-[1.5] text-disabled"
-            role="alert"
-          >
-            <span>Couldn't load conversations.</span>
-            <button
-              class="border-0 bg-transparent p-0 text-[11px] text-accent"
-              type="button"
-              onClick={props.state.retry}
+      <div class="min-h-0 flex-1 overflow-y-auto">
+        <Switch>
+          <Match when={props.state.isError()}>
+            <div
+              class="flex items-center justify-between gap-2.5 px-3.5 py-4 text-xs leading-[1.5] text-danger"
+              role="alert"
             >
-              Retry
-            </button>
-          </div>
-        </Match>
-        <Match when={props.state.isLoading()}>
-          <div
-            class="rounded-[9px] border border-dashed border-line p-3.5 text-xs leading-[1.5] text-disabled"
-            role="status"
-          >
-            Loading conversations...
-          </div>
-        </Match>
-        <Match when={props.state.isEmpty()}>
-          <div class="rounded-[9px] border border-dashed border-line p-3.5 text-xs leading-[1.5] text-disabled">
-            {props.state.emptyMessage()}
-          </div>
-        </Match>
-        <Match when={true}>
-          <ul class="m-0 grid list-none gap-1 p-0" aria-label="Active conversations">
-            <SessionBranchNodes
-              ancestry={props.state.selectedAncestry()}
-              isSelected={props.state.isSelected}
-              nodes={props.state.roots()}
-              selectSession={selectSession}
-            />
-          </ul>
-        </Match>
-      </Switch>
-      <Show when={props.state.isRefreshing()}>
-        <span class="mt-2 block font-mono text-[9px] text-placeholder" role="status">
-          Updating conversations...
-        </span>
-      </Show>
+              <span>Couldn't load conversations.</span>
+              <button
+                class="border-0 bg-transparent p-0 text-[11px] text-accent"
+                type="button"
+                onClick={props.state.retry}
+              >
+                Retry
+              </button>
+            </div>
+          </Match>
+          <Match when={props.state.isLoading()}>
+            <div class="px-3.5 py-4 text-xs leading-[1.5] text-faint" role="status">
+              Loading conversations...
+            </div>
+          </Match>
+          <Match when={props.state.isEmpty()}>
+            <div class="px-3.5 py-4 text-xs leading-[1.5] text-faint">{props.state.emptyMessage()}</div>
+          </Match>
+          <Match when={true}>
+            <ul class="m-0 list-none p-0" aria-label="Active conversations">
+              <SessionBranchNodes
+                ancestry={props.state.selectedAncestry()}
+                isSelected={props.state.isSelected}
+                nodes={props.state.roots()}
+                selectSession={selectSession}
+              />
+            </ul>
+          </Match>
+        </Switch>
+      </div>
     </div>
   )
 }

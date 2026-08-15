@@ -1,3 +1,4 @@
+import { Show } from "solid-js"
 import type { finalizedMessageCopyStateCreate } from "./finalizedMessageCopyStateCreate.js"
 import { MessageBody } from "./MessageBody.js"
 
@@ -10,32 +11,36 @@ type FinalizedMessageProps = {
 export function FinalizedMessage(props: FinalizedMessageProps) {
   return (
     <article
-      class="border-l-2 border-accent-border pl-4"
-      classList={{ "!border-line-strong": props.role === "assistant" }}
+      class="group flex min-w-0 flex-col"
+      classList={{ "items-end": props.role === "user" }}
       data-message-role={props.role}
     >
-      <div class="flex min-h-7 items-center justify-between gap-3">
-        <span
-          class="font-mono text-[10px] font-bold tracking-[0.12em] text-accent uppercase"
-          classList={{ "!text-faint": props.role === "assistant" }}
-        >
-          {props.role}
-        </span>
-        <div class="flex items-center gap-2">
-          <span aria-live="polite" class="font-mono text-[10px] text-subtle" role="status">
-            {props.state.status() === "copied" ? "Copied" : props.state.status() === "error" ? "Copy failed" : ""}
-          </span>
-          <button
-            aria-label={`Copy ${props.role} message`}
-            class="min-h-7 rounded border border-line-strong px-2 font-mono text-[10px] font-bold tracking-[0.08em] text-subtle uppercase hover:border-accent-border hover:text-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-            onClick={props.state.copy}
-            type="button"
-          >
-            Copy
-          </button>
-        </div>
+      <Show when={props.role === "assistant"}>
+        <div class="mb-1 text-[11px] text-faint">Assistant</div>
+      </Show>
+      <div
+        class="min-w-0 break-words"
+        classList={{
+          "max-w-[85%] rounded-xl border border-accent-border bg-accent-soft px-3 py-2 text-sm leading-relaxed":
+            props.role === "user",
+          "w-full": props.role === "assistant",
+        }}
+      >
+        <MessageBody content={props.content} />
       </div>
-      <MessageBody content={props.content} />
+      <div class="mt-1 flex min-h-6 items-center gap-2 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+        <span aria-live="polite" class="text-[11px] text-subtle" role="status">
+          {props.state.status() === "copied" ? "Copied" : props.state.status() === "error" ? "Copy failed" : ""}
+        </span>
+        <button
+          aria-label={`Copy ${props.role} message`}
+          class="rounded-md px-1.5 py-0.5 text-[11px] text-faint hover:bg-surface-hover hover:text-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          onClick={props.state.copy}
+          type="button"
+        >
+          Copy
+        </button>
+      </div>
     </article>
   )
 }

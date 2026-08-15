@@ -26,10 +26,6 @@ export function sessionListStateCreate(navigation: Accessor<SessionNavigationSta
       search.isActive()
         ? search.isLoading() && visibleSessions().length === 0
         : result().type === "unknown" && sessions().length === 0,
-    isRefreshing: () =>
-      search.isActive()
-        ? search.isLoading() && visibleSessions().length > 0
-        : result().type === "unknown" && sessions().length > 0,
     isEmpty: () =>
       search.isActive()
         ? search.isComplete() && visibleSessions().length === 0
