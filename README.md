@@ -156,6 +156,7 @@ Service lifecycle:
 ./ops/dev/codeline-dev.sh logs zero-cache
 ./ops/dev/codeline-dev.sh down
 ./ops/dev/codeline-dev.sh reset
+./ops/dev/codeline-dev.sh clean
 ```
 
 `down` removes containers but keeps data. `reset` also removes both named volumes and is the destructive local reset. Run `migrate` after `up` and after any new migration generation:
@@ -195,8 +196,8 @@ Troubleshooting:
 
 - If configuration validation reports a missing variable, ensure `.env` exists and contains the required names from `.env.example`. The wrapper reports names only, never values.
 - If `podman compose` is unavailable, install or configure a Podman Compose provider and retry `./ops/dev/codeline-dev.sh config`.
-- If managed host ports `6000` through `6003` are busy, change the corresponding host variables in ignored `.env`, update `DATABASE_URL`, `ZERO_CACHE_URL`, `VITE_ZERO_CACHE_URL`, `ZERO_QUERY_URL`, or `ZERO_MUTATE_URL`, then reinstall/reload the user units.
-- If Zero retains a stale replica after schema or database experiments, run `reset`, then `build`, `up`, and `migrate` again.
+- If managed host ports `6000` through `6003` are busy, change the corresponding host variables in ignored `.env` and `DATABASE_URL`. Keep `VITE_ZERO_*`, `ZERO_QUERY_URL`, and `ZERO_MUTATE_URL` derived from `PUBLIC_ORIGIN`. Then reinstall/reload the user units.
+- If Zero retains a stale replica after schema or database experiments, run `./ops/dev/codeline-dev.sh clean`, then start the managed target and remigrate/reseed.
 - Inspect `./ops/dev/codeline-dev.sh logs postgres` and `./ops/dev/codeline-dev.sh logs zero-cache` for service diagnostics.
 
 Example route checks:
