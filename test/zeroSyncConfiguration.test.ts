@@ -18,12 +18,14 @@ test("managed Zero forwards opaque cookies and periodically revalidates auth", (
   expect(compose).toContain("ZERO_AUTH_REVALIDATE_INTERVAL_SECONDS: ${ZERO_AUTH_REVALIDATE_INTERVAL_SECONDS:-300}")
 })
 
-test("local Zero uses direct managed endpoints while production falls back to same-origin URLs", () => {
-  expect(environmentValue("VITE_ZERO_CACHE_URL")).toBe("http://127.0.0.1:6003")
-  expect(environmentValue("VITE_ZERO_QUERY_URL")).toBe("http://127.0.0.1:6001/api/query")
-  expect(environmentValue("VITE_ZERO_MUTATE_URL")).toBe("http://127.0.0.1:6001/api/mutate")
-  expect(environmentValue("ZERO_QUERY_URL")).toBe("http://host.containers.internal:6001/api/query")
-  expect(environmentValue("ZERO_MUTATE_URL")).toBe("http://host.containers.internal:6001/api/mutate")
+test("preview browser and managed cache use matching HTTPS query and mutation URLs", () => {
+  const publicOrigin = environmentValue("PUBLIC_ORIGIN")
+  expect(publicOrigin).toBe("https://preview.codeline.work")
+  expect(environmentValue("VITE_ZERO_CACHE_URL")).toBe(publicOrigin)
+  expect(environmentValue("VITE_ZERO_QUERY_URL")).toBe(`${publicOrigin}/api/query`)
+  expect(environmentValue("VITE_ZERO_MUTATE_URL")).toBe(`${publicOrigin}/api/mutate`)
+  expect(environmentValue("ZERO_QUERY_URL")).toBe(`${publicOrigin}/api/query`)
+  expect(environmentValue("ZERO_MUTATE_URL")).toBe(`${publicOrigin}/api/mutate`)
   expect(zeroProvider).toContain("cacheURL={import.meta.env.VITE_ZERO_CACHE_URL ?? window.location.origin}")
   expect(zeroProvider).toContain(
     "mutateURL={import.meta.env.VITE_ZERO_MUTATE_URL ?? `${window.location.origin}/api/mutate`}",
