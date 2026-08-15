@@ -1,0 +1,41 @@
+provider: cliproxyapi
+providerName: CLIProxyAPI - subs.contentoren.de
+model: grok-4.6
+name: Grok 4.6 (cliproxy)
+family: grok-4.6
+status: active
+enabled: true
+baseUrl: https://subs.contentoren.de/v1
+apiKey: $SUBS_CONTENTOREN_DE_API_KEY
+env: [$SUBS_CONTENTOREN_DE_API_KEY]
+transport: openai/completions
+providerOptions:
+  npm: '@ai-sdk/openai-compatible'
+  blacklist: [gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna]
+options: {}
+limit:
+  context: 500000
+  output: 65536
+modalities:
+  input: [text, image]
+  output: [text]
+cost:
+  - input: 2
+    output: 6
+    cacheRead: 0.5
+  - tier:
+      type: context
+      size: 200000
+    input: 4
+    output: 12
+    cacheRead: 1
+variants:
+  - id: low
+    effort: low
+    reasoningEffort: low
+  - id: medium
+    effort: medium
+    reasoningEffort: medium
+  - id: high
+    effort: high
+    reasoningEffort: high
