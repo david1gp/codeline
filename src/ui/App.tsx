@@ -9,11 +9,11 @@ import { AccountPopover } from "../identity/ui/AccountPopover.js"
 import type { AuthShellView } from "../identity/ui/authShellView.js"
 import { applicationShellContext } from "./applicationShellContext.js"
 import type { applicationShellStateCreate } from "./applicationShellStateCreate.js"
+import { appShellContext } from "./appShellContext.js"
 import type { AppShellView } from "./appShellView.js"
 import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator.js"
 import { PwaStatusActions } from "./pwa/PwaStatusActions.js"
 import { pwaStatusContext } from "./pwa/pwaStatusContext.js"
-import { ThemeSwitcher } from "./ThemeSwitcher.js"
 
 export function App(props: {
   applicationShell?: ReturnType<typeof applicationShellStateCreate>
@@ -91,7 +91,6 @@ export function App(props: {
               <Show when={props.auth}>{(auth) => <AccountPopover auth={auth()} />}</Show>
               <PwaStatusActions placement="shell" state={props.state.pwa} />
               <ConnectionStatusIndicator state={props.state.connection} />
-              <ThemeSwitcher state={props.state.theme} />
               <Show when={props.applicationShell?.rightPanelAvailable() ? props.applicationShell : undefined}>
                 {(shell) => (
                   <ButtonIconOnly
@@ -109,7 +108,7 @@ export function App(props: {
             </div>
           </header>
 
-          {props.children}
+          <appShellContext.Provider value={props.state}>{props.children}</appShellContext.Provider>
         </div>
       </pwaStatusContext.Provider>
     </applicationShellContext.Provider>

@@ -14,6 +14,27 @@ export type ThemeVariant = keyof typeof themeVariant
 export const themeSchema = v.enum(themeVariant)
 export const themeLocalStorageKey = "theme"
 
+export const themeOptions = [
+  {
+    description: "Always use a light appearance.",
+    icon: mdiWhiteBalanceSunny,
+    label: "Light",
+    value: themeVariant.light,
+  },
+  {
+    description: "Always use a dark appearance.",
+    icon: mdiWeatherNight,
+    label: "Dark",
+    value: themeVariant.dark,
+  },
+  {
+    description: "Follow your operating system preference.",
+    icon: mdiBrightnessAuto,
+    label: "System",
+    value: themeVariant.os,
+  },
+] as const
+
 export function nextTheme3(current: string | undefined): ThemeVariant {
   switch (current) {
     case themeVariant.light:
@@ -99,6 +120,8 @@ export function themeSwitcherStateCreate() {
     currentThemeIcon: () => themeIcon(currentTheme()),
     currentThemeLabel,
     nextThemeLabel: () => themeLabels[nextTheme()],
+    themeOptions,
     themeCycle: () => themeSet(nextTheme(), true),
+    themeSelect: (theme: ThemeVariant) => themeSet(theme, true),
   }
 }
