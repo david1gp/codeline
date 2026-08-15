@@ -4,6 +4,7 @@ import { authLogoutStateCreate } from "../identity/ui/authLogoutStateCreate.js"
 import type { AuthShellView } from "../identity/ui/authShellView.js"
 
 type ProtectedShellStateOptions = {
+  displayName: () => string
   sessionClear: () => void
   userId: () => string
 }
@@ -19,6 +20,7 @@ export function protectedShellStateCreate(options: ProtectedShellStateOptions): 
 
   return {
     busy: logout.busy,
+    displayName: options.displayName,
     logout: logout.logout,
     userId: options.userId,
   }

@@ -36,7 +36,7 @@ export function authenticationMiddleware(
       )
       if (!result.success) return authenticationUnauthorized(context)
 
-      context.set("requestIdentity", { userId: result.data.id })
+      context.set("requestIdentity", { displayName: result.data.displayName, userId: result.data.id })
       return next()
     }
 

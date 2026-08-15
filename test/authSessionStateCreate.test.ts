@@ -13,7 +13,7 @@ test("the protected bootstrap requests a no-store same-origin session before exp
     state: authSessionStateCreate({
       fetcher: async (input, init) => {
         requests.push({ url: String(input), init })
-        return Response.json({ authenticated: true, userId: "oidc:user-1" })
+        return Response.json({ authenticated: true, displayName: "User One", userId: "oidc:user-1" })
       },
     }),
   }))
@@ -26,6 +26,7 @@ test("the protected bootstrap requests a no-store same-origin session before exp
   expect(requests[0]?.init?.cache).toBe("no-store")
   expect(requests[0]?.init?.credentials).toBe("same-origin")
   expect(root.state.status()).toBe("signed-in")
+  expect(root.state.displayName()).toBe("User One")
   expect(root.state.userId()).toBe("oidc:user-1")
   root.dispose()
 })
@@ -53,7 +54,7 @@ test("a failed or invalid session response renders the error state and retries",
         attempts += 1
         if (attempts === 1) return new Response(null, { status: 500 })
         if (attempts === 2) return Response.json({ authenticated: true })
-        return Response.json({ authenticated: true, userId: "oidc:user-2" })
+        return Response.json({ authenticated: true, displayName: "User Two", userId: "oidc:user-2" })
       },
     }),
   }))

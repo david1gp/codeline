@@ -16,6 +16,7 @@ type AuthSessionStateOptions = {
 export function authSessionStateCreate(options: AuthSessionStateOptions = {}) {
   const fetcher = options.fetcher ?? fetch
   const [status, statusSet] = createSignal<AuthSessionStatus>("loading")
+  const [displayName, displayNameSet] = createSignal<string | undefined>(undefined)
   const [userId, userIdSet] = createSignal<string | undefined>(undefined)
   let controller: AbortController | undefined
   let requestVersion = 0
@@ -26,6 +27,7 @@ export function authSessionStateCreate(options: AuthSessionStateOptions = {}) {
     controller?.abort()
     const requestController = new AbortController()
     controller = requestController
+    displayNameSet(undefined)
     userIdSet(undefined)
     statusSet("loading")
 
@@ -39,6 +41,7 @@ export function authSessionStateCreate(options: AuthSessionStateOptions = {}) {
       if (requestController.signal.aborted || version !== requestVersion) return
 
       if (response.status === 401 || response.status === 403) {
+        displayNameSet(undefined)
         userIdSet(undefined)
         statusSet("signed-out")
         return
@@ -47,12 +50,15 @@ export function authSessionStateCreate(options: AuthSessionStateOptions = {}) {
 
       const parsed = v.safeParse(authSessionResponseSchema, await response.json())
       if (requestController.signal.aborted || version !== requestVersion) return
-      if (!parsed.success || parsed.output.userId === "") throw new Error("The session response is invalid.")
+      if (!parsed.success || parsed.output.displayName === "" || parsed.output.userId === "")
+        throw new Error("The session response is invalid.")
 
+      displayNameSet(parsed.output.displayName)
       userIdSet(parsed.output.userId)
       statusSet("signed-in")
     } catch (_error: unknown) {
       if (requestController.signal.aborted || version !== requestVersion) return
+      displayNameSet(undefined)
       userIdSet(undefined)
       statusSet("error")
     }
@@ -62,10 +68,12 @@ export function authSessionStateCreate(options: AuthSessionStateOptions = {}) {
   onCleanup(() => controller?.abort())
 
   return {
+    displayName,
     retry: () => void load(),
     signOut: () => {
       requestVersion += 1
       controller?.abort()
+      displayNameSet(undefined)
       userIdSet(undefined)
       statusSet("signed-out")
     },

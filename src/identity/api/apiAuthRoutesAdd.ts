@@ -15,6 +15,7 @@ import { identitySessionCreate } from "../actions/identitySessionCreate.js"
 import { identitySessionLoad } from "../actions/identitySessionLoad.js"
 import { identitySessionRevoke } from "../actions/identitySessionRevoke.js"
 import { oidcIdentityUpsert } from "../actions/oidcIdentityUpsert.js"
+import { applicationUserRepositoryLoad } from "../db/applicationUserRepositoryLoad.js"
 import { oidcLoginTransactionConsume } from "../db/oidcLoginTransactionConsume.js"
 import { oidcLoginTransactionCreate } from "../db/oidcLoginTransactionCreate.js"
 import { oidcLoginReturnToResolve } from "../oidc/oidcLoginReturnToResolve.js"
@@ -154,11 +155,18 @@ export function apiAuthRoutesAdd(api: Hono<AppEnvironment>, options: ApiAuthRout
     }
   })
 
-  api.get("/auth/session", (context) => {
+  api.get("/auth/session", async (context) => {
     const identity = context.var.requestIdentity
     if (identity === undefined) return authenticationUnauthorized(context)
+    const storedUser =
+      identity.displayName === undefined
+        ? await applicationUserRepositoryLoad(context.var.database, identity.userId)
+        : undefined
+    const displayName = identity.displayName ?? (storedUser?.success ? storedUser.data?.displayName : undefined)
+    if (displayName === undefined) return authenticationUnauthorized(context)
     const response = {
       authenticated: true,
+      displayName,
       userId: identity.userId,
     } satisfies AuthSessionResponse
     context.header("Cache-Control", "no-store")

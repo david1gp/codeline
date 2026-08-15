@@ -123,7 +123,8 @@ test("development authentication resolves the configured identity without a cook
       publicOrigin: "http://codeline.test",
     },
     database: { transaction: async (operation: (transaction: unknown) => Promise<unknown>) => operation({}) } as never,
-    developmentIdentityUpsert: (async () => createResult({ id: "development:development" } as never)) as never,
+    developmentIdentityUpsert: (async () =>
+      createResult({ displayName: "Development", id: "development:development" } as never)) as never,
   })
 
   const response = await app.request("http://codeline.test/api/auth/session")
@@ -132,6 +133,7 @@ test("development authentication resolves the configured identity without a cook
   expect(v.safeParse(authSessionResponseSchema, await response.json()).success).toBe(true)
   expect(await (await app.request("http://codeline.test/api/auth/session")).json()).toEqual({
     authenticated: true,
+    displayName: "Development",
     userId: "development:development",
   })
 })
