@@ -17,6 +17,7 @@ type ProviderModelSelectorStatus = "idle" | "loading" | "ready" | "error"
 type ProviderModelSelectorFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
 
 type ProviderModelSelectorStateOptions = {
+  agentId?: Accessor<string | null>
   fetch?: ProviderModelSelectorFetch
   sessionId: Accessor<string | null>
   storage?: Pick<Storage, "getItem" | "setItem">
@@ -119,12 +120,28 @@ export function providerModelSelectorStateCreate(options: ProviderModelSelectorS
     }
   }
 
+  const reasoningEffortSelect = (reasoningEffort: "low" | "medium" | "high" | "xhigh" | "max") => {
+    if (!selection.reasoningEffortSelect(reasoningEffort)) return
+    try {
+      storage?.setItem(providerModelSelectionStorageKey, JSON.stringify(selection.persistence()))
+    } catch (_error) {
+      // The in-memory selection remains useful when browser storage is unavailable.
+    }
+  }
+
   return {
-    codelineExecution: () => (status.get() === "ready" ? selection.persistedSelection() : null),
+    codelineExecution: () => {
+      const persisted = status.get() === "ready" ? selection.persistedSelection() : null
+      if (persisted === null) return null
+      const agentId = options.agentId?.() ?? null
+      return agentId === null ? persisted : { ...persisted, agentId }
+    },
     configuredModel: () => configuration.get().model,
     modelSelect,
     models: models.get,
     provider: () => configuration.get().provider,
+    reasoningEffortSelect,
+    selectedReasoningEffort: () => selection.selection()?.reasoningEffort ?? "medium",
     selectedModel: selection.selectedModel,
     status: status.get,
   }

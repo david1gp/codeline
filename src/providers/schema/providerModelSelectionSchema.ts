@@ -6,6 +6,7 @@ const providerModelSelectionModelSchema = v.pipe(v.string(), v.trim(), v.minLeng
 export const providerModelSelectionSchema = v.strictObject({
   model: providerModelSelectionModelSchema,
   provider: providerModelSelectionProviderSchema,
+  reasoningEffort: v.optional(v.picklist(["low", "medium", "high", "xhigh", "max"])),
 })
 
 export type ProviderModelSelection = v.InferOutput<typeof providerModelSelectionSchema>

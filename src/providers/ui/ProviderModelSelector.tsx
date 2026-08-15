@@ -3,6 +3,7 @@ import { providerModelSelectorStateCreate } from "./providerModelSelectorStateCr
 
 const selectClass =
   "h-8 max-w-[220px] min-w-0 cursor-pointer appearance-none truncate rounded-[9px] border-none bg-transparent px-2 text-xs text-faint hover:bg-surface-hover hover:text-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed"
+const effortLevels = ["low", "medium", "high", "xhigh", "max"] as const
 
 export function ProviderModelSelector(props: { state: ReturnType<typeof providerModelSelectorStateCreate> }) {
   const state = props.state
@@ -37,6 +38,15 @@ export function ProviderModelSelector(props: { state: ReturnType<typeof provider
           </select>
         </Match>
       </Switch>
+      <select
+        class={selectClass}
+        aria-label="Reasoning effort"
+        disabled={state.status() !== "ready"}
+        value={state.selectedReasoningEffort()}
+        onChange={(event) => state.reasoningEffortSelect(event.currentTarget.value as (typeof effortLevels)[number])}
+      >
+        <For each={effortLevels}>{(effort) => <option value={effort}>{effort} effort</option>}</For>
+      </select>
       <p class="sr-only m-0" id="provider-model-application">
         <Switch>
           <Match when={state.status() === "ready"}>New messages use {state.selectedModel()}.</Match>

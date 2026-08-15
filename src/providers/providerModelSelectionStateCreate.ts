@@ -5,6 +5,7 @@ import { providerModelSelectionResolve } from "./providerModelSelectionResolve.j
 import type { ProviderDiscoveredModel } from "./runtime/providerModelDiscovery.js"
 import type { ProviderModelSelectionPersistence } from "./schema/providerModelSelectionPersistenceSchema.js"
 import { providerModelSelectionPersistenceSchema } from "./schema/providerModelSelectionPersistenceSchema.js"
+import type { ProviderModelSelection } from "./schema/providerModelSelectionSchema.js"
 
 const emptyPersistence: ProviderModelSelectionPersistence = { selections: [] }
 
@@ -40,14 +41,42 @@ export function providerModelSelectionStateCreate(
     const selections = persistence
       .get()
       .selections.filter((candidate) => candidate.provider !== currentConfiguration.provider)
+    const currentSelection = selection()
     persistence.set({
-      selections: [...selections, { model, provider: currentConfiguration.provider }],
+      selections: [
+        ...selections,
+        {
+          model,
+          provider: currentConfiguration.provider,
+          ...(currentSelection?.reasoningEffort === undefined
+            ? {}
+            : { reasoningEffort: currentSelection.reasoningEffort }),
+        },
+      ],
+    })
+    return true
+  }
+
+  const reasoningEffortSelect = (reasoningEffort: NonNullable<ProviderModelSelection["reasoningEffort"]>): boolean => {
+    const currentConfiguration = configuration()
+    const currentSelection = selection()
+    if (currentSelection === null) return false
+
+    const selections = persistence
+      .get()
+      .selections.filter((candidate) => candidate.provider !== currentConfiguration.provider)
+    persistence.set({
+      selections: [
+        ...selections,
+        { model: currentSelection.model, provider: currentConfiguration.provider, reasoningEffort },
+      ],
     })
     return true
   }
 
   return {
     modelSelect,
+    reasoningEffortSelect,
     persistence: persistence.get,
     persistedSelection,
     selectedModel: () => selection()?.model ?? null,

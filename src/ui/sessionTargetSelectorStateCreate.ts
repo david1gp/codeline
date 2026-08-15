@@ -1,12 +1,12 @@
 import type { Accessor } from "solid-js"
 import { createEffect, onCleanup } from "solid-js/dist/solid.js"
 import * as v from "valibot"
-import { apiErrorResponseSchema } from "../api/errors/apiErrorResponseSchema.js"
-import { agentDetailResponseSchema, type AgentDetailResponse } from "../agents/api/agentDetailResponseSchema.js"
+import { type AgentDetailResponse, agentDetailResponseSchema } from "../agents/api/agentDetailResponseSchema.js"
 import { agentListResponseSchema } from "../agents/api/agentListResponseSchema.js"
-import { agentConfigurationSchema, type AgentConfiguration } from "../agents/schema/agentConfigurationSchema.js"
+import { type AgentConfiguration, agentConfigurationSchema } from "../agents/schema/agentConfigurationSchema.js"
 import { agentCreateRequestSchema } from "../agents/schema/agentCreateRequestSchema.js"
 import { agentExecutionTargetSchema } from "../agents/schema/agentExecutionTargetSchema.js"
+import { apiErrorResponseSchema } from "../api/errors/apiErrorResponseSchema.js"
 import { providerApiConnectionTestResponseSchema } from "../providers/api/providerApiConnectionTestResponseSchema.js"
 import { providerApiModelsResponseSchema } from "../providers/api/providerApiModelsResponseSchema.js"
 import { serverListResponseSchema } from "../servers/api/serverListResponseSchema.js"
@@ -36,6 +36,7 @@ type SessionTargetSelectorStateOptions = {
   fetch?: SessionTargetSelectorFetch
   selectedSessionId: Accessor<string | null>
   sessionSelect: (sessionId: string) => void
+  storage?: Pick<Storage, "getItem" | "setItem">
 }
 
 const agentDraftEmpty = (): AgentDraft => ({
@@ -46,6 +47,34 @@ const agentDraftEmpty = (): AgentDraft => ({
   role: "coding",
   secretReference: "$CODEX_LB_API_TOKEN",
 })
+
+const sessionTargetSelectionStorageKey = "codeline.session-target-selection"
+
+function sessionTargetSelectionRead(storage: SessionTargetSelectorStateOptions["storage"]): Record<string, string> {
+  if (storage === undefined) return {}
+  try {
+    const value: unknown = JSON.parse(storage.getItem(sessionTargetSelectionStorageKey) ?? "null")
+    if (value === null || typeof value !== "object" || Array.isArray(value)) return {}
+    return Object.fromEntries(
+      Object.entries(value).filter(
+        ([serverId, agentId]) => typeof serverId === "string" && typeof agentId === "string",
+      ),
+    )
+  } catch (_error) {
+    return {}
+  }
+}
+
+function sessionTargetSelectionStorageResolve(
+  storage: SessionTargetSelectorStateOptions["storage"],
+): SessionTargetSelectorStateOptions["storage"] {
+  if (storage !== undefined) return storage
+  try {
+    return globalThis.localStorage
+  } catch (_error) {
+    return undefined
+  }
+}
 
 function agentDraftFromDetail(agent: AgentDetail): AgentDraft | null {
   const configuration = agent.configuration
@@ -89,6 +118,8 @@ function apiErrorMessageResolve(body: unknown, fallback: string): string {
 export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorStateOptions) {
   const fetchImplementation = options.fetch ?? globalThis.fetch
   const clientRequestIdCreate = options.clientRequestIdCreate ?? (() => crypto.randomUUID())
+  const storage = sessionTargetSelectionStorageResolve(options.storage)
+  const savedSelections = sessionTargetSelectionRead(storage)
   const servers = signalObjectCreate<SessionTargetServer[]>([])
   const agents = signalObjectCreate<SessionTargetAgent[]>([])
   const serverStatus = signalObjectCreate<SessionTargetSelectorStatus>("loading")
@@ -197,8 +228,13 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
           return
         }
         const current = selectedAgentId.get()
+        const saved = savedSelections[serverId]
         if (current === null || !parsed.output.agents.some((agent) => agent.id === current)) {
-          selectedAgentId.set(parsed.output.agents[0]?.id ?? null)
+          selectedAgentId.set(
+            (saved !== undefined && parsed.output.agents.some((agent) => agent.id === saved)
+              ? saved
+              : parsed.output.agents[0]?.id) ?? null,
+          )
         }
         agentCreateMode.set(false)
         agentStatus.set("ready")
@@ -314,6 +350,17 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
   const agentDraftChange = (change: Partial<AgentDraft>) => {
     agentDraft.set({ ...agentDraft.get(), ...change })
     configurationOperationReset()
+  }
+
+  const agentSelectionPersist = (agentId: string) => {
+    const serverId = selectedServerId.get()
+    if (serverId === null) return
+    savedSelections[serverId] = agentId
+    try {
+      storage?.setItem(sessionTargetSelectionStorageKey, JSON.stringify(savedSelections))
+    } catch (_error) {
+      // The in-memory selection remains useful when browser storage is unavailable.
+    }
   }
 
   const agentConfigurationParse = () => {
@@ -468,6 +515,7 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
         if (!agents.get().some((agent) => agent.id === agentId)) return
         agentCreateMode.set(false)
         selectedAgentId.set(agentId)
+        agentSelectionPersist(agentId)
         configurationOperationReset()
         sessionCreateErrorClear()
       },
@@ -564,6 +612,7 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
       if (!agents.get().some((agent) => agent.id === agentId)) return
       agentCreateMode.set(false)
       selectedAgentId.set(agentId)
+      agentSelectionPersist(agentId)
       configurationOperationReset()
       sessionCreateErrorClear()
     },

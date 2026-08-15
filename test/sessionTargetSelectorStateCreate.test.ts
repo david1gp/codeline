@@ -134,6 +134,34 @@ test("state loads agents from the deterministic default server", async () => {
   dispose()
 })
 
+test("state restores and persists the last used agent", async () => {
+  const values = new Map([
+    ["codeline.session-target-selection", JSON.stringify({ "example-server-local": "example-agent-local-review" })],
+  ])
+  const storage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+  }
+  let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
+  const dispose = createRoot((rootDispose) => {
+    state = sessionTargetSelectorStateCreate({
+      fetch: fetchDefaultCreate([]),
+      selectedSessionId: () => null,
+      sessionSelect: () => undefined,
+      storage,
+    })
+    return rootDispose
+  })
+  await effectsSettle()
+
+  expect(state?.selectedAgentId()).toBe("example-agent-local-review")
+  state?.agentSelect("example-agent-local")
+  expect(JSON.parse(values.get("codeline.session-target-selection") ?? "null")).toEqual({
+    "example-server-local": "example-agent-local",
+  })
+  dispose()
+})
+
 test("hidden server selection remains available for session creation", async () => {
   const requests: string[] = []
   let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined

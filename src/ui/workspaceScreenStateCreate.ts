@@ -14,10 +14,13 @@ export function workspaceScreenStateCreate(
   navigation: SessionNavigationState = sessionNavigationStateCreate(),
 ): WorkspaceScreenView {
   const shell = useContext(applicationShellContext) ?? applicationShellStateCreate()
-  const providerModelSelector = providerModelSelectorStateCreate({ sessionId: navigation.selectedSessionId })
   const sessionTargetSelector = sessionTargetSelectorStateCreate({
     selectedSessionId: navigation.selectedSessionId,
     sessionSelect: navigation.selectSession,
+  })
+  const providerModelSelector = providerModelSelectorStateCreate({
+    agentId: sessionTargetSelector.selectedAgentId,
+    sessionId: navigation.selectedSessionId,
   })
   shell.rightPanelEnable()
   onCleanup(shell.rightPanelDisable)

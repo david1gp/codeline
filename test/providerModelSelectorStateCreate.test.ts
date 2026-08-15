@@ -85,6 +85,58 @@ test("selector persists a validated provider preference and restores it", async 
   dispose()
 })
 
+test("selector restores and persists the last reasoning effort", async () => {
+  const values = new Map<string, string>([
+    [
+      "codeline.provider-model-selection",
+      JSON.stringify({ selections: [{ model: "alternate", provider: "deterministic", reasoningEffort: "high" }] }),
+    ],
+  ])
+  const storage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+  }
+  const dispose = createRoot((rootDispose) => {
+    const state = providerModelSelectorStateCreate({
+      fetch: async (input) => {
+        const url = String(input)
+        if (url.includes("/sessions/")) {
+          return response({ agent: { configuration: { model: "configured", provider: "deterministic" } } })
+        }
+        if (url.endsWith("connection-test")) {
+          return response({
+            discoveredModelCount: 2,
+            model: "configured",
+            modelAvailable: true,
+            ok: true,
+            provider: "deterministic",
+          })
+        }
+        return response({ models: [{ id: "configured" }, { id: "alternate" }] })
+      },
+      sessionId: () => "session-1",
+      storage,
+    })
+    void effectsSettle().then(() => {
+      expect(state.selectedModel()).toBe("alternate")
+      expect(state.selectedReasoningEffort()).toBe("high")
+      expect(state.codelineExecution()).toEqual({
+        model: "alternate",
+        provider: "deterministic",
+        reasoningEffort: "high",
+      })
+      state.reasoningEffortSelect("xhigh")
+      expect(JSON.parse(values.get("codeline.provider-model-selection") ?? "null")).toEqual({
+        selections: [{ model: "alternate", provider: "deterministic", reasoningEffort: "xhigh" }],
+      })
+    })
+    return rootDispose
+  })
+  await effectsSettle()
+  await Promise.resolve()
+  dispose()
+})
+
 test("selector rejects discovery data for a different provider", async () => {
   const dispose = createRoot((rootDispose) => {
     const state = providerModelSelectorStateCreate({

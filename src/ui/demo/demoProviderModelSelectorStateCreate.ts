@@ -26,6 +26,8 @@ export function demoProviderModelSelectorStateCreate(
     },
     models: () => (status() === "ready" ? demoModels : []),
     provider: () => "deterministic",
+    reasoningEffortSelect: () => undefined,
+    selectedReasoningEffort: () => "medium",
     selectedModel: selectedModel.get,
     status,
   }
