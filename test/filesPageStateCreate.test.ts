@@ -24,13 +24,9 @@ test("Files page loads discovered projects and accepts only a discovered selecti
   expect(root.state.status()).toBe("ready")
   expect(root.state.selectedProject()).toEqual(firstProject)
 
-  root.state.projectSelect({ currentTarget: { value: secondProject.id } } as Event & {
-    currentTarget: HTMLSelectElement
-  })
+  root.state.projectSelect(secondProject.id)
   expect(root.state.selectedProject()).toEqual(secondProject)
-  root.state.projectSelect({ currentTarget: { value: "unlisted" } } as Event & {
-    currentTarget: HTMLSelectElement
-  })
+  root.state.projectSelect("unlisted")
   expect(root.state.selectedProject()).toEqual(secondProject)
   root.dispose()
 })
@@ -91,9 +87,7 @@ test("Files page restores and updates a validated selected project", async () =>
 
   await tick()
   expect(firstRoot.state.selectedProject()).toEqual(secondProject)
-  firstRoot.state.projectSelect({ currentTarget: { value: firstProject.id } } as Event & {
-    currentTarget: HTMLSelectElement
-  })
+  firstRoot.state.projectSelect(firstProject.id)
   expect(values.get("codeline.explorer.selectedProjectId")).toBe(firstProject.id)
   firstRoot.dispose()
 
@@ -121,9 +115,7 @@ test("Files screen scopes its browser to the selected project", async () => {
   await tick()
   expect(calls).toContain(`/api/project/directory?project=${firstProject.id}&path=`)
 
-  root.state.projectSelect({ currentTarget: { value: secondProject.id } } as Event & {
-    currentTarget: HTMLSelectElement
-  })
+  root.state.projectSelect(secondProject.id)
   await tick()
 
   expect(calls).toContain(`/api/project/directory?project=${secondProject.id}&path=`)

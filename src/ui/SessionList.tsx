@@ -1,4 +1,8 @@
+import { mdiMagnify, mdiSourceBranch } from "@mdi/js"
 import { For, Match, Show, Switch } from "solid-js"
+import { Input } from "#ui/input/input/Input.jsx"
+import { Button } from "#ui/interactive/button/Button.jsx"
+import { Icon } from "#ui/static/icon/Icon.jsx"
 import type { SessionListState } from "./sessionListStateCreate.js"
 
 type SessionBranchTreeNode = ReturnType<SessionListState["roots"]>[number]
@@ -33,23 +37,7 @@ function SessionBranchNodes(props: {
               onClick={() => props.selectSession(node.session.id)}
             >
               <Show when={depth() > 0}>
-                <svg
-                  class="shrink-0 text-placeholder"
-                  width="10"
-                  height="10"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="M6 3v12" />
-                  <circle cx="18" cy="6" r="3" />
-                  <circle cx="6" cy="18" r="3" />
-                  <path d="M18 9a9 9 0 0 1-9 9" />
-                </svg>
+                <Icon path={mdiSourceBranch} class="size-[10px] fill-current text-placeholder dark:fill-current" />
               </Show>
               <span class="block min-w-0 overflow-hidden text-ellipsis whitespace-nowrap" title={node.session.title}>
                 {node.session.title}
@@ -85,21 +73,11 @@ export function SessionList(props: { idPrefix?: string; state: SessionListState;
     <div class="flex min-h-0 flex-1 flex-col" id={activityId()}>
       <label class="relative shrink-0 border-line border-b p-2.5" for={searchId()}>
         <span class="sr-only">Search conversations</span>
-        <svg
-          class="pointer-events-none absolute top-1/2 left-5 -translate-y-1/2 text-placeholder"
-          width="13"
-          height="13"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          aria-hidden="true"
-        >
-          <circle cx="11" cy="11" r="7" />
-          <path d="m20 20-4-4" />
-        </svg>
-        <input
+        <Icon
+          path={mdiMagnify}
+          class="pointer-events-none absolute top-1/2 left-5 size-[13px] -translate-y-1/2 fill-current text-placeholder dark:fill-current"
+        />
+        <Input
           id={searchId()}
           class="h-8 w-full rounded-[7px] border border-line bg-surface-raised pr-2.5 pl-8 text-xs text-strong outline-none placeholder:text-placeholder focus:border-accent-border"
           type="search"
@@ -117,13 +95,14 @@ export function SessionList(props: { idPrefix?: string; state: SessionListState;
               role="alert"
             >
               <span>Couldn't load conversations.</span>
-              <button
+              <Button
+                variant="none"
+                size="none"
                 class="border-0 bg-transparent p-0 text-[11px] text-accent"
-                type="button"
                 onClick={props.state.retry}
               >
                 Retry
-              </button>
+              </Button>
             </div>
           </Match>
           <Match when={props.state.isLoading()}>

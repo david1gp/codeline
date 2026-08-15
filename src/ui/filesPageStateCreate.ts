@@ -97,8 +97,7 @@ export function filesPageStateCreate(options: FilesPageStateOptions = {}) {
   return {
     projects: projects.get,
     truncated: truncated.get,
-    projectSelect: (event: Event & { currentTarget: HTMLSelectElement }) => {
-      const projectId = event.currentTarget.value
+    projectSelect: (projectId: string) => {
       if (!projects.get().some((project) => project.id === projectId)) return
       selectedProjectId.set(projectId)
       filesSelectedProjectIdWrite(storage, projectId)

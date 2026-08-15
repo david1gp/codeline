@@ -1,4 +1,7 @@
+import { mdiClose } from "@mdi/js"
 import { For, Match, Show, Switch } from "solid-js"
+import { Button } from "#ui/interactive/button/Button.jsx"
+import { ButtonIconOnly } from "#ui/interactive/button/ButtonIconOnly.jsx"
 import { ProjectGitPanel } from "./ProjectGitPanel.js"
 import type { ProjectBrowserView } from "./projectBrowserView.js"
 import { projectByteSizeFormat } from "./projectByteSizeFormat.js"
@@ -34,14 +37,15 @@ export function ProjectBrowser(props: { compact?: boolean; state: ProjectBrowser
           }}
         >
           <header class="mb-3 flex items-center gap-2 border-b border-line pb-3">
-            <button
+            <Button
               class="rounded-md border border-line px-2 py-1 text-xs text-subtle hover:bg-surface-hover hover:text-strong disabled:border-disabled-border disabled:text-disabled disabled:hover:bg-transparent"
-              type="button"
+              variant="none"
+              size="none"
               disabled={state.currentPath() === "" || state.directoryStatus() === "loading"}
               onClick={state.parentOpen}
             >
               Up
-            </button>
+            </Button>
             <code class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-accent">
               {state.currentPath() || "/"}
             </code>
@@ -56,9 +60,9 @@ export function ProjectBrowser(props: { compact?: boolean; state: ProjectBrowser
             <Match when={state.directoryStatus() === "error"}>
               <div class="flex items-center justify-between gap-3 text-xs text-danger" role="alert">
                 <span>Couldn't load this directory.</span>
-                <button class="text-accent" type="button" onClick={state.retryDirectory}>
+                <Button variant="none" size="none" class="text-accent" onClick={state.retryDirectory}>
                   Retry
-                </button>
+                </Button>
               </div>
             </Match>
             <Match when={state.entries().length === 0}>
@@ -71,10 +75,11 @@ export function ProjectBrowser(props: { compact?: boolean; state: ProjectBrowser
                     const presentation = projectEntryPresentationClassify(entry)
                     return (
                       <li>
-                        <button
+                        <Button
+                          variant="none"
+                          size="none"
                           class="grid w-full grid-cols-[2.5rem_minmax(0,1fr)] items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-faint hover:bg-surface-raised hover:text-strong"
                           classList={{ "bg-accent-soft text-accent": state.selectedFile()?.path === entry.path }}
-                          type="button"
                           disabled={entry.type === "other"}
                           aria-label={projectEntryAccessibleName(entry)}
                           onClick={() =>
@@ -97,7 +102,7 @@ export function ProjectBrowser(props: { compact?: boolean; state: ProjectBrowser
                               {` | ${projectModifiedAtFormat(entry.modifiedAt)}`}
                             </span>
                           </span>
-                        </button>
+                        </Button>
                       </li>
                     )
                   }}
@@ -122,17 +127,23 @@ export function ProjectBrowser(props: { compact?: boolean; state: ProjectBrowser
                     class="flex shrink-0 items-center border-r border-line text-xs text-faint"
                     classList={{ "bg-surface-raised text-strong": state.selectedFile()?.path === tab.path }}
                   >
-                    <button class="max-w-48 truncate px-3 py-2" type="button" onClick={() => state.tabSelect(tab.path)}>
-                      {tab.path.split("/").at(-1)}
-                    </button>
-                    <button
-                      class="mr-1 rounded px-1.5 py-1 hover:bg-line hover:text-strong"
-                      type="button"
-                      aria-label={`Close ${tab.path}`}
-                      onClick={() => state.tabClose(tab.path)}
+                    <Button
+                      variant="none"
+                      size="none"
+                      class="max-w-48 truncate px-3 py-2"
+                      onClick={() => state.tabSelect(tab.path)}
                     >
-                      x
-                    </button>
+                      {tab.path.split("/").at(-1)}
+                    </Button>
+                    <ButtonIconOnly
+                      class="mr-1 rounded p-1 hover:bg-line hover:text-strong"
+                      icon={mdiClose}
+                      iconClass="size-3 fill-current dark:fill-current"
+                      variant="none"
+                      aria-label={`Close ${tab.path}`}
+                      title={`Close ${tab.path}`}
+                      onClick={() => state.tabClose(tab.path)}
+                    />
                   </div>
                 )}
               </For>
@@ -165,15 +176,16 @@ export function ProjectBrowser(props: { compact?: boolean; state: ProjectBrowser
                         >
                           <For each={["source", "preview"] as const}>
                             {(mode) => (
-                              <button
+                              <Button
+                                variant="none"
+                                size="none"
                                 class="rounded px-2 py-1 text-[10px] capitalize text-faint"
                                 classList={{ "bg-line text-strong": state.displayMode() === mode }}
-                                type="button"
                                 aria-pressed={state.displayMode() === mode}
                                 onClick={() => state.displayModeSelect(mode)}
                               >
                                 {mode}
-                              </button>
+                              </Button>
                             )}
                           </For>
                         </div>
@@ -196,9 +208,9 @@ export function ProjectBrowser(props: { compact?: boolean; state: ProjectBrowser
                     <Match when={state.previewStatus() === "error"}>
                       <div class="flex items-center justify-between gap-3 text-xs text-danger" role="alert">
                         <span>This file can't be previewed. You can still download it.</span>
-                        <button class="text-accent" type="button" onClick={state.retryPreview}>
+                        <Button variant="none" size="none" class="text-accent" onClick={state.retryPreview}>
                           Retry
-                        </button>
+                        </Button>
                       </div>
                     </Match>
                     <Match when={state.isMarkdownPreview() && state.displayMode() === "preview"}>
@@ -231,7 +243,7 @@ export function ProjectBrowser(props: { compact?: boolean; state: ProjectBrowser
                     <Match when={state.pdfPreview()}>
                       {(pdf) => (
                         <iframe
-                          class="h-[70vh] w-full rounded-lg border-0 bg-white"
+                          class="h-[70vh] w-full rounded-lg border-0 bg-surface"
                           src={pdf().url}
                           title={`PDF preview of ${file().name}`}
                         />

@@ -14,8 +14,7 @@ export function demoFilesScreenStateCreate(variant: () => DemoSessionScreenVaria
   return {
     browser: () => (hasProjects() ? browser : null),
     projects,
-    projectSelect: (event) => {
-      const projectId = event.currentTarget.value
+    projectSelect: (projectId) => {
       if (projects().some((project) => project.id === projectId)) selectedProjectId.set(projectId)
     },
     retry: () => {},

@@ -1,8 +1,14 @@
 import { Match, Show, Switch } from "solid-js"
+import { SelectSingleNative } from "#ui/input/select/SelectSingleNative.jsx"
+import { Button } from "#ui/interactive/button/Button.jsx"
 import type { FilesScreenView } from "./filesScreenView.js"
 
 export function FilesProjectSelector(props: { compact?: boolean; state: FilesScreenView }) {
   const state = props.state
+  const projectValueSignal = {
+    get: () => state.selectedProject()?.id ?? "",
+    set: state.projectSelect,
+  }
 
   return (
     <section
@@ -39,9 +45,9 @@ export function FilesProjectSelector(props: { compact?: boolean; state: FilesScr
           <Match when={state.status() === "error"}>
             <div class="flex items-center gap-3 text-xs text-danger" role="alert">
               <span>Couldn't load projects.</span>
-              <button class="text-[var(--accent)]" type="button" onClick={state.retry}>
+              <Button variant="none" size="none" class="text-[var(--accent)]" onClick={state.retry}>
                 Retry
-              </button>
+              </Button>
             </div>
           </Match>
           <Match when={state.projects().length === 0}>
@@ -50,17 +56,20 @@ export function FilesProjectSelector(props: { compact?: boolean; state: FilesScr
             </p>
           </Match>
           <Match when={true}>
-            <label class="flex min-w-0 items-center gap-2 text-xs text-[var(--muted-foreground)]">
+            <label
+              class="flex min-w-0 items-center gap-2 text-xs text-[var(--muted-foreground)]"
+              for={props.compact ? "panel-project-selector" : "project-selector"}
+            >
               <span>Project</span>
-              <select
-                class="min-w-0 max-w-64 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs text-[var(--foreground)]"
-                value={state.selectedProject()?.id}
-                onChange={state.projectSelect}
-              >
-                {state.projects().map((project) => (
-                  <option value={project.id}>{project.label}</option>
-                ))}
-              </select>
+              <SelectSingleNative
+                id={props.compact ? "panel-project-selector" : "project-selector"}
+                class="min-w-0 max-w-64 !rounded-md !border !border-line !bg-surface !px-2.5 !py-1.5 text-xs !text-foreground focus:!border-accent-border focus:!ring-accent-border"
+                valueSignal={projectValueSignal}
+                getOptions={() => state.projects().map((project) => project.id)}
+                valueText={(projectId) =>
+                  state.projects().find((project) => project.id === projectId)?.label ?? projectId
+                }
+              />
             </label>
           </Match>
         </Switch>
