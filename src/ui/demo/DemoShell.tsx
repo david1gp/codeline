@@ -12,7 +12,7 @@ export function DemoShell(props: {
   workspacePanelState: ReturnType<typeof demoWorkspacePanelStateCreate>
 }) {
   return (
-    <div class="overflow-x-hidden bg-[#f5f6f8] text-[#18202b]">
+    <div class="overflow-x-hidden bg-muted text-strong">
       <div
         class="grid h-[calc(100dvh-48px)] min-h-[620px] max-[760px]:h-auto max-[760px]:min-h-0 max-[760px]:grid-cols-1"
         classList={{
@@ -25,17 +25,15 @@ export function DemoShell(props: {
         }}
       >
         <aside
-          class="flex min-h-0 flex-col border-[#d8dce3] border-r bg-[#fafbfc] max-[720px]:border-r-0 max-[720px]:border-b"
+          class="flex min-h-0 flex-col border-line border-r bg-surface-sunken max-[720px]:border-r-0 max-[720px]:border-b"
           aria-label="Sessions"
         >
-          <div class="border-[#d8dce3] border-b p-3">
+          <div class="border-line border-b p-3">
             <div class="flex items-center justify-between gap-3">
               <strong class="font-mono text-sm tracking-[-0.02em]">Sessions</strong>
-              <span class="rounded-md border border-[#d8dce3] bg-white px-2 py-1 text-[10px] text-[#5f6879]">
-                + New
-              </span>
+              <span class="rounded-md border border-line bg-surface px-2 py-1 text-[10px] text-faint">+ New</span>
             </div>
-            <div class="mt-3 truncate rounded-md border border-[#d8dce3] bg-white px-2.5 py-2 font-mono text-[10px] text-[#5f6879]">
+            <div class="mt-3 truncate rounded-md border border-line bg-surface px-2.5 py-2 font-mono text-[10px] text-faint">
               ~/adaptive/codeline
             </div>
           </div>
@@ -48,19 +46,19 @@ export function DemoShell(props: {
               {(session) => (
                 <div
                   class="mb-1 flex min-w-0 items-center gap-2 rounded-md px-2.5 py-2 max-[720px]:mb-0 max-[720px]:min-w-[210px]"
-                  classList={{ "bg-[#e8eefb]": session.active, "ml-3 border-[#ccd2dc] border-l": session.branch }}
+                  classList={{ "bg-accent-soft": session.active, "ml-3 border-line-strong border-l": session.branch }}
                 >
                   <span
-                    class="size-1.5 shrink-0 rounded-full bg-[#c3c9d2]"
-                    classList={{ "bg-[#2e68c7]": session.active, "bg-[#e2a23a]": session.running }}
+                    class="size-1.5 shrink-0 rounded-full bg-placeholder"
+                    classList={{ "bg-accent": session.active, "bg-warning": session.running }}
                   />
                   <span class="min-w-0 flex-1 truncate text-xs font-medium">{session.label}</span>
-                  <span class="font-mono text-[9px] text-[#5f6879]">{session.meta}</span>
+                  <span class="font-mono text-[9px] text-faint">{session.meta}</span>
                 </div>
               )}
             </For>
           </section>
-          <div class="flex justify-between border-[#d8dce3] border-t px-3 py-2 font-mono text-[10px] text-[#5f6879] max-[720px]:hidden">
+          <div class="flex justify-between border-line border-t px-3 py-2 font-mono text-[10px] text-faint max-[720px]:hidden">
             <span>Models</span>
             <span>Skills</span>
             <span>Config</span>
@@ -68,13 +66,13 @@ export function DemoShell(props: {
         </aside>
 
         <section
-          class="grid min-h-0 min-w-0 grid-rows-[42px_minmax(0,1fr)_auto] overflow-hidden bg-white max-[720px]:w-full"
+          class="grid min-h-0 min-w-0 grid-rows-[42px_minmax(0,1fr)_auto] overflow-hidden bg-surface max-[720px]:w-full"
           aria-label="Conversation"
         >
-          <div class="flex items-center gap-3 overflow-hidden border-[#d8dce3] border-b px-3 text-xs">
-            <span class="font-mono text-[#5f6879]">::</span>
+          <div class="flex items-center gap-3 overflow-hidden border-line border-b px-3 text-xs">
+            <span class="font-mono text-faint">::</span>
             <h1 class="m-0 min-w-0 truncate text-xs font-bold">{props.fixture.heading}</h1>
-            <span class="ml-auto shrink-0 rounded-full bg-[#edf1f5] px-2 py-1 font-mono text-[9px] text-[#5f6879]">
+            <span class="ml-auto shrink-0 rounded-full bg-surface-hover px-2 py-1 font-mono text-[9px] text-faint">
               32k context
             </span>
           </div>
@@ -88,32 +86,30 @@ export function DemoShell(props: {
                 when={props.fixture.messages.length > 0}
                 fallback={
                   <div class="flex min-h-[300px] flex-col items-center justify-center text-center">
-                    <span class="mb-3 font-mono text-4xl font-bold text-[#2e68c7]">C/</span>
-                    <p class="mb-2 font-mono text-[10px] tracking-[0.14em] text-[#2e68c7] uppercase">
+                    <span class="mb-3 font-mono text-4xl font-bold text-accent">C/</span>
+                    <p class="mb-2 font-mono text-[10px] tracking-[0.14em] text-accent uppercase">
                       {props.fixture.eyebrow}
                     </p>
                     <h2 class="m-0 max-w-lg text-2xl font-semibold tracking-[-0.035em]">{props.fixture.heading}</h2>
-                    <p class="mt-3 max-w-md text-sm leading-6 text-[#5f6879]">
+                    <p class="mt-3 max-w-md text-sm leading-6 text-faint">
                       Start a new session here, or choose a scenario to inspect detailed deterministic chat states.
                     </p>
                   </div>
                 }
               >
-                <p class="mb-7 font-mono text-[10px] tracking-[0.1em] text-[#5f6879] uppercase">
-                  {props.fixture.eyebrow}
-                </p>
+                <p class="mb-7 font-mono text-[10px] tracking-[0.1em] text-faint uppercase">{props.fixture.eyebrow}</p>
                 <Show when={props.fixture.history}>
                   {(history) => (
-                    <div class="mb-6 flex items-center gap-3 text-[11px] text-[#5f6879]">
-                      <span class="h-px flex-1 bg-[#d8dce3]" />
+                    <div class="mb-6 flex items-center gap-3 text-[11px] text-faint">
+                      <span class="h-px flex-1 bg-line" />
                       <button
                         type="button"
-                        class="rounded-full border border-[#d8dce3] bg-white px-3 py-1.5 text-[11px] text-[#5f6879]"
+                        class="rounded-full border border-line bg-surface px-3 py-1.5 text-[11px] text-faint"
                       >
                         ↑ {history().label}
                       </button>
                       <span class="font-mono text-[9px]">{history().hiddenCount} hidden</span>
-                      <span class="h-px flex-1 bg-[#d8dce3]" />
+                      <span class="h-px flex-1 bg-line" />
                     </div>
                   )}
                 </Show>
@@ -123,15 +119,15 @@ export function DemoShell(props: {
             <Show when={props.fixture.minimap}>
               {(minimap) => (
                 <aside
-                  class="absolute top-4 right-2 bottom-4 w-8 border-[#d8dce3] border-l bg-[#fafbfc] max-[720px]:hidden"
+                  class="absolute top-4 right-2 bottom-4 w-8 border-line border-l bg-surface-sunken max-[720px]:hidden"
                   aria-label="Chat minimap"
                 >
-                  <div class="absolute top-3 bottom-3 left-1/2 w-px bg-[#d8dce3]" />
+                  <div class="absolute top-3 bottom-3 left-1/2 w-px bg-line" />
                   <For each={minimap()}>
                     {(item, index) => (
                       <span
-                        class="absolute left-1/2 size-2 -translate-x-1/2 rounded-sm border border-[#8b94a3] bg-white"
-                        classList={{ "scale-125 border-[#2e68c7] bg-[#2e68c7]": item.active }}
+                        class="absolute left-1/2 size-2 -translate-x-1/2 rounded-sm border border-placeholder bg-surface"
+                        classList={{ "scale-125 border-accent bg-accent": item.active }}
                         style={{ top: `${7 + index() * 13}%` }}
                         title={item.label}
                       />
@@ -145,38 +141,38 @@ export function DemoShell(props: {
             <Show when={props.fixture.composer.retry}>
               <div
                 role="status"
-                class="mx-auto mb-2 max-w-[760px] rounded-md border border-[#ead39c] bg-[#fff9e9] px-3 py-2 font-mono text-[10px] text-[#8b6417]"
+                class="mx-auto mb-2 max-w-[760px] rounded-md border border-warning-border bg-warning-soft px-3 py-2 font-mono text-[10px] text-warning"
               >
                 {props.fixture.composer.retry}
               </div>
             </Show>
             <Show when={props.fixture.composer.queued}>
               {(queued) => (
-                <div class="mx-auto mb-2 max-w-[760px] overflow-hidden rounded-md border border-[#d8dce3] bg-[#fafbfc]">
+                <div class="mx-auto mb-2 max-w-[760px] overflow-hidden rounded-md border border-line bg-surface-sunken">
                   <For each={queued()}>
                     {(item) => (
-                      <div class="flex min-w-0 items-center gap-2 border-[#e5e8ed] border-b px-3 py-1.5 text-[11px] last:border-b-0">
-                        <span class="shrink-0 rounded-full border border-[#b9c8e2] px-2 py-0.5 font-mono text-[9px] text-[#2e68c7]">
+                      <div class="flex min-w-0 items-center gap-2 border-line-subtle border-b px-3 py-1.5 text-[11px] last:border-b-0">
+                        <span class="shrink-0 rounded-full border border-accent-border px-2 py-0.5 font-mono text-[9px] text-accent">
                           {item.kind}
                         </span>
-                        <span class="truncate text-[#5f6879]">{item.text}</span>
-                        <span class="ml-auto text-[#5f6879]">queued</span>
+                        <span class="truncate text-faint">{item.text}</span>
+                        <span class="ml-auto text-faint">queued</span>
                       </div>
                     )}
                   </For>
                 </div>
               )}
             </Show>
-            <div class="mx-auto max-w-[760px] rounded-xl border border-[#ccd2dc] bg-white p-3 shadow-[0_8px_30px_rgb(28_39_57_/_8%)]">
-              <span class="text-sm text-[#5f6879]">{props.fixture.composer.placeholder}</span>
-              <div class="mt-5 flex items-center gap-2 font-mono text-[10px] text-[#5f6879]">
-                <span class="rounded-md bg-[#eef1f5] px-2 py-1">deterministic</span>
+            <div class="mx-auto max-w-[760px] rounded-xl border border-line-strong bg-surface p-3 shadow-[0_8px_30px_var(--shadow-color)]">
+              <span class="text-sm text-faint">{props.fixture.composer.placeholder}</span>
+              <div class="mt-5 flex items-center gap-2 font-mono text-[10px] text-faint">
+                <span class="rounded-md bg-surface-hover px-2 py-1">deterministic</span>
                 <span class="min-w-0 truncate max-[720px]:hidden">{props.fixture.composer.status}</span>
                 <span
-                  class="ml-auto shrink-0 rounded-md px-2 py-1 text-white"
+                  class="ml-auto shrink-0 rounded-md px-2 py-1 text-surface"
                   classList={{
-                    "bg-[#a33d3d]": props.fixture.composer.action === "Abort",
-                    "bg-[#202938]": props.fixture.composer.action === "Send",
+                    "bg-danger": props.fixture.composer.action === "Abort",
+                    "bg-strong": props.fixture.composer.action === "Send",
                   }}
                 >
                   {props.fixture.composer.action}
@@ -187,35 +183,33 @@ export function DemoShell(props: {
         </section>
 
         <aside
-          class="flex min-h-0 flex-col border-[#d8dce3] border-l bg-[#fafbfc] max-[720px]:min-h-[330px] max-[720px]:border-t max-[720px]:border-l-0"
+          class="flex min-h-0 flex-col border-line border-l bg-surface-sunken max-[720px]:min-h-[330px] max-[720px]:border-t max-[720px]:border-l-0"
           aria-label="Files"
         >
           <Show
             when={props.fixture.workspace ?? props.fixture.surface}
             fallback={
               <>
-                <div class="flex h-[42px] items-center justify-between border-[#d8dce3] border-b px-3 text-xs">
+                <div class="flex h-[42px] items-center justify-between border-line border-b px-3 text-xs">
                   <strong>Files</strong>
-                  <span class="font-mono text-[10px] text-[#5f6879]">main</span>
+                  <span class="font-mono text-[10px] text-faint">main</span>
                 </div>
-                <div class="border-[#d8dce3] border-b p-2">
+                <div class="border-line border-b p-2">
                   <For each={props.fixture.files}>
                     {(file) => (
                       <div
                         class="flex h-7 items-center gap-2 rounded px-2 text-xs"
-                        classList={{ "bg-[#e8eefb]": file.label === props.fixture.activeFile }}
+                        classList={{ "bg-accent-soft": file.label === props.fixture.activeFile }}
                         style={{ "padding-left": `${8 + file.depth * 14}px` }}
                       >
-                        <span class="font-mono text-[10px] text-[#5f6879]">
-                          {file.kind === "directory" ? "v" : "."}
-                        </span>
+                        <span class="font-mono text-[10px] text-faint">{file.kind === "directory" ? "v" : "."}</span>
                         <span class="min-w-0 flex-1 truncate">{file.label}</span>
                         <Show when={file.status}>
                           <span
                             class="font-mono text-[10px]"
                             classList={{
-                              "text-[#1f7047]": file.status === "added",
-                              "text-[#8b6417]": file.status === "modified",
+                              "text-success": file.status === "added",
+                              "text-warning": file.status === "modified",
                             }}
                           >
                             {file.status === "added" ? "A" : "M"}
@@ -225,21 +219,21 @@ export function DemoShell(props: {
                     )}
                   </For>
                 </div>
-                <div class="min-h-0 flex-1 overflow-auto bg-[#202734] p-4 font-mono text-[11px] leading-6 text-[#d8dee9]">
+                <div class="min-h-0 flex-1 overflow-auto bg-code-preview p-4 font-mono text-[11px] leading-6 text-code-preview-foreground">
                   <Show
                     when={props.fixture.activeFile}
-                    fallback={<p class="m-0 text-[#8993a3]">Select a populated scenario to preview a file.</p>}
+                    fallback={<p class="m-0 text-code-preview-muted">Select a populated scenario to preview a file.</p>}
                   >
-                    <div class="mb-3 flex items-center justify-between text-[10px] text-[#8993a3]">
+                    <div class="mb-3 flex items-center justify-between text-[10px] text-code-preview-muted">
                       <span>{props.fixture.activeFile}</span>
                       <span>TSX</span>
                     </div>
                     <pre class="m-0 whitespace-pre-wrap">
                       <code>
-                        <span class="text-[#7fbbb3]">export function</span> DemoShell() {"{"}
+                        <span class="text-code-preview-keyword">export function</span> DemoShell() {"{"}
                         <br />
                         {"  "}
-                        <span class="text-[#d699b6]">return</span> (
+                        <span class="text-code-preview-control">return</span> (
                         <br />
                         {"    "}&lt;main&gt;
                         <br />

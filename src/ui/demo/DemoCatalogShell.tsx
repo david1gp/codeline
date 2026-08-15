@@ -7,19 +7,19 @@ import type { demoAppStateCreate } from "./demoAppStateCreate.js"
 
 export function DemoCatalogShell(props: { state: ReturnType<typeof demoAppStateCreate> }) {
   return (
-    <main class="min-h-dvh bg-[#f5f6f8] text-[#18202b] [font-family:Inter,ui-sans-serif,system-ui,sans-serif]">
-      <header class="flex h-12 items-center gap-3 border-[#d8dce3] border-b bg-white px-4 min-[761px]:hidden">
+    <main class="min-h-dvh bg-surface-sunken text-foreground [font-family:Inter,ui-sans-serif,system-ui,sans-serif]">
+      <header class="flex h-12 items-center gap-3 border-line border-b bg-surface px-4 min-[761px]:hidden">
         <A class="flex items-center gap-2 text-sm font-semibold no-underline" href="/demo">
-          <span class="grid size-6 place-items-center rounded-md bg-[#202938] font-mono text-[11px] text-white">
+          <span class="grid size-6 place-items-center rounded-md bg-accent font-mono text-[11px] text-accent-contrast">
             C/
           </span>
           Demo catalog
         </A>
         <nav class="ml-auto flex gap-1 text-xs" aria-label="Catalog sections">
-          <A class="rounded-md px-2 py-1.5 no-underline hover:bg-[#eef1f5]" href="/demo/screens">
+          <A class="rounded-md px-2 py-1.5 no-underline hover:bg-surface-hover" href="/demo/screens">
             Screens
           </A>
-          <A class="rounded-md px-2 py-1.5 no-underline hover:bg-[#eef1f5]" href="/demo/components">
+          <A class="rounded-md px-2 py-1.5 no-underline hover:bg-surface-hover" href="/demo/components">
             Components
           </A>
         </nav>
@@ -27,14 +27,14 @@ export function DemoCatalogShell(props: { state: ReturnType<typeof demoAppStateC
 
       <div class="grid min-h-dvh grid-cols-[260px_minmax(0,1fr)] max-[760px]:min-h-[calc(100dvh-48px)] max-[760px]:grid-cols-1">
         <aside
-          class="flex min-h-0 flex-col border-[#d8dce3] border-r bg-white max-[760px]:hidden"
+          class="flex min-h-0 flex-col border-line border-r bg-surface max-[760px]:hidden"
           aria-label="Demo catalog directory"
         >
           <A
-            class="flex h-14 items-center gap-2 border-[#d8dce3] border-b px-4 text-sm font-semibold no-underline"
+            class="flex h-14 items-center gap-2 border-line border-b px-4 text-sm font-semibold no-underline"
             href="/demo"
           >
-            <span class="grid size-7 place-items-center rounded-md bg-[#202938] font-mono text-[11px] text-white">
+            <span class="grid size-7 place-items-center rounded-md bg-accent font-mono text-[11px] text-accent-contrast">
               C/
             </span>
             Demo catalog
@@ -44,7 +44,7 @@ export function DemoCatalogShell(props: { state: ReturnType<typeof demoAppStateC
               {(section) => (
                 <section class="mb-5">
                   <A
-                    class="mb-1 block px-2 font-mono text-[10px] tracking-[0.1em] text-[#5f6879] uppercase no-underline"
+                    class="mb-1 block px-2 font-mono text-[10px] tracking-[0.1em] text-faint uppercase no-underline"
                     href={`/demo/${section.slug}`}
                   >
                     {section.label} · {section.items.length}
@@ -52,8 +52,8 @@ export function DemoCatalogShell(props: { state: ReturnType<typeof demoAppStateC
                   <For each={section.items}>
                     {(item) => (
                       <A
-                        class="block rounded-md px-2 py-2 text-xs text-[#5f6879] no-underline hover:bg-[#eef1f5] hover:text-[#18202b]"
-                        classList={{ "bg-[#e8eefb] text-[#2459ad]": props.state.activeSlug() === item.slug }}
+                        class="block rounded-md px-2 py-2 text-xs text-faint no-underline hover:bg-surface-hover hover:text-foreground"
+                        classList={{ "bg-accent-soft text-accent": props.state.activeSlug() === item.slug }}
                         href={item.href}
                         aria-current={props.state.activeSlug() === item.slug ? "page" : undefined}
                       >
@@ -65,7 +65,7 @@ export function DemoCatalogShell(props: { state: ReturnType<typeof demoAppStateC
               )}
             </For>
           </nav>
-          <p class="m-0 border-[#d8dce3] border-t px-4 py-3 font-mono text-[9px] tracking-[0.08em] text-[#5f6879] uppercase">
+          <p class="m-0 border-line border-t px-4 py-3 font-mono text-[9px] tracking-[0.08em] text-faint uppercase">
             Fixtures only · no providers
           </p>
         </aside>
@@ -75,20 +75,20 @@ export function DemoCatalogShell(props: { state: ReturnType<typeof demoAppStateC
             <Match when={props.state.specimen()}>
               {(specimen) => (
                 <div class="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]">
-                  <div class="flex min-h-12 flex-wrap items-center gap-3 border-[#d8dce3] border-b bg-white px-4 max-[760px]:min-h-11">
-                    <A class="text-xs text-[#5f6879] no-underline hover:text-[#18202b]" href="/demo">
+                  <div class="flex min-h-12 flex-wrap items-center gap-3 border-line border-b bg-surface px-4 max-[760px]:min-h-11">
+                    <A class="text-xs text-faint no-underline hover:text-foreground" href="/demo">
                       Catalog
                     </A>
-                    <span class="text-[#a5acb7]">/</span>
+                    <span class="text-placeholder">/</span>
                     <strong class="text-xs">{specimen().label}</strong>
                     <nav class="ml-auto flex gap-1" aria-label="Specimen variants">
                       <For each={specimen().variants}>
                         {(variant) => (
                           <button
                             type="button"
-                            class="rounded-md border border-[#d8dce3] px-2 py-1 font-mono text-[10px] text-[#5f6879] uppercase"
+                            class="rounded-md border border-line px-2 py-1 font-mono text-[10px] text-faint uppercase"
                             classList={{
-                              "border-[#2e68c7] bg-[#e8eefb] text-[#2459ad]": props.state.variant() === variant,
+                              "border-accent bg-accent-soft text-accent": props.state.variant() === variant,
                             }}
                             aria-pressed={props.state.variant() === variant}
                             onClick={() => props.state.variantSelect(variant)}
@@ -108,13 +108,13 @@ export function DemoCatalogShell(props: { state: ReturnType<typeof demoAppStateC
             <Match when={props.state.scenario()}>
               {(scenario) => (
                 <div class="h-full">
-                  <div class="flex min-h-12 items-center gap-3 border-[#d8dce3] border-b bg-white px-4 max-[760px]:min-h-11">
-                    <A class="text-xs text-[#5f6879] no-underline hover:text-[#18202b]" href="/demo">
+                  <div class="flex min-h-12 items-center gap-3 border-line border-b bg-surface px-4 max-[760px]:min-h-11">
+                    <A class="text-xs text-faint no-underline hover:text-foreground" href="/demo">
                       Catalog
                     </A>
-                    <span class="text-[#a5acb7]">/</span>
+                    <span class="text-placeholder">/</span>
                     <strong class="text-xs">{scenario().label}</strong>
-                    <span class="ml-auto font-mono text-[9px] tracking-[0.08em] text-[#5f6879] uppercase">
+                    <span class="ml-auto font-mono text-[9px] tracking-[0.08em] text-faint uppercase">
                       Screen scenario
                     </span>
                   </div>

@@ -3,35 +3,39 @@ import type { DemoSurfaceFixture } from "./demoSurfaceFixture.js"
 
 export function DemoSurfacePanel(props: { fixture: DemoSurfaceFixture }) {
   return (
-    <section class="min-h-0 flex-1 overflow-auto bg-[#f7f8fa] p-4" aria-label={props.fixture.title} tabindex="0">
-      <div class="mx-auto max-w-3xl overflow-hidden rounded-xl border border-[#d8dce3] bg-white shadow-[0_16px_45px_rgb(28_39_57_/_10%)]">
-        <header class="border-[#d8dce3] border-b px-5 py-4">
+    <section
+      class="min-h-0 flex-1 overflow-auto bg-surface-sunken p-4 text-foreground"
+      aria-label={props.fixture.title}
+      tabindex="0"
+    >
+      <div class="mx-auto max-w-3xl overflow-hidden rounded-xl border border-line bg-surface-raised shadow-[0_16px_45px_var(--shadow-color-strong)]">
+        <header class="border-line border-b px-5 py-4">
           <div class="flex items-start justify-between gap-3">
             <div>
-              <p class="m-0 font-mono text-[9px] tracking-[0.12em] text-[#2e68c7] uppercase">Configuration fixture</p>
+              <p class="m-0 font-mono text-[9px] tracking-[0.12em] text-accent uppercase">Configuration fixture</p>
               <h2 class="mt-1 mb-0 text-lg tracking-[-0.025em]">{props.fixture.title}</h2>
             </div>
-            <span class="rounded-full bg-[#eef1f5] px-2 py-1 font-mono text-[9px] text-[#5f6879]">local only</span>
+            <span class="rounded-full bg-muted px-2 py-1 font-mono text-[9px] text-faint">local only</span>
           </div>
-          <p class="mt-2 mb-0 text-xs leading-5 text-[#5f6879]">{props.fixture.subtitle}</p>
+          <p class="mt-2 mb-0 text-xs leading-5 text-faint">{props.fixture.subtitle}</p>
         </header>
 
         <Switch>
           <Match when={props.fixture.kind === "models" && props.fixture}>
             {(fixture) => (
-              <div class="divide-y divide-[#e5e8ed]">
+              <div class="divide-y divide-line-subtle">
                 <For each={fixture().models}>
                   {(model) => (
                     <article class="grid grid-cols-[auto_1fr_auto] items-center gap-3 px-5 py-4">
                       <span
                         class="size-2 rounded-full"
-                        classList={{ "bg-[#248451]": model.enabled, "bg-[#c3c9d2]": !model.enabled }}
+                        classList={{ "bg-success-solid": model.enabled, "bg-disabled": !model.enabled }}
                       />
                       <div class="min-w-0">
                         <strong class="block truncate text-sm">{model.label}</strong>
-                        <span class="font-mono text-[10px] text-[#5f6879]">{model.provider}</span>
+                        <span class="font-mono text-[10px] text-faint">{model.provider}</span>
                       </div>
-                      <div class="text-right font-mono text-[10px] text-[#5f6879]">
+                      <div class="text-right font-mono text-[10px] text-faint">
                         <span class="block">{model.context} context</span>
                         <span>{model.reasoning} reasoning</span>
                       </div>
@@ -46,19 +50,17 @@ export function DemoSurfacePanel(props: { fixture: DemoSurfaceFixture }) {
               <div class="grid gap-3 p-4 sm:grid-cols-2">
                 <For each={fixture().skills}>
                   {(skill) => (
-                    <article class="rounded-lg border border-[#d8dce3] p-3">
+                    <article class="rounded-lg border border-line p-3">
                       <div class="flex items-center gap-2">
                         <strong class="font-mono text-xs">/{skill.label}</strong>
-                        <span class="ml-auto rounded bg-[#eef1f5] px-1.5 py-0.5 font-mono text-[9px]">
-                          {skill.scope}
-                        </span>
+                        <span class="ml-auto rounded bg-muted px-1.5 py-0.5 font-mono text-[9px]">{skill.scope}</span>
                       </div>
-                      <p class="mb-3 text-xs leading-5 text-[#5f6879]">{skill.description}</p>
+                      <p class="mb-3 text-xs leading-5 text-faint">{skill.description}</p>
                       <span
                         class="font-mono text-[9px]"
                         classList={{
-                          "text-[#1f7047]": skill.status === "available",
-                          "text-[#5f6879]": skill.status === "disabled",
+                          "text-success": skill.status === "available",
+                          "text-disabled": skill.status === "disabled",
                         }}
                       >
                         {skill.status}
@@ -75,8 +77,8 @@ export function DemoSurfacePanel(props: { fixture: DemoSurfaceFixture }) {
                 <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
                   <For each={fixture().metrics}>
                     {(metric) => (
-                      <div class="rounded-lg bg-[#f3f5f7] p-3">
-                        <span class="block font-mono text-[9px] text-[#5f6879] uppercase">{metric.label}</span>
+                      <div class="rounded-lg bg-muted p-3">
+                        <span class="block font-mono text-[9px] text-faint uppercase">{metric.label}</span>
                         <strong class="mt-1 block text-sm">{metric.value}</strong>
                       </div>
                     )}
@@ -88,10 +90,10 @@ export function DemoSurfacePanel(props: { fixture: DemoSurfaceFixture }) {
                       <div>
                         <div class="mb-1 flex justify-between font-mono text-[10px]">
                           <span>{usage.label}</span>
-                          <span class="text-[#5f6879]">{usage.value}</span>
+                          <span class="text-faint">{usage.value}</span>
                         </div>
-                        <div class="h-2 overflow-hidden rounded-full bg-[#e5e8ed]">
-                          <span class="block h-full rounded-full bg-[#2e68c7]" style={{ width: `${usage.percent}%` }} />
+                        <div class="h-2 overflow-hidden rounded-full bg-line-subtle">
+                          <span class="block h-full rounded-full bg-accent" style={{ width: `${usage.percent}%` }} />
                         </div>
                       </div>
                     )}
@@ -106,7 +108,7 @@ export function DemoSurfacePanel(props: { fixture: DemoSurfaceFixture }) {
                 <div class="mb-3 flex flex-wrap gap-2">
                   <For each={fixture().sources}>
                     {(source) => (
-                      <span class="rounded-md border border-[#d8dce3] px-2 py-1 font-mono text-[9px]">
+                      <span class="rounded-md border border-line px-2 py-1 font-mono text-[9px]">
                         <strong>{source.label}</strong> · {source.status}
                       </span>
                     )}
@@ -114,12 +116,12 @@ export function DemoSurfacePanel(props: { fixture: DemoSurfaceFixture }) {
                 </div>
                 <pre
                   tabindex="0"
-                  class="m-0 overflow-x-auto rounded-lg bg-[#202734] p-4 font-mono text-[11px] leading-6 text-[#d8dee9]"
+                  class="m-0 overflow-x-auto rounded-lg bg-[var(--code-background)] p-4 font-mono text-[11px] leading-6 text-foreground"
                 >
                   <For each={fixture().lines}>
                     {(line, index) => (
                       <code class="block">
-                        <span class="mr-3 text-[#9da8b8]">{String(index() + 1).padStart(2, "0")}</span>
+                        <span class="mr-3 text-faint">{String(index() + 1).padStart(2, "0")}</span>
                         {line}
                       </code>
                     )}
@@ -134,8 +136,8 @@ export function DemoSurfacePanel(props: { fixture: DemoSurfaceFixture }) {
                 <div class="grid gap-3 sm:grid-cols-2">
                   <For each={fixture().widgets}>
                     {(widget) => (
-                      <article class="rounded-lg border border-[#b9c8e2] bg-[#f4f7fc] p-3">
-                        <div class="mb-2 flex justify-between font-mono text-[9px] text-[#5f6879] uppercase">
+                      <article class="rounded-lg border border-accent-border bg-accent-soft p-3">
+                        <div class="mb-2 flex justify-between font-mono text-[9px] text-faint uppercase">
                           <strong>{widget.label}</strong>
                           <span>{widget.placement}</span>
                         </div>
@@ -144,20 +146,20 @@ export function DemoSurfacePanel(props: { fixture: DemoSurfaceFixture }) {
                     )}
                   </For>
                 </div>
-                <div class="mt-4 overflow-hidden rounded-md border border-[#394252] bg-[#202734] text-[#d8dee9]">
+                <div class="mt-4 overflow-hidden rounded-md border border-line-strong bg-[var(--code-background)] text-foreground">
                   <For each={fixture().statuses}>
                     {(status) => (
-                      <div class="flex items-center gap-2 border-[#394252] border-b px-3 py-2 font-mono text-[10px] last:border-b-0">
+                      <div class="flex items-center gap-2 border-line-strong border-b px-3 py-2 font-mono text-[10px] last:border-b-0">
                         <span
                           class="size-1.5 rounded-full"
                           classList={{
-                            "bg-[#248451]": status.state === "ready",
-                            "bg-[#e2a23a]": status.state === "warning",
-                            "bg-[#8b94a3]": status.state === "idle",
+                            "bg-success-solid": status.state === "ready",
+                            "bg-warning": status.state === "warning",
+                            "bg-disabled": status.state === "idle",
                           }}
                         />
                         <span>{status.label}</span>
-                        <span class="ml-auto text-[#9da8b8]">{status.value}</span>
+                        <span class="ml-auto text-faint">{status.value}</span>
                       </div>
                     )}
                   </For>
@@ -168,21 +170,21 @@ export function DemoSurfacePanel(props: { fixture: DemoSurfaceFixture }) {
           <Match when={props.fixture.kind === "written-files" && props.fixture}>
             {(fixture) => (
               <div class="p-4">
-                <div class="divide-y divide-[#e5e8ed] rounded-lg border border-[#d8dce3]">
+                <div class="divide-y divide-line-subtle rounded-lg border border-line">
                   <For each={fixture().files}>
                     {(file) => (
                       <div class="flex items-center gap-3 px-3 py-3 text-xs">
-                        <span class="rounded bg-[#edf8f1] px-1.5 py-0.5 font-mono text-[9px] text-[#1f7047]">
+                        <span class="rounded bg-success/10 px-1.5 py-0.5 font-mono text-[9px] text-success">
                           {file.status}
                         </span>
                         <code class="min-w-0 flex-1 truncate">{file.path}</code>
-                        <span class="font-mono text-[10px] text-[#1f7047]">+{file.additions}</span>
-                        <span class="font-mono text-[10px] text-[#ad3838]">−{file.deletions}</span>
+                        <span class="font-mono text-[10px] text-success">+{file.additions}</span>
+                        <span class="font-mono text-[10px] text-danger">−{file.deletions}</span>
                       </div>
                     )}
                   </For>
                 </div>
-                <p class="mb-0 text-right font-mono text-[10px] text-[#5f6879]">{fixture().totals}</p>
+                <p class="mb-0 text-right font-mono text-[10px] text-faint">{fixture().totals}</p>
               </div>
             )}
           </Match>
