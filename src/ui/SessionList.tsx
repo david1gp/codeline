@@ -8,9 +8,9 @@ import type { SessionListState } from "./sessionListStateCreate.js"
 import type { SessionSidebarTab } from "./sessionSidebarTab.js"
 
 const tabs: ReadonlyArray<{ icon: string; label: string; value: SessionSidebarTab }> = [
-  { icon: mdiHistory, label: "Recent", value: "recent" },
   { icon: mdiEyeOutline, label: "Watched", value: "watched" },
   { icon: mdiFolderMultipleOutline, label: "Projects", value: "projects" },
+  { icon: mdiHistory, label: "Recent", value: "recent" },
   { icon: mdiMagnify, label: "Search", value: "search" },
 ]
 
