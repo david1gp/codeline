@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test"
 import { createRoot } from "solid-js/dist/solid.js"
 import { sessionNavigationStateCreate } from "../src/ui/sessionNavigationStateCreate.js"
+import { sessionSidebarRouteStateCreate } from "../src/ui/sessionSidebarRouteStateCreate.js"
+import { signalObjectCreate } from "../src/ui/signalObjectCreate.js"
 
 function navigationCreate(initialUrl: string) {
   let href = new URL(initialUrl).href
@@ -43,7 +45,7 @@ test("session navigation parses, pushes, clears, and reloads from the session UR
     expect(state.selectedSessionId()).toBe("first")
     state.selectSession("second")
     expect(state.selectedSessionId()).toBe("second")
-    expect(navigation.href).toBe("https://codeline.test/sessions/recent?mode=active&session=second#chat")
+    expect(navigation.href).toBe("https://codeline.test/sessions/second?tab=recent&mode=active#chat")
     expect(navigation.pushedUrls).toHaveLength(1)
 
     return rootDispose
@@ -58,7 +60,7 @@ test("session navigation parses, pushes, clears, and reloads from the session UR
 
     reloaded.clearSession()
     expect(reloaded.selectedSessionId()).toBeNull()
-    expect(navigation.href).toBe("https://codeline.test/sessions/recent?mode=active#chat")
+    expect(navigation.href).toBe("https://codeline.test/sessions?tab=recent&mode=active#chat")
 
     return rootDispose
   })
@@ -96,6 +98,73 @@ test("session navigation parses canonical selected and reserved new routes", () 
     navigation.history.pushState(null, "", "https://codeline.test/sessions/new?tab=watched")
     navigation.emitPopstate()
     expect(state.selectedSessionId()).toBeNull()
+
+    return rootDispose
+  })
+
+  dispose()
+})
+
+test("session navigation enters the canonical new route before selecting the created session", () => {
+  const navigation = navigationCreate("https://codeline.test/sessions/selected?tab=watched#chat")
+  const dispose = createRoot((rootDispose) => {
+    const state = sessionNavigationStateCreate(navigation)
+
+    state.startNewSession()
+    expect(state.selectedSessionId()).toBeNull()
+    expect(navigation.href).toBe("https://codeline.test/sessions/new?tab=watched#chat")
+
+    state.selectSession("created")
+    expect(state.selectedSessionId()).toBe("created")
+    expect(navigation.href).toBe("https://codeline.test/sessions/created?tab=watched#chat")
+
+    return rootDispose
+  })
+
+  dispose()
+})
+
+test("session sidebar reads the router URL after session selection navigation", async () => {
+  const href = signalObjectCreate("https://codeline.test/sessions?tab=recent")
+  const root = createRoot((dispose) => {
+    const navigation = sessionNavigationStateCreate({
+      location: {
+        get href() {
+          return href.get()
+        },
+      },
+      history: { pushState: () => undefined },
+      navigate: (nextHref) => href.set(new URL(nextHref, href.get()).href),
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    })
+    const sidebar = sessionSidebarRouteStateCreate({
+      href: href.get,
+      navigate: (nextHref) => href.set(new URL(nextHref, href.get()).href),
+      storage: null,
+    })
+
+    return { dispose, navigation, sidebar }
+  })
+
+  root.navigation.selectSession("selected")
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  root.sidebar.selectTab("watched")
+
+  expect(href.get()).toBe("https://codeline.test/sessions/selected?tab=watched")
+  root.dispose()
+})
+
+test("session navigation reserves a new session while preserving the active tab", () => {
+  const navigation = navigationCreate("https://codeline.test/sessions?tab=projects")
+  const dispose = createRoot((rootDispose) => {
+    const state = sessionNavigationStateCreate(navigation)
+
+    state.startNewSession()
+    state.startNewSession()
+
+    expect(navigation.href).toBe("https://codeline.test/sessions/new?tab=projects")
+    expect(navigation.pushedUrls).toEqual(["https://codeline.test/sessions/new?tab=projects"])
 
     return rootDispose
   })

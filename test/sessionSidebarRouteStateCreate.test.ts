@@ -98,6 +98,37 @@ test("session sidebar removes search state from non-search routes during normali
   root.dispose()
 })
 
+test("session sidebar redirects legacy tabs to canonical selected-session URLs", async () => {
+  const route = routeCreate("https://codeline.test/sessions/projects?session=selected&tab=watched&search=term#chat")
+  const root = createRoot((dispose) => ({ dispose, state: sessionSidebarRouteStateCreate(route) }))
+
+  await tick()
+  expect(route.navigations).toEqual([
+    { href: "https://codeline.test/sessions/selected?tab=watched#chat", replace: true },
+  ])
+  root.dispose()
+})
+
+test("session sidebar keeps unknown canonical session IDs and reserves new-session paths", async () => {
+  const unknownRoute = routeCreate("https://codeline.test/sessions/unknown-id?tab=recent")
+  const unknownRoot = createRoot((dispose) => ({ dispose, state: sessionSidebarRouteStateCreate(unknownRoute) }))
+
+  await tick()
+  expect(unknownRoute.navigations).toEqual([])
+  unknownRoot.dispose()
+
+  const newRoute = routeCreate("https://codeline.test/sessions/new?tab=recent")
+  const newRoot = createRoot((dispose) => ({ dispose, state: sessionSidebarRouteStateCreate(newRoute) }))
+
+  await tick()
+  newRoot.state.selectTab("projects")
+  expect(newRoute.navigations.at(-1)).toEqual({
+    href: "https://codeline.test/sessions/new?tab=projects",
+    replace: false,
+  })
+  newRoot.dispose()
+})
+
 test("session sidebar restores the last valid route choice across reloads", async () => {
   const firstRoute = routeCreate("https://codeline.test/sessions/projects")
   const firstRoot = createRoot((dispose) => ({ dispose, state: sessionSidebarRouteStateCreate(firstRoute) }))

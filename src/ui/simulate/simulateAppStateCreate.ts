@@ -16,6 +16,7 @@ export function simulateAppStateCreate() {
   const navigation = {
     clearSession: () => undefined,
     selectedSessionId: () => scenario().sessionId,
+    startNewSession: () => navigate("/sessions/new?tab=recent"),
     selectSession: (sessionId: string) => {
       const selectedScenario = simulationScenarios.find((candidate) => candidate.sessionId === sessionId)
       navigate(selectedScenario?.href ?? `/?session=${encodeURIComponent(sessionId)}`)

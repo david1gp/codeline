@@ -23,10 +23,10 @@ Make the active conversation the primary sessions URL resource while preserving 
 
 ## Tasks
 
-- [ ] 1. Implement canonical route parsing, generation, normalization, and shell recognition.
-- [ ] 2. Update session selection and creation navigation to use canonical URLs.
-- [ ] 3. Update and add route/state tests, then run static and unit verification.
-- [ ] 4. Browser-verify selected-session, tab-preservation, legacy redirect, and new-session flows.
+- [x] 1. Implement canonical route parsing, generation, normalization, and shell recognition.
+- [x] 2. Update session selection and creation navigation to use canonical URLs.
+- [x] 3. Update and add route/state tests, then run static and unit verification.
+- [x] 4. Browser-verify selected-session, tab-preservation, legacy redirect, and new-session flows.
 
 ## Paths
 

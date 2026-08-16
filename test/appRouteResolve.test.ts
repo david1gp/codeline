@@ -4,6 +4,8 @@ import { appRouteResolve } from "../src/ui/appRouteResolve.js"
 test("app routes the project files surface without changing workspace fallbacks", () => {
   expect(appRouteResolve("/files")).toBe("files")
   expect(appRouteResolve("/sessions")).toBe("workspace")
+  expect(appRouteResolve("/sessions/new")).toBe("workspace")
+  expect(appRouteResolve("/sessions/unknown-id")).toBe("workspace")
   expect(appRouteResolve("/sessions/recent")).toBe("workspace")
   expect(appRouteResolve("/sessions/search")).toBe("workspace")
   expect(appRouteResolve("/settings")).toBe("settings")

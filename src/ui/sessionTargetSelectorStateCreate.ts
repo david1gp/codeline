@@ -36,6 +36,7 @@ type SessionTargetSelectorStateOptions = {
   clientRequestIdCreate?: () => string
   fetch?: SessionTargetSelectorFetch
   selectedSessionId: Accessor<string | null>
+  sessionNew?: () => void
   sessionSelect: (sessionId: string) => void
   storage?: Pick<Storage, "getItem" | "setItem">
 }
@@ -575,6 +576,7 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
 
     const clientRequestId = pendingCreateRequestIdResolve(target, projectPath)
     sessionCreateStatus.set("creating")
+    options.sessionNew?.()
     try {
       const response = await fetchImplementation("/api/sessions", {
         body: JSON.stringify({

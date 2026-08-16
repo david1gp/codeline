@@ -22,10 +22,13 @@ export function sessionRouteResolve(url: Pick<URL, "pathname" | "search">) {
   const routeSegment = normalizedPathname.slice("/sessions/".length)
   if (routeSegment === "new") return { kind: "new" as const, sessionId: null, tab: queryTab }
   const parsedSessionId = v.safeParse(sessionIdSchema, routeSegment)
+  const parsedSidebarTab = v.safeParse(sessionSidebarTabSchema, routeSegment)
+  if (parsedSidebarTab.success && legacySessionId !== null) {
+    return { kind: "legacy-tab" as const, sessionId: legacySessionId, tab: queryTab ?? parsedSidebarTab.output }
+  }
   if (parsedQueryTab.success && parsedSessionId.success && !routeSegment.includes("/")) {
     return { kind: "selected" as const, sessionId: parsedSessionId.output, tab: queryTab }
   }
-  const parsedSidebarTab = v.safeParse(sessionSidebarTabSchema, routeSegment)
   if (parsedSidebarTab.success) {
     return { kind: "legacy-tab" as const, sessionId: legacySessionId, tab: queryTab ?? parsedSidebarTab.output }
   }

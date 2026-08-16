@@ -24,6 +24,7 @@ export function workspaceScreenStateCreate(
   const sessionTargetSelector = sessionTargetSelectorStateCreate({
     activeProjectPath: () => activeProject.project().path,
     selectedSessionId: navigation.selectedSessionId,
+    sessionNew: navigation.startNewSession,
     sessionSelect: navigation.selectSession,
   })
   const providerModelSelector = providerModelSelectorStateCreate({

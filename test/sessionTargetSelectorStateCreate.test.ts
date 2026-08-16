@@ -258,6 +258,7 @@ test("creating a session posts the selected target once and navigates", async ()
   const requests: string[] = []
   const bodies: string[] = []
   const selected: string[] = []
+  const navigation: string[] = []
   let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
   const dispose = createRoot((rootDispose) => {
     state = sessionTargetSelectorStateCreate({
@@ -267,7 +268,11 @@ test("creating a session posts the selected target once and navigates", async ()
         return fetchDefaultCreate(requests)(input, init)
       },
       selectedSessionId: () => null,
-      sessionSelect: (sessionId) => selected.push(sessionId),
+      sessionNew: () => navigation.push("new"),
+      sessionSelect: (sessionId) => {
+        navigation.push("select")
+        selected.push(sessionId)
+      },
     })
     return rootDispose
   })
@@ -288,6 +293,7 @@ test("creating a session posts the selected target once and navigates", async ()
     title: "New session",
   })
   expect(selected).toEqual(["created-session"])
+  expect(navigation).toEqual(["new", "select"])
   expect(state?.sessionCreateStatus()).toBe("idle")
   dispose()
 })

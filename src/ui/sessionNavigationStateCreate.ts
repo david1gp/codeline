@@ -1,12 +1,16 @@
 import { createSignal, onCleanup } from "solid-js/dist/solid.js"
 import * as v from "valibot"
 import { sessionRouteResolve } from "./sessionRouteResolve.js"
+import { sessionSidebarDestinationResolve } from "./sessionSidebarDestinationResolve.js"
+import { sessionSidebarRouteHrefResolve } from "./sessionSidebarRouteHrefResolve.js"
+import type { SessionSidebarTab } from "./sessionSidebarTab.js"
 
 const sessionIdSchema = v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(200))
 
 type SessionNavigation = {
   location: Pick<Location, "href">
   history: Pick<History, "pushState">
+  navigate?: (href: string) => void
   addEventListener: (type: "popstate", listener: () => void) => void
   removeEventListener: (type: "popstate", listener: () => void) => void
 }
@@ -15,16 +19,28 @@ function sessionNavigationResolve(navigation: SessionNavigation): string | null 
   return sessionRouteResolve(new URL(navigation.location.href)).sessionId
 }
 
+function sessionNavigationTabResolve(url: URL): SessionSidebarTab {
+  const route = sessionRouteResolve(url)
+  if (route.tab !== null) return route.tab
+
+  const destination = new URL(sessionSidebarDestinationResolve(url.href), url)
+  return sessionRouteResolve(destination).tab ?? "recent"
+}
+
 export function sessionNavigationStateCreate(navigation: SessionNavigation = window) {
   const [selectedSessionId, setSelectedSessionId] = createSignal(sessionNavigationResolve(navigation))
-  const updateUrl = (sessionId: string | null) => {
+  const updateUrl = (pathname: string, sessionId: string | null, push = true) => {
     const url = new URL(navigation.location.href)
-    if (sessionId === null) {
-      url.searchParams.delete("session")
-    } else {
-      url.searchParams.set("session", sessionId)
+    const href = sessionSidebarRouteHrefResolve(sessionNavigationTabResolve(url), {
+      hash: url.hash,
+      pathname,
+      search: url.search,
+    })
+    const currentPath = `${url.pathname}${url.search}${url.hash}`
+    if (push || currentPath !== href) {
+      if (navigation.navigate) navigation.navigate(href)
+      else navigation.history.pushState(null, "", href)
     }
-    navigation.history.pushState(null, "", url)
     setSelectedSessionId(sessionId)
   }
   const handlePopstate = () => setSelectedSessionId(sessionNavigationResolve(navigation))
@@ -36,9 +52,10 @@ export function sessionNavigationStateCreate(navigation: SessionNavigation = win
     selectedSessionId,
     selectSession: (sessionId: string) => {
       const result = v.safeParse(sessionIdSchema, sessionId)
-      if (result.success) updateUrl(result.output)
+      if (result.success) updateUrl(`/sessions/${result.output}`, result.output)
     },
-    clearSession: () => updateUrl(null),
+    clearSession: () => updateUrl("/sessions", null),
+    startNewSession: () => updateUrl("/sessions/new", null, false),
   }
 }
 
