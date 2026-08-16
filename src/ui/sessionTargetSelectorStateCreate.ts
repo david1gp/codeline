@@ -221,8 +221,9 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
           return
         }
         configurationErrorMessage.set(null)
-        agents.set(parsed.output.agents)
-        if (parsed.output.agents.length === 0) {
+        const primaryAgents = parsed.output.agents.filter((agent) => agent.parentAgentId === null)
+        agents.set(primaryAgents)
+        if (primaryAgents.length === 0) {
           selectedAgentId.set(null)
           agentCreateMode.set(true)
           agentDraft.set(agentDraftEmpty())
@@ -231,11 +232,10 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
         }
         const current = selectedAgentId.get()
         const saved = savedSelections[serverId]
-        if (current === null || !parsed.output.agents.some((agent) => agent.id === current)) {
+        if (current === null || !primaryAgents.some((agent) => agent.id === current)) {
           selectedAgentId.set(
-            (saved !== undefined && parsed.output.agents.some((agent) => agent.id === saved)
-              ? saved
-              : parsed.output.agents[0]?.id) ?? null,
+            (saved !== undefined && primaryAgents.some((agent) => agent.id === saved) ? saved : primaryAgents[0]?.id) ??
+              null,
           )
         }
         agentCreateMode.set(false)

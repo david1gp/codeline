@@ -83,7 +83,7 @@ test.skipIf(!databaseAvailable)("each server exposes its own validated agent lis
   const parsedSecondary = v.safeParse(agentListResponseSchema, await secondary.json())
   expect(parsedPrimary.issues).toBeUndefined()
   for (const agent of primaryBody.agents) {
-    expect(Object.keys(agent).sort()).toEqual(["id", "name", "role", "serverId"])
+    expect(Object.keys(agent).sort()).toEqual(["id", "name", "parentAgentId", "role", "serverId"])
   }
   expect(parsedPrimary.success).toBe(true)
   expect(parsedSecondary.success).toBe(true)

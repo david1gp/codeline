@@ -122,6 +122,7 @@ export function apiAgentRoutesAdd(api: Hono<AppEnvironment>, options: ApiAgentRo
       agents: result.data.map(({ agent }) => ({
         id: agent.id,
         name: agent.name,
+        parentAgentId: agent.parentAgentId,
         role: agent.role,
         serverId: agent.serverId,
       })),

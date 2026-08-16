@@ -13,18 +13,38 @@ const servers = {
 const agentsByServer: Record<string, unknown> = {
   "example-server-local": {
     agents: [
-      { id: "example-agent-local", name: "Example Coding Agent", role: "coding", serverId: "example-server-local" },
+      {
+        id: "example-agent-local",
+        name: "Example Coding Agent",
+        parentAgentId: null,
+        role: "coding",
+        serverId: "example-server-local",
+      },
       {
         id: "example-agent-local-review",
         name: "Example Review Agent",
+        parentAgentId: null,
         role: "review",
+        serverId: "example-server-local",
+      },
+      {
+        id: "example-agent-local-subagent",
+        name: "Example Subagent",
+        parentAgentId: "example-agent-local",
+        role: "subagent",
         serverId: "example-server-local",
       },
     ],
   },
   "example-server-remote": {
     agents: [
-      { id: "example-agent-remote", name: "Example Remote Agent", role: "coding", serverId: "example-server-remote" },
+      {
+        id: "example-agent-remote",
+        name: "Example Remote Agent",
+        parentAgentId: null,
+        role: "coding",
+        serverId: "example-server-remote",
+      },
     ],
   },
 }
@@ -118,6 +138,7 @@ test("state loads agents from the deterministic default server", async () => {
   expect(state?.agentStatus()).toBe("ready")
   expect(state?.servers()).toHaveLength(2)
   expect(state?.agents()).toHaveLength(2)
+  expect(state?.agents().map((agent) => agent.id)).not.toContain("example-agent-local-subagent")
   expect(state?.selectedServerId()).toBe("example-server-local")
   expect(state?.selectedAgentId()).toBe("example-agent-local")
   expect(state?.pendingTarget()).toEqual({ agentId: "example-agent-local", serverId: "example-server-local" })
@@ -572,7 +593,13 @@ test("an agent-less server exposes creation and surfaces provider API errors", a
             created
               ? {
                   agents: [
-                    { id: "created-agent", name: "Created agent", role: "coding", serverId: "example-server-local" },
+                    {
+                      id: "created-agent",
+                      name: "Created agent",
+                      parentAgentId: null,
+                      role: "coding",
+                      serverId: "example-server-local",
+                    },
                   ],
                 }
               : { agents: [] },

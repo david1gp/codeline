@@ -7,8 +7,14 @@ const demoServers = [
   { id: "demo-server-sandbox", name: "Sandbox runner" },
 ]
 const demoAgents = [
-  { id: "demo-agent-builder", name: "Builder", role: "primary", serverId: "demo-server-local" },
-  { id: "demo-agent-reviewer", name: "Reviewer", role: "reviewer", serverId: "demo-server-local" },
+  { id: "demo-agent-builder", name: "Builder", parentAgentId: null, role: "primary", serverId: "demo-server-local" },
+  {
+    id: "demo-agent-reviewer",
+    name: "Reviewer",
+    parentAgentId: null,
+    role: "reviewer",
+    serverId: "demo-server-local",
+  },
 ]
 
 export function demoSessionTargetSelectorStateCreate(

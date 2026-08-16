@@ -7,6 +7,7 @@ export const agentListResponseSchema = v.strictObject({
     v.strictObject({
       id: agentFieldSchema,
       name: agentFieldSchema,
+      parentAgentId: v.nullable(agentFieldSchema),
       role: agentFieldSchema,
       serverId: agentFieldSchema,
     }),
