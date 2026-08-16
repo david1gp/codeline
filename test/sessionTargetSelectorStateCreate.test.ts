@@ -366,10 +366,7 @@ test("a stale automatic result cannot select a session after the target changes"
           gates.push(gate)
           await gate.promise
           const body = JSON.parse(String(init.body)) as { primaryAgentId: string }
-          return response(
-            { created: true, session: { id: `created-${body.primaryAgentId}` } },
-            { status: 201 },
-          )
+          return response({ created: true, session: { id: `created-${body.primaryAgentId}` } }, { status: 201 })
         }
         return fetchDefaultCreate([])(input, init)
       },

@@ -1,5 +1,5 @@
 import type { Accessor } from "solid-js"
-import { createEffect, onCleanup } from "solid-js/dist/solid.js"
+import { batch, createEffect, onCleanup } from "solid-js/dist/solid.js"
 import * as v from "valibot"
 import { type AgentDetailResponse, agentDetailResponseSchema } from "../agents/api/agentDetailResponseSchema.js"
 import { agentListResponseSchema } from "../agents/api/agentListResponseSchema.js"
@@ -165,12 +165,18 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
     sessionCreateErrorMessage.set(undefined)
   }
   const selectedServerIdSet = (serverId: string | null) => {
-    if (selectedServerId.get() !== serverId) sessionCreateTargetInvalidate()
-    selectedServerId.set(serverId)
+    const changed = selectedServerId.get() !== serverId
+    batch(() => {
+      selectedServerId.set(serverId)
+      if (changed) sessionCreateTargetInvalidate()
+    })
   }
   const selectedAgentIdSet = (agentId: string | null) => {
-    if (selectedAgentId.get() !== agentId) sessionCreateTargetInvalidate()
-    selectedAgentId.set(agentId)
+    const changed = selectedAgentId.get() !== agentId
+    batch(() => {
+      selectedAgentId.set(agentId)
+      if (changed) sessionCreateTargetInvalidate()
+    })
   }
   onCleanup(() => {
     isDisposed = true
