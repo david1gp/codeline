@@ -110,11 +110,13 @@ export function workspacePageStateCreate(options: WorkspacePageStateOptions = {}
       })
     },
     sessionDrawerOpen: (element?: HTMLElement) => {
-      if (mediaQuery.matches || isSessionDrawerOpen.get()) return
+      if (mediaQuery.matches) return false
+      if (isSessionDrawerOpen.get()) return true
       trigger = element
       previousBodyOverflow = documentState.body.style.overflow
       documentState.body.style.overflow = "hidden"
       isSessionDrawerOpen.set(true)
+      return true
     },
     sessionSelectHandle: sessionDrawerClose,
   }

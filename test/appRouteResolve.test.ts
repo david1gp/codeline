@@ -3,6 +3,9 @@ import { appRouteResolve } from "../src/ui/appRouteResolve.js"
 
 test("app routes the project files surface without changing workspace fallbacks", () => {
   expect(appRouteResolve("/files")).toBe("files")
+  expect(appRouteResolve("/sessions")).toBe("workspace")
+  expect(appRouteResolve("/sessions/recent")).toBe("workspace")
+  expect(appRouteResolve("/sessions/search")).toBe("workspace")
   expect(appRouteResolve("/settings")).toBe("settings")
   expect(appRouteResolve("/notes")).toBe("notes")
   expect(appRouteResolve("/notes/new")).toBe("notes-new")
@@ -12,13 +15,13 @@ test("app routes the project files surface without changing workspace fallbacks"
   expect(appRouteResolve("/unknown")).toBe("workspace")
 })
 
-test("primary navigation exposes workspace, explorer, notes, and settings", async () => {
-  const source = await Bun.file(new URL("../src/ui/App.tsx", import.meta.url)).text()
+test("primary navigation exposes sessions, explorer, notes, and settings", async () => {
+  const source = await Bun.file(new URL("../src/ui/primaryNavigationStateCreate.ts", import.meta.url)).text()
 
-  expect(source).toContain("Workspace")
+  expect(source).toContain("Sessions")
   expect(source).toContain("Explorer")
   expect(source).toContain("Notes")
-  expect(source).toContain('href="/settings"')
+  expect(source).toContain('href: () => "/settings"')
   expect(source).toContain("mdiCogOutline")
   expect(source).toContain("Settings")
 })
@@ -31,6 +34,19 @@ test("settings is registered with the settings route page", async () => {
   expect(routerSource).toContain('<Route path="/settings" component={SettingsRoutePage} />')
   expect(settingsSource).toContain('<h1 id="settings-title"')
   expect(settingsSource).toContain("Settings")
+})
+
+test("the workspace is registered on the session sidebar routes instead of root", async () => {
+  const routerSource = await Bun.file(new URL("../src/ui/UiRouter.tsx", import.meta.url)).text()
+
+  expect(routerSource).toContain('path={["/sessions", "/sessions/:sidebarTab"]}')
+  expect(routerSource).not.toContain('<Route path="/" component={WorkspaceRoutePage} />')
+})
+
+test("primary navigation reuses the shell-owned mobile session drawer", async () => {
+  const navigationSource = await Bun.file(new URL("../src/ui/primaryNavigationStateCreate.ts", import.meta.url)).text()
+
+  expect(navigationSource).toContain("useContext(sessionDrawerContext)")
 })
 
 test("PWA installation is Settings-only while update reload remains in the shell", async () => {

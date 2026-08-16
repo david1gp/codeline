@@ -13,6 +13,12 @@ test("known application, demo, and simulation paths resolve to the UI shell", as
     "/login",
     "/notes/note-1",
     "/notes/note-1/?session=selected",
+    "/sessions",
+    "/sessions/recent/",
+    "/sessions/watched?session=selected",
+    "/sessions/projects",
+    "/sessions/search?search=term",
+    "/settings",
     "/demo",
     "/demo/screens/conversation/",
     "/demo/screens/written-files",
@@ -45,6 +51,10 @@ test("known-route resolution rejects unknown paths and malformed parameter paths
   expect(appKnownRouteResolve("/simulate/unknown")).toBe(false)
   expect(appKnownRouteResolve("/notes/")).toBe(true)
   expect(appKnownRouteResolve("/notes/one/two")).toBe(false)
+  expect(appKnownRouteResolve("/sessions")).toBe(true)
+  expect(appKnownRouteResolve("/sessions/search/")).toBe(true)
+  expect(appKnownRouteResolve("/sessions/unknown")).toBe(false)
+  expect(appKnownRouteResolve("/sessions/recent/extra")).toBe(false)
   expect(appKnownRouteResolve("/login")).toBe(true)
   expect(appKnownRouteResolve("/login/extra")).toBe(false)
   expect(appKnownRouteResolve("/api/health")).toBe(false)

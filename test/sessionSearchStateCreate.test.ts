@@ -37,7 +37,7 @@ function navigationCreate(initialUrl: string) {
 }
 
 test("search state reads and replaces the URL query and parses results", async () => {
-  const navigation = navigationCreate("https://codeline.test/workspace?search=title")
+  const navigation = navigationCreate("https://codeline.test/sessions/search?session=selected&search=title")
   const calls: string[] = []
   const dispose = createRoot((rootDispose) => {
     const state = sessionSearchStateCreate(navigation, {
@@ -60,14 +60,14 @@ test("search state reads and replaces the URL query and parses results", async (
 
   dispose.state.updateQuery("  metadata value  ")
   expect(dispose.state.query()).toBe("metadata value")
-  expect(navigation.href).toBe("https://codeline.test/workspace?search=metadata+value")
+  expect(navigation.href).toBe("https://codeline.test/sessions/search?session=selected&search=metadata+value")
   expect(navigation.replacedUrls).toHaveLength(1)
   dispose.state.updateQuery("")
-  expect(navigation.href).toBe("https://codeline.test/workspace")
+  expect(navigation.href).toBe("https://codeline.test/sessions/search?session=selected")
   expect(dispose.state.sessions()).toEqual([])
   expect(dispose.state.isActive()).toBe(false)
   expect(dispose.state.isLoading()).toBe(false)
-  navigation.navigateExternally("https://codeline.test/workspace?search=title")
+  navigation.navigateExternally("https://codeline.test/sessions/search?session=selected&search=title")
   await new Promise((resolve) => setTimeout(resolve, 0))
   expect(dispose.state.query()).toBe("title")
   expect(dispose.state.isComplete()).toBe(true)
@@ -75,7 +75,7 @@ test("search state reads and replaces the URL query and parses results", async (
 })
 
 test("search state exposes request failures and retries", async () => {
-  const navigation = navigationCreate("https://codeline.test/workspace")
+  const navigation = navigationCreate("https://codeline.test/sessions/search")
   let attempt = 0
   const dispose = createRoot((rootDispose) => {
     const state = sessionSearchStateCreate(navigation, {

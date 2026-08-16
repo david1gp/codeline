@@ -1,7 +1,7 @@
 import { WorkspacePage } from "./WorkspacePage.js"
-import { workspaceScreenStateCreate } from "./workspaceScreenStateCreate.js"
+import { workspaceRoutePageStateCreate } from "./workspaceRoutePageStateCreate.js"
 
 export function WorkspaceRoutePage() {
-  const state = workspaceScreenStateCreate()
+  const state = workspaceRoutePageStateCreate()
   return <WorkspacePage state={state} />
 }

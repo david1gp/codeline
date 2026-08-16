@@ -36,14 +36,14 @@ function navigationCreate(initialUrl: string) {
 }
 
 test("session navigation parses, pushes, clears, and reloads from the session URL", () => {
-  const navigation = navigationCreate("https://codeline.test/workspace?mode=active&session=first#chat")
+  const navigation = navigationCreate("https://codeline.test/sessions/recent?mode=active&session=first#chat")
   const dispose = createRoot((rootDispose) => {
     const state = sessionNavigationStateCreate(navigation)
 
     expect(state.selectedSessionId()).toBe("first")
     state.selectSession("second")
     expect(state.selectedSessionId()).toBe("second")
-    expect(navigation.href).toBe("https://codeline.test/workspace?mode=active&session=second#chat")
+    expect(navigation.href).toBe("https://codeline.test/sessions/recent?mode=active&session=second#chat")
     expect(navigation.pushedUrls).toHaveLength(1)
 
     return rootDispose
@@ -58,7 +58,7 @@ test("session navigation parses, pushes, clears, and reloads from the session UR
 
     reloaded.clearSession()
     expect(reloaded.selectedSessionId()).toBeNull()
-    expect(navigation.href).toBe("https://codeline.test/workspace?mode=active#chat")
+    expect(navigation.href).toBe("https://codeline.test/sessions/recent?mode=active#chat")
 
     return rootDispose
   })
@@ -67,16 +67,16 @@ test("session navigation parses, pushes, clears, and reloads from the session UR
 })
 
 test("session navigation follows browser back and forward popstate changes", () => {
-  const navigation = navigationCreate("https://codeline.test/workspace?session=first")
+  const navigation = navigationCreate("https://codeline.test/sessions/watched?session=first")
   const dispose = createRoot((rootDispose) => {
     const state = sessionNavigationStateCreate(navigation)
     expect(navigation.listenerCount()).toBe(1)
 
-    navigation.history.pushState(null, "", "https://codeline.test/workspace?session=second")
+    navigation.history.pushState(null, "", "https://codeline.test/sessions/projects?session=second")
     navigation.emitPopstate()
     expect(state.selectedSessionId()).toBe("second")
 
-    navigation.history.pushState(null, "", "https://codeline.test/workspace")
+    navigation.history.pushState(null, "", "https://codeline.test/sessions/search")
     navigation.emitPopstate()
     expect(state.selectedSessionId()).toBeNull()
 

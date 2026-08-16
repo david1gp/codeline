@@ -12,9 +12,17 @@ export function authReturnPathResolve(
   const fallback = "/"
   if (input === null || input === undefined || input === "") return fallback
   if (!input.startsWith("/") || input.startsWith("//")) return fallback
-  if (input.includes("\\") || input.includes("?") || input.includes("#")) return fallback
+  if (input.includes("\\")) return fallback
   if (/%(?:2e|2f|5c)/i.test(input)) return fallback
-  if (input === "/login" || input.startsWith("/login/")) return fallback
-  if (!pathIsKnown(input)) return fallback
-  return input
+
+  let target: URL
+  try {
+    target = new URL(input, "https://codeline.local")
+  } catch (_error: unknown) {
+    return fallback
+  }
+
+  if (target.pathname === "/login" || target.pathname.startsWith("/login/")) return fallback
+  if (!pathIsKnown(target.pathname)) return fallback
+  return `${target.pathname}${target.search}${target.hash}`
 }

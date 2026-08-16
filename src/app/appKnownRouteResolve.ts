@@ -1,14 +1,20 @@
 import { simulationScenarioSessionMetadata } from "../simulation/simulationScenarioSessionMetadata.js"
 import { demoCatalogRouteResolve } from "../ui/demo/demoCatalogRouteResolve.js"
 import { demoScenarioRegistry } from "../ui/demo/demoScenarioRegistry.js"
+import { sessionSidebarTabSchema } from "../ui/sessionSidebarTab.js"
+import * as v from "valibot"
 
-const applicationRoutePaths = ["/", "/files", "/login", "/notes", "/notes/new"] as const
+const applicationRoutePaths = ["/", "/files", "/login", "/notes", "/notes/new", "/sessions", "/settings"] as const
 const demoSectionPaths = ["/demo/components", "/demo/screens"] as const
 
 export function appKnownRouteResolve(pathname: string): boolean {
   const normalizedPathname = pathname.endsWith("/") && pathname !== "/" ? pathname.slice(0, -1) : pathname
 
   if (applicationRoutePaths.includes(normalizedPathname as (typeof applicationRoutePaths)[number])) return true
+
+  if (normalizedPathname.startsWith("/sessions/")) {
+    return v.safeParse(sessionSidebarTabSchema, normalizedPathname.slice("/sessions/".length)).success
+  }
 
   if (normalizedPathname.startsWith("/notes/")) {
     const noteId = normalizedPathname.slice("/notes/".length)

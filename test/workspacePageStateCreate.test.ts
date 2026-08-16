@@ -46,9 +46,10 @@ test("workspace session drawer shares close behavior and restores trigger focus 
   let secondTriggerFocusCount = 0
   const dispose = createRoot((rootDispose) => {
     const state = workspacePageStateCreate(dependencies.options)
-    state.sessionDrawerOpen({ focus: () => firstTriggerFocusCount++ } as unknown as HTMLElement)
+    expect(state.sessionDrawerOpen({ focus: () => firstTriggerFocusCount++ } as unknown as HTMLElement)).toBe(true)
     expect(state.isSessionDrawerOpen()).toBe(true)
     expect(dependencies.documentState.body.style.overflow).toBe("hidden")
+    expect(state.sessionDrawerOpen()).toBe(true)
 
     state.sessionSelectHandle()
     expect(state.isSessionDrawerOpen()).toBe(false)
@@ -66,6 +67,19 @@ test("workspace session drawer shares close behavior and restores trigger focus 
   expect(dependencies.keyEvents.listenerCount()).toBe(0)
   expect(dependencies.mediaQuery.listenerCount()).toBe(0)
   expect(dependencies.viewportEvents.listenerCount()).toBe(0)
+})
+
+test("workspace session drawer leaves desktop navigation unhandled", () => {
+  const dependencies = stateDependenciesCreate()
+  dependencies.mediaQuery.matches = true
+  createRoot((dispose) => {
+    const state = workspacePageStateCreate(dependencies.options)
+
+    expect(state.sessionDrawerOpen()).toBe(false)
+    expect(state.isSessionDrawerOpen()).toBe(false)
+    expect(dependencies.documentState.body.style.overflow).toBe("auto")
+    dispose()
+  })
 })
 
 test("workspace session drawer focuses only a current open drawer control", () => {
@@ -133,6 +147,42 @@ test("workspace session drawer traps forward and reverse Tab focus", () => {
     preventDefault: () => preventCount++,
   } as unknown as KeyboardEvent)
   dependencies.documentState.activeElement = first
+  dependencies.keyEvents.dispatch("keydown", {
+    key: "Tab",
+    shiftKey: true,
+    preventDefault: () => preventCount++,
+  } as unknown as KeyboardEvent)
+
+  expect(firstFocusCount).toBe(1)
+  expect(lastFocusCount).toBe(1)
+  expect(preventCount).toBe(2)
+  root.dispose()
+})
+
+test("workspace session drawer wraps Tab when focus starts outside the drawer", () => {
+  const dependencies = stateDependenciesCreate()
+  let firstFocusCount = 0
+  let lastFocusCount = 0
+  const first = { focus: () => firstFocusCount++, tabIndex: 0 } as unknown as HTMLElement
+  const last = { focus: () => lastFocusCount++, tabIndex: 0 } as unknown as HTMLElement
+  const drawer = {
+    contains: (element: Element | null) => [first, last].includes(element as HTMLElement),
+    focus: () => undefined,
+    querySelectorAll: () => [first, last],
+  } as unknown as HTMLElement
+  const outside = {} as Element
+  const root = createRoot((dispose) => ({ dispose, state: workspacePageStateCreate(dependencies.options) }))
+  root.state.sessionDrawerOpen()
+  root.state.sessionDrawerElement(drawer)
+
+  let preventCount = 0
+  dependencies.documentState.activeElement = outside
+  dependencies.keyEvents.dispatch("keydown", {
+    key: "Tab",
+    shiftKey: false,
+    preventDefault: () => preventCount++,
+  } as unknown as KeyboardEvent)
+  dependencies.documentState.activeElement = outside
   dependencies.keyEvents.dispatch("keydown", {
     key: "Tab",
     shiftKey: true,

@@ -1,7 +1,7 @@
-import { mdiCogOutline, mdiDockRight, mdiFolderOutline, mdiNoteTextOutline, mdiViewDashboardOutline } from "@mdi/js"
+import { mdiDockRight } from "@mdi/js"
 import { A } from "@solidjs/router"
 import type { JSX } from "solid-js"
-import { Show } from "solid-js"
+import { For, Show } from "solid-js"
 import { ButtonIconOnly } from "#ui/interactive/button/ButtonIconOnly.jsx"
 import { buttonVariant } from "#ui/interactive/button/buttonCva.js"
 import { Icon } from "#ui/static/icon/Icon.jsx"
@@ -14,6 +14,8 @@ import type { AppShellView } from "./appShellView.js"
 import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator.js"
 import { PwaStatusActions } from "./pwa/PwaStatusActions.js"
 import { pwaStatusContext } from "./pwa/pwaStatusContext.js"
+import { primaryNavigationStateCreate } from "./primaryNavigationStateCreate.js"
+import { sessionDrawerContext } from "./sessionDrawerContext.js"
 
 export function App(props: {
   applicationShell?: ReturnType<typeof applicationShellStateCreate>
@@ -21,11 +23,16 @@ export function App(props: {
   children: JSX.Element
   state: AppShellView
 }) {
+  const navigation = primaryNavigationStateCreate()
+
   return (
     <applicationShellContext.Provider value={props.applicationShell}>
       <pwaStatusContext.Provider value={props.state.pwa}>
         <div class="grid h-screen min-h-screen grid-rows-[52px_minmax(0,1fr)] max-[760px]:h-auto max-[760px]:grid-rows-[auto_minmax(0,1fr)]">
-          <header class="z-10 grid grid-cols-[220px_1fr_auto] items-center gap-4 border-[var(--border)] border-b bg-[var(--header-background)] px-4 backdrop-blur-[18px] max-[760px]:min-h-[52px] max-[760px]:grid-cols-[1fr_auto] max-[760px]:gap-2 max-[760px]:px-2 max-[760px]:py-2">
+          <header
+            class="z-10 grid grid-cols-[220px_1fr_auto] items-center gap-4 border-[var(--border)] border-b bg-[var(--header-background)] px-4 backdrop-blur-[18px] max-[760px]:min-h-[52px] max-[760px]:grid-cols-[1fr_auto] max-[760px]:gap-2 max-[760px]:px-2 max-[760px]:py-2"
+            inert={navigation.sessionDrawer.isSessionDrawerOpen()}
+          >
             <A
               class="inline-flex w-fit items-center gap-2 font-semibold tracking-[-0.02em] no-underline"
               href="/"
@@ -44,47 +51,25 @@ export function App(props: {
               class="flex h-full min-w-0 items-stretch gap-1 overflow-x-auto max-[760px]:col-span-full max-[760px]:row-start-2 max-[760px]:h-9"
               aria-label="Primary navigation"
             >
-              <A
-                class="flex items-center gap-2 border-b-2 px-[11px] text-[13px] no-underline hover:bg-[var(--surface-hover)]"
-                activeClass="border-[var(--accent)] text-[var(--foreground)]"
-                inactiveClass="border-transparent text-[var(--muted-foreground)]"
-                end
-                href="/"
-                title="Workspace"
-              >
-                <Icon path={mdiViewDashboardOutline} class="size-4 fill-current dark:fill-current" />
-                <span class="max-[480px]:sr-only">Workspace</span>
-              </A>
-              <A
-                class="flex items-center gap-2 border-b-2 px-[11px] text-[13px] no-underline transition-colors duration-150 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
-                activeClass="border-[var(--accent)] text-[var(--foreground)]"
-                inactiveClass="border-transparent text-[var(--muted-foreground)]"
-                href="/files"
-                title="Explorer"
-              >
-                <Icon path={mdiFolderOutline} class="size-4 fill-current dark:fill-current" />
-                <span class="max-[480px]:sr-only">Explorer</span>
-              </A>
-              <A
-                class="flex items-center gap-2 border-b-2 px-[11px] text-[13px] no-underline transition-colors duration-150 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
-                activeClass="border-[var(--accent)] text-[var(--foreground)]"
-                inactiveClass="border-transparent text-[var(--muted-foreground)]"
-                href="/notes"
-                title="Notes"
-              >
-                <Icon path={mdiNoteTextOutline} class="size-4 fill-current dark:fill-current" />
-                <span class="max-[480px]:sr-only">Notes</span>
-              </A>
-              <A
-                class="flex items-center gap-2 border-b-2 px-[11px] text-[13px] no-underline transition-colors duration-150 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
-                activeClass="border-[var(--accent)] text-[var(--foreground)]"
-                inactiveClass="border-transparent text-[var(--muted-foreground)]"
-                href="/settings"
-                title="Settings"
-              >
-                <Icon path={mdiCogOutline} class="size-4 fill-current dark:fill-current" />
-                <span class="max-[480px]:sr-only">Settings</span>
-              </A>
+              <For each={navigation.items}>
+                {(item) => (
+                  <A
+                    aria-controls={item.controls}
+                    aria-expanded={item.expanded?.()}
+                    class="flex items-center gap-2 border-b-2 px-[11px] text-[13px] no-underline transition-colors duration-150 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+                    classList={{
+                      "border-[var(--accent)] text-[var(--foreground)]": item.isActive(),
+                      "border-transparent text-[var(--muted-foreground)]": !item.isActive(),
+                    }}
+                    href={item.href()}
+                    onClick={item.activate}
+                    title={item.label}
+                  >
+                    <Icon path={item.icon} class="size-4 fill-current dark:fill-current" />
+                    <span class="max-[480px]:sr-only">{item.label}</span>
+                  </A>
+                )}
+              </For>
             </nav>
 
             <div class="flex items-center gap-1 max-[760px]:col-start-2 max-[760px]:row-start-1">
@@ -108,7 +93,11 @@ export function App(props: {
             </div>
           </header>
 
-          <appShellContext.Provider value={props.state}>{props.children}</appShellContext.Provider>
+          <appShellContext.Provider value={props.state}>
+            <sessionDrawerContext.Provider value={navigation.sessionDrawer}>
+              {props.children}
+            </sessionDrawerContext.Provider>
+          </appShellContext.Provider>
         </div>
       </pwaStatusContext.Provider>
     </applicationShellContext.Provider>

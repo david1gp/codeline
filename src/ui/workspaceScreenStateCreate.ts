@@ -5,8 +5,10 @@ import { applicationShellStateCreate } from "./applicationShellStateCreate.js"
 import { appShellContext } from "./appShellContext.js"
 import { filesScreenViewCreate } from "./filesScreenViewCreate.js"
 import { selectedSessionStateCreate } from "./selectedSessionStateCreate.js"
+import { sessionDrawerContext } from "./sessionDrawerContext.js"
 import { sessionListStateCreate } from "./sessionListStateCreate.js"
 import { type SessionNavigationState, sessionNavigationStateCreate } from "./sessionNavigationStateCreate.js"
+import type { SessionSidebarRouteState } from "./sessionSidebarRouteStateCreate.js"
 import { sessionTargetSelectorStateCreate } from "./sessionTargetSelectorStateCreate.js"
 import { workspacePageStateCreate } from "./workspacePageStateCreate.js"
 import type { WorkspaceScreenView } from "./workspaceScreenView.js"
@@ -14,9 +16,11 @@ import { activeProjectStateCreate } from "./activeProjectStateCreate.js"
 
 export function workspaceScreenStateCreate(
   navigation: SessionNavigationState = sessionNavigationStateCreate(),
+  sidebarRoute?: SessionSidebarRouteState,
 ): WorkspaceScreenView {
   const shell = useContext(applicationShellContext) ?? applicationShellStateCreate()
   const activeProject = useContext(appShellContext)?.activeProject ?? activeProjectStateCreate()
+  const drawer = useContext(sessionDrawerContext) ?? workspacePageStateCreate()
   const sessionTargetSelector = sessionTargetSelectorStateCreate({
     activeProjectPath: () => activeProject.project().path,
     selectedSessionId: navigation.selectedSessionId,
@@ -28,10 +32,11 @@ export function workspaceScreenStateCreate(
   })
   shell.rightPanelEnable()
   onCleanup(shell.rightPanelDisable)
+  onCleanup(drawer.sessionDrawerClose)
 
   return {
     activeProject,
-    drawer: workspacePageStateCreate(),
+    drawer,
     files: filesScreenViewCreate(),
     shell,
     providerModelSelector,
@@ -42,7 +47,7 @@ export function workspaceScreenStateCreate(
       sessionCreateStart: sessionTargetSelector.sessionCreateStart,
       sessionTargetAvailable: sessionTargetSelector.canCreateSession,
     }),
-    sessionList: sessionListStateCreate(() => navigation),
+    sessionList: sessionListStateCreate(() => navigation, sidebarRoute),
     sessionTargetSelector,
   }
 }

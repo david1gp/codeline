@@ -4,12 +4,12 @@ test("the workspace shows setup until a conversation is selected", async () => {
   const workspacePage = await Bun.file(new URL("../src/ui/WorkspacePage.tsx", import.meta.url)).text()
   const normalized = workspacePage.replace(/\s+/g, " ")
 
-  expect(normalized.match(/when=\{props\.state\.selectedSession\.hasSelection\(\)\}/g)).toHaveLength(2)
+  expect(normalized.match(/when=\{props\.state\.selectedSession\.hasSelection\(\)\}/g)).toHaveLength(1)
   expect(normalized).toContain(
     "fallback={<WorkspaceSetupPanel configuration={props.state.sessionTargetSelector.configurationReadiness()} />}",
   )
   expect(normalized).toContain(
-    "<SelectedSession providerModel={props.state.providerModelSelector} state={props.state.selectedSession} />",
+    "<SelectedSession providerModel={props.state.providerModelSelector} sessionTarget={props.state.sessionTargetSelector} state={props.state.selectedSession} />",
   )
 })
 

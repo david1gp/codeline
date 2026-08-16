@@ -3,7 +3,6 @@ import { ApplicationShell } from "./ApplicationShell.js"
 import { FilesPanel } from "./FilesPanel.js"
 import { SelectedSession } from "./SelectedSession.js"
 import { SessionSidebar } from "./SessionSidebar.js"
-import { SessionTargetSelector } from "./SessionTargetSelector.js"
 import { WorkspaceSetupPanel } from "./WorkspaceSetupPanel.js"
 import type { WorkspaceScreenView } from "./workspaceScreenView.js"
 
@@ -30,12 +29,12 @@ export function WorkspacePage(props: { state: WorkspaceScreenView }) {
           onClick={state.sessionDrawerClose}
         />
         <aside
-          class="fixed inset-y-0 left-0 z-40 flex w-[min(86vw,340px)] flex-col overflow-hidden border-[var(--border)] border-r bg-muted shadow-[18px_0_50px_var(--shadow-color-strong)] min-[761px]:hidden"
+          class="fixed inset-y-0 left-0 z-40 flex w-full flex-col overflow-hidden border-[var(--border)] border-r bg-muted shadow-[18px_0_50px_var(--shadow-color-strong)] min-[761px]:hidden"
           id="mobile-session-drawer"
           role="dialog"
           aria-modal="true"
           aria-labelledby="mobile-session-drawer-heading"
-          tabindex="-1"
+          tabIndex={-1}
           ref={state.sessionDrawerElement}
         >
           <SessionSidebar
@@ -53,6 +52,7 @@ export function WorkspacePage(props: { state: WorkspaceScreenView }) {
       <section
         class="relative flex h-full min-w-0 min-h-0 flex-col overflow-hidden max-[760px]:min-h-[calc(100dvh-110px)]"
         aria-label="Conversation workspace"
+        inert={state.isSessionDrawerOpen()}
       >
         <div class="flex min-h-[56px] shrink-0 items-center gap-3 border-line-subtle border-b px-4 py-2 max-[760px]:items-stretch max-[760px]:gap-2 max-[760px]:overflow-x-auto">
           <button
@@ -64,17 +64,17 @@ export function WorkspacePage(props: { state: WorkspaceScreenView }) {
           >
             Sessions
           </button>
-
-          <Show when={props.state.selectedSession.hasSelection()}>
-            <SessionTargetSelector state={props.state.sessionTargetSelector} />
-          </Show>
         </div>
 
         <Show
           when={props.state.selectedSession.hasSelection()}
           fallback={<WorkspaceSetupPanel configuration={props.state.sessionTargetSelector.configurationReadiness()} />}
         >
-          <SelectedSession providerModel={props.state.providerModelSelector} state={props.state.selectedSession} />
+          <SelectedSession
+            providerModel={props.state.providerModelSelector}
+            sessionTarget={props.state.sessionTargetSelector}
+            state={props.state.selectedSession}
+          />
         </Show>
       </section>
     </ApplicationShell>

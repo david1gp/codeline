@@ -3,6 +3,7 @@ import { createResult } from "@adaptive-ds/result"
 import * as oauth from "oauth4webapi"
 import { appCreate } from "../src/app/appCreate.js"
 import { oidcProviderDiscoveryCreate } from "../src/identity/oidc/oidcProviderDiscoveryCreate.js"
+import { oidcLoginReturnToResolve } from "../src/identity/oidc/oidcLoginReturnToResolve.js"
 
 const configuration = {
   authMode: "oidc" as const,
@@ -24,6 +25,23 @@ const metadata = {
   response_types_supported: ["code"],
   token_endpoint: "https://issuer.codeline.test/token",
 }
+
+test("OIDC return paths preserve query and hash after validating the route pathname", () => {
+  const pathIsKnown = (pathname: string) => pathname === "/sessions/search"
+  const result = oidcLoginReturnToResolve(
+    "/sessions/search?search=term&session=selected#chat",
+    configuration.publicOrigin,
+    pathIsKnown,
+  )
+
+  expect(result).toEqual({
+    data: "/sessions/search?search=term&session=selected#chat",
+    success: true,
+  })
+  expect(
+    oidcLoginReturnToResolve("/sessions/unknown?search=term", configuration.publicOrigin, pathIsKnown).success,
+  ).toBe(false)
+})
 
 test("OIDC login discovers once, stores a bound ten-minute transaction, and redirects with S256", async () => {
   let discoveryRequests = 0
