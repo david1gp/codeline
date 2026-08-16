@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { createRoot } from "solid-js/dist/solid.js"
+import { createRoot, createSignal } from "solid-js/dist/solid.js"
 import { sessionTargetSelectorStateCreate } from "../src/ui/sessionTargetSelectorStateCreate.js"
 
 const response = (body: unknown, init?: ResponseInit) => new Response(JSON.stringify(body), init)
@@ -295,6 +295,109 @@ test("creating a session posts the selected target once and navigates", async ()
   expect(selected).toEqual(["created-session"])
   expect(navigation).toEqual(["new", "select"])
   expect(state?.sessionCreateStatus()).toBe("idle")
+  dispose()
+})
+
+test("the new-session route automatically creates and selects a blank session", async () => {
+  const requests: string[] = []
+  const [selectedSessionId, setSelectedSessionId] = createSignal<string | null>(null)
+  let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
+  const dispose = createRoot((rootDispose) => {
+    state = sessionTargetSelectorStateCreate({
+      fetch: fetchDefaultCreate(requests),
+      isNewSessionRoute: () => true,
+      selectedSessionId,
+      sessionSelect: setSelectedSessionId,
+    })
+    return rootDispose
+  })
+  await effectsSettle()
+
+  expect(requests.filter((request) => request === "POST /api/sessions")).toHaveLength(1)
+  expect(selectedSessionId()).toBe("created-session")
+  expect(state?.sessionCreateStatus()).toBe("idle")
+  dispose()
+})
+
+test("automatic creation and first-message fallback share one in-flight request", async () => {
+  const requests: string[] = []
+  const gate = deferredCreate<void>()
+  const [selectedSessionId, setSelectedSessionId] = createSignal<string | null>(null)
+  let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
+  const dispose = createRoot((rootDispose) => {
+    state = sessionTargetSelectorStateCreate({
+      fetch: async (input, init) => {
+        requests.push(`${init?.method ?? "GET"} ${String(input)}`)
+        if (String(input) === "/api/sessions" && init?.method === "POST") {
+          await gate.promise
+          return response({ created: true, session: { id: "created-session" } }, { status: 201 })
+        }
+        return fetchDefaultCreate([])(input, init)
+      },
+      isNewSessionRoute: () => true,
+      selectedSessionId,
+      sessionSelect: setSelectedSessionId,
+    })
+    return rootDispose
+  })
+  await effectsSettle()
+
+  const fallback = state?.sessionCreateStart()
+  expect(requests.filter((request) => request === "POST /api/sessions")).toHaveLength(1)
+  gate.resolve()
+  await fallback
+  await effectsSettle()
+
+  expect(selectedSessionId()).toBe("created-session")
+  expect(requests.filter((request) => request === "POST /api/sessions")).toHaveLength(1)
+  dispose()
+})
+
+test("a stale automatic result cannot select a session after the target changes", async () => {
+  const gates: Array<ReturnType<typeof deferredCreate<void>>> = []
+  const selected: string[] = []
+  const [selectedSessionId, setSelectedSessionId] = createSignal<string | null>(null)
+  let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
+  const dispose = createRoot((rootDispose) => {
+    state = sessionTargetSelectorStateCreate({
+      fetch: async (input, init) => {
+        if (String(input) === "/api/sessions" && init?.method === "POST") {
+          const gate = deferredCreate<void>()
+          gates.push(gate)
+          await gate.promise
+          const body = JSON.parse(String(init.body)) as { primaryAgentId: string }
+          return response(
+            { created: true, session: { id: `created-${body.primaryAgentId}` } },
+            { status: 201 },
+          )
+        }
+        return fetchDefaultCreate([])(input, init)
+      },
+      isNewSessionRoute: () => true,
+      selectedSessionId,
+      sessionSelect: (sessionId) => {
+        selected.push(sessionId)
+        setSelectedSessionId(sessionId)
+      },
+    })
+    return rootDispose
+  })
+  await effectsSettle()
+  expect(gates).toHaveLength(1)
+
+  state?.agentSelect("example-agent-local-review")
+  await effectsSettle()
+  expect(gates).toHaveLength(2)
+
+  gates[0]?.resolve()
+  await effectsSettle()
+  expect(selected).toEqual([])
+  expect(selectedSessionId()).toBeNull()
+
+  gates[1]?.resolve()
+  await effectsSettle()
+  expect(selected).toEqual(["created-example-agent-local-review"])
+  expect(selectedSessionId()).toBe("created-example-agent-local-review")
   dispose()
 })
 

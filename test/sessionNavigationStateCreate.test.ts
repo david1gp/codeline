@@ -112,10 +112,12 @@ test("session navigation enters the canonical new route before selecting the cre
 
     state.startNewSession()
     expect(state.selectedSessionId()).toBeNull()
+    expect(state.isNewSessionRoute()).toBe(true)
     expect(navigation.href).toBe("https://codeline.test/sessions/new?tab=watched#chat")
 
     state.selectSession("created")
     expect(state.selectedSessionId()).toBe("created")
+    expect(state.isNewSessionRoute()).toBe(false)
     expect(navigation.href).toBe("https://codeline.test/sessions/created?tab=watched#chat")
 
     return rootDispose

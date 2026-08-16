@@ -590,58 +590,106 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
     }
   }
 
-  const sessionCreateStart = async () => {
+  const sessionCreateStart = (): Promise<string | null> => {
     const target = pendingTarget()
     const projectPath = activeProjectPath()
-    if (target === null || sessionCreateStatus.get() === "creating" || isDisposed) return null
+    if (target === null || isDisposed) return Promise.resolve(null)
     if (projectPath === null) {
       sessionCreateErrorMessage.set("Select a project before creating a conversation.")
       sessionCreateStatus.set("error")
-      return null
+      return Promise.resolve(null)
     }
 
+    const key = sessionCreateKeyResolve(target, projectPath)
+    const generation = sessionCreateGeneration
+    const existing = sessionCreateInFlight
+    if (existing?.key === key && existing.generation === generation) return existing.promise
+
     const clientRequestId = pendingCreateRequestIdResolve(target, projectPath)
+    const requiresNewSessionRoute =
+      options.isNewSessionRoute !== undefined && (options.isNewSessionRoute() || options.sessionNew !== undefined)
     sessionCreateStatus.set("creating")
     options.sessionNew?.()
-    try {
-      const response = await fetchImplementation("/api/sessions", {
-        body: JSON.stringify({
-          clientRequestId,
-          primaryAgentId: target.agentId,
-          projectPath,
-          serverId: target.serverId,
-          title: "New session",
-        }),
-        headers: { "content-type": "application/json" },
-        method: "POST",
-      })
-      const body: unknown = await response.json()
-      if (isDisposed) return null
-      const parsed = v.safeParse(sessionTargetCreateResponseSchema, body)
-      if (!response.ok || !parsed.success) {
-        sessionCreateErrorMessage.set(
-          apiErrorMessageResolve(
-            body,
-            "The conversation could not be created. Check the selected agent and try again.",
-          ),
-        )
-        sessionCreateStatus.set("error")
+    const sessionCreateIsCurrent = () => {
+      const currentTarget = pendingTarget()
+      return (
+        !isDisposed &&
+        sessionCreateGeneration === generation &&
+        options.selectedSessionId() === null &&
+        currentTarget?.agentId === target.agentId &&
+        currentTarget.serverId === target.serverId &&
+        activeProjectPath() === projectPath &&
+        (!requiresNewSessionRoute || options.isNewSessionRoute?.() === true)
+      )
+    }
+    const task = (async () => {
+      try {
+        const response = await fetchImplementation("/api/sessions", {
+          body: JSON.stringify({
+            clientRequestId,
+            primaryAgentId: target.agentId,
+            projectPath,
+            serverId: target.serverId,
+            title: "New session",
+          }),
+          headers: { "content-type": "application/json" },
+          method: "POST",
+        })
+        const body: unknown = await response.json()
+        if (!sessionCreateIsCurrent()) return null
+        const parsed = v.safeParse(sessionTargetCreateResponseSchema, body)
+        if (!response.ok || !parsed.success) {
+          sessionCreateErrorMessage.set(
+            apiErrorMessageResolve(
+              body,
+              "The conversation could not be created. Check the selected agent and try again.",
+            ),
+          )
+          sessionCreateStatus.set("error")
+          return null
+        }
+        pendingCreateKey = null
+        pendingCreateRequestId = null
+        sessionCreateErrorMessage.set(undefined)
+        sessionCreateStatus.set("idle")
+        options.sessionSelect(parsed.output.session.id)
+        return parsed.output.session.id
+      } catch (_error) {
+        if (sessionCreateIsCurrent()) {
+          sessionCreateErrorMessage.set("The conversation could not be created. Check the connection and try again.")
+          sessionCreateStatus.set("error")
+        }
         return null
       }
-      pendingCreateKey = null
-      pendingCreateRequestId = null
-      sessionCreateErrorMessage.set(undefined)
-      sessionCreateStatus.set("idle")
-      options.sessionSelect(parsed.output.session.id)
-      return parsed.output.session.id
-    } catch (_error) {
-      if (!isDisposed) {
-        sessionCreateErrorMessage.set("The conversation could not be created. Check the connection and try again.")
-        sessionCreateStatus.set("error")
-      }
-      return null
-    }
+    })()
+    sessionCreateInFlight = { generation, key, promise: task }
+    void task.finally(() => {
+      if (sessionCreateInFlight?.promise !== task) return
+      sessionCreateInFlight = null
+      if (!isDisposed && sessionCreateStatus.get() === "creating") sessionCreateStatus.set("idle")
+    })
+    return task
   }
+
+  createEffect(() => {
+    const isNewRoute = options.isNewSessionRoute?.() ?? false
+    if (automaticRouteIsNew !== undefined && automaticRouteIsNew !== isNewRoute) automaticCreateKey = null
+    automaticRouteIsNew = isNewRoute
+    const target = pendingTarget()
+    const projectPath = activeProjectPath()
+    if (
+      !isNewRoute ||
+      options.selectedSessionId() !== null ||
+      target === null ||
+      projectPath === null ||
+      sessionCreateStatus.get() === "error"
+    )
+      return
+    const key = sessionCreateKeyResolve(target, projectPath)
+    if (automaticCreateKey === key) return
+    automaticCreateKey = key
+    void sessionCreateStart()
+  })
 
   return {
     agents: agents.get,
