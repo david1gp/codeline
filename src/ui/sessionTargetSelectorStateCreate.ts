@@ -35,6 +35,7 @@ type SessionTargetSelectorStateOptions = {
   activeProjectPath?: Accessor<string | null>
   clientRequestIdCreate?: () => string
   fetch?: SessionTargetSelectorFetch
+  isNewSessionRoute?: Accessor<boolean>
   selectedSessionId: Accessor<string | null>
   sessionNew?: () => void
   sessionSelect: (sessionId: string) => void
@@ -148,7 +149,29 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
   // failure stays idempotent on the server until the create succeeds or the target changes.
   let pendingCreateKey: string | null = null
   let pendingCreateRequestId: string | null = null
+  let sessionCreateGeneration = 0
+  let automaticCreateKey: string | null = null
+  let automaticRouteIsNew: boolean | undefined
+  let sessionCreateInFlight: {
+    generation: number
+    key: string
+    promise: Promise<string | null>
+  } | null = null
   let isDisposed = false
+  const sessionCreateTargetInvalidate = () => {
+    sessionCreateGeneration += 1
+    automaticCreateKey = null
+    if (sessionCreateStatus.get() === "creating") sessionCreateStatus.set("idle")
+    sessionCreateErrorMessage.set(undefined)
+  }
+  const selectedServerIdSet = (serverId: string | null) => {
+    if (selectedServerId.get() !== serverId) sessionCreateTargetInvalidate()
+    selectedServerId.set(serverId)
+  }
+  const selectedAgentIdSet = (agentId: string | null) => {
+    if (selectedAgentId.get() !== agentId) sessionCreateTargetInvalidate()
+    selectedAgentId.set(agentId)
+  }
   onCleanup(() => {
     isDisposed = true
   })
@@ -171,13 +194,13 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
         configurationErrorMessage.set(null)
         servers.set(parsed.output.servers)
         if (parsed.output.servers.length === 0) {
-          selectedServerId.set(null)
+          selectedServerIdSet(null)
           serverStatus.set("empty")
           return
         }
         const current = selectedServerId.get()
         if (current === null || !parsed.output.servers.some((server) => server.id === current)) {
-          selectedServerId.set(parsed.output.servers[0]?.id ?? null)
+          selectedServerIdSet(parsed.output.servers[0]?.id ?? null)
         }
         serverStatus.set("ready")
       } catch (_error) {
@@ -197,7 +220,7 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
     agentDetail.set(null)
     agentDetailStatus.set("idle")
     if (serverId === null) {
-      selectedAgentId.set(null)
+      selectedAgentIdSet(null)
       // Without a usable server the agent list mirrors the server outcome instead of
       // claiming an independent empty state while the servers are loading or failing.
       const serverOutcome = serverStatus.get()
@@ -225,7 +248,7 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
         const primaryAgents = parsed.output.agents.filter((agent) => agent.parentAgentId === null)
         agents.set(primaryAgents)
         if (primaryAgents.length === 0) {
-          selectedAgentId.set(null)
+          selectedAgentIdSet(null)
           agentCreateMode.set(true)
           agentDraft.set(agentDraftEmpty())
           agentStatus.set("empty")
@@ -234,7 +257,7 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
         const current = selectedAgentId.get()
         const saved = savedSelections[serverId]
         if (current === null || !primaryAgents.some((agent) => agent.id === current)) {
-          selectedAgentId.set(
+          selectedAgentIdSet(
             (saved !== undefined && primaryAgents.some((agent) => agent.id === saved) ? saved : primaryAgents[0]?.id) ??
               null,
           )
@@ -310,8 +333,8 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
         if (controller.signal.aborted || isDisposed) return
         const parsed = v.safeParse(sessionTargetLoadResponseSchema, body)
         if (!response.ok || !parsed.success) return
-        selectedServerId.set(parsed.output.session.serverId)
-        selectedAgentId.set(parsed.output.session.primaryAgentId)
+        selectedServerIdSet(parsed.output.session.serverId)
+        selectedAgentIdSet(parsed.output.session.primaryAgentId)
       } catch (_error) {
         // The pending selection stays usable when the persisted target cannot be loaded.
       }
@@ -327,8 +350,11 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
     return result.success ? result.output : null
   }
 
+  const sessionCreateKeyResolve = (target: { agentId: string; serverId: string }, projectPath: string) =>
+    `${target.serverId}/${target.agentId}/${projectPath}`
+
   const pendingCreateRequestIdResolve = (target: { agentId: string; serverId: string }, projectPath: string) => {
-    const key = `${target.serverId}/${target.agentId}/${projectPath}`
+    const key = sessionCreateKeyResolve(target, projectPath)
     if (pendingCreateKey !== key || pendingCreateRequestId === null) {
       pendingCreateKey = key
       pendingCreateRequestId = clientRequestIdCreate()
@@ -462,7 +488,7 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
         saveStatus.set("error")
         return
       }
-      selectedAgentId.set(parsed.output.agent.id)
+      selectedAgentIdSet(parsed.output.agent.id)
       agentDetail.set(parsed.output.agent)
       agentCreateMode.set(false)
       const savedDraft = agentDraftFromDetail(parsed.output.agent)
@@ -517,7 +543,7 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
       agentSelect: (agentId: string) => {
         if (!agents.get().some((agent) => agent.id === agentId)) return
         agentCreateMode.set(false)
-        selectedAgentId.set(agentId)
+        selectedAgentIdSet(agentId)
         agentSelectionPersist(agentId)
         configurationOperationReset()
         sessionCreateErrorClear()
@@ -552,7 +578,7 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
       selectedServerId: selectedServerId.get(),
       serverSelect: (serverId: string) => {
         if (!servers.get().some((server) => server.id === serverId)) return
-        selectedServerId.set(serverId)
+        selectedServerIdSet(serverId)
         configurationOperationReset()
         sessionCreateErrorClear()
       },
@@ -622,7 +648,7 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
     agentSelect: (agentId: string) => {
       if (!agents.get().some((agent) => agent.id === agentId)) return
       agentCreateMode.set(false)
-      selectedAgentId.set(agentId)
+      selectedAgentIdSet(agentId)
       agentSelectionPersist(agentId)
       configurationOperationReset()
       sessionCreateErrorClear()
@@ -643,7 +669,7 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
     servers: servers.get,
     serverSelect: (serverId: string) => {
       if (!servers.get().some((server) => server.id === serverId)) return
-      selectedServerId.set(serverId)
+      selectedServerIdSet(serverId)
       configurationOperationReset()
       sessionCreateErrorClear()
     },

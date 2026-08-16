@@ -19,6 +19,10 @@ function sessionNavigationResolve(navigation: SessionNavigation): string | null 
   return sessionRouteResolve(new URL(navigation.location.href)).sessionId
 }
 
+function sessionNavigationIsNewRouteResolve(navigation: SessionNavigation): boolean {
+  return sessionRouteResolve(new URL(navigation.location.href)).kind === "new"
+}
+
 function sessionNavigationTabResolve(url: URL): SessionSidebarTab {
   const route = sessionRouteResolve(url)
   if (route.tab !== null) return route.tab
@@ -29,6 +33,7 @@ function sessionNavigationTabResolve(url: URL): SessionSidebarTab {
 
 export function sessionNavigationStateCreate(navigation: SessionNavigation = window) {
   const [selectedSessionId, setSelectedSessionId] = createSignal(sessionNavigationResolve(navigation))
+  const [isNewSessionRoute, setIsNewSessionRoute] = createSignal(sessionNavigationIsNewRouteResolve(navigation))
   const updateUrl = (pathname: string, sessionId: string | null, push = true) => {
     const url = new URL(navigation.location.href)
     const href = sessionSidebarRouteHrefResolve(sessionNavigationTabResolve(url), {
@@ -42,13 +47,18 @@ export function sessionNavigationStateCreate(navigation: SessionNavigation = win
       else navigation.history.pushState(null, "", href)
     }
     setSelectedSessionId(sessionId)
+    setIsNewSessionRoute(sessionRouteResolve(new URL(href, url)).kind === "new")
   }
-  const handlePopstate = () => setSelectedSessionId(sessionNavigationResolve(navigation))
+  const handlePopstate = () => {
+    setSelectedSessionId(sessionNavigationResolve(navigation))
+    setIsNewSessionRoute(sessionNavigationIsNewRouteResolve(navigation))
+  }
 
   navigation.addEventListener("popstate", handlePopstate)
   onCleanup(() => navigation.removeEventListener("popstate", handlePopstate))
 
   return {
+    isNewSessionRoute,
     selectedSessionId,
     selectSession: (sessionId: string) => {
       const result = v.safeParse(sessionIdSchema, sessionId)

@@ -23,6 +23,7 @@ export function workspaceScreenStateCreate(
   const drawer = useContext(sessionDrawerContext) ?? workspacePageStateCreate()
   const sessionTargetSelector = sessionTargetSelectorStateCreate({
     activeProjectPath: () => activeProject.project().path,
+    isNewSessionRoute: navigation.isNewSessionRoute,
     selectedSessionId: navigation.selectedSessionId,
     sessionNew: navigation.startNewSession,
     sessionSelect: navigation.selectSession,

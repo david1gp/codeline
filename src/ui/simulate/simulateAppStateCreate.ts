@@ -15,6 +15,7 @@ export function simulateAppStateCreate() {
   })
   const navigation = {
     clearSession: () => undefined,
+    isNewSessionRoute: () => false,
     selectedSessionId: () => scenario().sessionId,
     startNewSession: () => navigate("/sessions/new?tab=recent"),
     selectSession: (sessionId: string) => {
