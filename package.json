@@ -2,7 +2,7 @@
   "name": "@adaptive-ds/codeline",
   "version": "0.1.0",
   "description": "An AI coding workspace built for the fastest possible UI/UX with Zero's immediate, incrementally updated queries.",
-  "private": true,
+  "private": false,
   "license": "MIT",
   "type": "module",
   "homepage": "http://codeline.work/",
