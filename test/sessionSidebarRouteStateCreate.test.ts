@@ -45,12 +45,12 @@ test("session sidebar routes normalize base and invalid paths with validated sto
   await tick()
   expect(restoredRoot.state.activeTab()).toBe("watched")
   expect(restoredRoute.navigations).toEqual([
-    { href: "https://codeline.test/sessions/watched?session=selected#chat", replace: true },
+    { href: "https://codeline.test/sessions/selected?tab=watched#chat", replace: true },
   ])
   expect(restoredRoute.storage.value()).toBe("watched")
   restoredRoot.dispose()
 
-  const invalidRoute = routeCreate("https://codeline.test/sessions/not-a-tab/?search=term", "not-a-tab")
+  const invalidRoute = routeCreate("https://codeline.test/sessions/not-a-tab/extra?search=term", "not-a-tab")
   const invalidRoot = createRoot((dispose) => ({
     dispose,
     state: sessionSidebarRouteStateCreate(invalidRoute),
@@ -58,7 +58,7 @@ test("session sidebar routes normalize base and invalid paths with validated sto
 
   await tick()
   expect(invalidRoot.state.activeTab()).toBe("recent")
-  expect(invalidRoute.navigations).toEqual([{ href: "https://codeline.test/sessions/recent", replace: true }])
+  expect(invalidRoute.navigations).toEqual([{ href: "https://codeline.test/sessions?tab=recent", replace: true }])
   expect(invalidRoute.storage.value()).toBe("recent")
   invalidRoot.dispose()
 })
@@ -71,7 +71,7 @@ test("session sidebar tab selection changes paths and preserves query and hash s
   root.state.selectTab("projects")
   expect(root.state.activeTab()).toBe("projects")
   expect(route.navigations.at(-1)).toEqual({
-    href: "https://codeline.test/sessions/projects?session=selected#chat",
+    href: "https://codeline.test/sessions/selected?tab=projects#chat",
     replace: false,
   })
   expect(route.storage.value()).toBe("projects")
@@ -80,7 +80,7 @@ test("session sidebar tab selection changes paths and preserves query and hash s
   await tick()
   expect(root.state.activeTab()).toBe("search")
   expect(route.navigations.at(-1)).toEqual({
-    href: "https://codeline.test/sessions/search?session=selected&search=next",
+    href: "https://codeline.test/sessions/selected?tab=search&search=next",
     replace: true,
   })
   expect(route.storage.value()).toBe("search")
@@ -93,7 +93,7 @@ test("session sidebar removes search state from non-search routes during normali
 
   await tick()
   expect(route.navigations).toEqual([
-    { href: "https://codeline.test/sessions/recent?session=selected#chat", replace: true },
+    { href: "https://codeline.test/sessions/selected?tab=recent#chat", replace: true },
   ])
   root.dispose()
 })
@@ -112,6 +112,6 @@ test("session sidebar restores the last valid route choice across reloads", asyn
   }))
   await tick()
   expect(reloadedRoot.state.activeTab()).toBe("projects")
-  expect(reloadedRoute.navigations.at(-1)?.href).toBe("https://codeline.test/sessions/projects")
+  expect(reloadedRoute.navigations.at(-1)?.href).toBe("https://codeline.test/sessions?tab=projects")
   reloadedRoot.dispose()
 })

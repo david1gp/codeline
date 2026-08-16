@@ -86,3 +86,19 @@ test("session navigation follows browser back and forward popstate changes", () 
   dispose()
   expect(navigation.listenerCount()).toBe(0)
 })
+
+test("session navigation parses canonical selected and reserved new routes", () => {
+  const navigation = navigationCreate("https://codeline.test/sessions/selected?tab=watched")
+  const dispose = createRoot((rootDispose) => {
+    const state = sessionNavigationStateCreate(navigation)
+    expect(state.selectedSessionId()).toBe("selected")
+
+    navigation.history.pushState(null, "", "https://codeline.test/sessions/new?tab=watched")
+    navigation.emitPopstate()
+    expect(state.selectedSessionId()).toBeNull()
+
+    return rootDispose
+  })
+
+  dispose()
+})

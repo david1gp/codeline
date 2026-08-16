@@ -1,8 +1,8 @@
 import { Route, Router } from "@solidjs/router"
 import { LoginPage } from "../identity/ui/LoginPage.js"
 import { ApplicationRoot } from "./ApplicationRoot.js"
-import { DemoApp } from "./demo/DemoApp.js"
 import { DashboardRoutePage } from "./DashboardRoutePage.js"
+import { DemoApp } from "./demo/DemoApp.js"
 import { FilesRoutePage } from "./FilesRoutePage.js"
 import { NewNoteRoutePage } from "./NewNoteRoutePage.js"
 import { NoteRoutePage } from "./NoteRoutePage.js"
@@ -16,7 +16,7 @@ export function UiRouter() {
     <Router>
       <Route path="/" component={ApplicationRoot}>
         <Route path="/" component={DashboardRoutePage} />
-        <Route path={["/sessions", "/sessions/:sidebarTab"]} component={WorkspaceRoutePage} />
+        <Route path={["/sessions", "/sessions/new", "/sessions/:sessionId"]} component={WorkspaceRoutePage} />
         <Route path="/files" component={FilesRoutePage} />
         <Route path="/notes" component={NotesRoutePage} />
         <Route path="/notes/new" component={NewNoteRoutePage} />

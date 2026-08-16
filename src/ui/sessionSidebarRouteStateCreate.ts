@@ -1,9 +1,10 @@
 import type { Accessor } from "solid-js"
 import { createEffect } from "solid-js/dist/solid.js"
 import * as v from "valibot"
-import { signalObjectCreate } from "./signalObjectCreate.js"
+import { sessionRouteResolve } from "./sessionRouteResolve.js"
 import { sessionSidebarRouteHrefResolve } from "./sessionSidebarRouteHrefResolve.js"
 import { type SessionSidebarTab, sessionSidebarTabSchema } from "./sessionSidebarTab.js"
+import { signalObjectCreate } from "./signalObjectCreate.js"
 
 const sessionSidebarTabFallback: SessionSidebarTab = "recent"
 const sessionSidebarTabStorageKey = "codeline.sessionSidebarTab"
@@ -48,17 +49,8 @@ function storedTabWrite(storage: Pick<Storage, "getItem" | "setItem"> | undefine
 
 function routeResolve(href: string, storage: Pick<Storage, "getItem" | "setItem"> | undefined) {
   const url = new URL(href, "https://codeline.local")
-  const normalizedPathname = url.pathname.endsWith("/") ? url.pathname.slice(0, -1) : url.pathname
-  const routeValue = normalizedPathname.startsWith("/sessions/")
-    ? normalizedPathname.slice("/sessions/".length)
-    : undefined
-  const parsed = v.safeParse(sessionSidebarTabSchema, routeValue)
-  const tab =
-    normalizedPathname === "/sessions"
-      ? storedTabRead(storage)
-      : parsed.success
-        ? parsed.output
-        : sessionSidebarTabFallback
+  const route = sessionRouteResolve(url)
+  const tab = route.tab ?? storedTabRead(storage)
 
   return {
     href: sessionSidebarRouteHrefResolve(tab, url),

@@ -39,7 +39,7 @@ test("settings is registered with the settings route page", async () => {
 test("the workspace is registered on the session sidebar routes instead of root", async () => {
   const routerSource = await Bun.file(new URL("../src/ui/UiRouter.tsx", import.meta.url)).text()
 
-  expect(routerSource).toContain('path={["/sessions", "/sessions/:sidebarTab"]}')
+  expect(routerSource).toContain('path={["/sessions", "/sessions/new", "/sessions/:sessionId"]}')
   expect(routerSource).not.toContain('<Route path="/" component={WorkspaceRoutePage} />')
 })
 

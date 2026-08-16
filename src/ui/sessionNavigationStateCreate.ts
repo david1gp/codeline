@@ -1,5 +1,6 @@
 import { createSignal, onCleanup } from "solid-js/dist/solid.js"
 import * as v from "valibot"
+import { sessionRouteResolve } from "./sessionRouteResolve.js"
 
 const sessionIdSchema = v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(200))
 
@@ -11,9 +12,7 @@ type SessionNavigation = {
 }
 
 function sessionNavigationResolve(navigation: SessionNavigation): string | null {
-  const sessionId = new URL(navigation.location.href).searchParams.get("session")
-  const result = v.safeParse(sessionIdSchema, sessionId ?? "")
-  return result.success ? result.output : null
+  return sessionRouteResolve(new URL(navigation.location.href)).sessionId
 }
 
 export function sessionNavigationStateCreate(navigation: SessionNavigation = window) {
