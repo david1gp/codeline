@@ -251,7 +251,9 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
           return
         }
         configurationErrorMessage.set(null)
-        const primaryAgents = parsed.output.agents.filter((agent) => agent.parentAgentId === null)
+        const primaryAgents = parsed.output.agents.filter(
+          (agent) => agent.parentAgentId === null && agent.role === "primary",
+        )
         agents.set(primaryAgents)
         if (primaryAgents.length === 0) {
           selectedAgentIdSet(null)
