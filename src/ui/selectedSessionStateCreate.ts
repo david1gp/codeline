@@ -10,6 +10,8 @@ import { sessionChatStateCacheCreate } from "./sessionChatStateCacheCreate.js"
 import { sessionChatStateCreate } from "./sessionChatStateCreate.js"
 import { sessionInitialMessageStateCreate } from "./sessionInitialMessageStateCreate.js"
 import { sessionWatchToggleStateCreate } from "./sessionWatchToggleStateCreate.js"
+import { sessionDisplayModeStateCreate } from "./sessionDisplayModeStateCreate.js"
+import { sessionStreamStateCreate } from "./sessionStreamStateCreate.js"
 
 type SelectedSessionStateOptions = {
   codelineExecution: Accessor<CodelineExecution | null>
@@ -20,6 +22,7 @@ type SelectedSessionStateOptions = {
 }
 
 export function selectedSessionStateCreate(options: SelectedSessionStateOptions): SelectedSessionView {
+  const displayMode = sessionDisplayModeStateCreate()
   const selectedSessionId = () => options.navigation().selectedSessionId()
   const [session, sessionResult] = useQuery(() => {
     const sessionId = selectedSessionId()
@@ -74,6 +77,14 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
     }
     return false
   }
+  const streamState = sessionStreamStateCreate({
+    inFlightMessages: () => {
+      const currentSession = session()
+      return currentSession ? chatCreate(currentSession.id).pendingMessages() : []
+    },
+    isEnabled: () => displayMode.mode() === "stream",
+    sessionId: () => session()?.id,
+  })
   const initialMessage = sessionInitialMessageStateCreate({
     chatCreate,
     selectedSessionId,
@@ -96,12 +107,15 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
 
   return {
     chatCreate,
+    displayMode,
     session,
     initialChat: initialMessage.chat,
     isInitialChatVisible: initialMessage.isVisible,
     messages: durableMessages,
     renameState,
     watchState,
+    streamGroups: streamState.groups,
+    isStreamLoading: streamState.isLoading,
     hasSelection: () => selectedSessionId() !== null,
     isSessionLoading: () =>
       selectedSessionId() !== null && sessionResult().type === "unknown" && session() === undefined,

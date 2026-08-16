@@ -3,10 +3,12 @@ import { finalizedMessageCopyStateCreate } from "../../message/ui/finalizedMessa
 import { sessionRenameControlStateCreate } from "../../session/ui/sessionRenameControlStateCreate.js"
 import { demoSessionChatStateCreate } from "./demoSessionChatStateCreate.js"
 import { demoSessionMessagesFixture } from "./demoSessionMessagesFixture.js"
+import { demoSessionStreamGroupsFixture } from "./demoSessionStreamGroupsFixture.js"
 import type { DemoSessionScreenVariant } from "./demoSessionScreenVariant.js"
 import { demoSessionRenameFetch } from "./demoSessionRenameFetch.js"
 import { demoWorkspaceSessionsFixture } from "./demoWorkspaceSessionsFixture.js"
 import { sessionWatchToggleStateCreate } from "../sessionWatchToggleStateCreate.js"
+import { sessionDisplayModeStateCreate } from "../sessionDisplayModeStateCreate.js"
 
 type DemoSelectedSessionStateOptions = {
   selectedSessionId: { get: () => string | null }
@@ -14,6 +16,7 @@ type DemoSelectedSessionStateOptions = {
 }
 
 export function demoSelectedSessionStateCreate(options: DemoSelectedSessionStateOptions): SelectedSessionView {
+  const displayMode = sessionDisplayModeStateCreate()
   const chat = demoSessionChatStateCreate(options.variant)
   const copyStates = new Map<string, ReturnType<typeof finalizedMessageCopyStateCreate>>()
   const renameStates = new Map<string, ReturnType<typeof sessionRenameControlStateCreate>>()
@@ -60,6 +63,7 @@ export function demoSelectedSessionStateCreate(options: DemoSelectedSessionState
 
   return {
     chatCreate: () => chat,
+    displayMode,
     hasSelection: () => options.variant() !== "empty" && options.selectedSessionId.get() !== null,
     initialChat: chat,
     isInitialChatVisible: () => options.selectedSessionId.get() === null,
@@ -73,6 +77,8 @@ export function demoSelectedSessionStateCreate(options: DemoSelectedSessionState
     renameState,
     retryMessages: () => undefined,
     retrySession: () => undefined,
+    streamGroups: () => demoSessionStreamGroupsFixture,
+    isStreamLoading: () => options.variant() === "loading",
     session,
     watchState,
   }

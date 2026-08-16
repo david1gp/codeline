@@ -1,11 +1,14 @@
 import { For, Show } from "solid-js"
 import { MessageBody } from "../message/ui/MessageBody.js"
-import type { providerModelSelectorStateCreate } from "../providers/ui/providerModelSelectorStateCreate.js"
 import { ProviderModelSelector } from "../providers/ui/ProviderModelSelector.js"
+import type { providerModelSelectorStateCreate } from "../providers/ui/providerModelSelectorStateCreate.js"
+import { SessionTargetSelector } from "./SessionTargetSelector.js"
 import type { SessionChatState } from "./sessionChatStateCreate.js"
+import type { SessionTargetSelectorState } from "./sessionTargetSelectorStateCreate.js"
 
 export function SessionChat(props: {
   providerModel?: ReturnType<typeof providerModelSelectorStateCreate>
+  sessionTarget?: SessionTargetSelectorState
   state: SessionChatState
 }) {
   return (
@@ -111,6 +114,9 @@ export function SessionChat(props: {
           </div>
 
           <div class="flex flex-wrap items-center gap-2 text-[11px] text-faint">
+            <Show when={props.sessionTarget}>
+              {(sessionTarget) => <SessionTargetSelector state={sessionTarget()} />}
+            </Show>
             <Show when={props.providerModel}>
               {(providerModel) => <ProviderModelSelector state={providerModel()} />}
             </Show>

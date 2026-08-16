@@ -36,6 +36,14 @@ export const codelineQueries = defineQueriesWithType<typeof zeroSchema>()({
       .related("attempts", (attempts) => attempts.orderBy("ordinal", "asc"))
       .one(),
   ),
+  sessionRuns: defineQuery(({ args, ctx }: { args: { sessionId: string }; ctx: CodelineQueryContext }) =>
+    zeroQueryBuilder.run
+      .where("sessionId", args.sessionId)
+      .where("userId", ctx.userId)
+      .orderBy("createdAt", "asc")
+      .orderBy("id", "asc")
+      .related("attempts", (attempts) => attempts.orderBy("ordinal", "asc")),
+  ),
   note: defineQuery(({ args, ctx }: { args: { noteId: string }; ctx: CodelineQueryContext }) =>
     zeroQueryBuilder.note.where("id", args.noteId).where("userId", ctx.userId).one(),
   ),

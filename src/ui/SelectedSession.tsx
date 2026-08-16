@@ -4,11 +4,15 @@ import { ButtonIconOnly } from "#ui/interactive/button/ButtonIconOnly.jsx"
 import { FinalizedMessage } from "../message/ui/FinalizedMessage.js"
 import type { providerModelSelectorStateCreate } from "../providers/ui/providerModelSelectorStateCreate.js"
 import { SessionRenameControl } from "../session/ui/SessionRenameControl.js"
-import type { SelectedSessionView } from "./selectedSessionView.js"
 import { SessionChat } from "./SessionChat.js"
+import { SessionDisplayModeSwitcher } from "./SessionDisplayModeSwitcher.js"
+import { SessionStreamView } from "./SessionStreamView.js"
+import type { SelectedSessionView } from "./selectedSessionView.js"
+import type { SessionTargetSelectorState } from "./sessionTargetSelectorStateCreate.js"
 
 export function SelectedSession(props: {
   providerModel?: ReturnType<typeof providerModelSelectorStateCreate>
+  sessionTarget?: SessionTargetSelectorState
   state: SelectedSessionView
 }) {
   return (
@@ -56,16 +60,19 @@ export function SelectedSession(props: {
                       <div class="min-w-0 flex-1">
                         <SessionRenameControl state={props.state.renameState()!} />
                       </div>
-                      <ButtonIconOnly
-                        class="mt-0.5 size-8 shrink-0 text-faint hover:bg-surface-hover hover:text-accent"
-                        icon={props.state.watchState()!.watched() ? mdiEyeOutline : mdiEyeOffOutline}
-                        iconClass="size-4"
-                        isLoading={props.state.watchState()!.isSaving()}
-                        title={props.state.watchState()!.watched() ? "Stop watching session" : "Watch session"}
-                        aria-label={props.state.watchState()!.watched() ? "Stop watching session" : "Watch session"}
-                        aria-pressed={props.state.watchState()!.watched()}
-                        onClick={props.state.watchState()!.toggle}
-                      />
+                      <div class="mt-0.5 flex shrink-0 items-center gap-1.5">
+                        <SessionDisplayModeSwitcher state={props.state.displayMode} />
+                        <ButtonIconOnly
+                          class="size-8 text-faint hover:bg-surface-hover hover:text-accent"
+                          icon={props.state.watchState()!.watched() ? mdiEyeOutline : mdiEyeOffOutline}
+                          iconClass="size-4"
+                          isLoading={props.state.watchState()!.isSaving()}
+                          title={props.state.watchState()!.watched() ? "Stop watching session" : "Watch session"}
+                          aria-label={props.state.watchState()!.watched() ? "Stop watching session" : "Watch session"}
+                          aria-pressed={props.state.watchState()!.watched()}
+                          onClick={props.state.watchState()!.toggle}
+                        />
+                      </div>
                     </div>
                     <Show when={props.state.watchState()!.errorMessage()}>
                       {(message) => (
@@ -91,6 +98,9 @@ export function SelectedSession(props: {
                           Retry
                         </button>
                       </div>
+                    </Match>
+                    <Match when={props.state.displayMode.mode() === "stream"}>
+                      <SessionStreamView state={props.state} />
                     </Match>
                     <Match when={props.state.isMessagesLoading()}>
                       <div class="py-8 text-center text-[13px] text-faint" role="status">
@@ -133,7 +143,13 @@ export function SelectedSession(props: {
 
       <Show
         when={props.state.isInitialChatVisible()}
-        fallback={<SelectedSessionChat state={props.state} providerModel={props.providerModel} />}
+        fallback={
+          <SelectedSessionChat
+            sessionTarget={props.sessionTarget}
+            state={props.state}
+            providerModel={props.providerModel}
+          />
+        }
       >
         <SessionChat state={props.state.initialChat} />
       </Show>
@@ -143,6 +159,7 @@ export function SelectedSession(props: {
 
 function SelectedSessionChat(props: {
   providerModel?: ReturnType<typeof providerModelSelectorStateCreate>
+  sessionTarget?: SessionTargetSelectorState
   state: SelectedSessionView
 }) {
   return (
@@ -164,7 +181,13 @@ function SelectedSessionChat(props: {
         </section>
       }
     >
-      {(sessionId) => <SessionChat providerModel={props.providerModel} state={props.state.chatCreate(sessionId)} />}
+      {(sessionId) => (
+        <SessionChat
+          providerModel={props.providerModel}
+          sessionTarget={props.sessionTarget}
+          state={props.state.chatCreate(sessionId)}
+        />
+      )}
     </Show>
   )
 }

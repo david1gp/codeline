@@ -1,7 +1,9 @@
 import type { SessionChatState } from "./sessionChatStateCreate.js"
+import type { SessionStreamGroup } from "./sessionStreamGroupsDerive.js"
 import type { finalizedMessageCopyStateCreate } from "../message/ui/finalizedMessageCopyStateCreate.js"
 import type { sessionRenameControlStateCreate } from "../session/ui/sessionRenameControlStateCreate.js"
 import type { sessionWatchToggleStateCreate } from "./sessionWatchToggleStateCreate.js"
+import type { sessionDisplayModeStateCreate } from "./sessionDisplayModeStateCreate.js"
 
 export type SelectedSessionViewMessage = {
   copyState: ReturnType<typeof finalizedMessageCopyStateCreate>
@@ -30,9 +32,12 @@ export type SelectedSessionView = {
   isSessionError: () => boolean
   isSessionLoading: () => boolean
   messages: () => ReadonlyArray<SelectedSessionViewMessage>
+  displayMode: ReturnType<typeof sessionDisplayModeStateCreate>
   renameState: () => ReturnType<typeof sessionRenameControlStateCreate> | undefined
   watchState: () => ReturnType<typeof sessionWatchToggleStateCreate> | undefined
   retryMessages: () => void
   retrySession: () => void
+  streamGroups: () => ReadonlyArray<SessionStreamGroup>
+  isStreamLoading: () => boolean
   session: () => SelectedSessionViewSession | undefined
 }
