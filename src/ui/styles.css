@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @import "../markdown/markdown.css";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @source "./**/*.{ts,tsx}";
 @source "../../ui/static/badge/**/*.{ts,tsx}";
 @source "../../ui/interactive/popover/**/*.{ts,tsx}";
