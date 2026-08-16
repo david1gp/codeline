@@ -1,16 +1,33 @@
 import { expect, test } from "bun:test"
 
-test("the workspace shows setup until a conversation is selected", async () => {
+test("the workspace shows the initial composer when execution configuration is ready", async () => {
   const workspacePage = await Bun.file(new URL("../src/ui/WorkspacePage.tsx", import.meta.url)).text()
   const normalized = workspacePage.replace(/\s+/g, " ")
 
-  expect(normalized.match(/when=\{props\.state\.selectedSession\.hasSelection\(\)\}/g)).toHaveLength(1)
+  expect(normalized).toContain('when={props.state.sessionTargetSelector.configurationReadiness().status === "ready"}')
   expect(normalized).toContain(
     "fallback={<WorkspaceSetupPanel configuration={props.state.sessionTargetSelector.configurationReadiness()} />}",
   )
   expect(normalized).toContain(
     "<SelectedSession providerModel={props.state.providerModelSelector} sessionTarget={props.state.sessionTargetSelector} state={props.state.selectedSession} />",
   )
+})
+
+test("the initial composer keeps execution and provider targets visible", async () => {
+  const selectedSession = await Bun.file(new URL("../src/ui/SelectedSession.tsx", import.meta.url)).text()
+  const normalized = selectedSession.replace(/\s+/g, " ")
+
+  expect(normalized).toContain(
+    "<SessionChat providerModel={props.providerModel} sessionTarget={props.sessionTarget} state={props.state.initialChat} />",
+  )
+})
+
+test("the no-selection view prompts a new conversation", async () => {
+  const selectedSession = await Bun.file(new URL("../src/ui/SelectedSession.tsx", import.meta.url)).text()
+
+  expect(selectedSession).toContain("Start a new conversation")
+  expect(selectedSession).toContain("Send a message below to begin working with your execution agent.")
+  expect(selectedSession).not.toContain("Select a session")
 })
 
 test("the setup panel exposes one local execution agent", async () => {

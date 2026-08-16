@@ -67,7 +67,7 @@ export function WorkspacePage(props: { state: WorkspaceScreenView }) {
         </div>
 
         <Show
-          when={props.state.selectedSession.hasSelection()}
+          when={props.state.sessionTargetSelector.configurationReadiness().status === "ready"}
           fallback={<WorkspaceSetupPanel configuration={props.state.sessionTargetSelector.configurationReadiness()} />}
         >
           <SelectedSession

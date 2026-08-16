@@ -22,10 +22,10 @@ export function SelectedSession(props: {
           <Match when={!props.state.hasSelection()}>
             <div class="flex flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-8 text-center">
               <div class="w-full max-w-[820px]">
-                <p class="m-0 text-[11px] font-semibold tracking-[0.14em] text-faint uppercase">Conversations</p>
-                <h2 class="mt-2 mb-0 text-2xl font-semibold tracking-[-0.02em]">Select a session</h2>
+                <p class="m-0 text-[11px] font-semibold tracking-[0.14em] text-faint uppercase">New conversation</p>
+                <h2 class="mt-2 mb-0 text-2xl font-semibold tracking-[-0.02em]">Start a new conversation</h2>
                 <p class="mx-auto mt-3 mb-0 max-w-[540px] text-sm leading-relaxed text-faint">
-                  Choose an active conversation to read its finalized messages.
+                  Send a message below to begin working with your execution agent.
                 </p>
               </div>
             </div>
@@ -151,7 +151,11 @@ export function SelectedSession(props: {
           />
         }
       >
-        <SessionChat state={props.state.initialChat} />
+        <SessionChat
+          providerModel={props.providerModel}
+          sessionTarget={props.sessionTarget}
+          state={props.state.initialChat}
+        />
       </Show>
     </>
   )

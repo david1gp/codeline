@@ -6,6 +6,8 @@ test("provider model selector renders non-selectable provider groups with select
   expect(component).toContain("<optgroup label={provider.name}>")
   expect(component).toContain("<option value={model.value}>{model.name}</option>")
   expect(component).toContain("<For each={props.state.groups()}>")
+  expect(component).toContain("<option>Available after starting a conversation</option>")
+  expect(component).not.toContain("Select a conversation")
   expect(component).not.toContain("<option disabled")
   expect(component).not.toContain("effortLevels")
 })

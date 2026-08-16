@@ -9,7 +9,7 @@ export function ProviderModelSelector(props: { state: ProviderModelSelectorState
       <Switch>
         <Match when={props.state.status() === "idle"}>
           <select class={selectClass} aria-label="Provider model" disabled>
-            <option>Select a conversation</option>
+            <option>Available after starting a conversation</option>
           </select>
         </Match>
         <Match when={props.state.status() === "loading"}>
