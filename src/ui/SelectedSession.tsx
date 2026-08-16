@@ -84,6 +84,9 @@ export function SelectedSession(props: {
                   </header>
 
                   <Switch>
+                    <Match when={props.state.displayMode.mode() === "stream"}>
+                      <SessionStreamView state={props.state} />
+                    </Match>
                     <Match when={props.state.isMessagesError()}>
                       <div
                         class="flex flex-col items-center gap-2 py-8 text-center text-[13px] text-danger"
@@ -98,9 +101,6 @@ export function SelectedSession(props: {
                           Retry
                         </button>
                       </div>
-                    </Match>
-                    <Match when={props.state.displayMode.mode() === "stream"}>
-                      <SessionStreamView state={props.state} />
                     </Match>
                     <Match when={props.state.isMessagesLoading()}>
                       <div class="py-8 text-center text-[13px] text-faint" role="status">

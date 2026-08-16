@@ -30,7 +30,8 @@ Add a global, persistent session display toggle so users can switch every sessio
 - [x] 3. Implement stream-mode rendering for available finalized and in-flight content.
 - [x] 4. Add or update focused automated tests.
 - [x] 5. Verify both modes and persistence in the running application.
-- [ ] 6. Review the completed change for correctness and scope.
+- [x] 6. Review the completed change for correctness and scope.
+- [x] 7. Re-verify the reviewed stream renderer in the browser.
 
 ## Paths
 

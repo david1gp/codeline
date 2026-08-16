@@ -1,3 +1,5 @@
+import { providerExecutionEventFromStreamChunk } from "../providers/runtime/providerExecutionEventFromStreamChunk.js"
+
 export type SessionStreamEntry = {
   detail?: string
   id: string
@@ -52,6 +54,14 @@ function streamPayloadField(payload: unknown, key: string): string | undefined {
   const value = (payload as Record<string, unknown>)[key]
   if (typeof value === "string") return value.length === 0 ? undefined : value
   if (typeof value === "number" || typeof value === "boolean") return String(value)
+  if (typeof value === "object") {
+    try {
+      const serialized = JSON.stringify(value)
+      return serialized === undefined ? undefined : serialized
+    } catch (_error: unknown) {
+      return undefined
+    }
+  }
   return undefined
 }
 
@@ -150,6 +160,22 @@ function streamEntryResolve(event: SessionStreamEventRow): SessionStreamEntry | 
   return undefined
 }
 
+function streamEventNormalize(event: SessionStreamEventRow): SessionStreamEventRow | undefined {
+  if (
+    ["text_delta", "thinking_status", "tool_start", "tool_output", "tool_result", "written_file", "terminal"].includes(
+      event.eventType,
+    )
+  )
+    return event
+  if (typeof event.payload !== "object" || event.payload === null || Array.isArray(event.payload)) return undefined
+  const parsed = providerExecutionEventFromStreamChunk({
+    ...(event.payload as Record<string, unknown>),
+    type: event.eventType,
+  })
+  if (!parsed.success || parsed.data === null) return undefined
+  return { ...event, eventType: parsed.data.type, payload: parsed.data }
+}
+
 function streamEntriesCollect(events: ReadonlyArray<SessionStreamEventRow>): Array<SessionStreamEntry> {
   const entries: Array<SessionStreamEntry> = []
   let output: { delta: string; id: string } | undefined
@@ -158,7 +184,9 @@ function streamEntriesCollect(events: ReadonlyArray<SessionStreamEventRow>): Arr
     entries.push({ detail: output.delta, id: output.id, kind: "output", label: "Output" })
     output = undefined
   }
-  for (const event of events) {
+  for (const rawEvent of events) {
+    const event = streamEventNormalize(rawEvent)
+    if (event === undefined) continue
     if (event.eventType === "text_delta") {
       const delta = streamPayloadField(event.payload, "delta") ?? ""
       output = output === undefined ? { delta, id: event.id } : { delta: output.delta + delta, id: output.id }

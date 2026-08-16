@@ -212,3 +212,50 @@ test("stream groups map thinking, tools, written files, and terminal events", ()
     { detail: "0 · done", id: "terminal", kind: "terminal", label: "Terminal", status: "completed" },
   ])
 })
+
+test("stream groups render persisted chat stream chunks alongside normalized events", () => {
+  const groups = sessionStreamGroupsDerive({
+    events: [
+      event({
+        createdAt: 1,
+        eventType: "TEXT_MESSAGE_CONTENT",
+        id: "chat-text",
+        payload: { delta: "hello", type: "TEXT_MESSAGE_CONTENT" },
+        sequence: 1,
+        streamId: "chat-stream",
+      }),
+      event({
+        createdAt: 1,
+        eventType: "REASONING_START",
+        id: "chat-thinking",
+        payload: { type: "REASONING_START" },
+        sequence: 2,
+        streamId: "chat-stream",
+      }),
+      event({
+        createdAt: 1,
+        eventType: "TOOL_CALL_START",
+        id: "chat-tool",
+        payload: { toolCallId: "call-1", toolCallName: "read_file", type: "TOOL_CALL_START" },
+        sequence: 3,
+        streamId: "chat-stream",
+      }),
+      event({
+        createdAt: 1,
+        eventType: "RUN_FINISHED",
+        id: "chat-terminal",
+        payload: { outcome: { type: "success" }, type: "RUN_FINISHED" },
+        sequence: 4,
+        streamId: "chat-stream",
+      }),
+    ],
+    runs: [],
+  })
+
+  expect(groups[0]?.entries).toEqual([
+    { detail: "hello", id: "chat-text", kind: "output", label: "Output" },
+    { id: "chat-thinking", kind: "thinking", label: "Thinking", status: "started" },
+    { detail: "call-1", id: "chat-tool", kind: "tool", label: "read_file", status: "start" },
+    { id: "chat-terminal", kind: "terminal", label: "Terminal", status: "completed" },
+  ])
+})
