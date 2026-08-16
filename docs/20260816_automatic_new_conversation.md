@@ -21,9 +21,16 @@ Automatically create and select a blank conversation when the new-conversation r
 
 ## Tasks
 
-- [ ] 1. Implement guarded automatic session creation with focused state tests.
-- [ ] 2. Align new-conversation UI copy and focused UI tests with the automatic transition.
-- [ ] 3. Verify automatic creation, model selection, and first-message submission in the browser.
+- [x] 1. Implement guarded automatic session creation with focused state tests.
+- [x] 2. Align new-conversation UI copy and focused UI tests with the automatic transition.
+- [x] 3. Verify automatic creation, model selection, and first-message submission in the browser.
+
+## Current Context
+
+- Route-gated automatic creation now shares an in-flight create operation with the send fallback.
+- Target-generation and disposal guards prevent stale selection; focused and full state tests pass.
+- The transient no-session UI now communicates automatic preparation without asking the user to start or select a conversation.
+- Browser verification confirms model selection before typing and first-message submission in the same automatically created conversation without duplicates.
 
 ## Paths
 
