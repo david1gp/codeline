@@ -195,6 +195,55 @@ test("workspace session drawer wraps Tab when focus starts outside the drawer", 
   root.dispose()
 })
 
+test("workspace session drawer traps Tab at a native project summary", () => {
+  const dependencies = stateDependenciesCreate()
+  let firstFocusCount = 0
+  let summaryFocusCount = 0
+  const first = { focus: () => firstFocusCount++, tabIndex: 0 } as unknown as HTMLElement
+  const summary = { focus: () => summaryFocusCount++, tabIndex: 0 } as unknown as HTMLElement
+  const closedDetails = { querySelector: () => summary } as unknown as HTMLElement
+  const hiddenSession = {
+    focus: () => undefined,
+    tabIndex: 0,
+    closest: () => closedDetails,
+  } as unknown as HTMLElement
+  const drawer = {
+    contains: (element: Element | null) => [first, summary, hiddenSession].includes(element as HTMLElement),
+    focus: () => undefined,
+    querySelectorAll: () => [first, summary, hiddenSession],
+  } as unknown as HTMLElement
+  const root = createRoot((dispose) => ({ dispose, state: workspacePageStateCreate(dependencies.options) }))
+  root.state.sessionDrawerOpen()
+  root.state.sessionDrawerElement(drawer)
+
+  let wasPrevented = false
+  dependencies.documentState.activeElement = summary
+  dependencies.keyEvents.dispatch("keydown", {
+    key: "Tab",
+    shiftKey: false,
+    preventDefault: () => {
+      wasPrevented = true
+    },
+  } as unknown as KeyboardEvent)
+
+  expect(firstFocusCount).toBe(1)
+  expect(wasPrevented).toBe(true)
+
+  wasPrevented = false
+  dependencies.documentState.activeElement = first
+  dependencies.keyEvents.dispatch("keydown", {
+    key: "Tab",
+    shiftKey: true,
+    preventDefault: () => {
+      wasPrevented = true
+    },
+  } as unknown as KeyboardEvent)
+
+  expect(summaryFocusCount).toBe(1)
+  expect(wasPrevented).toBe(true)
+  root.dispose()
+})
+
 test("workspace session drawer closes on desktop resize, orientation, and media changes", () => {
   const dependencies = stateDependenciesCreate()
   const root = createRoot((dispose) => ({ dispose, state: workspacePageStateCreate(dependencies.options) }))

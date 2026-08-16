@@ -28,7 +28,7 @@ Move the session workspace to `/sessions`, give each sidebar tab its own route, 
 - [x] 1. Add validated persisted session-tab route state and migrate session/sidebar navigation to `/sessions/:sidebarTab`.
 - [x] 2. Rename Workspace to Sessions, make top navigation target the remembered tab, and add the `/` dashboard cards.
 - [x] 3. Connect mobile Sessions navigation to the existing drawer controller and make the dialog full width.
-- [ ] 4. Run focused/full verification and browser-test direct routes, reload persistence, top-navigation restoration, dashboard cards, desktop navigation, and mobile dialog behavior.
+- [x] 4. Run focused/full verification and browser-test direct routes, reload persistence, top-navigation restoration, dashboard cards, desktop navigation, and mobile dialog behavior.
 
 ## Paths
 

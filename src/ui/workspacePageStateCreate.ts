@@ -14,7 +14,7 @@ type WorkspacePageStateOptions = {
 }
 
 const focusableSelector =
-  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])'
 
 function workspacePageSignalObjectCreate<T>(value: T) {
   const [get, set] = createSignal(value)
@@ -59,9 +59,16 @@ export function workspacePageStateCreate(options: WorkspacePageStateOptions = {}
     }
     if (event.key !== "Tab" || drawer === undefined) return
 
-    const controls = [...drawer.querySelectorAll<HTMLElement>(focusableSelector)].filter(
-      (element) => element.tabIndex >= 0,
-    )
+    const controls = [...drawer.querySelectorAll<HTMLElement>(focusableSelector)]
+      .filter((element) => element.tabIndex >= 0)
+      .filter((element) => {
+        const closedDetails = element.closest?.("details:not([open])")
+        return (
+          closedDetails === null ||
+          closedDetails === undefined ||
+          closedDetails.querySelector(":scope > summary") === element
+        )
+      })
     const first = controls[0]
     const last = controls.at(-1)
     if (first === undefined || last === undefined) {
