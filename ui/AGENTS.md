@@ -6,7 +6,7 @@
 >
 > This index exists so agents can find a component without scanning the tree. Import everything via the `#ui/...` alias. Descriptions come from a one-line JSDoc above each export in solid-ui; regenerate with `bun run generateUiIndex`.
 
-**87** components across **5** categories · **87** documented, **0** need a JSDoc line.
+**92** components across **5** categories · **92** documented, **0** need a JSDoc line.
 
 ## composite (7)
 
@@ -18,7 +18,7 @@
 - **FeatureGridSection** — `#ui/composite/feature_grid/FeatureGridSection.jsx` — Section displaying features in a responsive icon grid.
 - **SearchBox** — `#ui/composite/searchbox/SearchBox.jsx` — Search input with filter dropdowns and search button.
 
-## input (18)
+## input (19)
 
 _Form-item controls (inputs, selects, checkboxes, switches, fieldsets)._
 
@@ -36,12 +36,13 @@ _Form-item controls (inputs, selects, checkboxes, switches, fieldsets)._
 - **LabelPseudo** — `#ui/input/label/LabelPseudo.jsx` — Label-styled span for non-associated pseudo labels.
 - **NumberInputS** — `#ui/input/number/NumberInputS.jsx` — Number input with increment and decrement buttons, signal-bound.
 - **SelectMultiple** — `#ui/input/select/SelectMultiple.jsx` — Popover multi-select showing chosen values as removable chips.
+- **SelectSingle** — `#ui/input/select/SelectSingle.jsx` — Popover select choosing one value, with optional inline group headings.
 - **SelectSingleNative** — `#ui/input/select/SelectSingleNative.jsx` — Native dropdown selecting a single signal-bound value.
 - **SwitchSingle** — `#ui/input/switch/SwitchSingle.jsx` — Segmented radio-group switch selecting one value.
 - **Textarea** — `#ui/input/textarea/Textarea.jsx` — Styled native multiline textarea element.
 - **TextareaS** — `#ui/input/textarea/TextareaS.jsx` — Textarea bound to a string signal.
 
-## interactive (24)
+## interactive (28)
 
 - **BulletLinks** — `#ui/interactive/list/BulletLinks.jsx` — Renders a list of links with blue bullet points.
 - **BulletLinksO** — `#ui/interactive/list/BulletLinksO.jsx` — Bullet link list variant that takes its links as an object.
@@ -54,10 +55,14 @@ _Form-item controls (inputs, selects, checkboxes, switches, fieldsets)._
 - **CorvuPopover** — `#ui/interactive/popover/CorvuPopover.jsx` — Popover anchored to a labeled trigger button.
 - **CorvuPopoverIcon** — `#ui/interactive/popover/CorvuPopoverIcon.jsx` — Popover anchored to an icon-only trigger button.
 - **Details** — `#ui/interactive/details/Details.jsx` — Collapsible disclosure panel with title and chevron.
+- **DetailsDialog** — `#ui/interactive/dialog/DetailsDialog.jsx` — SEO-friendly disclosure that upgrades to a modal.
 - **InfoPopover** — `#ui/interactive/popover/InfoPopover.jsx` — Info icon button revealing a help popover.
-- **LinkButton** — `#ui/interactive/link/LinkButton.jsx` — Anchor link styled as a button.
-- **LinkButtonIconOnly** — `#ui/interactive/link/LinkButtonIconOnly.jsx` — Anchor link styled as an icon-only button.
-- **LinkText** — `#ui/interactive/link/LinkText.jsx` — Inline anchor styled as an underlined text link.
+- **LinkButtonExternal** — `#ui/interactive/link/LinkButton.jsx` — External button link — plain `<a>` for external/runtime URLs.
+- **LinkButtonIconOnlyExternal** — `#ui/interactive/link/LinkButtonIconOnly.jsx` — External icon-only button link — plain `<a>` for external/runtime URLs.
+- **LinkButtonIconOnlyInternal** — `#ui/interactive/link/LinkButtonIconOnly.jsx` — Internal icon-only button link — typed `to`, client-side nav + preload. Needs a RouterProvider.
+- **LinkButtonInternal** — `#ui/interactive/link/LinkButton.jsx` — Internal button link — typed `to`, client-side nav + preload. Needs a RouterProvider.
+- **LinkTextExternal** — `#ui/interactive/link/LinkText.jsx` — External text link — plain `<a>` for external/runtime/`mailto:`/`#hash` URLs.
+- **LinkTextInternal** — `#ui/interactive/link/LinkText.jsx` — Internal text link — typed `to`, client-side nav + preload. Needs a RouterProvider.
 - **Sidebar** — `#ui/interactive/sidebar/Sidebar.jsx` — Responsive sidebar switching between desktop and mobile drawer.
 - **SidebarMobileDrawer** — `#ui/interactive/sidebar/SidebarMobileDrawer.jsx` — Mobile sidebar rendered as a dialog drawer.
 - **SidebarToggle** — `#ui/interactive/sidebar/SidebarToggle.jsx` — Button toggling sidebar open state, with hotkey.

@@ -22,7 +22,7 @@
 - The library code is copied into this repo at `./ui`.
 - Treat `./ui` as a read-only copy. App-specific UI stays under `src/ui`.
 - Import library components via `#ui/...`.
-- Look up existing generic UI components in `./ui` before re-implementing them.
+- Before implementing new UI, inspect and reuse available generic components in `./ui`.
 
 ## Local Source Lookup
 
