@@ -12,11 +12,12 @@ import { sessionInitialMessageStateCreate } from "./sessionInitialMessageStateCr
 import { sessionWatchToggleStateCreate } from "./sessionWatchToggleStateCreate.js"
 import { sessionDisplayModeStateCreate } from "./sessionDisplayModeStateCreate.js"
 import { sessionStreamStateCreate } from "./sessionStreamStateCreate.js"
+import { signalObjectCreate } from "./signalObjectCreate.js"
 
 type SelectedSessionStateOptions = {
   codelineExecution: Accessor<CodelineExecution | null>
   navigation: Accessor<SessionNavigationState>
-  sessionCreateStart: () => Promise<string | null>
+  sessionCreateStart: (projectPathOverride?: string) => Promise<string | null>
   sessionCreateErrorMessage: () => string | undefined
   sessionTargetAvailable: () => boolean
 }
@@ -93,6 +94,19 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
     sessionReady,
     sessionTargetAvailable: options.sessionTargetAvailable,
   })
+  const lastSession = signalObjectCreate<ReturnType<typeof session>>(undefined)
+  const lastMessages = signalObjectCreate<ReturnType<typeof durableMessages>>([])
+
+  createEffect(() => {
+    const current = session()
+    if (current !== undefined) lastSession.set(current)
+    if (selectedSessionId() === null) lastSession.set(undefined)
+  })
+  createEffect(() => {
+    const current = durableMessages()
+    if (current.length > 0) lastMessages.set(current)
+    if (selectedSessionId() === null) lastMessages.set([])
+  })
 
   createEffect(() => {
     if (
@@ -108,10 +122,13 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
   return {
     chatCreate,
     displayMode,
-    session,
+    session: () => session() ?? lastSession.get(),
     initialChat: initialMessage.chat,
     isInitialChatVisible: initialMessage.isVisible,
-    messages: durableMessages,
+    messages: () => {
+      const current = durableMessages()
+      return current.length > 0 ? current : lastMessages.get()
+    },
     renameState,
     watchState,
     streamGroups: streamState.groups,

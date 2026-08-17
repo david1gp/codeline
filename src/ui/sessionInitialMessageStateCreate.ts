@@ -6,7 +6,7 @@ import { signalObjectCreate } from "./signalObjectCreate.js"
 type SessionInitialMessageStateOptions = {
   chatCreate: (sessionId: string) => SessionChatState
   selectedSessionId: Accessor<string | null>
-  sessionCreateStart: () => Promise<string | null>
+  sessionCreateStart: (projectPathOverride?: string) => Promise<string | null>
   sessionCreateErrorMessage: () => string | undefined
   sessionReady: (sessionId: string) => Promise<boolean>
   sessionTargetAvailable: () => boolean

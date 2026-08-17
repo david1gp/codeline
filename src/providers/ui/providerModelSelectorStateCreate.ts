@@ -98,6 +98,11 @@ export function providerModelSelectorStateCreate(options: ProviderModelSelectorS
   const configuration = createSignalObject<AgentConfiguration>(placeholderConfiguration)
   const groups = createSignalObject<ProviderModelSelectorGroup[]>([])
   const status = createSignalObject<ProviderModelSelectorStatus>("idle")
+  let statusIsReady = false
+  const statusSet = (value: ProviderModelSelectorStatus) => {
+    statusIsReady = value === "ready"
+    status.set(value)
+  }
   const models = () => groups.get().flatMap((group) => group.models)
   const selection = providerModelSelectionStateCreate(
     configuration.get,
@@ -107,38 +112,42 @@ export function providerModelSelectorStateCreate(options: ProviderModelSelectorS
 
   createEffect(() => {
     const sessionId = options.sessionId()
-    groups.set([])
-    if (sessionId === null) {
-      status.set("idle")
-      return
-    }
-
     const controller = new AbortController()
-    status.set("loading")
+    if (!statusIsReady) statusSet("loading")
     void (async () => {
       try {
-        const [sessionResponse, catalogResult] = await Promise.all([
-          fetchImplementation(`/api/sessions/${encodeURIComponent(sessionId)}`, { signal: controller.signal }),
-          fetchImplementation("/api/providers/catalog", {
-            credentials: "same-origin",
+        const catalogResult = await fetchImplementation("/api/providers/catalog", {
+          credentials: "same-origin",
+          signal: controller.signal,
+        })
+          .then(async (response) => ({ body: await response.json(), response }))
+          .catch(() => undefined)
+
+        let sessionConfiguration = configuration.get()
+        if (sessionId !== null) {
+          const sessionResponse = await fetchImplementation(`/api/sessions/${encodeURIComponent(sessionId)}`, {
             signal: controller.signal,
           })
-            .then(async (response) => ({ body: await response.json(), response }))
-            .catch(() => undefined),
-        ])
-        const sessionBody: unknown = await sessionResponse.json()
-        const parsedSession = v.safeParse(sessionProviderResponseSchema, sessionBody)
-        if (!sessionResponse.ok || !parsedSession.success) {
-          status.set("error")
-          return
+          const sessionBody: unknown = await sessionResponse.json()
+          const parsedSession = v.safeParse(sessionProviderResponseSchema, sessionBody)
+          if (!sessionResponse.ok || !parsedSession.success) {
+            statusSet("error")
+            return
+          }
+          sessionConfiguration = parsedSession.output.agent.configuration
+          configuration.set(sessionConfiguration)
         }
-        configuration.set(parsedSession.output.agent.configuration)
 
         const parsedCatalog = v.safeParse(providerApiCatalogResponseSchema, catalogResult?.body)
         if (catalogResult?.response.ok && parsedCatalog.success) {
           const catalogGroups = providerModelSelectorGroupsCreate(parsedCatalog.output)
           groups.set(catalogGroups)
-          status.set(catalogGroups.length === 0 ? "error" : "ready")
+          statusSet(catalogGroups.length === 0 ? "error" : "ready")
+          return
+        }
+
+        if (sessionId === null) {
+          statusSet("error")
           return
         }
 
@@ -162,7 +171,7 @@ export function providerModelSelectorStateCreate(options: ProviderModelSelectorS
         ])
         const parsedModels = v.safeParse(providerApiModelsResponseSchema, modelsBody)
         const parsedConnection = v.safeParse(providerApiConnectionTestResponseSchema, connectionBody)
-        const currentConfiguration = parsedSession.output.agent.configuration
+        const currentConfiguration = sessionConfiguration
         if (
           !modelsResponse.ok ||
           !connectionResponse.ok ||
@@ -172,7 +181,7 @@ export function providerModelSelectorStateCreate(options: ProviderModelSelectorS
           parsedConnection.output.model !== currentConfiguration.model ||
           parsedModels.output.models.length === 0
         ) {
-          status.set("error")
+          statusSet("error")
           return
         }
 
@@ -190,9 +199,9 @@ export function providerModelSelectorStateCreate(options: ProviderModelSelectorS
             name: currentConfiguration.provider,
           },
         ])
-        status.set("ready")
+        statusSet("ready")
       } catch (_error) {
-        if (!controller.signal.aborted) status.set("error")
+        if (!controller.signal.aborted) statusSet("error")
       }
     })()
     onCleanup(() => controller.abort())

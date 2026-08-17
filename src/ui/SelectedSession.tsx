@@ -22,10 +22,10 @@ export function SelectedSession(props: {
           <Match when={!props.state.hasSelection()}>
             <div class="flex flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-8 text-center">
               <div class="w-full max-w-[820px]">
-                <p class="m-0 text-[11px] font-semibold tracking-[0.14em] text-faint uppercase">New conversation</p>
-                <h2 class="mt-2 mb-0 text-2xl font-semibold tracking-[-0.02em]">Preparing your conversation</h2>
+                <p class="m-0 text-[11px] font-semibold tracking-[0.14em] text-faint uppercase">No conversation</p>
+                <h2 class="mt-2 mb-0 text-2xl font-semibold tracking-[-0.02em]">Select a conversation</h2>
                 <p class="mx-auto mt-3 mb-0 max-w-[540px] text-sm leading-relaxed text-faint">
-                  This will only take a moment.
+                  Choose a session from the sidebar, or start a new one.
                 </p>
               </div>
             </div>
@@ -45,7 +45,7 @@ export function SelectedSession(props: {
               </button>
             </div>
           </Match>
-          <Match when={props.state.isSessionLoading() || !props.state.session()}>
+          <Match when={props.state.isSessionLoading() && !props.state.session()}>
             <div class="flex flex-1 items-center justify-center text-[13px] text-faint" role="status">
               Loading conversation...
             </div>
@@ -167,24 +167,7 @@ function SelectedSessionChat(props: {
   state: SelectedSessionView
 }) {
   return (
-    <Show
-      when={props.state.session()?.id}
-      keyed
-      fallback={
-        <section class="shrink-0 px-4 pb-2 max-[760px]:px-3" aria-label="Chat composer unavailable">
-          <div class="mx-auto flex w-full max-w-[820px] items-center justify-between gap-3 rounded-[14px] border border-line bg-surface px-3 py-2.5 text-[13px] text-disabled shadow-[0_1px_2px_var(--shadow-color),0_8px_24px_-12px_var(--shadow-color-strong)]">
-            <span>Preparing conversation before messages can be sent.</span>
-            <button
-              class="shrink-0 rounded-lg border-none bg-disabled-surface px-3.5 py-1.5 text-[13px] font-semibold text-disabled max-[760px]:hidden"
-              type="button"
-              disabled
-            >
-              Send
-            </button>
-          </div>
-        </section>
-      }
-    >
+    <Show when={props.state.session()?.id} keyed fallback={null}>
       {(sessionId) => (
         <SessionChat
           providerModel={props.providerModel}

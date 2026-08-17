@@ -9,7 +9,7 @@ export function ProviderModelSelector(props: { state: ProviderModelSelectorState
       <Switch>
         <Match when={props.state.status() === "idle"}>
           <select class={selectClass} aria-label="Provider model" disabled>
-            <option>Preparing conversation...</option>
+            <option>Loading models...</option>
           </select>
         </Match>
         <Match when={props.state.status() === "loading"}>
@@ -58,7 +58,7 @@ export function ProviderModelSelector(props: { state: ProviderModelSelectorState
             New messages use {props.state.selectedModel()} from {props.state.selectedProvider()}.
           </Match>
           <Match when={props.state.status() === "error"}>Provider discovery is unavailable.</Match>
-          <Match when={true}>Model selection will be available when the conversation is ready.</Match>
+          <Match when={true}>Loading available models.</Match>
         </Switch>
       </p>
     </div>

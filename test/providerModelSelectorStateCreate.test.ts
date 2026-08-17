@@ -87,8 +87,8 @@ test("catalog selection groups and sorts providers and models while excluding un
     return rootDispose
   })
   await effectsSettle()
-  expect(requests.map((request) => request.url)).toEqual(["/api/sessions/session%2Fone", "/api/providers/catalog"])
-  expect(requests[1]?.init?.credentials).toBe("same-origin")
+  expect(requests.map((request) => request.url)).toEqual(["/api/providers/catalog", "/api/sessions/session%2Fone"])
+  expect(requests[0]?.init?.credentials).toBe("same-origin")
   dispose()
 })
 
