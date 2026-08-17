@@ -17,7 +17,7 @@ export function UiRouter() {
       <Route path="/" component={ApplicationRoot}>
         <Route path="/" component={DashboardRoutePage} />
         <Route path={["/sessions", "/sessions/new", "/sessions/:sessionId"]} component={WorkspaceRoutePage} />
-        <Route path="/files" component={FilesRoutePage} />
+        <Route path="/explorer" component={FilesRoutePage} />
         <Route path="/notes" component={NotesRoutePage} />
         <Route path="/notes/new" component={NewNoteRoutePage} />
         <Route path="/notes/:noteId" component={NoteRoutePage} />

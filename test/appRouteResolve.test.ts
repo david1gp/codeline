@@ -2,7 +2,7 @@ import { expect, test } from "bun:test"
 import { appRouteResolve } from "../src/ui/appRouteResolve.js"
 
 test("app routes the project files surface without changing workspace fallbacks", () => {
-  expect(appRouteResolve("/files")).toBe("files")
+  expect(appRouteResolve("/explorer")).toBe("files")
   expect(appRouteResolve("/sessions")).toBe("workspace")
   expect(appRouteResolve("/sessions/new")).toBe("workspace")
   expect(appRouteResolve("/sessions/unknown-id")).toBe("workspace")
@@ -23,9 +23,7 @@ test("primary navigation exposes sessions, explorer, notes, and settings", async
   expect(source).toContain("Sessions")
   expect(source).toContain("Explorer")
   expect(source).toContain("Notes")
-  expect(source).toContain('href: () => "/settings"')
-  expect(source).toContain("mdiCogOutline")
-  expect(source).toContain("Settings")
+  expect(source).toContain("settingsIsActive")
 })
 
 test("settings is registered with the settings route page", async () => {
@@ -62,6 +60,9 @@ test("PWA installation is Settings-only while update reload remains in the shell
   expect(pwaActionsSource).toContain("Install app")
   expect(pwaActionsSource).toContain("props.state.install()")
   expect(appSource).toContain('<PwaStatusActions placement="shell"')
+  expect(appSource).toContain('href="/settings"')
+  expect(appSource).toContain("mdiCogOutline")
+  expect(appSource).not.toContain("ConnectionStatusIndicator")
   expect(appSource).not.toContain('placement="settings"')
   expect(pwaActionsSource).toContain('props.placement === "shell" && props.state.status() === "update-ready"')
   expect(pwaActionsSource).toContain("Reload to update")

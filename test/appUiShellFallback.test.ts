@@ -7,7 +7,7 @@ const app = appCreate({ uiShellPath: "./index.html" })
 test("known application, demo, and simulation paths resolve to the UI shell", async () => {
   const paths = [
     "/",
-    "/files/",
+    "/explorer/",
     "/notes",
     "/notes/new/",
     "/login",

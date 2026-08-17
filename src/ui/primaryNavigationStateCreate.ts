@@ -1,4 +1,4 @@
-import { mdiCogOutline, mdiFolderOutline, mdiHistory, mdiNoteTextOutline } from "@mdi/js"
+import { mdiFolderOutline, mdiHistory, mdiNoteTextOutline } from "@mdi/js"
 import { useLocation } from "@solidjs/router"
 import { useContext } from "solid-js"
 import { primaryNavigationPathIsActive } from "./primaryNavigationPathIsActive.js"
@@ -21,6 +21,7 @@ export function primaryNavigationStateCreate() {
   }
 
   return {
+    settingsIsActive: () => primaryNavigationPathIsActive(pathname(), "/settings"),
     items: [
       {
         activate: sessionsActivate,
@@ -37,9 +38,9 @@ export function primaryNavigationStateCreate() {
         controls: undefined,
         description: "Browse and inspect files in your connected repositories.",
         expanded: undefined,
-        href: () => "/files",
+        href: () => "/explorer",
         icon: mdiFolderOutline,
-        isActive: () => primaryNavigationPathIsActive(pathname(), "/files"),
+        isActive: () => primaryNavigationPathIsActive(pathname(), "/explorer"),
         label: "Explorer",
       },
       {
@@ -51,16 +52,6 @@ export function primaryNavigationStateCreate() {
         icon: mdiNoteTextOutline,
         isActive: () => primaryNavigationPathIsActive(pathname(), "/notes"),
         label: "Notes",
-      },
-      {
-        activate: undefined,
-        controls: undefined,
-        description: "Manage Codeline appearance and application preferences.",
-        expanded: undefined,
-        href: () => "/settings",
-        icon: mdiCogOutline,
-        isActive: () => primaryNavigationPathIsActive(pathname(), "/settings"),
-        label: "Settings",
       },
     ],
     sessionDrawer,

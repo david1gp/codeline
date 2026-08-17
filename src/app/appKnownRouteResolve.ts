@@ -3,7 +3,7 @@ import { demoCatalogRouteResolve } from "../ui/demo/demoCatalogRouteResolve.js"
 import { demoScenarioRegistry } from "../ui/demo/demoScenarioRegistry.js"
 import { sessionRouteResolve } from "../ui/sessionRouteResolve.js"
 
-const applicationRoutePaths = ["/", "/files", "/login", "/notes", "/notes/new", "/sessions", "/settings"] as const
+const applicationRoutePaths = ["/", "/explorer", "/login", "/notes", "/notes/new", "/sessions", "/settings"] as const
 const demoSectionPaths = ["/demo/components", "/demo/screens"] as const
 
 export function appKnownRouteResolve(pathname: string): boolean {

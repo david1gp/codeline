@@ -1,9 +1,9 @@
-import { mdiDockRight } from "@mdi/js"
+import { mdiCogOutline, mdiDockRight } from "@mdi/js"
 import { A } from "@solidjs/router"
 import type { JSX } from "solid-js"
 import { For, Show } from "solid-js"
 import { ButtonIconOnly } from "#ui/interactive/button/ButtonIconOnly.jsx"
-import { buttonVariant } from "#ui/interactive/button/buttonCva.js"
+import { buttonCvaIconOnly, buttonVariant } from "#ui/interactive/button/buttonCva.js"
 import { Icon } from "#ui/static/icon/Icon.jsx"
 import { AccountPopover } from "../identity/ui/AccountPopover.js"
 import type { AuthShellView } from "../identity/ui/authShellView.js"
@@ -11,7 +11,6 @@ import { applicationShellContext } from "./applicationShellContext.js"
 import type { applicationShellStateCreate } from "./applicationShellStateCreate.js"
 import { appShellContext } from "./appShellContext.js"
 import type { AppShellView } from "./appShellView.js"
-import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator.js"
 import { PwaStatusActions } from "./pwa/PwaStatusActions.js"
 import { pwaStatusContext } from "./pwa/pwaStatusContext.js"
 import { primaryNavigationStateCreate } from "./primaryNavigationStateCreate.js"
@@ -74,13 +73,25 @@ export function App(props: {
 
             <div class="flex items-center gap-1 max-[760px]:col-start-2 max-[760px]:row-start-1">
               <Show when={props.auth}>{(auth) => <AccountPopover auth={auth()} />}</Show>
+              <A
+                class={buttonCvaIconOnly(
+                  buttonVariant.ghost,
+                  false,
+                  false,
+                  navigation.settingsIsActive() && "bg-slate-100 dark:bg-slate-800",
+                )}
+                href="/settings"
+                title="Settings"
+                aria-label="Settings"
+              >
+                <Icon path={mdiCogOutline} class="size-4 fill-current dark:fill-current" />
+              </A>
               <PwaStatusActions placement="shell" state={props.state.pwa} />
-              <ConnectionStatusIndicator state={props.state.connection} />
               <Show when={props.applicationShell?.rightPanelAvailable() ? props.applicationShell : undefined}>
                 {(shell) => (
                   <ButtonIconOnly
                     icon={mdiDockRight}
-                    variant={buttonVariant.outline}
+                    variant={buttonVariant.ghost}
                     classList={{ "bg-surface-hover text-foreground": shell().rightPanelOpen() }}
                     title={shell().rightPanelOpen() ? "Close right panel" : "Open right panel"}
                     aria-label={shell().rightPanelOpen() ? "Close right panel" : "Open right panel"}

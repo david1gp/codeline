@@ -1,5 +1,6 @@
 import { For, Show } from "solid-js"
 import { Icon } from "#ui/static/icon/Icon.jsx"
+import { ConnectionStatusDetails } from "./ConnectionStatusDetails.js"
 import { PwaStatusActions } from "./pwa/PwaStatusActions.js"
 import { settingsRoutePageStateCreate } from "./settingsRoutePageStateCreate.js"
 
@@ -56,6 +57,24 @@ export function SettingsRoutePage() {
             </section>
           )}
         </Show>
+
+        <section
+          class="grid gap-3 rounded-lg border border-line bg-surface-raised p-5"
+          aria-labelledby="connection-settings-title"
+        >
+          <div>
+            <h2 id="connection-settings-title" class="font-medium text-foreground text-lg">
+              Connection
+            </h2>
+            <p class="mt-1 text-faint text-sm">Status of the app, sync, and API connections.</p>
+          </div>
+          <Show
+            when={state.connection}
+            fallback={<p class="text-faint text-sm">Connection status is unavailable in this context.</p>}
+          >
+            {(connection) => <ConnectionStatusDetails state={connection()} />}
+          </Show>
+        </section>
 
         <section
           class="grid gap-3 rounded-lg border border-line bg-surface-raised p-5"

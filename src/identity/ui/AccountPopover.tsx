@@ -14,7 +14,7 @@ export function AccountPopover(props: { auth: AuthShellView }) {
       icon={mdiAccountCircleOutline}
       title="Account"
       aria-label="Account"
-      variant={buttonVariant.outline}
+      variant={buttonVariant.ghost}
       innerClass="w-[min(280px,calc(100vw-24px))] border border-line bg-surface-raised text-foreground shadow-lg"
       open={state.isOpen()}
       onOpenChange={state.openChange}
