@@ -42,7 +42,7 @@ export type SessionTargetConfigurationView = {
   selectedServerId: string | null
   serverSelect: (serverId: string) => void
   servers: ReadonlyArray<SessionTargetConfigurationServer>
-  sessionCreateStart: () => Promise<string | null>
+  sessionCreateStart: (projectPathOverride?: string) => Promise<string | null>
   sessionCreateErrorMessage: string | null
   sessionCreateStatus: "idle" | "creating" | "error"
   status: "loading" | "no-server" | "server-error" | "no-agent" | "agent-error" | "ready"

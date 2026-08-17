@@ -6,21 +6,56 @@ import { sessionBranchTreeStateCreate } from "./sessionBranchTreeStateCreate.js"
 import type { SessionNavigationState } from "./sessionNavigationStateCreate.js"
 import { sessionSearchResultAdapt } from "./sessionSearchResultAdapt.js"
 import { sessionSearchStateCreate } from "./sessionSearchStateCreate.js"
+import { sessionSidebarActionsStateCreate } from "./sessionSidebarActionsStateCreate.js"
 import { sessionSidebarDerive } from "./sessionSidebarDerive.js"
 import type { SessionSidebarRouteState } from "./sessionSidebarRouteStateCreate.js"
 import type { SessionSidebarTab } from "./sessionSidebarTab.js"
+import { sessionSidebarWorkingIdsResolve } from "./sessionSidebarWorkingIdsResolve.js"
 
 export function sessionListStateCreate(
   navigation: Accessor<SessionNavigationState>,
   sidebarRoute?: SessionSidebarRouteState,
 ) {
   const [sessions, result] = useQuery(() => codelineQueries.activeSessions())
+  const [activeRuns] = useQuery(() => codelineQueries.activeRuns())
   const search = sessionSearchStateCreate(window)
   const localActiveTab = createSignalObject<SessionSidebarTab>(search.isActive() ? "search" : "recent")
   const activeTab = sidebarRoute?.activeTab ?? localActiveTab.get
   const selectTab = sidebarRoute?.selectTab ?? localActiveTab.set
-  const visibleSessions = () => (search.isActive() ? search.sessions().map(sessionSearchResultAdapt) : sessions())
-  const sidebarTabs = () => sessionSidebarDerive(sessions(), search.sessions())
+  const workingSessionIds = () => sessionSidebarWorkingIdsResolve(activeRuns())
+  const sessionsWithWorking = () => {
+    const working = workingSessionIds()
+    return sessions().map((session) => ({ ...session, working: working.has(session.id) }))
+  }
+  const visibleSessions = () =>
+    search.isActive() ? search.sessions().map(sessionSearchResultAdapt) : sessionsWithWorking()
+  const sessionDeletedHandle = (sessionId: string) => {
+    if (navigation().selectedSessionId() !== sessionId) return
+    const next = sessions().find((session) => session.id !== sessionId)
+    if (next === undefined) {
+      navigation().clearSession()
+      return
+    }
+    navigation().selectSession(next.id)
+  }
+  const actions = sessionSidebarActionsStateCreate({
+    onSessionDeleted: sessionDeletedHandle,
+    sessionIdsForProject: (projectPath) =>
+      sessions()
+        .filter((session) => session.projectPath === projectPath)
+        .map((session) => session.id),
+    sessionTitle: (sessionId) => sessions().find((session) => session.id === sessionId)?.title,
+    sessionTitlesForProject: (projectPath) =>
+      sessions()
+        .filter((session) => session.projectPath === projectPath)
+        .map((session) => session.title),
+  })
+  const sidebarTabs = () => {
+    const overrides = Object.fromEntries(
+      sessions().map((session) => [session.projectPath, actions.projectLabel(session.projectPath)]),
+    )
+    return sessionSidebarDerive(sessionsWithWorking(), search.sessions(), Date.now(), overrides)
+  }
   const activeRows = () => {
     const tab = activeTab()
     if (tab === "projects") return []
@@ -76,6 +111,7 @@ export function sessionListStateCreate(
     selectSession: (sessionId: string) => {
       navigation().selectSession(sessionId)
     },
+    actions,
   }
 }
 

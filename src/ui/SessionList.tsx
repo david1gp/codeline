@@ -1,9 +1,21 @@
-import { mdiEyeOutline, mdiFolderMultipleOutline, mdiHistory, mdiMagnify } from "@mdi/js"
+import {
+  mdiEyeOutline,
+  mdiFolderMultipleOutline,
+  mdiFolderOutline,
+  mdiHistory,
+  mdiLoading,
+  mdiMagnify,
+  mdiPlus,
+  mdiTrashCanOutline,
+} from "@mdi/js"
 import { For, Match, Show, Switch } from "solid-js"
 import { Input } from "#ui/input/input/Input.jsx"
 import { Button } from "#ui/interactive/button/Button.jsx"
 import { ButtonIconOnly } from "#ui/interactive/button/ButtonIconOnly.jsx"
+import { buttonVariant } from "#ui/interactive/button/buttonCva.js"
 import { Icon } from "#ui/static/icon/Icon.jsx"
+import { SessionSidebarDialogs } from "./SessionSidebarDialogs.js"
+import { SessionSidebarMenu } from "./SessionSidebarMenu.js"
 import type { SessionListState } from "./sessionListStateCreate.js"
 import type { SessionSidebarTab } from "./sessionSidebarTab.js"
 
@@ -17,7 +29,11 @@ const tabs: ReadonlyArray<{ icon: string; label: string; value: SessionSidebarTa
 type SessionRow = ReturnType<SessionListState["sidebar"]["tabs"]>["recent"][number]
 
 function SessionRows(props: {
+  hideProjectLabel?: boolean
   isSelected: SessionListState["isSelected"]
+  onSessionDelete: (sessionId: string) => void
+  onSessionDeleteImmediate: (sessionId: string) => void
+  onSessionRename: (sessionId: string) => void
   rows: readonly SessionRow[]
   selectSession: (sessionId: string) => void
 }) {
@@ -26,33 +42,76 @@ function SessionRows(props: {
       <For each={props.rows}>
         {(row) => (
           <li>
-            <button
-              type="button"
-              class="flex min-h-[54px] w-full min-w-0 flex-col justify-center overflow-hidden border-0 border-transparent border-l-2 bg-transparent px-3 py-2 text-left transition-colors duration-100 hover:bg-surface-hover"
+            <div
+              class="flex min-h-[54px] w-full min-w-0 items-stretch overflow-hidden border-0 border-transparent border-l-2 bg-transparent transition-colors duration-100 hover:bg-surface-hover"
               classList={{
                 "border-l-accent bg-[var(--bg-selected)]": props.isSelected(row.session.id),
               }}
-              aria-current={props.isSelected(row.session.id) ? "page" : undefined}
-              onClick={() => props.selectSession(row.session.id)}
             >
-              <span
-                class="block w-full min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-xs font-medium text-strong"
-                title={row.session.title}
+              <button
+                type="button"
+                class="flex min-w-0 flex-1 flex-col justify-center overflow-hidden border-0 bg-transparent px-3 py-2 text-left"
+                aria-current={props.isSelected(row.session.id) ? "page" : undefined}
+                onClick={() => props.selectSession(row.session.id)}
               >
-                {row.session.title}
-              </span>
-              <span class="mt-0.5 flex w-full min-w-0 items-center gap-1.5 text-[11px] text-faint">
-                <span class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">{row.projectLabel}</span>
-                <span aria-hidden="true">·</span>
-                <time
-                  class="shrink-0"
-                  datetime={new Date(row.session.updatedAt).toISOString()}
-                  title={row.updatedAtTitle}
+                <span
+                  class="block w-full min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-xs font-medium text-strong"
+                  title={row.session.title}
                 >
-                  {row.updatedAtRelative}
-                </time>
-              </span>
-            </button>
+                  {row.session.title}
+                </span>
+                <span class="mt-0.5 flex w-full min-w-0 items-center gap-1.5 text-[11px] text-faint">
+                  <Show when={!props.hideProjectLabel}>
+                    <span class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">{row.projectLabel}</span>
+                    <span aria-hidden="true">·</span>
+                  </Show>
+                  <Show
+                    when={row.session.working}
+                    fallback={
+                      <time
+                        class="shrink-0"
+                        datetime={new Date(row.session.updatedAt).toISOString()}
+                        title={row.updatedAtTitle}
+                      >
+                        {row.updatedAtRelative}
+                      </time>
+                    }
+                  >
+                    <Icon
+                      path={mdiLoading}
+                      class="size-3 shrink-0 animate-spin fill-current text-accent dark:fill-current"
+                      title="Working"
+                    />
+                  </Show>
+                </span>
+              </button>
+              <div class="flex items-end pr-2 pb-2">
+                <Show
+                  when={row.session.title === "New session"}
+                  fallback={
+                    <SessionSidebarMenu
+                      ariaLabel={`Session actions for ${row.session.title}`}
+                      onRename={() => props.onSessionRename(row.session.id)}
+                      onDelete={() => props.onSessionDelete(row.session.id)}
+                    />
+                  }
+                >
+                  <ButtonIconOnly
+                    class="size-6 shrink-0 rounded-md text-faint hover:bg-surface-hover hover:text-strong"
+                    icon={mdiTrashCanOutline}
+                    iconClass="size-3.5 fill-current text-faint dark:fill-current"
+                    title={`Delete ${row.session.title}`}
+                    aria-label={`Delete ${row.session.title}`}
+                    variant={buttonVariant.ghost}
+                    onClick={(event) => {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      props.onSessionDeleteImmediate(row.session.id)
+                    }}
+                  />
+                </Show>
+              </div>
+            </div>
           </li>
         )}
       </For>
@@ -60,7 +119,12 @@ function SessionRows(props: {
   )
 }
 
-export function SessionList(props: { idPrefix?: string; state: SessionListState; onSessionSelect?: () => void }) {
+export function SessionList(props: {
+  idPrefix?: string
+  onSessionSelect?: () => void
+  sessionCreateInProject?: (projectPath: string) => void
+  state: SessionListState
+}) {
   const prefix = () => props.idPrefix ?? "session"
   const searchId = () => `${prefix()}-search`
   const selectSession = (sessionId: string) => {
@@ -149,22 +213,42 @@ export function SessionList(props: { idPrefix?: string; state: SessionListState;
                 {(project) => (
                   <details class="group" open={project.sessions.some((row) => props.state.isSelected(row.session.id))}>
                     <summary class="flex min-h-10 cursor-pointer list-none items-center gap-2 px-3 text-xs font-semibold text-strong hover:bg-surface-hover">
-                      <Icon
-                        path={mdiFolderMultipleOutline}
-                        class="size-4 shrink-0 fill-current text-faint dark:fill-current"
-                      />
+                      <Icon path={mdiFolderOutline} class="size-4 shrink-0 fill-current text-faint dark:fill-current" />
                       <span
                         class="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
                         title={project.projectPath}
                       >
                         {project.projectLabel}
                       </span>
-                      <span class="shrink-0 text-[11px] font-normal text-faint">{project.sessions.length}</span>
+                      <SessionSidebarMenu
+                        ariaLabel={`Project actions for ${project.projectLabel}`}
+                        onRename={() => props.state.actions.projectRenameOpen(project.projectPath)}
+                        onDelete={() => props.state.actions.projectDeleteOpen(project.projectPath)}
+                      />
+                      <ButtonIconOnly
+                        class="size-6 shrink-0 rounded-md text-faint hover:bg-transparent hover:text-faint"
+                        icon={mdiPlus}
+                        iconClass="size-3.5 fill-current text-faint dark:fill-current"
+                        title={`New session in ${project.projectLabel}`}
+                        aria-label={`New session in ${project.projectLabel}`}
+                        variant={buttonVariant.ghost}
+                        onClick={(event) => {
+                          event.preventDefault()
+                          event.stopPropagation()
+                          props.sessionCreateInProject?.(project.projectPath)
+                        }}
+                      />
                     </summary>
                     <div class="ml-3 border-line-subtle border-l">
                       <SessionRows
+                        hideProjectLabel
                         rows={project.sessions}
                         isSelected={props.state.isSelected}
+                        onSessionDelete={props.state.actions.sessionDeleteOpen}
+                        onSessionDeleteImmediate={(sessionId) =>
+                          void props.state.actions.sessionDeleteImmediate(sessionId)
+                        }
+                        onSessionRename={props.state.actions.sessionRenameOpen}
                         selectSession={selectSession}
                       />
                     </div>
@@ -177,11 +261,15 @@ export function SessionList(props: { idPrefix?: string; state: SessionListState;
             <SessionRows
               rows={props.state.sidebar.activeRows()}
               isSelected={props.state.isSelected}
+              onSessionDelete={props.state.actions.sessionDeleteOpen}
+              onSessionDeleteImmediate={(sessionId) => void props.state.actions.sessionDeleteImmediate(sessionId)}
+              onSessionRename={props.state.actions.sessionRenameOpen}
               selectSession={selectSession}
             />
           </Match>
         </Switch>
       </div>
+      <SessionSidebarDialogs actions={props.state.actions} />
     </div>
   )
 }

@@ -1,6 +1,7 @@
 import { createSignalObject } from "@adaptive-ds/solid-ui/utils/createSignalObject"
 import { sessionBranchTreeStateCreate } from "../sessionBranchTreeStateCreate.js"
 import type { SessionListState } from "../sessionListStateCreate.js"
+import { sessionSidebarActionsStateCreate } from "../sessionSidebarActionsStateCreate.js"
 import { sessionSidebarDerive } from "../sessionSidebarDerive.js"
 import type { SessionSidebarTab } from "../sessionSidebarTab.js"
 import type { DemoSessionScreenVariant } from "./demoSessionScreenVariant.js"
@@ -23,6 +24,7 @@ export function demoSessionListStateCreate(options: DemoSessionListStateOptions)
             ...session,
             projectPath: "~",
             watched: true,
+            working: session.id === "demo-session-streaming",
           })),
       [],
     )
@@ -36,8 +38,14 @@ export function demoSessionListStateCreate(options: DemoSessionListStateOptions)
     selectedSessionId: options.selectedSessionId.get,
     sessions,
   })
+  const actions = sessionSidebarActionsStateCreate({
+    sessionIdsForProject: () => sessions().map((session) => session.id),
+    sessionTitle: (sessionId) => sessions().find((session) => session.id === sessionId)?.title,
+    sessionTitlesForProject: () => sessions().map((session) => session.title),
+  })
 
   return {
+    actions,
     emptyMessage: () =>
       query.get().trim().length > 0 ? "No conversations match your search." : "No active conversations.",
     isEmpty: () => sessions().length === 0,

@@ -9,5 +9,6 @@ export function sessionSearchResultAdapt(row: SessionSearchResponse["sessions"][
     title: row.session.title,
     updatedAt: row.session.updatedAt ?? 0,
     watched: row.session.watched ?? false,
+    working: false,
   }
 }

@@ -34,6 +34,7 @@ test("finalized message query definition exposes a session-scoped request", () =
 test("identity-scoped queries use the canonical userId context property", () => {
   const queries = [
     ["activeSessions", undefined],
+    ["activeRuns", undefined],
     ["activeSession", { sessionId: "session-1" }],
     ["finalizedMessages", { sessionId: "session-1" }],
     ["latestSessionRun", { sessionId: "session-1" }],

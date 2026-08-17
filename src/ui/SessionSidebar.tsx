@@ -1,9 +1,10 @@
 import { mdiPlus } from "@mdi/js"
 import { Show } from "solid-js"
 import { ButtonIcon } from "#ui/interactive/button/ButtonIcon.jsx"
+import { buttonVariant } from "#ui/interactive/button/buttonCva.js"
+import type { ActiveProjectState } from "./activeProjectStateCreate.js"
 import { NewProjectDialog } from "./NewProjectDialog.js"
 import { SessionList } from "./SessionList.js"
-import type { ActiveProjectState } from "./activeProjectStateCreate.js"
 import type { SessionListState } from "./sessionListStateCreate.js"
 import type { SessionTargetSelectorState } from "./sessionTargetSelectorStateCreate.js"
 
@@ -18,32 +19,31 @@ export function SessionSidebar(props: {
 }) {
   return (
     <div class="flex h-full min-h-0 flex-col bg-muted">
-      <header class="shrink-0 border-line border-b px-2.5 pt-3 pb-2.5">
-        <div class="flex items-center justify-between gap-2">
-          <h2 class="m-0 truncate text-[15px] font-semibold tracking-[-0.02em]" id={props.headingId}>
-            Sessions
-          </h2>
-          <div class="flex items-center gap-1.5">
-            <Show when={props.close !== undefined}>
-              <button
-                class="flex h-8 items-center justify-center rounded-[7px] border border-line bg-surface-hover px-2.5 text-xs text-faint hover:text-strong"
-                type="button"
-                ref={props.initialFocus}
-                aria-label="Close sessions"
-                onClick={props.close}
-              >
-                Close
-              </button>
-            </Show>
+      <header class="shrink-0 border-line border-b px-2.5 py-1.5">
+        <Show when={props.close !== undefined}>
+          <div class="mb-2 flex items-center justify-end">
+            <button
+              class="flex h-8 items-center justify-center rounded-[7px] border border-line bg-surface-hover px-2.5 text-xs text-faint hover:text-strong"
+              type="button"
+              ref={props.initialFocus}
+              aria-label="Close sessions"
+              onClick={props.close}
+            >
+              Close
+            </button>
           </div>
-        </div>
+        </Show>
+        <h2 class="sr-only" id={props.headingId}>
+          Sessions
+        </h2>
         <ButtonIcon
-          class="mt-3 h-9 w-full justify-center rounded-[7px] border border-accent-border bg-accent-soft px-3 text-sm font-semibold text-accent hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-50"
+          class="h-9 w-full justify-center"
           disabled={!props.sessionTarget.canCreateSession()}
           icon={mdiPlus}
           iconClass="size-4"
           isLoading={props.sessionTarget.isCreatingSession()}
           title="Start a new session with the selected agent"
+          variant={buttonVariant.contrast}
           onClick={() => void props.sessionTarget.sessionCreateStart()}
         >
           New Session
@@ -58,7 +58,12 @@ export function SessionSidebar(props: {
         </Show>
       </header>
 
-      <SessionList idPrefix={props.idPrefix} state={props.sessionList} onSessionSelect={props.close} />
+      <SessionList
+        idPrefix={props.idPrefix}
+        state={props.sessionList}
+        onSessionSelect={props.close}
+        sessionCreateInProject={(projectPath) => void props.sessionTarget.sessionCreateStart(projectPath)}
+      />
     </div>
   )
 }

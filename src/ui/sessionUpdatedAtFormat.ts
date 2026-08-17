@@ -9,7 +9,7 @@ function sessionUpdatedAtRelativeFormat(milliseconds: number, now: number): stri
   const difference = milliseconds - now
   const absoluteDifference = Math.abs(difference)
   const future = difference > 0
-  const unitFormat = (unit: string, amount: number) => (future ? `in ${amount}${unit}` : `${amount}${unit} ago`)
+  const unitFormat = (unit: string, amount: number) => (future ? `in ${amount}${unit}` : `${amount}${unit}`)
 
   if (absoluteDifference < 60_000) return future ? "in less than a minute" : "just now"
   if (absoluteDifference < 3_600_000) return unitFormat("m", Math.floor(absoluteDifference / 60_000))

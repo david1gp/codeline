@@ -12,6 +12,7 @@ function session(input: Partial<Parameters<typeof sessionSidebarDerive>[0][numbe
     title: input.title ?? input.id,
     updatedAt: input.updatedAt ?? now,
     watched: input.watched ?? true,
+    working: input.working ?? false,
   }
 }
 
@@ -31,7 +32,7 @@ test("sidebar derives flat recent and watched lists in stable active-session ord
   expect(derived.recent.map((row) => [row.projectLabel, row.updatedAtRelative])).toEqual([
     ["Home", "just now"],
     ["Home", "just now"],
-    ["Home", "1m ago"],
+    ["Home", "1m"],
   ])
 })
 
@@ -83,7 +84,7 @@ test("sidebar adapts search results without losing row metadata", () => {
   expect(derived.search[0]).toMatchObject({
     projectLabel: "codeline",
     session: { id: "search-result", projectPath: "/workspace/codeline", watched: false },
-    updatedAtRelative: "1h ago",
+    updatedAtRelative: "1h",
   })
 })
 

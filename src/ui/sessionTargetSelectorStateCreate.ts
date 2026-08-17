@@ -598,9 +598,9 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
     }
   }
 
-  const sessionCreateStart = (): Promise<string | null> => {
+  const sessionCreateStart = (projectPathOverride?: string): Promise<string | null> => {
     const target = pendingTarget()
-    const projectPath = activeProjectPath()
+    const projectPath = projectPathOverride ?? activeProjectPath()
     if (target === null || isDisposed) return Promise.resolve(null)
     if (projectPath === null) {
       sessionCreateErrorMessage.set("Select a project before creating a conversation.")
@@ -626,7 +626,7 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
         options.selectedSessionId() === null &&
         currentTarget?.agentId === target.agentId &&
         currentTarget.serverId === target.serverId &&
-        activeProjectPath() === projectPath &&
+        (projectPathOverride ?? activeProjectPath()) === projectPath &&
         (!requiresNewSessionRoute || options.isNewSessionRoute?.() === true)
       )
     }

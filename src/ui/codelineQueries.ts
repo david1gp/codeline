@@ -19,6 +19,13 @@ export const codelineQueries = defineQueriesWithType<typeof zeroSchema>()({
       .orderBy("updatedAt", "desc")
       .orderBy("id", "desc"),
   ),
+  activeRuns: defineQuery(({ ctx }: { ctx: CodelineQueryContext }) =>
+    zeroQueryBuilder.run
+      .where("userId", ctx.userId)
+      .where("status", "IN", ["accepted", "running"])
+      .orderBy("updatedAt", "desc")
+      .orderBy("id", "desc"),
+  ),
   finalizedMessages: defineQuery(({ args, ctx }: { args: { sessionId: string }; ctx: CodelineQueryContext }) =>
     zeroQueryBuilder.message
       .where("sessionId", args.sessionId)

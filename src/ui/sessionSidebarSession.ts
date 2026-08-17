@@ -5,4 +5,5 @@ export type SessionSidebarSession = {
   title: string
   updatedAt: Date | number | string
   watched: boolean
+  working: boolean
 }

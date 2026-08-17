@@ -1,5 +1,6 @@
 import type { SessionSearchResponse } from "../session/schema/sessionSearchResponseSchema.js"
 import { sessionSearchResultAdapt } from "./sessionSearchResultAdapt.js"
+import { sessionSidebarProjectLabelResolve } from "./sessionSidebarProjectLabelResolve.js"
 import type { SessionSidebarSession } from "./sessionSidebarSession.js"
 import { sessionUpdatedAtFormat } from "./sessionUpdatedAtFormat.js"
 
@@ -35,16 +36,14 @@ function sessionSidebarSessionCompare(left: SessionSidebarSession, right: Sessio
   return right.id.localeCompare(left.id)
 }
 
-function sessionSidebarProjectLabelResolve(projectPath: string): string {
-  if (projectPath === "~") return "Home"
-  const segments = projectPath.split("/").filter((segment) => segment.length > 0)
-  return segments.at(-1) ?? projectPath
-}
-
-function sessionSidebarRowCreate(session: SessionSidebarSession, now: number): SessionSidebarRow {
+function sessionSidebarRowCreate(
+  session: SessionSidebarSession,
+  now: number,
+  projectLabels: Record<string, string> = {},
+): SessionSidebarRow {
   const updatedAt = sessionUpdatedAtFormat(session.updatedAt, now)
   return {
-    projectLabel: sessionSidebarProjectLabelResolve(session.projectPath),
+    projectLabel: projectLabels[session.projectPath] ?? sessionSidebarProjectLabelResolve(session.projectPath),
     session,
     updatedAtRelative: updatedAt.relative,
     updatedAtTitle: updatedAt.title,
@@ -55,10 +54,11 @@ export function sessionSidebarDerive(
   activeSessions: readonly SessionSidebarSession[],
   searchResults: readonly SessionSearchResponse["sessions"][number][],
   now: number = Date.now(),
+  projectLabels: Record<string, string> = {},
 ): SessionSidebarTabs {
   const recent = [...activeSessions]
     .sort(sessionSidebarSessionCompare)
-    .map((session) => sessionSidebarRowCreate(session, now))
+    .map((session) => sessionSidebarRowCreate(session, now, projectLabels))
   const watched = recent.filter((row) => row.session.watched)
   const projects = new Map<string, SessionSidebarRow[]>()
 
@@ -71,7 +71,7 @@ export function sessionSidebarDerive(
   return {
     projects: [...projects]
       .map(([projectPath, sessions]) => ({
-        projectLabel: sessionSidebarProjectLabelResolve(projectPath),
+        projectLabel: projectLabels[projectPath] ?? sessionSidebarProjectLabelResolve(projectPath),
         projectPath,
         sessions,
       }))
@@ -88,7 +88,9 @@ export function sessionSidebarDerive(
         )
       }),
     recent,
-    search: searchResults.map((result) => sessionSidebarRowCreate(sessionSearchResultAdapt(result), now)),
+    search: searchResults.map((result) =>
+      sessionSidebarRowCreate(sessionSearchResultAdapt(result), now, projectLabels),
+    ),
     watched,
   }
 }
