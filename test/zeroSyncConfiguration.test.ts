@@ -3,6 +3,8 @@ import { expect, test } from "bun:test"
 const envExample = await Bun.file(new URL("../.env.example", import.meta.url)).text()
 const compose = await Bun.file(new URL("../ops/dev/compose.yaml", import.meta.url)).text()
 const zeroProvider = await Bun.file(new URL("../src/ui/CodelineZeroProvider.tsx", import.meta.url)).text()
+const viteConfiguration = await Bun.file(new URL("../vite.config.ts", import.meta.url)).text()
+const sessionListState = await Bun.file(new URL("../src/ui/sessionListStateCreate.ts", import.meta.url)).text()
 
 function environmentValue(name: string): string | undefined {
   const line = envExample.split("\n").find((entry) => entry.startsWith(`${name}=`))
@@ -34,4 +36,13 @@ test("preview browser and managed cache use matching HTTPS query and mutation UR
     "queryURL={import.meta.env.VITE_ZERO_QUERY_URL ?? `${window.location.origin}/api/query`}",
   )
   expect(zeroProvider).not.toContain("auth=")
+})
+
+test("the sidebar page size is exposed to Vite from the server setting", () => {
+  expect(environmentValue("SESSIONS_SIDEBAR_PAGE_SIZE")).toBe("25")
+  expect(environmentValue("VITE_SESSIONS_SIDEBAR_PAGE_SIZE")).toBeUndefined()
+  expect(viteConfiguration).toContain(
+    '"import.meta.env.VITE_SESSIONS_SIDEBAR_PAGE_SIZE": JSON.stringify(env.SESSIONS_SIDEBAR_PAGE_SIZE ?? "25")',
+  )
+  expect(sessionListState).toContain("import.meta.env.VITE_SESSIONS_SIDEBAR_PAGE_SIZE")
 })

@@ -45,6 +45,9 @@ export default defineConfig(({ mode }) => {
         { find: "tailwind-merge", replacement: resolve(dependenciesRoot, "tailwind-merge") },
       ],
     },
+    define: {
+      "import.meta.env.VITE_SESSIONS_SIDEBAR_PAGE_SIZE": JSON.stringify(env.SESSIONS_SIDEBAR_PAGE_SIZE ?? "25"),
+    },
     server: {
       port: uiPort,
       strictPort: true,

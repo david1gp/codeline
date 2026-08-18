@@ -1,6 +1,6 @@
 import { createSignalObject } from "@adaptive-ds/solid-ui/utils/createSignalObject"
 import { useQuery } from "@rocicorp/zero/solid"
-import type { Accessor } from "solid-js"
+import { type Accessor, createEffect } from "solid-js"
 import { codelineQueries } from "./codelineQueries.js"
 import { sessionBranchTreeStateCreate } from "./sessionBranchTreeStateCreate.js"
 import type { SessionNavigationState } from "./sessionNavigationStateCreate.js"
@@ -12,11 +12,36 @@ import type { SessionSidebarRouteState } from "./sessionSidebarRouteStateCreate.
 import type { SessionSidebarTab } from "./sessionSidebarTab.js"
 import { sessionSidebarWorkingIdsResolve } from "./sessionSidebarWorkingIdsResolve.js"
 
+const defaultSessionsSidebarPageSize = 25
+
+function sessionsSidebarPageSizeResolve() {
+  const configured = Number(import.meta.env.VITE_SESSIONS_SIDEBAR_PAGE_SIZE)
+  return Number.isInteger(configured) && configured > 0 ? configured : defaultSessionsSidebarPageSize
+}
+
 export function sessionListStateCreate(
   navigation: Accessor<SessionNavigationState>,
   sidebarRoute?: SessionSidebarRouteState,
 ) {
-  const [sessions, result] = useQuery(() => codelineQueries.activeSessions())
+  const pageSize = sessionsSidebarPageSizeResolve()
+  const loadedPageCount = createSignalObject(1)
+  const [sessions, sessionsResult] = useQuery(() =>
+    codelineQueries.activeSessions({ limit: loadedPageCount.get() * pageSize, start: null }),
+  )
+  const canLoadMore = createSignalObject(false)
+  const isLoadingMore = createSignalObject(false)
+
+  createEffect(() => {
+    const currentResult = sessionsResult()
+    if (currentResult.type === "unknown") return
+    if (currentResult.type === "error") {
+      isLoadingMore.set(false)
+      return
+    }
+    canLoadMore.set(sessions().length === loadedPageCount.get() * pageSize)
+    isLoadingMore.set(false)
+  })
+
   const [activeRuns] = useQuery(() => codelineQueries.activeRuns())
   const search = sessionSearchStateCreate(window)
   const localActiveTab = createSignalObject<SessionSidebarTab>(search.isActive() ? "search" : "recent")
@@ -65,6 +90,16 @@ export function sessionListStateCreate(
     selectedSessionId: () => navigation().selectedSessionId(),
     sessions: visibleSessions,
   })
+  const loadMore = () => {
+    if (isLoadingMore.get() || !canLoadMore.get()) return
+    isLoadingMore.set(true)
+    const currentResult = sessionsResult()
+    if (currentResult.type === "error") {
+      currentResult.retry()
+      return
+    }
+    loadedPageCount.set(loadedPageCount.get() + 1)
+  }
 
   return {
     roots: branchTree.roots,
@@ -72,6 +107,9 @@ export function sessionListStateCreate(
     sidebar: {
       activeTab,
       activeRows,
+      canLoadMore: canLoadMore.get,
+      isLoadingMore: isLoadingMore.get,
+      loadMore,
       projectGroups: () => sidebarTabs().projects,
       selectTab,
       tabs: sidebarTabs,
@@ -82,15 +120,16 @@ export function sessionListStateCreate(
       search.updateQuery(value)
     },
     isSelected: (sessionId: string) => navigation().selectedSessionId() === sessionId,
-    isError: () => (activeTab() === "search" ? search.isError() : result().type === "error"),
+    isError: () =>
+      activeTab() === "search" ? search.isError() : sessionsResult().type === "error" && sessions().length === 0,
     isLoading: () =>
       activeTab() === "search"
         ? search.isLoading() && activeRows().length === 0
-        : result().type === "unknown" && sessions().length === 0,
+        : sessionsResult().type === "unknown" && sessions().length === 0,
     isEmpty: () => {
       const tab = activeTab()
       if (tab === "search") return !search.isActive() || (search.isComplete() && activeRows().length === 0)
-      if (result().type !== "complete") return false
+      if (sessionsResult().type !== "complete") return false
       return tab === "projects" ? sidebarTabs().projects.length === 0 : activeRows().length === 0
     },
     retry: () => {
@@ -98,7 +137,7 @@ export function sessionListStateCreate(
         search.retry()
         return
       }
-      const currentResult = result()
+      const currentResult = sessionsResult()
       if (currentResult.type === "error") currentResult.retry()
     },
     emptyMessage: () => {

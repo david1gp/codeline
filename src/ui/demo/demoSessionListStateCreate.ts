@@ -63,6 +63,9 @@ export function demoSessionListStateCreate(options: DemoSessionListStateOptions)
         if (tab === "projects") return []
         return sidebarTabs()[tab]
       },
+      canLoadMore: () => false,
+      isLoadingMore: () => false,
+      loadMore: () => {},
       projectGroups: () => sidebarTabs().projects,
       selectTab: activeTab.set,
       tabs: sidebarTabs,

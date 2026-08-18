@@ -277,6 +277,19 @@ export function SessionList(props: {
             />
           </Match>
         </Switch>
+        <Show when={props.state.sidebar.activeTab() !== "search" && props.state.sidebar.canLoadMore()}>
+          <div class="flex justify-center border-line border-t p-2">
+            <Button
+              variant="none"
+              size="none"
+              class="px-2 py-1 text-[11px] text-accent"
+              disabled={props.state.sidebar.isLoadingMore()}
+              onClick={props.state.sidebar.loadMore}
+            >
+              {props.state.sidebar.isLoadingMore() ? "Loading..." : "Load more"}
+            </Button>
+          </div>
+        </Show>
       </div>
       <SessionSidebarDialogs actions={props.state.actions} />
     </div>

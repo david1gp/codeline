@@ -3,6 +3,10 @@ import { zeroSchema } from "../database/zeroSchema.js"
 
 const zeroQueryBuilder = createBuilder(zeroSchema)
 type CodelineQueryContext = { userId: string }
+type ActiveSessionsQueryArgs = {
+  limit: number
+  start: { id: string; updatedAt: number } | null
+}
 
 export const codelineQueries = defineQueriesWithType<typeof zeroSchema>()({
   activeSession: defineQuery(({ args, ctx }: { args: { sessionId: string }; ctx: CodelineQueryContext }) =>
@@ -12,13 +16,15 @@ export const codelineQueries = defineQueriesWithType<typeof zeroSchema>()({
       .where("archivedAt", "IS", null)
       .one(),
   ),
-  activeSessions: defineQuery(({ ctx }: { ctx: CodelineQueryContext }) =>
-    zeroQueryBuilder.session
+  activeSessions: defineQuery(({ args, ctx }: { args: ActiveSessionsQueryArgs; ctx: CodelineQueryContext }) => {
+    let query = zeroQueryBuilder.session
       .where("userId", ctx.userId)
       .where("archivedAt", "IS", null)
       .orderBy("updatedAt", "desc")
-      .orderBy("id", "desc"),
-  ),
+      .orderBy("id", "desc")
+    if (args.start !== null) query = query.start(args.start)
+    return query.limit(args.limit)
+  }),
   activeRuns: defineQuery(({ ctx }: { ctx: CodelineQueryContext }) =>
     zeroQueryBuilder.run
       .where("userId", ctx.userId)
