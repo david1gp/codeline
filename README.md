@@ -228,7 +228,7 @@ bun run db:generate
 ./ops/dev/codeline-dev.sh migrate
 ```
 
-Seed deterministic local example data through the repository-owned command. It applies Drizzle migrations first, reconciles the local-development user, two servers, three fixture agents, active and archived sessions, and finalized messages, and reconciles catalog provider models and agents from `providers/` and `agents/` into the Git-backed configuration store under `example-server-local`. Repeated default runs preserve unrelated rows; `--reset` removes and recreates only the known fixture-owned rows.
+Seed deterministic local example data through the repository-owned command. It applies Drizzle migrations first, reconciles the local-development user, two servers, three fixture agents, active and archived sessions, and finalized messages, and reconciles catalog provider models and agents from `providers/` and `agents/` into the Git-backed configuration store under `example-server-local`. With `EXAMPLE_DATA_USER_ID` set, the fixture is owned by that user instead, which makes it available to a configured OIDC test account. Repeated default runs preserve unrelated rows; `--reset` removes and recreates only the known fixture-owned rows.
 
 ```bash
 bun run db:seed
