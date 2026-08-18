@@ -41,6 +41,6 @@
     "noFallthroughCasesInSwitch": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["src", "test", "scripts"],
+  "include": ["src", "test", "e2e", "scripts", "playwright.config.ts"],
   "exclude": [".github", ".idea", ".vscode", "build", "dist", "docs", "node_modules", "ops"]
 }

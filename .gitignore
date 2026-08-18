@@ -14,6 +14,8 @@ ops/dev/zero-pkgs/
 
 # Tests and logs
 coverage/
+test-results/
+playwright-report/
 *.lcov
 logs/
 *.log
