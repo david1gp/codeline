@@ -99,7 +99,7 @@ Usage: ops/dev/codeline-dev.sh <command> [args]
 
 Commands:
   build             Build the local Zero image from the sibling checkout; does not start containers.
-  clean             Stop the managed target if present, then remove containers and named volumes including the Zero replica.
+  clean             Recreate local containers and volumes, restart the managed target, and seed example data.
   config            Resolve Compose configuration without printing it.
   down              Stop and remove containers, keeping named volumes.
   help              Show this help.
@@ -120,10 +120,14 @@ EOF
 case "${1:-help}" in
   build) compose build zero-cache ;;
   clean)
-    if command -v systemctl >/dev/null 2>&1; then
-      systemctl --user stop codeline-dev.target 2>/dev/null || true
-    fi
+    command -v systemctl >/dev/null 2>&1 || fail "systemctl is required for clean"
+    systemctl --user cat codeline-dev.target >/dev/null 2>&1 ||
+      fail "codeline-dev.target is not installed; run ops/dev/systemd/codeline-dev-systemd.sh install first"
+    systemctl --user stop codeline-dev.target codeline-dev-postgres.service 2>/dev/null || true
     compose down --remove-orphans --volumes
+    systemctl --user start codeline-dev-postgres.service
+    (cd "$root" && bun run db:seed)
+    systemctl --user start codeline-dev.target
     ;;
   config) compose config --quiet ;;
   down) compose down --remove-orphans ;;
