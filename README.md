@@ -158,10 +158,17 @@ chmod 600 .env
 ./ops/dev/codeline-dev.sh config
 ./ops/dev/codeline-dev.sh build
 ./ops/dev/codeline-dev.sh up
-./ops/dev/codeline-dev.sh migrate
+./ops/dev/codeline-dev.sh clean
 ./ops/dev/codeline-dev.sh status
-bun run dev
 ```
+
+`clean` is the managed local setup command. It recreates the local PostgreSQL and Zero data, starts the repository-managed services, applies committed Drizzle migrations, and runs the deterministic seed. Do not run `bun run dev` alongside the managed systemd UI and API services.
+
+### ZITADEL organization access
+
+Set `ZITADEL_ORGANIZATION_ID` in the ignored `.env` to Contentoren's non-secret ZITADEL organization ID. Codeline requests the `urn:zitadel:iam:user:resourceowner` scope and validates `urn:zitadel:iam:user:resourceowner:id` at sign-in. The claim must equal `ZITADEL_ORGANIZATION_ID`; the OIDC client ID identifies the application and does not establish organization membership.
+
+Authenticated Contentoren organization members share access to the servers and enabled execution agents assigned to Contentoren. Server access comes from the validated organization claim. Codeline does not use per-user server ownership or a separate invitation flow. Sessions, messages, notes, runs, and streams remain private to the user who created them.
 
 Project discovery roots are configured with `CODELINE_PROJECT_ROOTS` as a JSON string array. Omit the variable, or leave it blank, to discover projects from the operating-system home directory. Set it to an explicit empty array (`[]`) to disable project discovery. Relative roots are normalized from the Codeline process working directory and duplicate roots are removed.
 
@@ -220,7 +227,7 @@ Service lifecycle:
 ./ops/dev/codeline-dev.sh clean
 ```
 
-`down` removes containers but keeps data. `reset` removes both named volumes and is the destructive local reset. `clean` is the managed destructive reset: it removes the containers and volumes, restarts the managed target, and seeds the deterministic example data so the local workspace is usable immediately. Run `migrate` after `up` and after any new migration generation:
+`down` removes containers but keeps data. `reset` removes both named volumes and is the destructive local reset. `clean` is the managed destructive reset: it removes the containers and volumes, restarts the managed target, applies committed migrations, and seeds the deterministic example data so the local workspace is usable immediately. Run `migrate` after `up` when preserving local data, and after any new migration generation:
 
 ```bash
 ./ops/dev/codeline-dev.sh migrate
@@ -228,7 +235,7 @@ bun run db:generate
 ./ops/dev/codeline-dev.sh migrate
 ```
 
-Seed deterministic local example data through the repository-owned command. It applies Drizzle migrations first, reconciles the local-development user, two servers, three fixture agents, active and archived sessions, and finalized messages, and reconciles catalog provider models and agents from `providers/` and `agents/` into the Git-backed configuration store under `example-server-local`. With `EXAMPLE_DATA_USER_ID` set, the fixture is owned by that user instead, which makes it available to a configured OIDC test account. Repeated default runs preserve unrelated rows; `--reset` removes and recreates only the known fixture-owned rows.
+Seed deterministic local example data through the repository-owned command. It applies Drizzle migrations first, reconciles the Contentoren organization from `ZITADEL_ORGANIZATION_ID`, assigns two stable servers to it, keeps the local-development user for private fixture sessions and messages, and reconciles catalog provider models and agents from `providers/` and `agents/` into the Git-backed configuration store under `example-server-local`. Repeated default runs preserve unrelated rows; `--reset` removes and recreates only the known fixture-owned rows.
 
 ```bash
 bun run db:seed
@@ -270,6 +277,25 @@ curl -X POST http://127.0.0.1:6001/api/testing/echo \
   -H 'Content-Type: application/json' \
   -d '{"message":"hello"}'
 curl -N 'http://127.0.0.1:6001/api/testing/stream?scenario=normal'
+```
+
+## End-to-end tests
+
+`bun run test:e2e` runs the Playwright organization-access check against the repository-managed development services. It starts no server of its own, so `codeline-dev.target` must already serve the database, Zero cache, API, and UI, and `bun run db:seed` must have created the Contentoren organization and its example servers. Install the browser binaries once with `bunx playwright install chromium`.
+
+```bash
+./ops/dev/systemd/codeline-dev-systemd.sh status
+bun run db:seed
+bunx playwright install chromium
+bun run test:e2e
+```
+
+The run mutates local development data. It creates two run-unique synthetic organization members, their identity sessions, and one conversation per member through the regular API, then deletes those users again in a teardown that also runs after a failed assertion; the cascading delete removes the generated memberships, identity sessions, conversations, messages, runs, notes, and stream rows. Seeded example data is untouched, and repeated runs stay independent because every run uses a fresh identifier.
+
+The setup and cleanup scripts refuse to run unless `NODE_ENV`, `PUBLIC_ORIGIN`, and `DATABASE_URL` match the repository-managed local development environment: a loopback host (`127.0.0.0/8`, `localhost`, or `::1`) with the `POSTGRES_PORT`, `POSTGRES_USER`, and `POSTGRES_DB` values from `.env`. Any other connection string aborts the run before a write happens. `ZITADEL_ISSUER` and `ZITADEL_ORGANIZATION_ID` must also be set in `.env`, as documented in `.env.example`; the synthetic members are created against exactly that issuer and organization, and a missing value aborts the run. To remove a run's data manually after an interrupted run, use its identifier:
+
+```bash
+bun scripts/e2eOrganizationMemberSessionsPurge.ts <run-id>
 ```
 
 Useful commands:
