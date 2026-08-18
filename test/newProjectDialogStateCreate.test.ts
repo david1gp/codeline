@@ -15,6 +15,7 @@ function deferredCreate<T>() {
 
 test("dialog loads clickable suggestions and activates only the server-confirmed project", async () => {
   const requests: Array<{ body?: string; url: string }> = []
+  let confirmedProjectPath: string | undefined
   const root = createRoot((dispose) => {
     const activeProject = activeProjectStateCreate()
     return {
@@ -29,6 +30,9 @@ test("dialog loads clickable suggestions and activates only the server-confirmed
             return Response.json({ suggestions: [{ label: "Codeline", path: "/workspace/codeline" }] })
           }
           return Response.json({ project: { label: "Canonical Codeline", path: "/real/workspace/codeline" } })
+        },
+        onProjectConfirmed: (projectPath) => {
+          confirmedProjectPath = projectPath
         },
       }),
     }
@@ -46,6 +50,7 @@ test("dialog loads clickable suggestions and activates only the server-confirmed
     url: "/api/project/confirm",
   })
   expect(root.activeProject.project()).toEqual({ label: "Canonical Codeline", path: "/real/workspace/codeline" })
+  expect(confirmedProjectPath).toBe("/real/workspace/codeline")
   expect(root.state.open()).toBe(false)
   root.dispose()
 })
