@@ -48,11 +48,11 @@ import { sessionCreate } from "../actions/sessionCreate.js"
 import { sessionDelete } from "../actions/sessionDelete.js"
 import { sessionList } from "../actions/sessionList.js"
 import { sessionLoad } from "../actions/sessionLoad.js"
-import { sessionWatch } from "../actions/sessionWatch.js"
+import { sessionPin } from "../actions/sessionPin.js"
 import { sessionChatRequestSchema } from "../schema/sessionChatRequestSchema.js"
 import { sessionCreateRequestSchema } from "../schema/sessionCreateRequestSchema.js"
 import { sessionQuerySchema } from "../schema/sessionQuerySchema.js"
-import { sessionWatchRequestSchema } from "../schema/sessionWatchRequestSchema.js"
+import { sessionPinRequestSchema } from "../schema/sessionPinRequestSchema.js"
 
 type ApiContext = Context<AppEnvironment>
 
@@ -667,18 +667,13 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     return context.json(result.data)
   })
 
-  api.patch("/sessions/:sessionId/watch", async (context) => {
+  api.patch("/sessions/:sessionId/pin", async (context) => {
     const body = await context.req.json<unknown>().catch(() => undefined)
-    const parsed = apiRequestParse("sessionWatchRequestParse", sessionWatchRequestSchema, body)
-    if (!parsed.success) return badRequest(context, "The session watch request is invalid.")
+    const parsed = apiRequestParse("sessionPinRequestParse", sessionPinRequestSchema, body)
+    if (!parsed.success) return badRequest(context, "The session pin request is invalid.")
 
     const result = await databaseTransactionRun(context.var.database, (transaction) =>
-      sessionWatch(
-        transaction,
-        context.var.requestIdentity.userId,
-        context.req.param("sessionId"),
-        parsed.data.watched,
-      ),
+      sessionPin(transaction, context.var.requestIdentity.userId, context.req.param("sessionId"), parsed.data.pinned),
     )
     if (!result.success) {
       if (result.errorMessage === "The session is archived.") return conflict(context, result.errorMessage)

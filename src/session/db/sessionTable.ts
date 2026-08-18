@@ -24,7 +24,7 @@ export const sessionTable = pgTable(
     title: text("title").notNull(),
     clientRequestId: text("client_request_id").notNull(),
     metadata: jsonb("metadata").notNull().default({}),
-    watched: boolean("watched").notNull().default(true),
+    pinned: boolean("pinned").notNull().default(true),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),

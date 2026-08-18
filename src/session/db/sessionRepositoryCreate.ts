@@ -16,7 +16,7 @@ export async function sessionRepositoryCreate(
     serverId: string
     title: string
     metadata: Record<string, string>
-    watched?: boolean
+    pinned?: boolean
   },
 ): Promise<Result<{ created: boolean; session: typeof sessionTable.$inferSelect }>> {
   const op = "sessionRepositoryCreate"
@@ -54,7 +54,7 @@ export async function sessionRepositoryCreate(
         serverId: input.serverId,
         title: input.title,
         userId,
-        watched: input.watched ?? true,
+        pinned: input.pinned ?? true,
       })
       .onConflictDoNothing({ target: [sessionTable.userId, sessionTable.clientRequestId] })
       .returning()

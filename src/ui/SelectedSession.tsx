@@ -1,4 +1,4 @@
-import { mdiEyeOffOutline, mdiEyeOutline } from "@mdi/js"
+import { mdiPinOffOutline, mdiPinOutline } from "@mdi/js"
 import { For, Match, Show, Switch } from "solid-js"
 import { ButtonIconOnly } from "#ui/interactive/button/ButtonIconOnly.jsx"
 import { FinalizedMessage } from "../message/ui/FinalizedMessage.js"
@@ -64,17 +64,17 @@ export function SelectedSession(props: {
                         <SessionDisplayModeSwitcher state={props.state.displayMode} />
                         <ButtonIconOnly
                           class="size-8 text-faint hover:bg-surface-hover hover:text-accent"
-                          icon={props.state.watchState()!.watched() ? mdiEyeOutline : mdiEyeOffOutline}
+                          icon={props.state.pinState()!.pinned() ? mdiPinOutline : mdiPinOffOutline}
                           iconClass="size-4"
-                          isLoading={props.state.watchState()!.isSaving()}
-                          title={props.state.watchState()!.watched() ? "Stop watching session" : "Watch session"}
-                          aria-label={props.state.watchState()!.watched() ? "Stop watching session" : "Watch session"}
-                          aria-pressed={props.state.watchState()!.watched()}
-                          onClick={props.state.watchState()!.toggle}
+                          isLoading={props.state.pinState()!.isSaving()}
+                          title={props.state.pinState()!.pinned() ? "Unpin session" : "Pin session"}
+                          aria-label={props.state.pinState()!.pinned() ? "Unpin session" : "Pin session"}
+                          aria-pressed={props.state.pinState()!.pinned()}
+                          onClick={props.state.pinState()!.toggle}
                         />
                       </div>
                     </div>
-                    <Show when={props.state.watchState()!.errorMessage()}>
+                    <Show when={props.state.pinState()!.errorMessage()}>
                       {(message) => (
                         <p class="mt-1 mb-0 text-xs font-normal text-danger" role="alert">
                           {message()}

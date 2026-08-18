@@ -139,7 +139,7 @@ async function exampleDataRowsReconcile(
           archivedAt: fixtureSession.archivedAt === null ? null : date(fixtureSession.archivedAt),
           createdAt: date(fixtureSession.createdAt),
           updatedAt: date(fixtureSession.updatedAt),
-          watched: fixtureSession.watched,
+          pinned: fixtureSession.pinned,
         })
         .onConflictDoUpdate({
           target: sessionTable.id,
@@ -155,7 +155,7 @@ async function exampleDataRowsReconcile(
             archivedAt: fixtureSession.archivedAt === null ? null : date(fixtureSession.archivedAt),
             createdAt: date(fixtureSession.createdAt),
             updatedAt: date(fixtureSession.updatedAt),
-            watched: fixtureSession.watched,
+            pinned: fixtureSession.pinned,
           },
         })
 

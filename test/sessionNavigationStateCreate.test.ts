@@ -69,7 +69,7 @@ test("session navigation parses, pushes, clears, and reloads from the session UR
 })
 
 test("session navigation follows browser back and forward popstate changes", () => {
-  const navigation = navigationCreate("https://codeline.test/sessions/watched?session=first")
+  const navigation = navigationCreate("https://codeline.test/sessions/pinned?session=first")
   const dispose = createRoot((rootDispose) => {
     const state = sessionNavigationStateCreate(navigation)
     expect(navigation.listenerCount()).toBe(1)
@@ -90,12 +90,12 @@ test("session navigation follows browser back and forward popstate changes", () 
 })
 
 test("session navigation parses canonical selected and reserved new routes", () => {
-  const navigation = navigationCreate("https://codeline.test/sessions/selected?tab=watched")
+  const navigation = navigationCreate("https://codeline.test/sessions/selected?tab=pinned")
   const dispose = createRoot((rootDispose) => {
     const state = sessionNavigationStateCreate(navigation)
     expect(state.selectedSessionId()).toBe("selected")
 
-    navigation.history.pushState(null, "", "https://codeline.test/sessions/new?tab=watched")
+    navigation.history.pushState(null, "", "https://codeline.test/sessions/new?tab=pinned")
     navigation.emitPopstate()
     expect(state.selectedSessionId()).toBeNull()
 
@@ -106,19 +106,19 @@ test("session navigation parses canonical selected and reserved new routes", () 
 })
 
 test("session navigation enters the canonical new route before selecting the created session", () => {
-  const navigation = navigationCreate("https://codeline.test/sessions/selected?tab=watched#chat")
+  const navigation = navigationCreate("https://codeline.test/sessions/selected?tab=pinned#chat")
   const dispose = createRoot((rootDispose) => {
     const state = sessionNavigationStateCreate(navigation)
 
     state.startNewSession()
     expect(state.selectedSessionId()).toBeNull()
     expect(state.isNewSessionRoute()).toBe(true)
-    expect(navigation.href).toBe("https://codeline.test/sessions/new?tab=watched#chat")
+    expect(navigation.href).toBe("https://codeline.test/sessions/new?tab=pinned#chat")
 
     state.selectSession("created")
     expect(state.selectedSessionId()).toBe("created")
     expect(state.isNewSessionRoute()).toBe(false)
-    expect(navigation.href).toBe("https://codeline.test/sessions/created?tab=watched#chat")
+    expect(navigation.href).toBe("https://codeline.test/sessions/created?tab=pinned#chat")
 
     return rootDispose
   })
@@ -151,9 +151,9 @@ test("session sidebar reads the router URL after session selection navigation", 
 
   root.navigation.selectSession("selected")
   await new Promise((resolve) => setTimeout(resolve, 0))
-  root.sidebar.selectTab("watched")
+  root.sidebar.selectTab("pinned")
 
-  expect(href.get()).toBe("https://codeline.test/sessions/selected?tab=watched")
+  expect(href.get()).toBe("https://codeline.test/sessions/selected?tab=pinned")
   root.dispose()
 })
 

@@ -3,18 +3,18 @@ import { and, eq, isNull } from "drizzle-orm"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { sessionTable } from "./sessionTable.js"
 
-export async function sessionRepositoryWatch(
+export async function sessionRepositoryPin(
   database: DatabaseExecutor,
   userId: string,
   sessionId: string,
-  watched: boolean,
+  pinned: boolean,
 ): Promise<Result<typeof sessionTable.$inferSelect>> {
-  const op = "sessionRepositoryWatch"
+  const op = "sessionRepositoryPin"
 
   try {
     const [session] = await database
       .update(sessionTable)
-      .set({ updatedAt: new Date(), watched })
+      .set({ updatedAt: new Date(), pinned })
       .where(and(eq(sessionTable.id, sessionId), eq(sessionTable.userId, userId), isNull(sessionTable.archivedAt)))
       .returning()
     if (session !== undefined) return createResult(session)
@@ -27,6 +27,6 @@ export async function sessionRepositoryWatch(
     if (archived !== undefined) return createResultError(op, "The session is archived.")
     return createResultError(op, "The session could not be found.")
   } catch (_error) {
-    return createResultError(op, "The session could not be watched.")
+    return createResultError(op, "The session could not be pinned.")
   }
 }

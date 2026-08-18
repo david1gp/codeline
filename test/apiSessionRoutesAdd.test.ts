@@ -77,7 +77,7 @@ test.skipIf(!databaseAvailable)(
     expect(created.status).toBe(201)
     expect(createdBody).toMatchObject({
       created: true,
-      session: { projectPath: "~", title: "HTTP session", watched: true },
+      session: { pinned: true, projectPath: "~", title: "HTTP session" },
     })
     const sessionId = createdBody.session.id as string
 
@@ -105,24 +105,24 @@ test.skipIf(!databaseAvailable)(
     expect(renamed.status).toBe(200)
     expect(await renamed.json()).toMatchObject({ session: { title: "Renamed HTTP session" } })
 
-    const unwatched = await app.request(`http://codeline.test/api/sessions/${sessionId}/watch`, {
-      body: JSON.stringify({ watched: false }),
+    const unpinned = await app.request(`http://codeline.test/api/sessions/${sessionId}/pin`, {
+      body: JSON.stringify({ pinned: false }),
       headers: { "Content-Type": "application/json" },
       method: "PATCH",
     })
-    expect(unwatched.status).toBe(200)
-    expect(await unwatched.json()).toMatchObject({ session: { id: sessionId, watched: false } })
+    expect(unpinned.status).toBe(200)
+    expect(await unpinned.json()).toMatchObject({ session: { id: sessionId, pinned: false } })
 
     const archived = await app.request(`http://codeline.test/api/sessions/${sessionId}/archive`, { method: "POST" })
     expect(archived.status).toBe(200)
     expect(await archived.json()).toMatchObject({ session: { id: sessionId, archivedAt: expect.any(String) } })
 
-    const watchArchived = await app.request(`http://codeline.test/api/sessions/${sessionId}/watch`, {
-      body: JSON.stringify({ watched: true }),
+    const pinArchived = await app.request(`http://codeline.test/api/sessions/${sessionId}/pin`, {
+      body: JSON.stringify({ pinned: true }),
       headers: { "Content-Type": "application/json" },
       method: "PATCH",
     })
-    expect(watchArchived.status).toBe(409)
+    expect(pinArchived.status).toBe(409)
 
     const defaultList = await app.request("http://codeline.test/api/sessions")
     expect(defaultList.status).toBe(200)

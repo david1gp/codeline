@@ -26,7 +26,7 @@ export function primaryNavigationStateCreate() {
       {
         activate: sessionsActivate,
         controls: "mobile-session-drawer",
-        description: "Resume recent, watched, project, and searched coding sessions.",
+        description: "Resume recent, pinned, project, and searched coding sessions.",
         expanded: sessionDrawer.isSessionDrawerOpen,
         href: () => sessionSidebarDestinationResolve(href()),
         icon: mdiHistory,

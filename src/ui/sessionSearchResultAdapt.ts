@@ -8,7 +8,7 @@ export function sessionSearchResultAdapt(row: SessionSearchResponse["sessions"][
     projectPath: row.session.projectPath ?? "~",
     title: row.session.title,
     updatedAt: row.session.updatedAt ?? 0,
-    watched: row.session.watched ?? false,
+    pinned: row.session.pinned ?? false,
     working: false,
   }
 }

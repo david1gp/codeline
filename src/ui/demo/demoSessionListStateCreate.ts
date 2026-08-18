@@ -23,7 +23,7 @@ export function demoSessionListStateCreate(options: DemoSessionListStateOptions)
         : demoWorkspaceSessionsFixture.map((session) => ({
             ...session,
             projectPath: "~",
-            watched: true,
+            pinned: true,
             working: session.id === "demo-session-streaming",
           })),
       [],

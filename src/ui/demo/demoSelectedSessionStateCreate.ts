@@ -7,7 +7,7 @@ import { demoSessionStreamGroupsFixture } from "./demoSessionStreamGroupsFixture
 import type { DemoSessionScreenVariant } from "./demoSessionScreenVariant.js"
 import { demoSessionRenameFetch } from "./demoSessionRenameFetch.js"
 import { demoWorkspaceSessionsFixture } from "./demoWorkspaceSessionsFixture.js"
-import { sessionWatchToggleStateCreate } from "../sessionWatchToggleStateCreate.js"
+import { sessionPinToggleStateCreate } from "../sessionPinToggleStateCreate.js"
 import { sessionDisplayModeStateCreate } from "../sessionDisplayModeStateCreate.js"
 
 type DemoSelectedSessionStateOptions = {
@@ -20,24 +20,24 @@ export function demoSelectedSessionStateCreate(options: DemoSelectedSessionState
   const chat = demoSessionChatStateCreate(options.variant)
   const copyStates = new Map<string, ReturnType<typeof finalizedMessageCopyStateCreate>>()
   const renameStates = new Map<string, ReturnType<typeof sessionRenameControlStateCreate>>()
-  const watchStates = new Map<string, ReturnType<typeof sessionWatchToggleStateCreate>>()
+  const pinStates = new Map<string, ReturnType<typeof sessionPinToggleStateCreate>>()
   const session = () => {
     if (options.variant() === "empty") return undefined
     const sessionId = options.selectedSessionId.get()
     const current = demoWorkspaceSessionsFixture.find((candidate) => candidate.id === sessionId)
-    return current === undefined ? undefined : { ...current, watched: true }
+    return current === undefined ? undefined : { ...current, pinned: true }
   }
-  const watchState = () => {
+  const pinState = () => {
     const current = session()
     if (!current) return undefined
-    const existing = watchStates.get(current.id)
+    const existing = pinStates.get(current.id)
     if (existing) return existing
-    const created = sessionWatchToggleStateCreate({
+    const created = sessionPinToggleStateCreate({
       fetcher: async () => Response.json({ session: current }),
+      pinned: () => current.pinned,
       sessionId: () => current.id,
-      watched: () => current.watched,
     })
-    watchStates.set(current.id, created)
+    pinStates.set(current.id, created)
     return created
   }
   const messages = () =>
@@ -80,7 +80,7 @@ export function demoSelectedSessionStateCreate(options: DemoSelectedSessionState
     streamGroups: () => demoSessionStreamGroupsFixture,
     isStreamLoading: () => options.variant() === "loading",
     session,
-    watchState,
+    pinState,
   }
 }
 

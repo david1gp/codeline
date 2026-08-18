@@ -53,7 +53,7 @@ test("Zero exposes the durable application tables with matching PostgreSQL names
   expect(zeroSchema.tables.note.columns.sortOrder.optional).toBe(true)
   expect(zeroSchema.tables.session.columns.parentSessionId.optional).toBe(true)
   expect(zeroSchema.tables.session.columns.projectPath.type).toBe("string")
-  expect(zeroSchema.tables.session.columns.watched.type).toBe("boolean")
+  expect(zeroSchema.tables.session.columns.pinned.type).toBe("boolean")
   expect(zeroSchema.tables.run.columns.snapshot.type).toBe("json")
   expect(zeroSchema.tables.run.columns.deadlineAt.type).toBe("number")
   expect(zeroSchema.tables.run.columns.cancellationRequestedAt.type).toBe("number")

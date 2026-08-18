@@ -7,7 +7,7 @@ const sessionSearchRowSchema = v.object({
     projectPath: v.optional(v.string()),
     title: v.string(),
     updatedAt: v.optional(v.union([v.number(), v.string()])),
-    watched: v.optional(v.boolean()),
+    pinned: v.optional(v.boolean()),
   }),
 })
 

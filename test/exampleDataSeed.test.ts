@@ -123,7 +123,7 @@ test("the typed fixture has stable counts, IDs, timestamps, and content", () => 
     Object.values(simulationScenarioSessionMetadata).map((scenario) => scenario.agentId),
   )
   expect(exampleDataFixture.sessions.every((session) => session.projectPath === "~")).toBe(true)
-  expect(exampleDataFixture.sessions.map((session) => session.watched).slice(0, 4)).toEqual([true, false, true, true])
+  expect(exampleDataFixture.sessions.map((session) => session.pinned).slice(0, 4)).toEqual([true, false, true, true])
 })
 
 test.skipIf(!databaseAvailable)("reset preserves unrelated data and descendant links", async () => {
@@ -205,7 +205,7 @@ test.skipIf(!databaseAvailable)("reset preserves unrelated data and descendant l
     "example-session-active-1",
   )
   expect(sessions.find((session) => session.id === "example-session-active-2")?.projectPath).toBe("~")
-  expect(sessions.find((session) => session.id === "example-session-active-2")?.watched).toBe(false)
+  expect(sessions.find((session) => session.id === "example-session-active-2")?.pinned).toBe(false)
   expect(messages).toHaveLength(8)
   expect(messages.find((message) => message.id === "example-message-active-2-assistant")?.content).toBe(
     "The synchronized message view is available.",

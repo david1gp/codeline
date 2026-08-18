@@ -11,24 +11,24 @@ function session(input: Partial<Parameters<typeof sessionSidebarDerive>[0][numbe
     projectPath: input.projectPath ?? "~",
     title: input.title ?? input.id,
     updatedAt: input.updatedAt ?? now,
-    watched: input.watched ?? true,
+    pinned: input.pinned ?? true,
     working: input.working ?? false,
   }
 }
 
-test("sidebar derives flat recent and watched lists in stable active-session order", () => {
+test("sidebar derives flat recent and pinned lists in stable active-session order", () => {
   const derived = sessionSidebarDerive(
     [
       session({ id: "older", updatedAt: now - 60_000 }),
-      session({ id: "newer-unwatched", updatedAt: now, watched: false }),
-      session({ id: "newer-watched", updatedAt: now, watched: true }),
+      session({ id: "newer-unpinned", updatedAt: now, pinned: false }),
+      session({ id: "newer-pinned", updatedAt: now, pinned: true }),
     ],
     [],
     now,
   )
 
-  expect(derived.recent.map((row) => row.session.id)).toEqual(["newer-watched", "newer-unwatched", "older"])
-  expect(derived.watched.map((row) => row.session.id)).toEqual(["newer-watched", "older"])
+  expect(derived.recent.map((row) => row.session.id)).toEqual(["newer-unpinned", "newer-pinned", "older"])
+  expect(derived.pinned.map((row) => row.session.id)).toEqual(["newer-pinned", "older"])
   expect(derived.recent.map((row) => [row.projectLabel, row.updatedAtRelative])).toEqual([
     ["Home", "just now"],
     ["Home", "just now"],
@@ -74,7 +74,7 @@ test("sidebar adapts search results without losing row metadata", () => {
           projectPath: "/workspace/codeline",
           title: "Search result",
           updatedAt: new Date(now - 3_600_000).toISOString(),
-          watched: false,
+          pinned: false,
         },
       },
     ],
@@ -83,7 +83,7 @@ test("sidebar adapts search results without losing row metadata", () => {
 
   expect(derived.search[0]).toMatchObject({
     projectLabel: "codeline",
-    session: { id: "search-result", projectPath: "/workspace/codeline", watched: false },
+    session: { id: "search-result", projectPath: "/workspace/codeline", pinned: false },
     updatedAtRelative: "1h",
   })
 })

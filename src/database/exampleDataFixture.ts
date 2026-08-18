@@ -32,7 +32,7 @@ type ExampleDataFixture = {
     serverId: string
     primaryAgentId: string
     projectPath: string
-    watched: boolean
+    pinned: boolean
     parentSessionId: string | null
     title: string
     clientRequestId: string
@@ -127,7 +127,7 @@ export const exampleDataFixture = {
       serverId: "example-server-local",
       primaryAgentId: "example-agent-local",
       projectPath: "~",
-      watched: true,
+      pinned: true,
       parentSessionId: null,
       title: "Build the workspace shell",
       clientRequestId: "example-session-request-active-1",
@@ -163,7 +163,7 @@ export const exampleDataFixture = {
       serverId: "example-server-local",
       primaryAgentId: "example-agent-local",
       projectPath: "~",
-      watched: false,
+      pinned: false,
       parentSessionId: "example-session-active-1",
       title: "Verify synchronized messages",
       clientRequestId: "example-session-request-active-2",
@@ -199,7 +199,7 @@ export const exampleDataFixture = {
       serverId: "example-server-local",
       primaryAgentId: "example-agent-local",
       projectPath: "~",
-      watched: true,
+      pinned: true,
       parentSessionId: "example-session-active-2",
       title: "Archive the completed walkthrough",
       clientRequestId: "example-session-request-archived-1",
@@ -235,7 +235,7 @@ export const exampleDataFixture = {
       serverId: "example-server-remote",
       primaryAgentId: "example-agent-remote",
       projectPath: "~",
-      watched: true,
+      pinned: true,
       parentSessionId: null,
       title: "Switch to the remote server",
       clientRequestId: "example-session-request-remote-1",
@@ -271,7 +271,7 @@ export const exampleDataFixture = {
       serverId: "example-server-local",
       primaryAgentId: scenario.agentId,
       projectPath: "~",
-      watched: index % 2 === 0,
+      pinned: index % 2 === 0,
       parentSessionId: null,
       title: `Simulation ${scenario.model} session`,
       clientRequestId: `${scenario.sessionId}-request`,

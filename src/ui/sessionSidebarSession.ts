@@ -4,6 +4,6 @@ export type SessionSidebarSession = {
   projectPath: string
   title: string
   updatedAt: Date | number | string
-  watched: boolean
+  pinned: boolean
   working: boolean
 }

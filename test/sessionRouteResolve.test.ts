@@ -6,10 +6,10 @@ function routeCreate(pathname: string, search = "") {
 }
 
 test("session routes distinguish canonical selection, base, and new-session URLs", () => {
-  expect(routeCreate("/sessions/selected", "?tab=watched")).toEqual({
+  expect(routeCreate("/sessions/selected", "?tab=pinned")).toEqual({
     kind: "selected",
     sessionId: "selected",
-    tab: "watched",
+    tab: "pinned",
   })
   expect(routeCreate("/sessions", "?tab=projects")).toEqual({ kind: "base", sessionId: null, tab: "projects" })
   expect(routeCreate("/sessions/new", "?tab=search")).toEqual({ kind: "new", sessionId: null, tab: "search" })
@@ -21,10 +21,10 @@ test("session routes preserve legacy tab precedence and leave unknown IDs to ses
     sessionId: "selected",
     tab: "projects",
   })
-  expect(routeCreate("/sessions/projects", "?tab=watched&session=selected")).toEqual({
+  expect(routeCreate("/sessions/projects", "?tab=pinned&session=selected")).toEqual({
     kind: "legacy-tab",
     sessionId: "selected",
-    tab: "watched",
+    tab: "pinned",
   })
   expect(routeCreate("/sessions/unknown-id", "?tab=recent")).toEqual({
     kind: "selected",

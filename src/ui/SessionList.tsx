@@ -1,10 +1,10 @@
 import {
-  mdiEyeOutline,
   mdiFolderMultipleOutline,
   mdiFolderOutline,
   mdiHistory,
   mdiLoading,
   mdiMagnify,
+  mdiPinOutline,
   mdiPlus,
   mdiTrashCanOutline,
 } from "@mdi/js"
@@ -20,7 +20,7 @@ import type { SessionListState } from "./sessionListStateCreate.js"
 import type { SessionSidebarTab } from "./sessionSidebarTab.js"
 
 const tabs: ReadonlyArray<{ icon: string; label: string; value: SessionSidebarTab }> = [
-  { icon: mdiEyeOutline, label: "Watched", value: "watched" },
+  { icon: mdiPinOutline, label: "Pinned", value: "pinned" },
   { icon: mdiFolderMultipleOutline, label: "Projects", value: "projects" },
   { icon: mdiHistory, label: "Recent", value: "recent" },
   { icon: mdiMagnify, label: "Search", value: "search" },

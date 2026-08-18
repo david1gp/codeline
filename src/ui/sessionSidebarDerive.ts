@@ -21,7 +21,7 @@ type SessionSidebarTabs = {
   projects: readonly SessionSidebarProjectGroup[]
   recent: readonly SessionSidebarRow[]
   search: readonly SessionSidebarRow[]
-  watched: readonly SessionSidebarRow[]
+  pinned: readonly SessionSidebarRow[]
 }
 
 function sessionUpdatedAtMillisecondsResolve(value: SessionSidebarSession["updatedAt"]): number {
@@ -59,7 +59,7 @@ export function sessionSidebarDerive(
   const recent = [...activeSessions]
     .sort(sessionSidebarSessionCompare)
     .map((session) => sessionSidebarRowCreate(session, now, projectLabels))
-  const watched = recent.filter((row) => row.session.watched)
+  const pinned = recent.filter((row) => row.session.pinned)
   const projects = new Map<string, SessionSidebarRow[]>()
 
   for (const row of recent) {
@@ -91,6 +91,6 @@ export function sessionSidebarDerive(
     search: searchResults.map((result) =>
       sessionSidebarRowCreate(sessionSearchResultAdapt(result), now, projectLabels),
     ),
-    watched,
+    pinned,
   }
 }

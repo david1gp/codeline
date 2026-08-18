@@ -9,7 +9,7 @@ import type { SessionNavigationState } from "./sessionNavigationStateCreate.js"
 import { sessionChatStateCacheCreate } from "./sessionChatStateCacheCreate.js"
 import { sessionChatStateCreate } from "./sessionChatStateCreate.js"
 import { sessionInitialMessageStateCreate } from "./sessionInitialMessageStateCreate.js"
-import { sessionWatchToggleStateCreate } from "./sessionWatchToggleStateCreate.js"
+import { sessionPinToggleStateCreate } from "./sessionPinToggleStateCreate.js"
 import { sessionDisplayModeStateCreate } from "./sessionDisplayModeStateCreate.js"
 import { sessionStreamStateCreate } from "./sessionStreamStateCreate.js"
 import { signalObjectCreate } from "./signalObjectCreate.js"
@@ -40,7 +40,7 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
       copyState: copyStates.get(message.id) ?? copyStateCreate(copyStates, message.id, message.content),
     }))
   const renameStates = new Map<string, ReturnType<typeof sessionRenameControlStateCreate>>()
-  const watchStates = new Map<string, ReturnType<typeof sessionWatchToggleStateCreate>>()
+  const pinStates = new Map<string, ReturnType<typeof sessionPinToggleStateCreate>>()
   const renameState = () => {
     const current = session()
     if (!current) return undefined
@@ -53,16 +53,16 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
     renameStates.set(current.id, created)
     return created
   }
-  const watchState = () => {
+  const pinState = () => {
     const current = session()
     if (!current) return undefined
-    const existing = watchStates.get(current.id)
+    const existing = pinStates.get(current.id)
     if (existing) return existing
-    const created = sessionWatchToggleStateCreate({
+    const created = sessionPinToggleStateCreate({
       sessionId: () => current.id,
-      watched: () => session()?.watched ?? current.watched,
+      pinned: () => session()?.pinned ?? current.pinned,
     })
-    watchStates.set(current.id, created)
+    pinStates.set(current.id, created)
     return created
   }
 
@@ -130,7 +130,7 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
       return current.length > 0 ? current : lastMessages.get()
     },
     renameState,
-    watchState,
+    pinState,
     streamGroups: streamState.groups,
     isStreamLoading: streamState.isLoading,
     hasSelection: () => selectedSessionId() !== null,

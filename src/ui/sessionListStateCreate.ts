@@ -104,7 +104,7 @@ export function sessionListStateCreate(
     emptyMessage: () => {
       if (activeTab() === "search" && !search.isActive()) return "Enter a search term to find conversations."
       if (activeTab() === "search") return "No conversations match your search."
-      if (activeTab() === "watched") return "No watched conversations."
+      if (activeTab() === "pinned") return "No pinned conversations."
       if (activeTab() === "projects") return "No projects with active conversations."
       return "No active conversations."
     },
