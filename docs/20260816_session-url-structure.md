@@ -9,7 +9,7 @@ Make the active conversation the primary sessions URL resource while preserving 
 - Canonical selected-session URL: `/sessions/:sessionId?tab=:sidebarTab`.
 - Canonical new-session URL: `/sessions/new?tab=:sidebarTab`; `new` is a reserved static route.
 - Canonical no-selection URL: `/sessions?tab=:sidebarTab`.
-- Valid tabs remain `recent`, `watched`, `projects`, and `search`.
+- Valid tabs remain `recent`, `pinned`, `projects`, and `search`.
 - Existing `/sessions/:sidebarTab?session=:sessionId` links redirect to the canonical structure.
 - Local tab persistence remains the fallback when `tab` is absent.
 

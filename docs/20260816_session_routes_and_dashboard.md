@@ -6,7 +6,7 @@ Move the session workspace to `/sessions`, give each sidebar tab its own route, 
 
 ## Decisions
 
-- Valid session sidebar routes are `/sessions/recent`, `/sessions/watched`, `/sessions/projects`, and `/sessions/search`.
+- Valid session sidebar routes are `/sessions/recent`, `/sessions/pinned`, `/sessions/projects`, and `/sessions/search`.
 - `/sessions` resolves to the last persisted valid sidebar tab, defaulting to `recent`.
 - The selected sidebar tab is represented by the URL and mirrored to local storage so the Sessions top-nav destination survives visiting other sections and browser reloads.
 - Session selection remains a `?session=` query parameter on the active sidebar-tab route; search remains a query parameter on `/sessions/search`.
