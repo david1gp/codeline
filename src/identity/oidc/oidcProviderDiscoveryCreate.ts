@@ -1,5 +1,5 @@
-import * as oauth from "oauth4webapi"
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
+import * as oauth from "oauth4webapi"
 import type { OidcProviderFetch } from "./oidcProviderFetch.js"
 import type { OidcProviderMetadata } from "./oidcProviderMetadata.js"
 
@@ -110,8 +110,14 @@ async function oidcProviderDiscoveryFetch(
 
     const authorizationEndpoint = oidcProviderEndpointResolve(metadata.authorization_endpoint)
     const tokenEndpoint = oidcProviderEndpointResolve(metadata.token_endpoint)
+    const userinfoEndpoint = oidcProviderEndpointResolve(metadata.userinfo_endpoint)
     const jwksUri = oidcProviderEndpointResolve(metadata.jwks_uri)
-    if (authorizationEndpoint === undefined || tokenEndpoint === undefined || jwksUri === undefined) {
+    if (
+      authorizationEndpoint === undefined ||
+      tokenEndpoint === undefined ||
+      (metadata.userinfo_endpoint !== undefined && userinfoEndpoint === undefined) ||
+      jwksUri === undefined
+    ) {
       return createResultError(op, "The OIDC provider endpoints are invalid.")
     }
     if (!metadata.response_types_supported?.includes("code")) {
@@ -142,6 +148,7 @@ async function oidcProviderDiscoveryFetch(
       responseTypesSupported: metadata.response_types_supported,
       tokenEndpoint,
       tokenEndpointAuthMethodsSupported: metadata.token_endpoint_auth_methods_supported ?? ["client_secret_basic"],
+      ...(userinfoEndpoint === undefined ? {} : { userinfoEndpoint }),
     })
   } catch (_error) {
     return createResultError(op, "The OIDC provider discovery request failed.")

@@ -1,3 +1,5 @@
+import { dirname, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 import type { App } from "../api/appEnvironment.js"
 import { appCreate } from "../app/appCreate.js"
 import type { ConfigurationStore } from "../configuration/configurationStore.js"
@@ -8,10 +10,8 @@ import type { RuntimeConfiguration } from "../configuration/runtimeConfiguration
 import type { DatabaseConnection } from "../database/databaseClient.js"
 import { databaseConnectionClose } from "../database/databaseConnectionClose.js"
 import { databaseCreate } from "../database/databaseCreate.js"
-import type { ProviderCatalog } from "../providers/schema/providerCatalogSchema.js"
 import { providerAgentCatalogLoad } from "../providers/catalog/providerAgentCatalogLoad.js"
-import { dirname, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
+import type { ProviderCatalog } from "../providers/schema/providerCatalogSchema.js"
 
 type Server = {
   stop: (closeActiveConnections?: boolean) => Promise<void>
@@ -66,11 +66,16 @@ export async function serverStart(options: ServerStartOptions = {}): Promise<Ser
           OIDC_CLIENT_ID: Bun.env.OIDC_CLIENT_ID,
           OIDC_CLIENT_SECRET: Bun.env.OIDC_CLIENT_SECRET,
           OIDC_ISSUER: Bun.env.OIDC_ISSUER,
+          OIDC_ORGANIZATION_ID: Bun.env.OIDC_ORGANIZATION_ID,
+          OIDC_ALLOWED_ORGANIZATION_ID: Bun.env.OIDC_ALLOWED_ORGANIZATION_ID,
           OIDC_REDIRECT_URI: Bun.env.OIDC_REDIRECT_URI,
           PUBLIC_ORIGIN: Bun.env.PUBLIC_ORIGIN,
+          SESSIONS_SIDEBAR_PAGE_SIZE: Bun.env.SESSIONS_SIDEBAR_PAGE_SIZE,
           ZITADEL_CLIENT_ID: Bun.env.ZITADEL_CLIENT_ID,
           ZITADEL_CLIENT_SECRET: Bun.env.ZITADEL_CLIENT_SECRET,
           ZITADEL_ISSUER: Bun.env.ZITADEL_ISSUER,
+          ZITADEL_ORGANIZATION_ID: Bun.env.ZITADEL_ORGANIZATION_ID,
+          ZITADEL_ALLOWED_ORGANIZATION_ID: Bun.env.ZITADEL_ALLOWED_ORGANIZATION_ID,
           ZITADEL_REDIRECT_URI: Bun.env.ZITADEL_REDIRECT_URI,
         })
       : { success: true as const, data: options.configuration }

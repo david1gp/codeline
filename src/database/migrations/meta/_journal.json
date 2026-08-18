@@ -92,6 +92,13 @@
       "when": 1786740000008,
       "tag": "0012_session_pinned_column_rename",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1787040000000,
+      "tag": "0013_organization_server_ownership",
+      "breakpoints": true
     }
   ]
 }

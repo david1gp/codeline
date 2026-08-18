@@ -90,7 +90,11 @@ export async function streamRepositoryAppend(
       .select()
       .from(streamEventTable)
       .where(
-        and(eq(streamEventTable.streamId, input.streamId), eq(streamEventTable.idempotencyKey, input.idempotencyKey)),
+        and(
+          eq(streamEventTable.sessionId, sessionId),
+          eq(streamEventTable.streamId, input.streamId),
+          eq(streamEventTable.idempotencyKey, input.idempotencyKey),
+        ),
       )
       .limit(1)
     if (idempotent !== undefined) {
@@ -104,7 +108,13 @@ export async function streamRepositoryAppend(
     const [sequenced] = await database
       .select()
       .from(streamEventTable)
-      .where(and(eq(streamEventTable.streamId, input.streamId), eq(streamEventTable.sequence, input.sequence)))
+      .where(
+        and(
+          eq(streamEventTable.sessionId, sessionId),
+          eq(streamEventTable.streamId, input.streamId),
+          eq(streamEventTable.sequence, input.sequence),
+        ),
+      )
       .limit(1)
     if (sequenced !== undefined)
       return createResultError(op, "The stream event sequence conflicts with an existing event.")
@@ -128,7 +138,11 @@ export async function streamRepositoryAppend(
       .select()
       .from(streamEventTable)
       .where(
-        and(eq(streamEventTable.streamId, input.streamId), eq(streamEventTable.idempotencyKey, input.idempotencyKey)),
+        and(
+          eq(streamEventTable.sessionId, sessionId),
+          eq(streamEventTable.streamId, input.streamId),
+          eq(streamEventTable.idempotencyKey, input.idempotencyKey),
+        ),
       )
       .limit(1)
     if (idempotentRetry !== undefined) {
@@ -144,7 +158,13 @@ export async function streamRepositoryAppend(
     const [sequencedRetry] = await database
       .select()
       .from(streamEventTable)
-      .where(and(eq(streamEventTable.streamId, input.streamId), eq(streamEventTable.sequence, input.sequence)))
+      .where(
+        and(
+          eq(streamEventTable.sessionId, sessionId),
+          eq(streamEventTable.streamId, input.streamId),
+          eq(streamEventTable.sequence, input.sequence),
+        ),
+      )
       .limit(1)
     if (sequencedRetry !== undefined)
       return createResultError(op, "The stream event sequence conflicts with an existing event.")

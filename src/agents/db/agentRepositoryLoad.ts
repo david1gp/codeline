@@ -8,7 +8,7 @@ import { agentTable } from "./agentTable.js"
 
 export async function agentRepositoryLoad(
   database: DatabaseExecutor,
-  userId: string,
+  organizationId: string,
   serverId: string,
   agentId: string,
 ): Promise<
@@ -25,7 +25,10 @@ export async function agentRepositoryLoad(
     const [row] = await database
       .select({ agent: agentTable, server: serverTable })
       .from(agentTable)
-      .innerJoin(serverTable, and(eq(agentTable.serverId, serverTable.id), eq(serverTable.ownerUserId, userId)))
+      .innerJoin(
+        serverTable,
+        and(eq(agentTable.serverId, serverTable.id), eq(serverTable.organizationId, organizationId)),
+      )
       .where(and(eq(agentTable.serverId, serverId), eq(agentTable.id, agentId)))
       .limit(1)
     if (row === undefined) return createResultError(op, "The agent could not be found.")

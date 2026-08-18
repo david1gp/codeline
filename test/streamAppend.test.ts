@@ -9,6 +9,7 @@ import { databaseSchema } from "../src/database/databaseSchema.js"
 import { databaseTransactionRun } from "../src/database/databaseTransactionRun.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
+import { organizationTable } from "../src/identity/db/organizationTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
@@ -36,12 +37,13 @@ beforeAll(async () => {
   })
   if (!user.success) throw new Error(user.errorMessage)
   userId = user.data.id
+  await database.insert(organizationTable).values({ id: userId, externalId: userId, name: "Stream Test Organization" })
 
   await database.insert(serverTable).values({
     endpoint: "http://stream-test-server.test",
     id: fixture.serverId,
     name: "Stream Test Server",
-    ownerUserId: userId,
+    organizationId: userId,
   })
   await database.insert(agentTable).values({
     id: fixture.agentId,

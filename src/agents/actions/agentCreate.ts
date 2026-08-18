@@ -3,9 +3,9 @@ import { agentRepositoryCreate } from "../db/agentRepositoryCreate.js"
 
 export function agentCreate(
   database: DatabaseExecutor,
-  userId: string,
+  organizationId: string,
   serverId: string,
   input: unknown,
 ): ReturnType<typeof agentRepositoryCreate> {
-  return agentRepositoryCreate(database, userId, serverId, input)
+  return agentRepositoryCreate(database, organizationId, serverId, input)
 }

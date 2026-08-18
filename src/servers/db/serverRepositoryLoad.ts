@@ -5,7 +5,7 @@ import { serverTable } from "./serverTable.js"
 
 export async function serverRepositoryLoad(
   database: DatabaseExecutor,
-  userId: string,
+  organizationId: string,
   serverId: string,
 ): Promise<Result<typeof serverTable.$inferSelect>> {
   const op = "serverRepositoryLoad"
@@ -14,7 +14,7 @@ export async function serverRepositoryLoad(
     const [server] = await database
       .select()
       .from(serverTable)
-      .where(and(eq(serverTable.id, serverId), eq(serverTable.ownerUserId, userId)))
+      .where(and(eq(serverTable.id, serverId), eq(serverTable.organizationId, organizationId)))
       .limit(1)
     if (server === undefined) return createResultError(op, "The server could not be found.")
     return createResult(server)

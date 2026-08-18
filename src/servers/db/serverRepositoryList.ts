@@ -6,13 +6,13 @@ import { serverTable } from "./serverTable.js"
 
 export async function serverRepositoryList(
   database: DatabaseExecutor,
-  userId: string,
+  organizationId: string,
   search?: string,
 ): Promise<Result<Array<typeof serverTable.$inferSelect>>> {
   const op = "serverRepositoryList"
 
   try {
-    const conditions = [eq(serverTable.ownerUserId, userId)]
+    const conditions = [eq(serverTable.organizationId, organizationId)]
     if (search !== undefined) {
       const pattern = metadataSearchPatternCreate(search)
       conditions.push(ilike(serverTable.name, pattern))

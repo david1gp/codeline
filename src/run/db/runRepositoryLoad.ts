@@ -30,7 +30,9 @@ export async function runRepositoryLoad(
     const attempts = await database
       .select()
       .from(attemptTable)
-      .where(eq(attemptTable.runId, run.id))
+      .where(
+        and(eq(attemptTable.runId, run.id), eq(attemptTable.sessionId, sessionId), eq(attemptTable.userId, userId)),
+      )
       .orderBy(asc(attemptTable.ordinal))
     const attempt = attempts.at(-1)
     if (attempt === undefined) return createResultError(op, "The run attempt could not be found.")

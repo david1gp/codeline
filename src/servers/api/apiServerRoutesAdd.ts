@@ -1,7 +1,7 @@
 import { Hono } from "hono"
+import { apiRequestParse } from "../../api/apiRequestParse.js"
 import type { AppEnvironment } from "../../api/appEnvironment.js"
 import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.js"
-import { apiRequestParse } from "../../api/apiRequestParse.js"
 import { serverList } from "../actions/serverList.js"
 import { serverQuerySchema } from "../schema/serverQuerySchema.js"
 import type { ServerListResponse } from "./serverListResponseSchema.js"
@@ -16,7 +16,10 @@ export function apiServerRoutesAdd(api: Hono<AppEnvironment>): void {
       return context.json(response, 400)
     }
 
-    const result = await serverList(context.var.database, context.var.requestIdentity.userId, parsed.data.search)
+    const organizationId = context.var.requestIdentity.organizationId
+    if (organizationId === undefined) return context.json({ servers: [] } satisfies ServerListResponse)
+
+    const result = await serverList(context.var.database, organizationId, parsed.data.search)
     if (!result.success) {
       const response = {
         error: { code: "internal_server_error", message: "The servers could not be loaded." },

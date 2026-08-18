@@ -48,7 +48,11 @@ export async function messageRepositoryListFinalized(
       .limit(1)
     if (session === undefined) return createResultError(op, "The session could not be found.")
 
-    const conditions = [eq(messageTable.sessionId, sessionId), isNotNull(messageTable.finalizedAt)]
+    const conditions = [
+      eq(messageTable.sessionId, sessionId),
+      eq(sessionTable.userId, userId),
+      isNotNull(messageTable.finalizedAt),
+    ]
     if (decodedCursor.data !== undefined) {
       const cursorCondition = or(
         gt(messageTable.sequence, decodedCursor.data.sequence),

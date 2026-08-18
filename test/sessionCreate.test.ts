@@ -7,14 +7,15 @@ import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
 import { databaseSchema } from "../src/database/databaseSchema.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
+import { organizationTable } from "../src/identity/db/organizationTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionArchive } from "../src/session/actions/sessionArchive.js"
 import { sessionCreate } from "../src/session/actions/sessionCreate.js"
 import { sessionDelete } from "../src/session/actions/sessionDelete.js"
 import { sessionList } from "../src/session/actions/sessionList.js"
 import { sessionLoad } from "../src/session/actions/sessionLoad.js"
-import { sessionRename } from "../src/session/actions/sessionRename.js"
 import { sessionPin } from "../src/session/actions/sessionPin.js"
+import { sessionRename } from "../src/session/actions/sessionRename.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
 
@@ -37,12 +38,13 @@ beforeAll(async () => {
   })
   if (!user.success) throw new Error(user.errorMessage)
   userId = user.data.id
+  await database.insert(organizationTable).values({ id: userId, externalId: userId, name: "Session Test Organization" })
 
   await database.insert(serverTable).values({
     endpoint: "http://session-test-server.test",
     id: fixture.serverId,
     name: "Session Test Server",
-    ownerUserId: userId,
+    organizationId: userId,
   })
   await database.insert(agentTable).values({
     id: fixture.agentId,
@@ -68,17 +70,22 @@ test.skipIf(!databaseAvailable)("session actions create idempotently and enforce
     title: "Initial title",
   }
 
-  const created = await sessionCreate(database, userId, input)
+  const created = await sessionCreate(database, userId, input, { organizationId: userId })
   expect(created).toMatchObject({
     success: true,
     data: { created: true, session: { pinned: true, projectPath: "~", title: "Initial title" } },
   })
   if (!created.success) return
 
-  const repeated = await sessionCreate(database, userId, { ...input, title: "Changed title" })
+  const repeated = await sessionCreate(
+    database,
+    userId,
+    { ...input, title: "Changed title" },
+    { organizationId: userId },
+  )
   expect(repeated).toMatchObject({ success: true, data: { created: false, session: { id: created.data.session.id } } })
 
-  const loaded = await sessionLoad(database, userId, created.data.session.id)
+  const loaded = await sessionLoad(database, userId, userId, created.data.session.id)
   expect(loaded).toMatchObject({
     success: true,
     data: {
@@ -87,7 +94,7 @@ test.skipIf(!databaseAvailable)("session actions create idempotently and enforce
       session: { id: created.data.session.id },
     },
   })
-  const hidden = await sessionLoad(database, "development:unknown-session-user", created.data.session.id)
+  const hidden = await sessionLoad(database, "development:unknown-session-user", userId, created.data.session.id)
   expect(hidden).toMatchObject({ success: false, errorMessage: "The session could not be found." })
 
   const renamed = await sessionRename(database, userId, created.data.session.id, "Renamed title")
@@ -113,9 +120,9 @@ test.skipIf(!databaseAvailable)("session actions create idempotently and enforce
   expect(renamedArchived).toMatchObject({ success: false, errorMessage: "The session is archived." })
   const pinnedArchived = await sessionPin(database, userId, created.data.session.id, false)
   expect(pinnedArchived).toMatchObject({ success: false, errorMessage: "The session is archived." })
-  const withoutArchived = await sessionList(database, userId, { includeArchived: false, limit: 100 })
+  const withoutArchived = await sessionList(database, userId, userId, { includeArchived: false, limit: 100 })
   expect(withoutArchived).toMatchObject({ success: true, data: { rows: [] } })
-  const withArchived = await sessionList(database, userId, { includeArchived: true, limit: 100 })
+  const withArchived = await sessionList(database, userId, userId, { includeArchived: true, limit: 100 })
   expect(withArchived).toMatchObject({ success: true, data: { rows: [{ session: { id: created.data.session.id } }] } })
 
   const deleted = await sessionDelete(database, userId, created.data.session.id)
@@ -127,23 +134,28 @@ test.skipIf(!databaseAvailable)("session list paginates in updated order and rej
   const sessionUserId = userId
   const sessions = await Promise.all(
     ["one", "two", "three"].map((title) =>
-      sessionCreate(database, sessionUserId, {
-        clientRequestId: `session-test-page-${title}-${uuidv7()}`,
-        metadata: {},
-        primaryAgentId: fixture.agentId,
-        serverId: fixture.serverId,
-        title,
-      }),
+      sessionCreate(
+        database,
+        sessionUserId,
+        {
+          clientRequestId: `session-test-page-${title}-${uuidv7()}`,
+          metadata: {},
+          primaryAgentId: fixture.agentId,
+          serverId: fixture.serverId,
+          title,
+        },
+        { organizationId: sessionUserId },
+      ),
     ),
   )
   expect(sessions.every((result) => result.success)).toBe(true)
 
-  const firstPage = await sessionList(database, sessionUserId, { includeArchived: true, limit: 2 })
+  const firstPage = await sessionList(database, sessionUserId, sessionUserId, { includeArchived: true, limit: 2 })
   expect(firstPage.success).toBe(true)
   if (!firstPage.success || firstPage.data.nextCursor === null) return
   expect(firstPage.data.rows).toHaveLength(2)
 
-  const secondPage = await sessionList(database, sessionUserId, {
+  const secondPage = await sessionList(database, sessionUserId, sessionUserId, {
     cursor: firstPage.data.nextCursor,
     includeArchived: true,
     limit: 2,
@@ -153,7 +165,7 @@ test.skipIf(!databaseAvailable)("session list paginates in updated order and rej
   expect(secondPage.data.rows).toHaveLength(1)
   expect(new Set(secondPage.data.rows.map((row) => row.session.id)).size).toBe(1)
 
-  const invalidCursor = await sessionList(database, sessionUserId, {
+  const invalidCursor = await sessionList(database, sessionUserId, sessionUserId, {
     cursor: "not-a-cursor",
     includeArchived: true,
     limit: 2,

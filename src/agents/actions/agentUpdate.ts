@@ -3,10 +3,10 @@ import { agentRepositoryUpdate } from "../db/agentRepositoryUpdate.js"
 
 export function agentUpdate(
   database: DatabaseExecutor,
-  userId: string,
+  organizationId: string,
   serverId: string,
   agentId: string,
   input: unknown,
 ): ReturnType<typeof agentRepositoryUpdate> {
-  return agentRepositoryUpdate(database, userId, serverId, agentId, input)
+  return agentRepositoryUpdate(database, organizationId, serverId, agentId, input)
 }

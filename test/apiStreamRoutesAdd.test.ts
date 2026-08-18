@@ -11,6 +11,7 @@ import { databaseSchema } from "../src/database/databaseSchema.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import type { ApplicationUser } from "../src/identity/db/applicationUserTable.js"
 import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
+import { organizationTable } from "../src/identity/db/organizationTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
 import { runChildCreate } from "../src/run/actions/runChildCreate.js"
@@ -63,12 +64,15 @@ beforeAll(async () => {
   })
   if (!user.success) throw new Error(user.errorMessage)
   developmentUser = user.data
+  await database
+    .insert(organizationTable)
+    .values({ id: developmentUser.id, externalId: developmentUser.id, name: "Stream API Organization" })
 
   await database.insert(serverTable).values({
     endpoint: "http://stream-api-server.test",
     id: fixture.serverId,
     name: "Stream API Server",
-    ownerUserId: developmentUser.id,
+    organizationId: developmentUser.id,
   })
   await database.insert(agentTable).values({
     id: fixture.agentId,

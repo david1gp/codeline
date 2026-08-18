@@ -8,6 +8,8 @@ import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
 import { databaseSchema } from "../src/database/databaseSchema.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
+import { organizationMemberTable } from "../src/identity/db/organizationMemberTable.js"
+import { organizationTable } from "../src/identity/db/organizationTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionArchive } from "../src/session/actions/sessionArchive.js"
 import { sessionCreate } from "../src/session/actions/sessionCreate.js"
@@ -21,9 +23,11 @@ const userId = `development:${identityKey}`
 const serverId = `session-rename-server-${uuidv7()}`
 const agentId = `session-rename-agent-${uuidv7()}`
 const configuration = {
+  authMode: "development" as const,
   databaseUrl: Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline",
   developmentIdentity: { displayName: "Session Rename Test User", identityKey },
   nodeEnv: "development" as const,
+  oidcOrganizationId: userId,
 }
 const app = appCreate({ configuration, database })
 
@@ -31,11 +35,20 @@ beforeAll(async () => {
   if (!databaseAvailable) return
   const user = await developmentIdentityUpsert(database, { displayName: "Session Rename Test User", identityKey })
   if (!user.success) throw new Error(user.errorMessage)
+  await database
+    .insert(organizationTable)
+    .values({ id: userId, externalId: userId, name: "Session Rename Organization" })
+  await database.insert(organizationMemberTable).values({
+    issuer: "urn:codeline:development",
+    organizationId: userId,
+    subject: identityKey,
+    userId,
+  })
   await database.insert(serverTable).values({
     endpoint: "http://session-rename-server.test",
     id: serverId,
     name: "Session Rename Test Server",
-    ownerUserId: userId,
+    organizationId: userId,
   })
   await database.insert(agentTable).values({ id: agentId, name: "Session Rename Test Agent", role: "coding", serverId })
 })
@@ -48,13 +61,18 @@ afterAll(async () => {
 test.skipIf(!databaseAvailable)(
   "authorized active-session rename validates, persists, and rejects archived sessions",
   async () => {
-    const created = await sessionCreate(database, userId, {
-      clientRequestId: `session-rename-${uuidv7()}`,
-      metadata: {},
-      primaryAgentId: agentId,
-      serverId,
-      title: "Original title",
-    })
+    const created = await sessionCreate(
+      database,
+      userId,
+      {
+        clientRequestId: `session-rename-${uuidv7()}`,
+        metadata: {},
+        primaryAgentId: agentId,
+        serverId,
+        title: "Original title",
+      },
+      { organizationId: userId },
+    )
     expect(created.success).toBe(true)
     if (!created.success) return
     const sessionId = created.data.session.id

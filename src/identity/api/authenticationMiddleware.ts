@@ -1,16 +1,19 @@
-import type { MiddlewareHandler } from "hono"
-import type { Context } from "hono"
+import type { Context, MiddlewareHandler } from "hono"
 import type { AppEnvironment } from "../../api/appEnvironment.js"
 import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.js"
 import type { RuntimeConfiguration } from "../../configuration/runtimeConfigurationSchema.js"
 import type { DatabaseClient } from "../../database/databaseClient.js"
 import { databaseTransactionRun } from "../../database/databaseTransactionRun.js"
-import { developmentIdentityUpsert } from "../db/developmentIdentityUpsert.js"
 import { identitySessionLoad } from "../actions/identitySessionLoad.js"
+import { organizationMemberLoad } from "../actions/organizationMemberLoad.js"
+import { developmentIdentityUpsert } from "../db/developmentIdentityUpsert.js"
 import { identitySessionCookieRead } from "./identitySessionCookieRead.js"
+
+const developmentIdentityIssuer = "urn:codeline:development"
 
 type AuthenticationMiddlewareOptions = {
   developmentIdentityUpsert?: typeof developmentIdentityUpsert
+  organizationMemberLoad?: typeof organizationMemberLoad
   identitySessionLoad?: typeof identitySessionLoad
 }
 
@@ -21,6 +24,7 @@ export function authenticationMiddleware(
 ): MiddlewareHandler<AppEnvironment> {
   const mode = configuration.authMode ?? (configuration.nodeEnv === "development" ? "development" : "oidc")
   const developmentIdentityStore = options.developmentIdentityUpsert ?? developmentIdentityUpsert
+  const memberLoad = options.organizationMemberLoad ?? organizationMemberLoad
   const sessionLoad = options.identitySessionLoad ?? identitySessionLoad
 
   return async (context, next) => {
@@ -29,14 +33,30 @@ export function authenticationMiddleware(
 
     if (mode === "development") {
       const identity = configuration.developmentIdentity
-      if (identity === undefined) return authenticationUnauthorized(context)
+      const organizationExternalId = configuration.oidcOrganizationId
+      if (identity === undefined || organizationExternalId === undefined) return authenticationUnauthorized(context)
 
       const result = await databaseTransactionRun(database, (transaction) =>
         developmentIdentityStore(transaction, identity),
       )
       if (!result.success) return authenticationUnauthorized(context)
 
-      context.set("requestIdentity", { displayName: result.data.displayName, userId: result.data.id })
+      const membership = await memberLoad(database, result.data.id, organizationExternalId, developmentIdentityIssuer)
+      if (!membership.success || membership.data === undefined) return authenticationUnauthorized(context)
+      if (
+        membership.data.organizationId === undefined ||
+        membership.data.organizationId.length === 0 ||
+        membership.data.issuer !== developmentIdentityIssuer ||
+        membership.data.subject !== identity.identityKey ||
+        membership.data.userId !== result.data.id
+      )
+        return authenticationUnauthorized(context)
+
+      context.set("requestIdentity", {
+        displayName: result.data.displayName,
+        organizationId: membership.data.organizationId,
+        userId: result.data.id,
+      })
       return next()
     }
 
@@ -45,11 +65,27 @@ export function authenticationMiddleware(
     const session = await sessionLoad(database, token)
     if (!session.success || session.data === undefined) return authenticationUnauthorized(context)
 
+    let organizationId: string | undefined
+    if (configuration.oidcOrganizationId !== undefined && configuration.oidcIssuer !== undefined) {
+      const membership = await memberLoad(
+        database,
+        session.data.userId,
+        configuration.oidcOrganizationId,
+        configuration.oidcIssuer,
+      )
+      if (!membership.success || membership.data === undefined) return authenticationUnauthorized(context)
+      organizationId = membership.data.organizationId
+    }
+
     if (authenticationUnsafeRequest(context.req.method) && !authenticationOriginMatches(context, configuration)) {
       return authenticationForbidden(context)
     }
 
-    context.set("requestIdentity", { sessionId: session.data.id, userId: session.data.userId })
+    context.set("requestIdentity", {
+      organizationId,
+      sessionId: session.data.id,
+      userId: session.data.userId,
+    })
     return next()
   }
 }

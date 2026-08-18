@@ -7,6 +7,7 @@ import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
 import { databaseSchema } from "../src/database/databaseSchema.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
+import { organizationTable } from "../src/identity/db/organizationTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
 import { streamReplayServiceCreate } from "../src/stream/actions/streamReplayServiceCreate.js"
@@ -32,12 +33,15 @@ beforeAll(async () => {
   })
   if (!user.success) throw new Error(user.errorMessage)
   userId = user.data.id
+  await database
+    .insert(organizationTable)
+    .values({ id: userId, externalId: userId, name: "Stream Replay Organization" })
 
   await database.insert(serverTable).values({
     endpoint: "http://stream-replay-server.test",
     id: fixture.serverId,
     name: "Stream Replay Server",
-    ownerUserId: userId,
+    organizationId: userId,
   })
   await database.insert(agentTable).values({
     id: fixture.agentId,

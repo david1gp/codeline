@@ -7,6 +7,7 @@ import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
 import { databaseSchema } from "../src/database/databaseSchema.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
+import { organizationTable } from "../src/identity/db/organizationTable.js"
 import { attemptTable } from "../src/run/db/attemptTable.js"
 import { runDelegationTable } from "../src/run/db/runDelegationTable.js"
 import { runTable } from "../src/run/db/runTable.js"
@@ -53,17 +54,18 @@ beforeAll(async () => {
   })
   if (!user.success) throw new Error(user.errorMessage)
   userId = user.data.id
+  await database.insert(organizationTable).values({ id: userId, externalId: userId, name: "Run Test Organization" })
   await database.insert(serverTable).values({
     endpoint: "http://run-test-server.test",
     id: fixture.serverId,
     name: "Run Test Server",
-    ownerUserId: userId,
+    organizationId: userId,
   })
   await database.insert(serverTable).values({
     endpoint: "http://run-test-secondary-server.test",
     id: fixture.secondaryServerId,
     name: "Run Test Secondary Server",
-    ownerUserId: userId,
+    organizationId: userId,
   })
   await database.insert(agentTable).values({
     id: fixture.agentId,

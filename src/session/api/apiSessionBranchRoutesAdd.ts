@@ -37,12 +37,20 @@ function internalServerError(context: ApiContext) {
 
 export function apiSessionBranchRoutesAdd(api: Hono<AppEnvironment>): void {
   api.post("/sessions/:sessionId/branch", async (context) => {
+    const organizationId = context.var.requestIdentity.organizationId
+    if (organizationId === undefined) return notFound(context)
     const body = await context.req.json<unknown>().catch(() => undefined)
     const parsed = apiRequestParse("sessionBranchRequestParse", sessionBranchRequestSchema, body)
     if (!parsed.success) return badRequest(context)
 
     const result = await databaseTransactionRun(context.var.database, (transaction) =>
-      sessionBranch(transaction, context.var.requestIdentity.userId, context.req.param("sessionId"), parsed.data),
+      sessionBranch(
+        transaction,
+        context.var.requestIdentity.userId,
+        organizationId,
+        context.req.param("sessionId"),
+        parsed.data,
+      ),
     )
     if (!result.success) {
       if (

@@ -28,10 +28,10 @@ export function WorkspaceSetupPanel(props: { configuration: SessionTargetConfigu
           <Match when={props.configuration.status === "no-server"}>
             <div class="mt-5">
               <h2 id="workspace-setup-heading" class="m-0 text-xl font-semibold tracking-[-0.02em]">
-                No Codeline server is available
+                No machine is available for this organization
               </h2>
               <p class="mt-3 mb-5 text-sm leading-6 text-faint">
-                This workspace needs a server before an execution agent can be configured.
+                No machine is configured or available for the organization linked to your signed-in account.
               </p>
               <Button variant="outline" onClick={props.configuration.retry}>
                 Check servers again

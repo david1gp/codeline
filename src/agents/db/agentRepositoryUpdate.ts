@@ -9,7 +9,7 @@ import { agentTable } from "./agentTable.js"
 
 export async function agentRepositoryUpdate(
   database: DatabaseExecutor,
-  userId: string,
+  organizationId: string,
   serverId: string,
   agentId: string,
   input: unknown,
@@ -28,7 +28,7 @@ export async function agentRepositoryUpdate(
     const [server] = await database
       .select({ id: serverTable.id })
       .from(serverTable)
-      .where(and(eq(serverTable.id, serverId), eq(serverTable.ownerUserId, userId)))
+      .where(and(eq(serverTable.id, serverId), eq(serverTable.organizationId, organizationId)))
       .limit(1)
     if (server === undefined) return createResultError(op, "The server could not be found.")
 

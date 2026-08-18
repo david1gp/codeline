@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test"
-import { runtimeConfigurationParse } from "../src/configuration/runtimeConfigurationParse.js"
 import { appCreate } from "../src/app/appCreate.js"
+import { runtimeConfigurationParse } from "../src/configuration/runtimeConfigurationParse.js"
 import { serverStart } from "../src/server/serverStart.js"
 
 const environmentNames = [
@@ -15,6 +15,7 @@ const environmentNames = [
   "ZITADEL_CLIENT_ID",
   "ZITADEL_CLIENT_SECRET",
   "ZITADEL_ISSUER",
+  "ZITADEL_ORGANIZATION_ID",
   "ZITADEL_REDIRECT_URI",
 ] as const
 const originalEnvironment = Object.fromEntries(environmentNames.map((name) => [name, Bun.env[name]]))
@@ -63,6 +64,7 @@ test("OIDC configuration derives the provider-neutral callback URL", () => {
     nodeEnv: "production",
     oidcClientId: "client-id-value",
     oidcIssuer: "https://issuer.example.test/tenant",
+    oidcOrganizationId: "organization-id-value",
     publicOrigin: "https://codeline.example.test",
   })
 
@@ -83,6 +85,7 @@ test("OIDC configuration preserves the issuer's root slash and path spelling", (
       nodeEnv: "production",
       oidcClientId: "client-id-value",
       oidcIssuer,
+      oidcOrganizationId: "organization-id-value",
       publicOrigin: "https://codeline.example.test",
     })
 
@@ -91,12 +94,27 @@ test("OIDC configuration preserves the issuer's root slash and path spelling", (
   }
 })
 
+test("OIDC configuration requires the allowed ZITADEL organization ID", () => {
+  const result = runtimeConfigurationParse({
+    authMode: "oidc",
+    databaseUrl: "postgres://codeline.test/codeline",
+    nodeEnv: "production",
+    oidcClientId: "client-id",
+    oidcIssuer: "https://issuer.example.test",
+    publicOrigin: "https://codeline.example.test",
+  })
+
+  expect(result.success).toBe(false)
+  if (!result.success) expect(result.errorMessage).toContain("ZITADEL_ORGANIZATION_ID")
+})
+
 test("Zitadel aliases normalize to provider-neutral fields and preserve the provisioned callback path", () => {
   const result = runtimeConfigurationParse({
     AUTH_MODE: "oidc",
     ZITADEL_CLIENT_ID: "redacted-client-id",
     ZITADEL_CLIENT_SECRET: "redacted-client-secret",
     ZITADEL_ISSUER: "https://issuer.example.test/tenant",
+    ZITADEL_ORGANIZATION_ID: "redacted-organization-id",
     ZITADEL_REDIRECT_URI: "https://codeline.example.test/login/zitadel/callback",
     databaseUrl: "postgres://codeline.test/codeline",
     nodeEnv: "production",
@@ -110,6 +128,7 @@ test("Zitadel aliases normalize to provider-neutral fields and preserve the prov
     oidcClientId: "redacted-client-id",
     oidcClientSecret: "redacted-client-secret",
     oidcIssuer: "https://issuer.example.test/tenant",
+    oidcOrganizationId: "redacted-organization-id",
   })
   expect("ZITADEL_ISSUER" in result.data).toBe(false)
 })
@@ -121,7 +140,9 @@ test("conflicting provider-neutral and Zitadel values are rejected without expos
     nodeEnv: "production",
     oidcClientId: "generic-client-id",
     oidcIssuer: "https://generic-issuer.example.test",
+    oidcOrganizationId: "generic-organization-id",
     OIDC_CLIENT_ID: "generic-client-id",
+    OIDC_ORGANIZATION_ID: "generic-organization-id",
     ZITADEL_CLIENT_ID: "different-client-id",
     ZITADEL_ISSUER: "https://generic-issuer.example.test",
     publicOrigin: "https://codeline.example.test",
@@ -149,6 +170,7 @@ test("explicit callback validation requires HTTPS, no query or fragment, and the
       AUTH_MODE: "oidc",
       OIDC_CLIENT_ID: "redacted-client-id",
       OIDC_ISSUER: "https://issuer.example.test",
+      ZITADEL_ORGANIZATION_ID: "redacted-organization-id",
       OIDC_REDIRECT_URI,
       databaseUrl: "postgres://codeline.test/codeline",
       nodeEnv: "production",
@@ -168,6 +190,7 @@ test("OIDC validation errors expose field names but not supplied values", () => 
     nodeEnv: "production",
     oidcClientId: "client-id-secret",
     oidcIssuer: "http://issuer-secret.example.test",
+    oidcOrganizationId: "organization-secret",
     publicOrigin: "http://origin-secret.example.test",
   })
 
@@ -186,6 +209,7 @@ test("server startup passes validated authentication configuration to the app bo
     nodeEnv: "production",
     oidcClientId: "client-id",
     oidcIssuer: "https://issuer.example.test",
+    oidcOrganizationId: "organization-id",
     publicOrigin: "https://codeline.example.test",
   })
   if (!parsed.success) throw new Error(parsed.errorMessage)

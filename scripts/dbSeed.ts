@@ -19,6 +19,12 @@ if (configurationStoreDir === undefined) {
   process.exit(1)
 }
 
+const organizationExternalId = Bun.env.ZITADEL_ORGANIZATION_ID
+if (organizationExternalId === undefined || organizationExternalId.trim().length === 0) {
+  console.error("ZITADEL_ORGANIZATION_ID is required to seed the Contentoren organization.")
+  process.exit(1)
+}
+
 const configurationStoreResult = await configurationStoreCreate({
   authorEmail: Bun.env.CONFIG_STORE_AUTHOR_EMAIL ?? Bun.env.DEVELOPMENT_IDENTITY_EMAIL ?? "codeline@example.test",
   authorName: Bun.env.CONFIG_STORE_AUTHOR_NAME ?? Bun.env.DEVELOPMENT_IDENTITY_DISPLAY_NAME ?? "Codeline",
@@ -40,12 +46,11 @@ if (!catalogResult.success) {
 const databaseClient = postgres(databaseUrl)
 const database = drizzle(databaseClient, { schema: databaseSchema })
 const reset = Bun.argv.includes("--reset")
-const userId = Bun.env.EXAMPLE_DATA_USER_ID
 const result = await exampleDataSeed(database, {
   catalog: catalogResult.data,
   configurationStore: configurationStoreResult.data,
+  organizationExternalId,
   reset,
-  ...(userId === undefined ? {} : { userId }),
 })
 
 if (!result.success) {

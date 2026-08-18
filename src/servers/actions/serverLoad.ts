@@ -3,8 +3,8 @@ import { serverRepositoryLoad } from "../db/serverRepositoryLoad.js"
 
 export function serverLoad(
   database: DatabaseExecutor,
-  userId: string,
+  organizationId: string,
   serverId: string,
 ): ReturnType<typeof serverRepositoryLoad> {
-  return serverRepositoryLoad(database, userId, serverId)
+  return serverRepositoryLoad(database, organizationId, serverId)
 }

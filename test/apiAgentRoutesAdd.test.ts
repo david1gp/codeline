@@ -12,6 +12,7 @@ import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
 import { databaseSchema } from "../src/database/databaseSchema.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
+import { organizationTable } from "../src/identity/db/organizationTable.js"
 import { providerApiConnectionTestResponseSchema } from "../src/providers/api/providerApiConnectionTestResponseSchema.js"
 import { providerApiModelsResponseSchema } from "../src/providers/api/providerApiModelsResponseSchema.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
@@ -58,12 +59,16 @@ beforeAll(async () => {
     identityKey: otherIdentityKey,
   })
   if (!other.success) throw new Error(other.errorMessage)
+  await database.insert(organizationTable).values([
+    { id: ownerUserId, externalId: ownerUserId, name: "Agent API Owner Organization" },
+    { id: otherUserId, externalId: otherUserId, name: "Agent API Other Organization" },
+  ])
 
   await database.insert(serverTable).values({
     endpoint: "http://agent-api-server.test",
     id: serverId,
     name: "Agent API Server",
-    ownerUserId,
+    organizationId: ownerUserId,
   })
   await database.insert(agentTable).values({
     configuration: deterministicConfiguration,
@@ -82,11 +87,11 @@ afterAll(async () => {
   await client.end()
 })
 
-function appForUser(userId: string, authorizationValues: string[]): Hono<AppEnvironment> {
+function appForUser(userId: string, authorizationValues: string[], organizationId = userId): Hono<AppEnvironment> {
   const app = new Hono<AppEnvironment>()
   app.use("*", async (context, next) => {
     context.set("database", database)
-    context.set("requestIdentity", { userId })
+    context.set("requestIdentity", { organizationId, userId })
     await next()
   })
   apiAgentRoutesAdd(app, {

@@ -34,7 +34,7 @@ test("the no-selection view keeps the composer instead of a preparing placeholde
   expect(selectedSession).not.toContain("Select a session")
 })
 
-test("the setup panel exposes one local execution agent", async () => {
+test("the setup panel reports organization machine availability and exposes one execution agent", async () => {
   const setupPanel = await Bun.file(new URL("../src/ui/WorkspaceSetupPanel.tsx", import.meta.url)).text()
 
   expect(setupPanel).toContain('props.configuration.status === "loading"')
@@ -42,6 +42,13 @@ test("the setup panel exposes one local execution agent", async () => {
   expect(setupPanel).toContain('props.configuration.status === "server-error"')
   expect(setupPanel).toContain('props.configuration.status === "no-agent"')
   expect(setupPanel).toContain('props.configuration.status === "agent-error"')
+  expect(setupPanel).toContain("No machine is available for this organization")
+  expect(setupPanel).toContain(
+    "No machine is configured or available for the organization linked to your signed-in account.",
+  )
+  expect(setupPanel).toContain("Check servers again")
+  expect(setupPanel).not.toContain("invite")
+  expect(setupPanel).not.toContain("your server")
   expect(setupPanel).toContain("Ready for local execution")
   expect(setupPanel).toContain("No local agent configured")
   expect(setupPanel).toContain("props.configuration.sessionCreateStart()")

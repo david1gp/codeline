@@ -19,6 +19,7 @@ const oidcConfiguration = {
   nodeEnv: "production" as const,
   oidcClientId: "client",
   oidcIssuer: "https://issuer.codeline.test",
+  oidcOrganizationId: "contentoren",
   publicOrigin: "https://codeline.test",
 }
 
@@ -120,11 +121,19 @@ test("development authentication resolves the configured identity without a cook
       databaseUrl: "postgres://codeline.test/codeline",
       developmentIdentity: { displayName: "Development", identityKey: "development" },
       nodeEnv: "development",
+      oidcOrganizationId: "development-organization",
       publicOrigin: "http://codeline.test",
     },
     database: { transaction: async (operation: (transaction: unknown) => Promise<unknown>) => operation({}) } as never,
     developmentIdentityUpsert: (async () =>
       createResult({ displayName: "Development", id: "development:development" } as never)) as never,
+    organizationMemberLoad: async () =>
+      createResult({
+        issuer: "urn:codeline:development",
+        organizationId: "development-organization",
+        subject: "development",
+        userId: "development:development",
+      } as never),
   })
 
   const response = await app.request("http://codeline.test/api/auth/session")
@@ -150,6 +159,13 @@ test("OIDC unsafe cookie requests require the exact configured Origin and logout
     database: {} as never,
     identitySessionLoad: load,
     identitySessionRevoke: revoke,
+    organizationMemberLoad: async () =>
+      createResult({
+        issuer: oidcConfiguration.oidcIssuer,
+        organizationId: "contentoren",
+        subject: "subject-1",
+        userId: session.userId,
+      } as never),
   })
   const headers = { Cookie: "__Host-codeline-session=credential" }
 

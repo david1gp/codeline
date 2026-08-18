@@ -3,9 +3,9 @@ import { agentRepositoryLoad } from "../db/agentRepositoryLoad.js"
 
 export function agentLoad(
   database: DatabaseExecutor,
-  userId: string,
+  organizationId: string,
   serverId: string,
   agentId: string,
 ): ReturnType<typeof agentRepositoryLoad> {
-  return agentRepositoryLoad(database, userId, serverId, agentId)
+  return agentRepositoryLoad(database, organizationId, serverId, agentId)
 }

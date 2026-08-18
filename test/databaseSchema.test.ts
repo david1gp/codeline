@@ -6,6 +6,8 @@ import { zeroSchema } from "../src/database/zeroSchema.js"
 
 const expectedTables = [
   "user",
+  "organization",
+  "organization_member",
   "server",
   "agent",
   "session",
@@ -23,6 +25,8 @@ test("Zero exposes the durable application tables with matching PostgreSQL names
   const zeroTableNames = zeroTables.map((table) => table.serverName ?? table.name).sort()
   const databaseTableNames = [
     databaseSchema.applicationUserTable,
+    databaseSchema.organizationTable,
+    databaseSchema.organizationMemberTable,
     databaseSchema.serverTable,
     databaseSchema.agentTable,
     databaseSchema.sessionTable,
@@ -46,6 +50,10 @@ test("Zero exposes the durable application tables with matching PostgreSQL names
   expect(zeroTableNames).not.toContain("oidc_login_transaction")
   expect(zeroSchema.tables.streamEvent.primaryKey).toEqual(["id"])
   expect(Object.keys(zeroSchema.tables.user.columns).sort()).toEqual(["createdAt", "displayName", "id", "updatedAt"])
+  expect(zeroSchema.tables.organization.columns.externalId.serverName).toBe("external_id")
+  expect(zeroSchema.tables.organizationMember.primaryKey).toEqual(["organizationId", "userId"])
+  expect(zeroSchema.tables.organizationMember.uniqueKeys).toEqual([["organizationId", "issuer", "subject"]])
+  expect(zeroSchema.tables.server.columns.organizationId.serverName).toBe("organization_id")
   expect(zeroSchema.tables.streamEvent.columns.sequence.type).toBe("number")
   expect(zeroSchema.tables.streamCheckpoint.columns.lastSequence.type).toBe("number")
   expect(zeroSchema.tables.note.columns.projectPath.optional).toBe(true)
@@ -129,6 +137,12 @@ test("Drizzle keeps run and attempt stream IDs and ownership unique", () => {
 })
 
 test("Zero relationships cover restart-safe session and stream ownership", () => {
+  expect(zeroSchema.relationships.organization).toHaveProperty("members")
+  expect(zeroSchema.relationships.organization).toHaveProperty("servers")
+  expect(zeroSchema.relationships.organizationMember).toHaveProperty("organization")
+  expect(zeroSchema.relationships.organizationMember).toHaveProperty("user")
+  expect(zeroSchema.relationships.server).toHaveProperty("organization")
+  expect(zeroSchema.relationships.user).toHaveProperty("organizationMemberships")
   expect(zeroSchema.relationships.session).toHaveProperty("streamEvents")
   expect(zeroSchema.relationships.session).toHaveProperty("streamCheckpoints")
   expect(zeroSchema.relationships.session).toHaveProperty("parent")

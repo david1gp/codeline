@@ -2,8 +2,8 @@ import { expect, test } from "bun:test"
 import { createResult } from "@adaptive-ds/result"
 import * as oauth from "oauth4webapi"
 import { appCreate } from "../src/app/appCreate.js"
-import { oidcProviderDiscoveryCreate } from "../src/identity/oidc/oidcProviderDiscoveryCreate.js"
 import { oidcLoginReturnToResolve } from "../src/identity/oidc/oidcLoginReturnToResolve.js"
+import { oidcProviderDiscoveryCreate } from "../src/identity/oidc/oidcProviderDiscoveryCreate.js"
 
 const configuration = {
   authMode: "oidc" as const,
@@ -12,6 +12,7 @@ const configuration = {
   oidcCallbackUrl: "https://codeline.test/login/callback",
   oidcClientId: "client-id",
   oidcIssuer: "https://issuer.codeline.test",
+  oidcOrganizationId: "organization-id",
   publicOrigin: "https://codeline.test",
 }
 
@@ -96,7 +97,7 @@ test("OIDC login discovers once, stores a bound ten-minute transaction, and redi
   expect(firstLocation.searchParams.get("client_id")).toBe("client-id")
   expect(firstLocation.searchParams.get("redirect_uri")).toBe(configuration.oidcCallbackUrl)
   expect(firstLocation.searchParams.get("response_type")).toBe("code")
-  expect(firstLocation.searchParams.get("scope")).toBe("openid profile email")
+  expect(firstLocation.searchParams.get("scope")).toBe("openid profile email urn:zitadel:iam:user:resourceowner")
   expect(firstLocation.searchParams.get("state")).toBe("state-one")
   expect(firstLocation.searchParams.get("nonce")).toBe("nonce-one")
   expect(firstLocation.searchParams.get("code_challenge_method")).toBe("S256")

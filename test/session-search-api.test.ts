@@ -8,6 +8,8 @@ import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
 import { databaseSchema } from "../src/database/databaseSchema.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
+import { organizationMemberTable } from "../src/identity/db/organizationMemberTable.js"
+import { organizationTable } from "../src/identity/db/organizationTable.js"
 import { messageTable } from "../src/message/db/messageTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
@@ -21,9 +23,11 @@ const userId = `development:${identityKey}`
 const serverId = `session-search-server-${uuidv7()}`
 const agentId = `session-search-agent-${uuidv7()}`
 const configuration = {
+  authMode: "development" as const,
   databaseUrl: Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline",
   developmentIdentity: { displayName: "Session Search Test User", identityKey },
   nodeEnv: "development" as const,
+  oidcOrganizationId: userId,
 }
 const app = appCreate({ configuration, database })
 
@@ -31,12 +35,21 @@ beforeAll(async () => {
   if (!databaseAvailable) return
   const user = await developmentIdentityUpsert(database, { displayName: "Session Search Test User", identityKey })
   if (!user.success) throw new Error(user.errorMessage)
+  await database
+    .insert(organizationTable)
+    .values({ id: userId, externalId: userId, name: "Session Search Organization" })
+  await database.insert(organizationMemberTable).values({
+    issuer: "urn:codeline:development",
+    organizationId: userId,
+    subject: identityKey,
+    userId,
+  })
   await database.insert(serverTable).values({
     endpoint: "http://session-search-server.test",
     id: serverId,
     metadata: { searchMarker: "Server metadata marker" },
     name: "Session Search Server",
-    ownerUserId: userId,
+    organizationId: userId,
   })
   await database.insert(agentTable).values({
     configuration: { searchMarker: "Agent configuration marker" },
@@ -108,11 +121,14 @@ test.skipIf(!databaseAvailable)(
       identityKey: foreignIdentityKey,
     })
     if (!foreignUser.success) throw new Error(foreignUser.errorMessage)
+    await database
+      .insert(organizationTable)
+      .values({ id: foreignUserId, externalId: foreignUserId, name: "Foreign Search Organization" })
     await database.insert(serverTable).values({
       endpoint: "http://foreign-search-server.test",
       id: foreignServerId,
       name: "Foreign Search Server",
-      ownerUserId: foreignUserId,
+      organizationId: foreignUserId,
     })
     await database.insert(agentTable).values({
       id: foreignAgentId,

@@ -3,8 +3,8 @@ import { serverRepositoryList } from "../db/serverRepositoryList.js"
 
 export function serverList(
   database: DatabaseExecutor,
-  userId: string,
+  organizationId: string,
   search?: string,
 ): ReturnType<typeof serverRepositoryList> {
-  return serverRepositoryList(database, userId, search)
+  return serverRepositoryList(database, organizationId, search)
 }

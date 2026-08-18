@@ -10,6 +10,8 @@ import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
 import { databaseSchema } from "../src/database/databaseSchema.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
+import { organizationMemberTable } from "../src/identity/db/organizationMemberTable.js"
+import { organizationTable } from "../src/identity/db/organizationTable.js"
 import { serverListResponseSchema } from "../src/servers/api/serverListResponseSchema.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionTargetCreateResponseSchema } from "../src/session/api/sessionTargetCreateResponseSchema.js"
@@ -29,9 +31,11 @@ const reviewAgentId = `switching-agent-a2-${uuidv7()}`
 const secondaryAgentId = `switching-agent-b1-${uuidv7()}`
 const app = appCreate({
   configuration: {
+    authMode: "development" as const,
     databaseUrl,
     developmentIdentity: { displayName: "Switching Test User", identityKey },
     nodeEnv: "development" as const,
+    oidcOrganizationId: userId,
   },
   database,
 })
@@ -41,10 +45,22 @@ beforeAll(async () => {
 
   const user = await developmentIdentityUpsert(database, { displayName: "Switching Test User", identityKey })
   if (!user.success) throw new Error(user.errorMessage)
+  await database.insert(organizationTable).values({ id: userId, externalId: userId, name: "Switching Organization" })
+  await database.insert(organizationMemberTable).values({
+    issuer: "urn:codeline:development",
+    organizationId: userId,
+    subject: identityKey,
+    userId,
+  })
 
   await database.insert(serverTable).values([
-    { endpoint: "http://switching-a.test", id: primaryServerId, name: "Aaa Switching Server", ownerUserId: userId },
-    { endpoint: "http://switching-b.test", id: secondaryServerId, name: "Bbb Switching Server", ownerUserId: userId },
+    { endpoint: "http://switching-a.test", id: primaryServerId, name: "Aaa Switching Server", organizationId: userId },
+    {
+      endpoint: "http://switching-b.test",
+      id: secondaryServerId,
+      name: "Bbb Switching Server",
+      organizationId: userId,
+    },
   ])
   await database.insert(agentTable).values([
     { id: primaryAgentId, name: "Switching Coding Agent", role: "coding", serverId: primaryServerId, sortOrder: 0 },

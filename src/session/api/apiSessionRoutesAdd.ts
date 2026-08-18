@@ -51,8 +51,8 @@ import { sessionLoad } from "../actions/sessionLoad.js"
 import { sessionPin } from "../actions/sessionPin.js"
 import { sessionChatRequestSchema } from "../schema/sessionChatRequestSchema.js"
 import { sessionCreateRequestSchema } from "../schema/sessionCreateRequestSchema.js"
-import { sessionQuerySchema } from "../schema/sessionQuerySchema.js"
 import { sessionPinRequestSchema } from "../schema/sessionPinRequestSchema.js"
+import { sessionQuerySchema } from "../schema/sessionQuerySchema.js"
 
 type ApiContext = Context<AppEnvironment>
 
@@ -263,10 +263,12 @@ async function sessionChatReplayEventsLoad(
 export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessionRoutesOptions = {}): void {
   api.get("/sessions", async (context) => {
     const userId = context.var.requestIdentity.userId
+    const organizationId = context.var.requestIdentity.organizationId
+    if (organizationId === undefined) return context.json({ nextCursor: null, sessions: [] })
     const parsed = apiRequestParse("sessionQueryParse", sessionQuerySchema, context.req.query())
     if (!parsed.success) return badRequest(context, "The session query is invalid.")
 
-    const result = await sessionList(context.var.database, userId, {
+    const result = await sessionList(context.var.database, userId, organizationId, {
       cursor: parsed.data.cursor,
       includeArchived: parsed.data.includeArchived === "1",
       limit: parsed.data.limit,
@@ -285,12 +287,15 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
 
   api.post("/sessions", async (context) => {
     const userId = context.var.requestIdentity.userId
+    const organizationId = context.var.requestIdentity.organizationId
+    if (organizationId === undefined) return notFound(context)
     const body = await context.req.json<unknown>().catch(() => undefined)
     const parsed = apiRequestParse("sessionCreateRequestParse", sessionCreateRequestSchema, body)
     if (!parsed.success) return badRequest(context, "The session request is invalid.")
 
     const result = await databaseTransactionRun(context.var.database, (transaction) =>
       sessionCreate(transaction, userId, parsed.data, {
+        organizationId,
         projectRootDirs: options.projectRootDir === undefined ? options.projectRootDirs : [options.projectRootDir],
       }),
     )
@@ -306,6 +311,8 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
 
   api.post("/sessions/:sessionId/chat", async (context) => {
     const userId = context.var.requestIdentity.userId
+    const organizationId = context.var.requestIdentity.organizationId
+    if (organizationId === undefined) return notFound(context)
     const body = await context.req.json<unknown>().catch(() => undefined)
     const parsed = apiRequestParse("sessionChatRequestParse", sessionChatRequestSchema, body)
     if (!parsed.success) return badRequest(context, "The chat request is invalid.")
@@ -327,7 +334,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     let activeRun: typeof runTable.$inferSelect | undefined
     let activeAttempt: typeof attemptTable.$inferSelect | undefined
     let runtimeAgentPrompt: string | undefined
-    const loaded = await sessionLoad(context.var.database, userId, sessionId)
+    const loaded = await sessionLoad(context.var.database, userId, organizationId, sessionId)
     if (!loaded.success)
       return loaded.errorMessage.includes("could not be found") ? notFound(context) : internalServerError(context)
     if (loaded.data.session.archivedAt !== null) return conflict(context, "The session is archived.")
@@ -661,7 +668,9 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
 
   api.get("/sessions/:sessionId", async (context) => {
     const userId = context.var.requestIdentity.userId
-    const result = await sessionLoad(context.var.database, userId, context.req.param("sessionId"))
+    const organizationId = context.var.requestIdentity.organizationId
+    if (organizationId === undefined) return notFound(context)
+    const result = await sessionLoad(context.var.database, userId, organizationId, context.req.param("sessionId"))
     if (!result.success)
       return result.errorMessage.includes("could not be found") ? notFound(context) : internalServerError(context)
     return context.json(result.data)

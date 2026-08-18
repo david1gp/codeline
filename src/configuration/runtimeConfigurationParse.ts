@@ -1,6 +1,6 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
-import { runtimeConfigurationSchema, type RuntimeConfiguration } from "./runtimeConfigurationSchema.js"
+import { type RuntimeConfiguration, runtimeConfigurationSchema } from "./runtimeConfigurationSchema.js"
 
 export function runtimeConfigurationParse(input: unknown): Result<RuntimeConfiguration> {
   const op = "runtimeConfigurationParse"
@@ -52,6 +52,7 @@ export function runtimeConfigurationParse(input: unknown): Result<RuntimeConfigu
   const oidcFields = [
     ...(parsed.output.oidcIssuer === undefined ? ["OIDC_ISSUER"] : []),
     ...(parsed.output.oidcClientId === undefined ? ["OIDC_CLIENT_ID"] : []),
+    ...(parsed.output.oidcOrganizationId === undefined ? ["ZITADEL_ORGANIZATION_ID"] : []),
   ]
   if (oidcFields.length > 0) {
     return createResultError(
@@ -97,6 +98,20 @@ function runtimeConfigurationInputNormalize(input: unknown): Result<unknown> {
   if (!isRecord(input)) return createResult(input)
 
   const normalizedInput = { ...input }
+  const sessionsSidebarPageSize = input.SESSIONS_SIDEBAR_PAGE_SIZE
+  if (sessionsSidebarPageSize !== undefined) {
+    const normalizedPageSize =
+      typeof sessionsSidebarPageSize === "string" ? Number(sessionsSidebarPageSize) : sessionsSidebarPageSize
+    if (input.sessionsSidebarPageSize !== undefined && input.sessionsSidebarPageSize !== normalizedPageSize) {
+      return createResultError(
+        op,
+        "Runtime configuration is invalid. Conflicting values for sessionsSidebarPageSize and SESSIONS_SIDEBAR_PAGE_SIZE.",
+      )
+    }
+    normalizedInput.sessionsSidebarPageSize = normalizedPageSize
+  }
+  delete normalizedInput.SESSIONS_SIDEBAR_PAGE_SIZE
+
   const fields = [
     { internal: "authMode", names: ["AUTH_MODE"] },
     { internal: "publicOrigin", names: ["PUBLIC_ORIGIN"] },
@@ -104,6 +119,15 @@ function runtimeConfigurationInputNormalize(input: unknown): Result<unknown> {
     { internal: "oidcClientId", names: ["OIDC_CLIENT_ID", "ZITADEL_CLIENT_ID"] },
     { internal: "oidcClientSecret", names: ["OIDC_CLIENT_SECRET", "ZITADEL_CLIENT_SECRET"] },
     { internal: "oidcCallbackUrl", names: ["OIDC_REDIRECT_URI", "ZITADEL_REDIRECT_URI"] },
+    {
+      internal: "oidcOrganizationId",
+      names: [
+        "OIDC_ORGANIZATION_ID",
+        "OIDC_ALLOWED_ORGANIZATION_ID",
+        "ZITADEL_ORGANIZATION_ID",
+        "ZITADEL_ALLOWED_ORGANIZATION_ID",
+      ],
+    },
   ] as const
 
   for (const field of fields) {

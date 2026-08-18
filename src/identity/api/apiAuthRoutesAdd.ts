@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto"
-import type { Result } from "@adaptive-ds/result"
+import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import type { Context } from "hono"
 import { Hono } from "hono"
 import * as oauth from "oauth4webapi"
@@ -21,6 +21,8 @@ import { oidcLoginTransactionCreate } from "../db/oidcLoginTransactionCreate.js"
 import { oidcLoginReturnToResolve } from "../oidc/oidcLoginReturnToResolve.js"
 import { oidcProviderDiscoveryCreate } from "../oidc/oidcProviderDiscoveryCreate.js"
 import type { OidcProviderFetch } from "../oidc/oidcProviderFetch.js"
+import { oidcResourceOwnerClaim } from "../oidc/oidcResourceOwnerClaim.js"
+import { oidcResourceOwnerScope } from "../oidc/oidcResourceOwnerScope.js"
 import type { AuthLogoutResponse } from "./authLogoutResponseSchema.js"
 import type { AuthSessionResponse } from "./authSessionResponseSchema.js"
 import { identitySessionCookieClear } from "./identitySessionCookieClear.js"
@@ -76,7 +78,8 @@ export function apiAuthRoutesAdd(api: Hono<AppEnvironment>, options: ApiAuthRout
     if (
       configuration.oidcIssuer === undefined ||
       configuration.publicOrigin === undefined ||
-      configuration.oidcClientId === undefined
+      configuration.oidcClientId === undefined ||
+      configuration.oidcOrganizationId === undefined
     ) {
       return oidcLoginError(context, 503, "OIDC login is not configured.")
     }
@@ -123,7 +126,7 @@ export function apiAuthRoutesAdd(api: Hono<AppEnvironment>, options: ApiAuthRout
     authorizationUrl.searchParams.set("code_challenge_method", "S256")
     authorizationUrl.searchParams.set("redirect_uri", redirectUri)
     authorizationUrl.searchParams.set("response_type", "code")
-    authorizationUrl.searchParams.set("scope", "openid profile email")
+    authorizationUrl.searchParams.set("scope", `openid profile email ${oidcResourceOwnerScope}`)
     authorizationUrl.searchParams.set("state", state)
     authorizationUrl.searchParams.set("nonce", nonce)
 
@@ -245,7 +248,8 @@ async function oidcCallbackHandle(
   if (
     configuration.oidcIssuer === undefined ||
     configuration.publicOrigin === undefined ||
-    configuration.oidcClientId === undefined
+    configuration.oidcClientId === undefined ||
+    configuration.oidcOrganizationId === undefined
   ) {
     return oidcCallbackError(context, 503)
   }
@@ -301,6 +305,7 @@ async function oidcCallbackHandle(
     issuer: provider.data.issuer,
     jwks_uri: provider.data.jwksUri,
     token_endpoint: provider.data.tokenEndpoint,
+    ...(provider.data.userinfoEndpoint === undefined ? {} : { userinfo_endpoint: provider.data.userinfoEndpoint }),
   }
   const client: oauth.Client = {
     client_id: configuration.oidcClientId,
@@ -309,6 +314,7 @@ async function oidcCallbackHandle(
   }
 
   let claims: oauth.IDToken | undefined
+  let processedTokenResponse: oauth.TokenEndpointResponse | undefined
   try {
     const validatedParameters = await oauth.validateAuthResponse(authorizationServer, client, callbackParameters, state)
     const tokenResponse = await oauth.authorizationCodeGrantRequest(
@@ -322,15 +328,10 @@ async function oidcCallbackHandle(
     )
     const nonce = await oidcResponseNonceResolve(tokenResponse)
     if (nonce === undefined) return oidcCallbackError(context, 400)
-    const processedTokenResponse = await oauth.processAuthorizationCodeResponse(
-      authorizationServer,
-      client,
-      tokenResponse,
-      {
-        expectedNonce: nonce,
-        requireIdToken: true,
-      },
-    )
+    processedTokenResponse = await oauth.processAuthorizationCodeResponse(authorizationServer, client, tokenResponse, {
+      expectedNonce: nonce,
+      requireIdToken: true,
+    })
     await oidcIdTokenSignatureValidate(authorizationServer, tokenResponse, options.providerFetch)
     claims = oauth.getValidatedIdTokenClaims(processedTokenResponse)
   } catch (_error) {
@@ -346,6 +347,17 @@ async function oidcCallbackHandle(
     return oidcCallbackError(context, 400)
   }
 
+  const resourceOwnerId = await oidcResourceOwnerIdResolve(
+    authorizationServer,
+    client,
+    claims,
+    processedTokenResponse,
+    options.providerFetch,
+  )
+  if (!resourceOwnerId.success || resourceOwnerId.data !== configuration.oidcOrganizationId) {
+    return oidcCallbackError(context, 400)
+  }
+
   const identityUpsert = options.identityUpsert ?? oidcIdentityUpsert
   const identitySessionLoadResolve = options.identitySessionLoad ?? identitySessionLoad
   const identitySessionRevokeResolve = options.identitySessionRevoke ?? identitySessionRevoke
@@ -355,6 +367,7 @@ async function oidcCallbackHandle(
     const user = await identityUpsert(executor, {
       displayName: oidcProfileStringResolve(claims.name) ?? oidcProfileStringResolve(claims.preferred_username),
       issuer: provider.data.issuer,
+      organizationExternalId: resourceOwnerId.data,
       subject: claims.sub,
       ...(claims.email_verified === true && oidcProfileStringResolve(claims.email) !== undefined
         ? { verifiedEmail: oidcProfileStringResolve(claims.email) }
@@ -508,6 +521,40 @@ function oidcIdTokenClaimsAreSafe(claims: oauth.IDToken, issuer: string, clientI
   if (claims.exp <= nowSeconds - oidcClockToleranceSeconds) return false
   if (claims.iat > nowSeconds + oidcClockToleranceSeconds || claims.iat > claims.exp) return false
   return true
+}
+
+async function oidcResourceOwnerIdResolve(
+  authorizationServer: oauth.AuthorizationServer,
+  client: oauth.Client,
+  claims: oauth.IDToken,
+  tokenResponse: oauth.TokenEndpointResponse | undefined,
+  providerFetch: OidcProviderFetch | undefined,
+): Promise<Result<string>> {
+  const op = "oidcResourceOwnerIdResolve"
+  const idTokenValue = claims[oidcResourceOwnerClaim]
+  if (idTokenValue !== undefined) {
+    const resourceOwnerId = oidcProfileStringResolve(idTokenValue)
+    return resourceOwnerId === undefined
+      ? createResultError(op, "The OIDC resource-owner claim is invalid.")
+      : createResult(resourceOwnerId)
+  }
+
+  if (authorizationServer.userinfo_endpoint === undefined || tokenResponse?.access_token === undefined) {
+    return createResultError(op, "The OIDC resource-owner claim is missing.")
+  }
+
+  try {
+    const response = await oauth.userInfoRequest(authorizationServer, client, tokenResponse.access_token, {
+      [oauth.customFetch]: oidcProviderCustomFetch(providerFetch),
+    })
+    const userInfo = await oauth.processUserInfoResponse(authorizationServer, client, claims.sub, response)
+    const resourceOwnerId = oidcProfileStringResolve(userInfo[oidcResourceOwnerClaim])
+    return resourceOwnerId === undefined
+      ? createResultError(op, "The OIDC resource-owner claim is missing.")
+      : createResult(resourceOwnerId)
+  } catch (_error) {
+    return createResultError(op, "The OIDC resource-owner claim could not be validated.")
+  }
 }
 
 function oidcProfileStringResolve(value: unknown): string | undefined {

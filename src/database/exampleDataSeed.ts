@@ -1,12 +1,14 @@
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
-import { inArray } from "drizzle-orm"
+import { eq, inArray } from "drizzle-orm"
 import { agentTable } from "../agents/db/agentTable.js"
 import type { AgentConfiguration } from "../agents/schema/agentConfigurationSchema.js"
 import type { ConfigurationStore } from "../configuration/configurationStore.js"
 import { applicationUserTable } from "../identity/db/applicationUserTable.js"
 import { externalIdentityUpsert } from "../identity/db/externalIdentityUpsert.js"
+import { organizationMemberTable } from "../identity/db/organizationMemberTable.js"
+import { organizationTable } from "../identity/db/organizationTable.js"
 import { messageTable } from "../message/db/messageTable.js"
 import { providerAgentCatalogAgentNameCreate } from "../providers/catalog/providerAgentCatalogAgentNameCreate.js"
 import { providerAgentCatalogConfigurationCompile } from "../providers/catalog/providerAgentCatalogConfigurationCompile.js"
@@ -34,13 +36,66 @@ async function exampleDataMessagesDelete(database: DatabaseExecutor): Promise<vo
   await database.delete(messageTable).where(inArray(messageTable.id, messageIds))
 }
 
+async function exampleDataOrganizationReconcile(
+  database: DatabaseExecutor,
+  organizationExternalId: string,
+): Promise<Result<void>> {
+  const op = "exampleDataOrganizationReconcile"
+
+  try {
+    const [existingOrganization] = await database
+      .select({ id: organizationTable.id, externalId: organizationTable.externalId })
+      .from(organizationTable)
+      .where(eq(organizationTable.id, exampleDataFixture.organization.id))
+    if (existingOrganization !== undefined && existingOrganization.externalId !== organizationExternalId) {
+      return createResultError(
+        op,
+        "The configured Contentoren organization external ID conflicts with the existing organization.",
+      )
+    }
+
+    if (existingOrganization === undefined) {
+      const [externalOrganization] = await database
+        .select({ id: organizationTable.id })
+        .from(organizationTable)
+        .where(eq(organizationTable.externalId, organizationExternalId))
+      if (externalOrganization !== undefined) {
+        return createResultError(
+          op,
+          "The configured Contentoren organization external ID belongs to another organization.",
+        )
+      }
+    }
+
+    await database
+      .insert(organizationTable)
+      .values({
+        id: exampleDataFixture.organization.id,
+        externalId: organizationExternalId,
+        name: exampleDataFixture.organization.name,
+        createdAt: date(exampleDataFixture.organization.createdAt),
+        updatedAt: date(exampleDataFixture.organization.updatedAt),
+      })
+      .onConflictDoUpdate({
+        target: organizationTable.id,
+        set: {
+          name: exampleDataFixture.organization.name,
+          createdAt: date(exampleDataFixture.organization.createdAt),
+          updatedAt: date(exampleDataFixture.organization.updatedAt),
+        },
+      })
+    return createResult(undefined)
+  } catch (_error) {
+    return createResultError(op, "The Contentoren organization could not be reconciled.")
+  }
+}
+
 async function exampleDataRowsReconcile(
   database: DatabaseExecutor,
   catalog: ProviderCatalog,
-  userId?: string,
 ): Promise<Result<{ sessionCount: number; messageCount: number }>> {
   const op = "exampleDataRowsReconcile"
-  const fixtureUser = userId === undefined ? exampleDataFixture.user : { ...exampleDataFixture.user, id: userId }
+  const fixtureUser = exampleDataFixture.user
   const catalogConfigurations = providerAgentCatalogConfigurationCompile(catalog)
   if (!catalogConfigurations.success) return createResultError(op, catalogConfigurations.errorMessage)
 
@@ -65,21 +120,39 @@ async function exampleDataRowsReconcile(
       .returning({ id: applicationUserTable.id })
     if (user?.id !== fixtureUser.id) return createResultError(op, "The example-data user has an unexpected ID.")
 
-    if (userId === undefined) {
-      const externalIdentity = await externalIdentityUpsert(database, {
+    const externalIdentity = await externalIdentityUpsert(database, {
+      userId: fixtureUser.id,
+      issuer: exampleDataFixture.organizationMembership.issuer,
+      subject: exampleDataFixture.organizationMembership.subject,
+    })
+    if (!externalIdentity.success) return createResultError(op, externalIdentity.errorMessage)
+
+    await database
+      .insert(organizationMemberTable)
+      .values({
+        organizationId: exampleDataFixture.organization.id,
         userId: fixtureUser.id,
-        issuer: "urn:codeline:development",
-        subject: "local-development",
+        issuer: exampleDataFixture.organizationMembership.issuer,
+        subject: exampleDataFixture.organizationMembership.subject,
+        createdAt: date(exampleDataFixture.organizationMembership.createdAt),
+        updatedAt: date(exampleDataFixture.organizationMembership.updatedAt),
       })
-      if (!externalIdentity.success) return createResultError(op, externalIdentity.errorMessage)
-    }
+      .onConflictDoUpdate({
+        target: [organizationMemberTable.organizationId, organizationMemberTable.userId],
+        set: {
+          issuer: exampleDataFixture.organizationMembership.issuer,
+          subject: exampleDataFixture.organizationMembership.subject,
+          createdAt: date(exampleDataFixture.organizationMembership.createdAt),
+          updatedAt: date(exampleDataFixture.organizationMembership.updatedAt),
+        },
+      })
 
     for (const server of exampleDataFixture.servers) {
       await database
         .insert(serverTable)
         .values({
           id: server.id,
-          ownerUserId: fixtureUser.id,
+          organizationId: server.organizationId,
           name: server.name,
           endpoint: server.endpoint,
           metadata: server.metadata,
@@ -89,7 +162,7 @@ async function exampleDataRowsReconcile(
         .onConflictDoUpdate({
           target: serverTable.id,
           set: {
-            ownerUserId: fixtureUser.id,
+            organizationId: server.organizationId,
             name: server.name,
             endpoint: server.endpoint,
             metadata: server.metadata,
@@ -243,13 +316,15 @@ async function exampleDataRowsReconcile(
 export async function exampleDataSeed(
   database: DatabaseClient,
   options: {
+    organizationExternalId: string
     catalog?: ProviderCatalog
     configurationStore?: ConfigurationStore
     reset?: boolean
-    userId?: string
-  } = {},
+  },
 ): Promise<Result<{ sessionCount: number; messageCount: number }>> {
   const op = "exampleDataSeed"
+  if (options.organizationExternalId.trim().length === 0)
+    return createResultError(op, "The Contentoren organization external ID is required.")
   const catalogResult =
     options.catalog === undefined
       ? await providerAgentCatalogLoad(resolve(dirname(fileURLToPath(import.meta.url)), "../.."))
@@ -257,8 +332,10 @@ export async function exampleDataSeed(
   if (!catalogResult.success) return createResultError(op, catalogResult.errorMessage)
   const seeded = await databaseTransactionRun(database, async (transaction) => {
     try {
+      const organization = await exampleDataOrganizationReconcile(transaction, options.organizationExternalId)
+      if (!organization.success) return createResultError(op, organization.errorMessage)
       if (options.reset === true) await exampleDataMessagesDelete(transaction)
-      return await exampleDataRowsReconcile(transaction, catalogResult.data, options.userId)
+      return await exampleDataRowsReconcile(transaction, catalogResult.data)
     } catch (_error) {
       return createResultError(op, "The example data seed transaction failed.")
     }

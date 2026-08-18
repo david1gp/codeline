@@ -16,7 +16,7 @@ test("query protocol serves workspace and notes named queries", async () => {
     body: JSON.stringify([
       "transform",
       [
-        { args: [], id: "active-sessions", name: "activeSessions" },
+        { args: [{ limit: 25, start: null }], id: "active-sessions", name: "activeSessions" },
         { args: [{ sessionId: "session-1" }], id: "active-session", name: "activeSession" },
         { args: [{ sessionId: "session-1" }], id: "finalized-messages", name: "finalizedMessages" },
         { args: [], id: "notes", name: "notes" },

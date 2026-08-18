@@ -13,10 +13,33 @@ const user = table("user")
   })
   .primaryKey("id")
 
+const organization = table("organization")
+  .columns({
+    id: string(),
+    externalId: string().from("external_id"),
+    name: string(),
+    createdAt: number().from("created_at"),
+    updatedAt: number().from("updated_at"),
+  })
+  .primaryKey("id")
+
+const organizationMember = table("organizationMember")
+  .from("organization_member")
+  .columns({
+    organizationId: string().from("organization_id"),
+    userId: string().from("user_id"),
+    issuer: string(),
+    subject: string(),
+    createdAt: number().from("created_at"),
+    updatedAt: number().from("updated_at"),
+  })
+  .primaryKey("organizationId", "userId")
+  .unique("organizationId", "issuer", "subject")
+
 const server = table("server")
   .columns({
     id: string(),
-    ownerUserId: string().from("owner_user_id"),
+    organizationId: string().from("organization_id"),
     name: string(),
     endpoint: string(),
     metadata: json(),
@@ -24,7 +47,7 @@ const server = table("server")
     updatedAt: number().from("updated_at"),
   })
   .primaryKey("id")
-  .unique("ownerUserId", "name")
+  .unique("organizationId", "name")
 
 const agent = table("agent")
   .columns({
@@ -187,7 +210,7 @@ const streamCheckpoint = table("streamCheckpoint")
   .unique("sessionId", "streamId")
 
 const userRelationships = relationships(user, ({ many }) => ({
-  servers: many({ sourceField: ["id"], destField: ["ownerUserId"], destSchema: server }),
+  organizationMemberships: many({ sourceField: ["id"], destField: ["userId"], destSchema: organizationMember }),
   sessions: many({ sourceField: ["id"], destField: ["userId"], destSchema: session }),
   notes: many({ sourceField: ["id"], destField: ["userId"], destSchema: note }),
   runs: many({ sourceField: ["id"], destField: ["userId"], destSchema: run }),
@@ -195,8 +218,18 @@ const userRelationships = relationships(user, ({ many }) => ({
   delegations: many({ sourceField: ["id"], destField: ["userId"], destSchema: runDelegation }),
 }))
 
+const organizationRelationships = relationships(organization, ({ many }) => ({
+  members: many({ sourceField: ["id"], destField: ["organizationId"], destSchema: organizationMember }),
+  servers: many({ sourceField: ["id"], destField: ["organizationId"], destSchema: server }),
+}))
+
+const organizationMemberRelationships = relationships(organizationMember, ({ one }) => ({
+  organization: one({ sourceField: ["organizationId"], destField: ["id"], destSchema: organization }),
+  user: one({ sourceField: ["userId"], destField: ["id"], destSchema: user }),
+}))
+
 const serverRelationships = relationships(server, ({ many, one }) => ({
-  owner: one({ sourceField: ["ownerUserId"], destField: ["id"], destSchema: user }),
+  organization: one({ sourceField: ["organizationId"], destField: ["id"], destSchema: organization }),
   agents: many({ sourceField: ["id"], destField: ["serverId"], destSchema: agent }),
   sessions: many({ sourceField: ["id"], destField: ["serverId"], destSchema: session }),
 }))
@@ -263,9 +296,25 @@ const runDelegationRelationships = relationships(runDelegation, ({ one }) => ({
 }))
 
 export const zeroSchema = createSchema({
-  tables: [user, server, agent, session, message, note, run, attempt, runDelegation, streamEvent, streamCheckpoint],
+  tables: [
+    user,
+    organization,
+    organizationMember,
+    server,
+    agent,
+    session,
+    message,
+    note,
+    run,
+    attempt,
+    runDelegation,
+    streamEvent,
+    streamCheckpoint,
+  ],
   relationships: [
     userRelationships,
+    organizationRelationships,
+    organizationMemberRelationships,
     serverRelationships,
     agentRelationships,
     sessionRelationships,

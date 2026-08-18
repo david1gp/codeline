@@ -170,3 +170,22 @@ test("note reorder swaps adjacent notes and validates authorization and project 
     }),
   ).rejects.toThrow("could not be found")
 })
+
+test("notes remain private between users sharing an organization", async () => {
+  const notes = [
+    noteCreateInput({ id: "note-user-1", userId: "user-1" }),
+    noteCreateInput({ id: "note-user-2", userId: "user-2" }),
+  ]
+  const userTwoTransaction = noteTransactionCreate(notes, "user-2")
+
+  await expect(
+    noteMutators.note.update.fn({
+      args: { content: "must remain private", id: "note-user-1", projectPath: "packages/codeline", updatedAt: 2 },
+      ctx: { userId: "user-2" },
+      tx: userTwoTransaction as never,
+    }),
+  ).rejects.toThrow("could not be found")
+
+  expect(notes.find((note) => note.id === "note-user-1")?.content).toBe("content")
+  expect(notes.filter((note) => note.userId === "user-2").map((note) => note.id)).toEqual(["note-user-2"])
+})

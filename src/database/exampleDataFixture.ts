@@ -9,8 +9,21 @@ type ExampleDataFixture = {
     createdAt: string
     updatedAt: string
   }
+  organization: {
+    id: string
+    name: string
+    createdAt: string
+    updatedAt: string
+  }
+  organizationMembership: {
+    issuer: string
+    subject: string
+    createdAt: string
+    updatedAt: string
+  }
   servers: readonly {
     id: string
+    organizationId: string
     name: string
     endpoint: string
     metadata: { fixture: string }
@@ -61,9 +74,22 @@ export const exampleDataFixture = {
     createdAt: "2026-08-12T08:00:00.000Z",
     updatedAt: "2026-08-12T08:00:00.000Z",
   },
+  organization: {
+    id: "contentoren",
+    name: "Contentoren",
+    createdAt: "2026-08-12T07:59:00.000Z",
+    updatedAt: "2026-08-12T07:59:00.000Z",
+  },
+  organizationMembership: {
+    issuer: "urn:codeline:development",
+    subject: "local-development",
+    createdAt: "2026-08-12T08:00:30.000Z",
+    updatedAt: "2026-08-12T08:00:30.000Z",
+  },
   servers: [
     {
       id: "example-server-local",
+      organizationId: "contentoren",
       name: "Example Local Server",
       endpoint: "http://example-local-server.test",
       metadata: { fixture: "codeline-example-v1" },
@@ -72,6 +98,7 @@ export const exampleDataFixture = {
     },
     {
       id: "example-server-remote",
+      organizationId: "contentoren",
       name: "Example Remote Server",
       endpoint: "http://example-remote-server.test",
       metadata: { fixture: "codeline-example-v1" },

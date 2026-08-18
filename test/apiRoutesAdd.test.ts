@@ -88,9 +88,11 @@ test("app composition forwards provider configuration and runtime dependencies",
   let authorization = ""
   const app = appCreate({
     configuration: {
+      authMode: "development",
       databaseUrl: "postgres://codeline.test/codeline",
       developmentIdentity: { displayName: user.displayName, identityKey: user.identityKey },
       nodeEnv: "development",
+      oidcOrganizationId: "provider-composition-organization",
     },
     database: {
       transaction: async (operation: (transaction: unknown) => Promise<unknown>) =>
@@ -103,6 +105,13 @@ test("app composition forwards provider configuration and runtime dependencies",
           }),
         }),
     } as never,
+    organizationMemberLoad: async () =>
+      createResult({
+        issuer: "urn:codeline:development",
+        organizationId: "provider-composition-organization",
+        subject: user.identityKey,
+        userId: user.id,
+      } as never),
     providerConfiguration: {
       apiKey: "$CLIPROXYAPI_API_KEY",
       baseUrl: "https://provider.test/v1",

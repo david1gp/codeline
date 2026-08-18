@@ -1,11 +1,11 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
-import * as v from "valibot"
 import { and, desc, eq, ilike, isNull, lt, or, sql } from "drizzle-orm"
-import type { DatabaseExecutor } from "../../database/databaseClient.js"
+import * as v from "valibot"
 import { agentTable } from "../../agents/db/agentTable.js"
+import type { DatabaseExecutor } from "../../database/databaseClient.js"
+import { metadataSearchPatternCreate } from "../../database/metadataSearchPatternCreate.js"
 import { serverTable } from "../../servers/db/serverTable.js"
 import { sessionTable } from "./sessionTable.js"
-import { metadataSearchPatternCreate } from "../../database/metadataSearchPatternCreate.js"
 
 const sessionCursorSchema = v.object({
   id: v.pipe(v.string(), v.minLength(1)),
@@ -35,6 +35,7 @@ function sessionCursorEncode(cursor: SessionCursor): string {
 export async function sessionRepositoryList(
   database: DatabaseExecutor,
   userId: string,
+  organizationId: string,
   options: { cursor?: string; includeArchived: boolean; limit: number; search?: string },
 ): Promise<
   Result<{
@@ -54,7 +55,7 @@ export async function sessionRepositoryList(
   try {
     const conditions = [
       eq(sessionTable.userId, userId),
-      eq(serverTable.ownerUserId, userId),
+      eq(serverTable.organizationId, organizationId),
       eq(agentTable.serverId, sessionTable.serverId),
     ]
     if (!options.includeArchived) conditions.push(isNull(sessionTable.archivedAt))

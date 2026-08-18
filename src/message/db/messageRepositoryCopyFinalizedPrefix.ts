@@ -16,6 +16,13 @@ export async function messageRepositoryCopyFinalizedPrefix(
   const allowedRoles = ["user", "assistant"] as const
 
   try {
+    const [target] = await database
+      .select({ id: sessionTable.id })
+      .from(sessionTable)
+      .where(and(eq(sessionTable.id, targetSessionId), eq(sessionTable.userId, userId)))
+      .limit(1)
+    if (target === undefined) return createResultError(op, "The target session could not be found.")
+
     const [selected] = await database
       .select({ message: messageTable })
       .from(messageTable)
@@ -37,6 +44,7 @@ export async function messageRepositoryCopyFinalizedPrefix(
     const sourceMessages = await database
       .select({ message: messageTable })
       .from(messageTable)
+      .innerJoin(sessionTable, and(eq(messageTable.sessionId, sessionTable.id), eq(sessionTable.userId, userId)))
       .where(
         and(
           eq(messageTable.sessionId, sourceSessionId),

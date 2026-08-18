@@ -8,6 +8,7 @@ import type { oidcLoginTransactionConsume } from "../src/identity/db/oidcLoginTr
 import type { oidcLoginTransactionTable } from "../src/identity/db/oidcLoginTransactionTable.js"
 import type { OidcProviderFetch } from "../src/identity/oidc/oidcProviderFetch.js"
 import type { OidcProviderMetadata } from "../src/identity/oidc/oidcProviderMetadata.js"
+import { oidcResourceOwnerClaim } from "../src/identity/oidc/oidcResourceOwnerClaim.js"
 
 const now = new Date("2026-08-14T12:00:00.000Z")
 const configuration = {
@@ -18,6 +19,7 @@ const configuration = {
   oidcClientId: "client-id",
   oidcClientSecret: "client-secret",
   oidcIssuer: "https://issuer.codeline.test",
+  oidcOrganizationId: "organization-id",
   publicOrigin: "https://codeline.test",
 }
 const metadata: OidcProviderMetadata = {
@@ -30,6 +32,7 @@ const metadata: OidcProviderMetadata = {
   responseTypesSupported: ["code"],
   tokenEndpoint: "https://issuer.codeline.test/token",
   tokenEndpointAuthMethodsSupported: ["client_secret_basic"],
+  userinfoEndpoint: "https://issuer.codeline.test/userinfo",
 }
 const keyPair = await crypto.subtle.generateKey(
   { hash: "SHA-256", modulusLength: 2048, name: "RSASSA-PKCS1-v1_5", publicExponent: new Uint8Array([1, 0, 1]) },
@@ -77,10 +80,96 @@ test("OIDC callback uses the exact configured path, validates the mocked token a
   expect(storedProfile).toEqual({
     displayName: "Verified User",
     issuer: configuration.oidcIssuer,
+    organizationExternalId: configuration.oidcOrganizationId,
     subject: "subject-value",
     verifiedEmail: "verified@example.test",
   })
   expect(JSON.stringify(storedProfile)).not.toContain("access-token")
+})
+
+test("OIDC callback rejects missing and disallowed resource-owner claims before identity persistence", async () => {
+  for (const claims of [{ [oidcResourceOwnerClaim]: "other-organization" }, { [oidcResourceOwnerClaim]: undefined }]) {
+    let identityCalled = false
+    const app = callbackApp({
+      identityUpsert: async () => {
+        identityCalled = true
+        return createResult(applicationUser)
+      },
+      providerFetch: async (input) => {
+        if (String(input) === metadata.tokenEndpoint) return tokenResponse(await signedIdToken(claims))
+        return jwksResponse()
+      },
+    })
+
+    const response = await app.request(
+      "https://codeline.test/login/zitadel/callback?code=authorization-code&state=state-value",
+      { headers: { Cookie: "__Host-codeline-oidc-binding=browser-binding" } },
+    )
+
+    expect(response.status).toBe(400)
+    expect(identityCalled).toBe(false)
+    expect(response.headers.get("set-cookie")).not.toContain("__Host-codeline-session=fresh-session")
+  }
+})
+
+test("OIDC callback rejects malformed resource-owner claims before identity persistence", async () => {
+  for (const claim of [[], {}, "", "   "]) {
+    let identityCalled = false
+    const app = callbackApp({
+      identityUpsert: async () => {
+        identityCalled = true
+        return createResult(applicationUser)
+      },
+      providerFetch: async (input) => {
+        if (String(input) === metadata.tokenEndpoint)
+          return tokenResponse(await signedIdToken({ [oidcResourceOwnerClaim]: claim }))
+        return jwksResponse()
+      },
+    })
+
+    const response = await app.request(
+      "https://codeline.test/login/zitadel/callback?code=authorization-code&state=state-value",
+      { headers: { Cookie: "__Host-codeline-oidc-binding=browser-binding" } },
+    )
+
+    expect(response.status).toBe(400)
+    expect(identityCalled).toBe(false)
+  }
+})
+
+test("OIDC callback validates a missing ID-token resource-owner claim through standards-compliant UserInfo", async () => {
+  let userInfoAuthorization = ""
+  let profile: Record<string, unknown> | undefined
+  const app = callbackApp({
+    identityUpsert: async (_database, value) => {
+      profile = value
+      return createResult(applicationUser)
+    },
+    providerFetch: async (input, init) => {
+      if (String(input) === metadata.tokenEndpoint)
+        return tokenResponse(await signedIdToken({ [oidcResourceOwnerClaim]: undefined }))
+      if (String(input) === metadata.userinfoEndpoint) {
+        userInfoAuthorization = new Request(input, init).headers.get("authorization") ?? ""
+        return Response.json({ sub: "subject-value", [oidcResourceOwnerClaim]: configuration.oidcOrganizationId })
+      }
+      return jwksResponse()
+    },
+  })
+
+  const response = await app.request(
+    "https://codeline.test/login/zitadel/callback?code=authorization-code&state=state-value",
+    { headers: { Cookie: "__Host-codeline-oidc-binding=browser-binding" } },
+  )
+
+  expect(response.status).toBe(302)
+  expect(userInfoAuthorization).toBe("Bearer access-token")
+  expect(profile).toEqual({
+    displayName: "OIDC Subject",
+    issuer: configuration.oidcIssuer,
+    organizationExternalId: configuration.oidcOrganizationId,
+    subject: "subject-value",
+  })
+  expect(JSON.stringify(profile)).not.toContain("access-token")
 })
 
 test("OIDC callback accepts proxied internal HTTP, preserves query parameters, and ignores forwarded authority", async () => {
@@ -168,7 +257,7 @@ test("OIDC callback rejects nonce, audience, issuer, signature, expiry, and issu
 
   for (const failure of failures) {
     const app = callbackApp({
-      providerFetch: async (input, init) => {
+      providerFetch: async (input, _init) => {
         if (String(input) === metadata.tokenEndpoint) {
           return tokenResponse(
             await signedIdToken({
@@ -210,7 +299,7 @@ test("OIDC callback forwards only verified email, reuses the external identity, 
   let profile: Record<string, unknown> | undefined
   let revokedSessionId = ""
   const app = callbackApp({
-    providerFetch: async (input, init) => {
+    providerFetch: async (input, _init) => {
       if (String(input) === metadata.tokenEndpoint) {
         return tokenResponse(await signedIdToken({ email: "unverified@example.test", email_verified: false }))
       }
@@ -240,6 +329,7 @@ test("OIDC callback forwards only verified email, reuses the external identity, 
   expect(profile).toEqual({
     displayName: "OIDC Subject",
     issuer: configuration.oidcIssuer,
+    organizationExternalId: configuration.oidcOrganizationId,
     subject: "subject-value",
   })
   expect(response.headers.get("set-cookie")).toContain("__Host-codeline-session=fresh-session")
@@ -337,6 +427,7 @@ async function signedIdToken(overrides: Record<string, unknown>): Promise<string
     iss: configuration.oidcIssuer,
     name: "OIDC Subject",
     nonce: "nonce-value",
+    [oidcResourceOwnerClaim]: configuration.oidcOrganizationId,
     sub: "subject-value",
     ...overrides,
   }

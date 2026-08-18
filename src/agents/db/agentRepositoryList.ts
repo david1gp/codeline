@@ -1,13 +1,13 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import { and, asc, eq, ilike, sql } from "drizzle-orm"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
-import { agentTable } from "./agentTable.js"
-import { serverTable } from "../../servers/db/serverTable.js"
 import { metadataSearchPatternCreate } from "../../database/metadataSearchPatternCreate.js"
+import { serverTable } from "../../servers/db/serverTable.js"
+import { agentTable } from "./agentTable.js"
 
 export async function agentRepositoryList(
   database: DatabaseExecutor,
-  userId: string,
+  organizationId: string,
   serverId: string,
   search?: string,
 ): Promise<Result<Array<{ agent: typeof agentTable.$inferSelect; server: typeof serverTable.$inferSelect }>>> {
@@ -17,11 +17,11 @@ export async function agentRepositoryList(
     const [server] = await database
       .select()
       .from(serverTable)
-      .where(and(eq(serverTable.id, serverId), eq(serverTable.ownerUserId, userId)))
+      .where(and(eq(serverTable.id, serverId), eq(serverTable.organizationId, organizationId)))
       .limit(1)
     if (server === undefined) return createResultError(op, "The server could not be found.")
 
-    const conditions = [eq(serverTable.ownerUserId, userId), eq(agentTable.serverId, serverId)]
+    const conditions = [eq(serverTable.organizationId, organizationId), eq(agentTable.serverId, serverId)]
     if (search !== undefined) {
       const pattern = metadataSearchPatternCreate(search)
       conditions.push(ilike(agentTable.name, pattern))

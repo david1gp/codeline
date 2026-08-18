@@ -112,7 +112,13 @@ export async function runRepositoryChildCreate(
         const [existingAttempt] = await transaction
           .select()
           .from(attemptTable)
-          .where(eq(attemptTable.runId, existingRun.id))
+          .where(
+            and(
+              eq(attemptTable.runId, existingRun.id),
+              eq(attemptTable.sessionId, sessionId),
+              eq(attemptTable.userId, userId),
+            ),
+          )
           .orderBy(desc(attemptTable.ordinal))
           .for("update")
           .limit(1)
@@ -130,7 +136,13 @@ export async function runRepositoryChildCreate(
       const [currentAttempt] = await transaction
         .select()
         .from(attemptTable)
-        .where(eq(attemptTable.runId, parent.id))
+        .where(
+          and(
+            eq(attemptTable.runId, parent.id),
+            eq(attemptTable.sessionId, sessionId),
+            eq(attemptTable.userId, userId),
+          ),
+        )
         .orderBy(desc(attemptTable.ordinal))
         .for("update")
         .limit(1)

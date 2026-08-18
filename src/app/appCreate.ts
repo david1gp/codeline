@@ -8,25 +8,25 @@ import type { ConfigurationStore } from "../configuration/configurationStore.js"
 import type { RuntimeConfiguration } from "../configuration/runtimeConfigurationSchema.js"
 import type { DatabaseClient } from "../database/databaseClient.js"
 import { databaseReadyCheck } from "../database/databaseReadyCheck.js"
-import { authenticationMiddleware } from "../identity/api/authenticationMiddleware.js"
-import { developmentIdentityUpsert } from "../identity/db/developmentIdentityUpsert.js"
+import { identitySessionCreate } from "../identity/actions/identitySessionCreate.js"
 import { identitySessionLoad } from "../identity/actions/identitySessionLoad.js"
 import { identitySessionRevoke } from "../identity/actions/identitySessionRevoke.js"
-import { identitySessionCreate } from "../identity/actions/identitySessionCreate.js"
 import { oidcIdentityUpsert } from "../identity/actions/oidcIdentityUpsert.js"
-import { oidcLoginTransactionCreate } from "../identity/db/oidcLoginTransactionCreate.js"
+import { organizationMemberLoad } from "../identity/actions/organizationMemberLoad.js"
+import { authenticationMiddleware } from "../identity/api/authenticationMiddleware.js"
+import { developmentIdentityUpsert } from "../identity/db/developmentIdentityUpsert.js"
 import { oidcLoginTransactionConsume } from "../identity/db/oidcLoginTransactionConsume.js"
+import { oidcLoginTransactionCreate } from "../identity/db/oidcLoginTransactionCreate.js"
 import { oidcProviderDiscoveryCreate } from "../identity/oidc/oidcProviderDiscoveryCreate.js"
 import type { OidcProviderFetch } from "../identity/oidc/oidcProviderFetch.js"
-import { appKnownRouteResolve } from "./appKnownRouteResolve.js"
 import type { ProjectLimits } from "../project/projectLimitsSchema.js"
-import type { ProviderModelDiscoveryOptions } from "../providers/runtime/providerModelDiscovery.js"
-import type { ProviderCatalog } from "../providers/schema/providerCatalogSchema.js"
 import { providerDelegationToolLoopCreate } from "../providers/runtime/providerDelegationToolLoopCreate.js"
+import type { ProviderModelDiscoveryOptions } from "../providers/runtime/providerModelDiscovery.js"
 import { providerRuntimeAdapterCreate } from "../providers/runtime/providerRuntimeAdapterCreate.js"
-import { runCreate } from "../run/actions/runCreate.js"
+import type { ProviderCatalog } from "../providers/schema/providerCatalogSchema.js"
 import { runCancel } from "../run/actions/runCancel.js"
 import { runCancellationCoordinatorCreate } from "../run/actions/runCancellationCoordinatorCreate.js"
+import { runCreate } from "../run/actions/runCreate.js"
 import { runDelegationExecute } from "../run/actions/runDelegationExecute.js"
 import { runExecutionSnapshotResolve } from "../run/actions/runExecutionSnapshotResolve.js"
 import { runLoad } from "../run/actions/runLoad.js"
@@ -34,6 +34,7 @@ import { runRetryAttemptCreate } from "../run/actions/runRetryAttemptCreate.js"
 import { runTransition } from "../run/actions/runTransition.js"
 import { sessionChatAdapterCreate } from "../session/actions/sessionChatAdapterCreate.js"
 import { streamReplayServiceCreate } from "../stream/actions/streamReplayServiceCreate.js"
+import { appKnownRouteResolve } from "./appKnownRouteResolve.js"
 import { appUiShellFallbackAdd } from "./appUiShellFallbackAdd.js"
 
 export type AppCreateOptions = {
@@ -46,6 +47,7 @@ export type AppCreateOptions = {
   identitySessionRevoke?: typeof identitySessionRevoke
   identitySessionCreate?: typeof identitySessionCreate
   oidcIdentityUpsert?: typeof oidcIdentityUpsert
+  organizationMemberLoad?: typeof organizationMemberLoad
   oidcIdCreate?: () => string
   oidcLoginTransactionCreate?: typeof oidcLoginTransactionCreate
   oidcLoginTransactionConsume?: typeof oidcLoginTransactionConsume
@@ -117,6 +119,7 @@ export function appCreate(options: AppCreateOptions = {}): App {
       "/api/*",
       authenticationMiddleware(options.configuration, options.database, {
         developmentIdentityUpsert: options.developmentIdentityUpsert,
+        organizationMemberLoad: options.organizationMemberLoad,
         identitySessionLoad: options.identitySessionLoad,
       }),
     )

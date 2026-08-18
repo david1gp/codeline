@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test"
+import { createResult } from "@adaptive-ds/result"
 import * as v from "valibot"
 import { apiErrorResponseSchema } from "../src/api/errors/apiErrorResponseSchema.js"
 import { healthResponseSchema } from "../src/api/health/healthResponseSchema.js"
@@ -18,6 +19,7 @@ const configuration = runtimeConfigurationParse({
     displayName: "Configured Developer",
   },
   nodeEnv: "development",
+  oidcOrganizationId: "configured-organization",
   publicOrigin: "http://127.0.0.1:6000",
 })
 
@@ -34,6 +36,62 @@ test("runtime configuration rejects missing development identity without exposin
   expect(result.errorMessage).toContain("developmentIdentity")
   expect(result.errorMessage).not.toContain("secret")
   expect(result.errorMessage).not.toContain("password")
+})
+
+test("runtime configuration defaults the sessions sidebar page size", () => {
+  expect(configuration.success).toBe(true)
+  if (configuration.success) expect(configuration.data.sessionsSidebarPageSize).toBe(25)
+})
+
+test("runtime configuration accepts a positive integer sessions sidebar page size from the server environment", () => {
+  if (!configuration.success) throw new Error(configuration.errorMessage)
+  const result = runtimeConfigurationParse({
+    ...configuration.data,
+    sessionsSidebarPageSize: undefined,
+    SESSIONS_SIDEBAR_PAGE_SIZE: "40",
+  })
+
+  expect(result.success).toBe(true)
+  if (result.success) expect(result.data.sessionsSidebarPageSize).toBe(40)
+})
+
+test("runtime configuration rejects non-positive and non-integer sessions sidebar page sizes", () => {
+  if (!configuration.success) throw new Error(configuration.errorMessage)
+  for (const pageSize of [0, -1, 1.5, "", "  ", "1.5", "Infinity", "NaN", "not-a-number"]) {
+    const result = runtimeConfigurationParse({
+      ...configuration.data,
+      sessionsSidebarPageSize: undefined,
+      SESSIONS_SIDEBAR_PAGE_SIZE: pageSize,
+    })
+
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.errorMessage).toContain("sessionsSidebarPageSize")
+  }
+})
+
+test("runtime configuration accepts matching internal and environment page-size values", () => {
+  if (!configuration.success) throw new Error(configuration.errorMessage)
+
+  const result = runtimeConfigurationParse({
+    ...configuration.data,
+    sessionsSidebarPageSize: 40,
+    SESSIONS_SIDEBAR_PAGE_SIZE: "40",
+  })
+
+  expect(result).toMatchObject({ success: true, data: { sessionsSidebarPageSize: 40 } })
+})
+
+test("runtime configuration rejects conflicting internal and environment page-size values", () => {
+  if (!configuration.success) throw new Error(configuration.errorMessage)
+
+  const result = runtimeConfigurationParse({
+    ...configuration.data,
+    sessionsSidebarPageSize: 40,
+    SESSIONS_SIDEBAR_PAGE_SIZE: "41",
+  })
+
+  expect(result.success).toBe(false)
+  if (!result.success) expect(result.errorMessage).toContain("sessionsSidebarPageSize")
 })
 
 test("app construction remains database-free for unit tests", async () => {
@@ -95,6 +153,13 @@ test("development identity middleware stores only the configured identity", asyn
     configuration: configuration.data,
     database: fakeDatabase as never,
     databaseReadyCheck: async () => ({ success: true, data: undefined }),
+    organizationMemberLoad: async () =>
+      createResult({
+        issuer: "urn:codeline:development",
+        organizationId: "configured-organization",
+        subject: "configured-developer",
+        userId: user.id,
+      } as never),
   })
   const response = await app.request("http://codeline.test/api/testing/echo", {
     body: JSON.stringify({ message: "hello", ownerUserId: "client-controlled-owner" }),

@@ -15,7 +15,11 @@ export const runtimeConfigurationSchema = v.object({
   oidcClientId: v.optional(v.pipe(v.string(), v.minLength(1))),
   oidcClientSecret: v.optional(v.pipe(v.string(), v.minLength(1))),
   oidcIssuer: v.optional(v.pipe(v.string(), v.url())),
+  oidcOrganizationId: v.optional(v.pipe(v.string(), v.minLength(1))),
   publicOrigin: v.optional(v.pipe(v.string(), v.url())),
+  sessionsSidebarPageSize: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1)), 25),
 })
 
-export type RuntimeConfiguration = v.InferOutput<typeof runtimeConfigurationSchema>
+export type RuntimeConfiguration = Omit<v.InferOutput<typeof runtimeConfigurationSchema>, "sessionsSidebarPageSize"> & {
+  sessionsSidebarPageSize?: number
+}

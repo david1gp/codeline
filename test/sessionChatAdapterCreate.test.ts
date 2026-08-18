@@ -14,14 +14,16 @@ import { databaseSchema } from "../src/database/databaseSchema.js"
 import { databaseTransactionRun } from "../src/database/databaseTransactionRun.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
+import { organizationMemberTable } from "../src/identity/db/organizationMemberTable.js"
+import { organizationTable } from "../src/identity/db/organizationTable.js"
 import { messageAppend } from "../src/message/actions/messageAppend.js"
 import { messageTable } from "../src/message/db/messageTable.js"
 import {
   type ProviderRuntimeAdapterOptions,
   providerRuntimeAdapterCreate,
 } from "../src/providers/runtime/providerRuntimeAdapterCreate.js"
-import { runCreate } from "../src/run/actions/runCreate.js"
 import { runCancellationCoordinatorCreate } from "../src/run/actions/runCancellationCoordinatorCreate.js"
+import { runCreate } from "../src/run/actions/runCreate.js"
 import { runTransition } from "../src/run/actions/runTransition.js"
 import { attemptTable } from "../src/run/db/attemptTable.js"
 import { runDelegationTable } from "../src/run/db/runDelegationTable.js"
@@ -30,8 +32,8 @@ import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionArchive } from "../src/session/actions/sessionArchive.js"
 import { sessionChatAdapterCreate } from "../src/session/actions/sessionChatAdapterCreate.js"
 import { sessionCreate } from "../src/session/actions/sessionCreate.js"
-import { streamEventTable } from "../src/stream/db/streamEventTable.js"
 import { streamReplayServiceCreate } from "../src/stream/actions/streamReplayServiceCreate.js"
+import { streamEventTable } from "../src/stream/db/streamEventTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
 
 type ChatAdapter = NonNullable<AppCreateOptions["sessionChatAdapter"]>
@@ -51,9 +53,11 @@ const fixture = {
   userKey: `session-chat-user-${uuidv7()}`,
 }
 const configuration = {
+  authMode: "development" as const,
   databaseUrl,
   developmentIdentity: { displayName: "Session Chat User", identityKey: fixture.userKey },
   nodeEnv: "development" as const,
+  oidcOrganizationId: `development:${fixture.userKey}`,
 }
 const app = appCreate({ configuration, database })
 let userId: string | undefined
@@ -80,13 +84,18 @@ async function messageRows(sessionId: string) {
 }
 
 async function sessionCreateForTest(ownerUserId: string, title: string, serverId: string, agentId: string) {
-  const result = await sessionCreate(database, ownerUserId, {
-    clientRequestId: `session-chat-session-${uuidv7()}`,
-    metadata: {},
-    primaryAgentId: agentId,
-    serverId,
-    title,
-  })
+  const result = await sessionCreate(
+    database,
+    ownerUserId,
+    {
+      clientRequestId: `session-chat-session-${uuidv7()}`,
+      metadata: {},
+      primaryAgentId: agentId,
+      serverId,
+      title,
+    },
+    { organizationId: ownerUserId },
+  )
   if (!result.success) throw new Error(result.errorMessage)
   return result.data.session.id
 }
@@ -245,19 +254,37 @@ beforeAll(async () => {
   })
   if (!otherUser.success) throw new Error(otherUser.errorMessage)
   otherUserId = otherUser.data.id
+  await database.insert(organizationTable).values([
+    { id: userId, externalId: userId, name: "Session Chat Organization" },
+    { id: otherUserId, externalId: otherUserId, name: "Other Session Chat Organization" },
+  ])
+  await database.insert(organizationMemberTable).values([
+    {
+      issuer: "urn:codeline:development",
+      organizationId: userId,
+      subject: fixture.userKey,
+      userId,
+    },
+    {
+      issuer: "urn:codeline:development",
+      organizationId: otherUserId,
+      subject: fixture.otherUserKey,
+      userId: otherUserId,
+    },
+  ])
 
   await database.insert(serverTable).values([
     {
       endpoint: "http://session-chat-server.test",
       id: fixture.serverId,
       name: "Session Chat Server",
-      ownerUserId: userId,
+      organizationId: userId,
     },
     {
       endpoint: "http://session-chat-other-server.test",
       id: fixture.otherServerId,
       name: "Other Session Chat Server",
-      ownerUserId: otherUserId,
+      organizationId: otherUserId,
     },
   ])
   await database.insert(agentTable).values([
@@ -1182,6 +1209,7 @@ test.skipIf(!databaseAvailable)(
       const otherConfiguration = {
         ...configuration,
         developmentIdentity: { ...configuration.developmentIdentity, identityKey: fixture.otherUserKey },
+        oidcOrganizationId: otherUserId,
       }
       const ownership = await appCreate({ configuration: otherConfiguration, database }).request(
         `http://codeline.test/api/sessions/${sessionId}/runs/${runId}/cancel`,

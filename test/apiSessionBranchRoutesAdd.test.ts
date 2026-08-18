@@ -7,9 +7,10 @@ import { agentTable } from "../src/agents/db/agentTable.js"
 import type { AppEnvironment } from "../src/api/appEnvironment.js"
 import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
 import { databaseSchema } from "../src/database/databaseSchema.js"
-import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import type { ApplicationUser } from "../src/identity/db/applicationUserTable.js"
+import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
+import { organizationTable } from "../src/identity/db/organizationTable.js"
 import { messageAppend } from "../src/message/actions/messageAppend.js"
 import { messageTable } from "../src/message/db/messageTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
@@ -41,12 +42,15 @@ beforeAll(async () => {
   })
   if (!user.success) throw new Error(user.errorMessage)
   developmentUser = user.data
+  await database
+    .insert(organizationTable)
+    .values({ id: developmentUser.id, externalId: developmentUser.id, name: "Session Branch Organization" })
 
   await database.insert(serverTable).values({
     endpoint: "http://session-branch-server.test",
     id: fixture.serverId,
     name: "Session Branch Server",
-    ownerUserId: developmentUser.id,
+    organizationId: developmentUser.id,
   })
   await database.insert(agentTable).values({
     id: fixture.agentId,
@@ -55,13 +59,18 @@ beforeAll(async () => {
     serverId: fixture.serverId,
   })
 
-  const source = await sessionCreate(database, developmentUser.id, {
-    clientRequestId: `session-branch-source-${uuidv7()}`,
-    metadata: { branch: "source" },
-    primaryAgentId: fixture.agentId,
-    serverId: fixture.serverId,
-    title: "Branch source",
-  })
+  const source = await sessionCreate(
+    database,
+    developmentUser.id,
+    {
+      clientRequestId: `session-branch-source-${uuidv7()}`,
+      metadata: { branch: "source" },
+      primaryAgentId: fixture.agentId,
+      serverId: fixture.serverId,
+      title: "Branch source",
+    },
+    { organizationId: developmentUser.id },
+  )
   if (!source.success) throw new Error(source.errorMessage)
   sourceSessionId = source.data.session.id
 
@@ -88,7 +97,7 @@ beforeAll(async () => {
   app.use("*", async (context, next) => {
     if (developmentUser === undefined) return next()
     context.set("database", database)
-    context.set("requestIdentity", { userId: developmentUser.id })
+    context.set("requestIdentity", { organizationId: developmentUser.id, userId: developmentUser.id })
     await next()
   })
   apiSessionBranchRoutesAdd(app)
@@ -137,10 +146,16 @@ test.skipIf(!databaseAvailable)("branches an owned active session through a fina
 test.skipIf(!databaseAvailable)("does not branch a session for another owner", async () => {
   if (sourceSessionId === undefined || selectedMessageId === undefined) return
 
-  const unauthorized = await sessionBranch(database, "development:unknown-session-branch-user", sourceSessionId, {
-    clientRequestId: `session-branch-unauthorized-${uuidv7()}`,
-    messageId: selectedMessageId,
-  })
+  const unauthorized = await sessionBranch(
+    database,
+    "development:unknown-session-branch-user",
+    developmentUser?.id ?? "missing-organization",
+    sourceSessionId,
+    {
+      clientRequestId: `session-branch-unauthorized-${uuidv7()}`,
+      messageId: selectedMessageId,
+    },
+  )
   expect(unauthorized).toMatchObject({ success: false, errorMessage: "The session could not be found." })
 })
 

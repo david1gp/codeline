@@ -9,6 +9,7 @@ import { sessionTable } from "./sessionTable.js"
 export async function sessionRepositoryCreate(
   database: DatabaseExecutor,
   userId: string,
+  organizationId: string,
   input: {
     clientRequestId: string
     primaryAgentId: string
@@ -23,16 +24,20 @@ export async function sessionRepositoryCreate(
 
   try {
     const [existing] = await database
-      .select()
+      .select({ session: sessionTable })
       .from(sessionTable)
+      .innerJoin(
+        serverTable,
+        and(eq(sessionTable.serverId, serverTable.id), eq(serverTable.organizationId, organizationId)),
+      )
       .where(and(eq(sessionTable.userId, userId), eq(sessionTable.clientRequestId, input.clientRequestId)))
       .limit(1)
-    if (existing !== undefined) return createResult({ created: false, session: existing })
+    if (existing !== undefined) return createResult({ created: false, session: existing.session })
 
     const [server] = await database
       .select({ id: serverTable.id })
       .from(serverTable)
-      .where(and(eq(serverTable.id, input.serverId), eq(serverTable.ownerUserId, userId)))
+      .where(and(eq(serverTable.id, input.serverId), eq(serverTable.organizationId, organizationId)))
       .limit(1)
     if (server === undefined) return createResultError(op, "The server could not be found.")
 
@@ -62,12 +67,16 @@ export async function sessionRepositoryCreate(
     if (created !== undefined) return createResult({ created: true, session: created })
 
     const [idempotent] = await database
-      .select()
+      .select({ session: sessionTable })
       .from(sessionTable)
+      .innerJoin(
+        serverTable,
+        and(eq(sessionTable.serverId, serverTable.id), eq(serverTable.organizationId, organizationId)),
+      )
       .where(and(eq(sessionTable.userId, userId), eq(sessionTable.clientRequestId, input.clientRequestId)))
       .limit(1)
-    if (idempotent !== undefined) return createResult({ created: false, session: idempotent })
-    return createResultError(op, "The session could not be created.")
+    if (idempotent !== undefined) return createResult({ created: false, session: idempotent.session })
+    return createResultError(op, "The server could not be found.")
   } catch (_error) {
     return createResultError(op, "The session could not be created.")
   }

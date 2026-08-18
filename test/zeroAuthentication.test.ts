@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test"
 import { createResult } from "@adaptive-ds/result"
+import { appCreate } from "../src/app/appCreate.js"
 import { identitySessionLoad } from "../src/identity/actions/identitySessionLoad.js"
 import { identitySessionTable } from "../src/identity/db/identitySessionTable.js"
-import { appCreate } from "../src/app/appCreate.js"
 
 const configuration = {
   authMode: "oidc" as const,
@@ -10,6 +10,7 @@ const configuration = {
   nodeEnv: "production" as const,
   oidcClientId: "client",
   oidcIssuer: "https://issuer.codeline.test",
+  oidcOrganizationId: "contentoren",
   publicOrigin: "https://codeline.test",
 }
 
@@ -31,6 +32,13 @@ function zeroAppCreate(load: typeof identitySessionLoad, tokenRead: (token: stri
       tokenRead(token)
       return load(database, token)
     }) as typeof identitySessionLoad,
+    organizationMemberLoad: async () =>
+      createResult({
+        issuer: configuration.oidcIssuer,
+        organizationId: "contentoren",
+        subject: "subject-1",
+        userId: session.userId,
+      } as never),
   })
 }
 
@@ -41,7 +49,10 @@ test("Zero query transforms authenticate the forwarded opaque session cookie", a
     (token) => (receivedToken = token),
   )
   const response = await app.request("https://codeline.test/api/query?userID=browser-spoof", {
-    body: JSON.stringify(["transform", [{ args: [], id: "active-sessions", name: "activeSessions" }]]),
+    body: JSON.stringify([
+      "transform",
+      [{ args: [{ limit: 25, start: null }], id: "active-sessions", name: "activeSessions" }],
+    ]),
     headers: {
       Cookie: "__Host-codeline-session=opaque-session",
       "Content-Type": "application/json",

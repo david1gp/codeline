@@ -63,7 +63,9 @@ export async function runRepositoryRetryAttemptCreate(
       const [latestAttempt] = await transaction
         .select()
         .from(attemptTable)
-        .where(eq(attemptTable.runId, run.id))
+        .where(
+          and(eq(attemptTable.runId, run.id), eq(attemptTable.sessionId, sessionId), eq(attemptTable.userId, userId)),
+        )
         .orderBy(desc(attemptTable.ordinal))
         .for("update")
         .limit(1)

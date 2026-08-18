@@ -1,16 +1,18 @@
 import { createHash } from "node:crypto"
-import { and, eq } from "drizzle-orm"
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
+import { and, eq } from "drizzle-orm"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
-import { applicationUserUpsert } from "../db/applicationUserUpsert.js"
 import type { ApplicationUser } from "../db/applicationUserTable.js"
 import { applicationUserTable } from "../db/applicationUserTable.js"
+import { applicationUserUpsert } from "../db/applicationUserUpsert.js"
 import { externalIdentityTable } from "../db/externalIdentityTable.js"
 import { externalIdentityUpsert } from "../db/externalIdentityUpsert.js"
+import { oidcOrganizationMembershipUpsert } from "../db/oidcOrganizationMembershipUpsert.js"
 
 type OidcIdentityProfile = {
   displayName?: string
   verifiedEmail?: string
+  organizationExternalId: string
   issuer: string
   subject: string
 }
@@ -39,17 +41,25 @@ export async function oidcIdentityUpsert(
     })
     if (!storedUser.success) return createResultError(op, storedUser.errorMessage)
 
-    if (existingIdentity !== undefined) return createResult(storedUser.data)
+    if (existingIdentity === undefined) {
+      const storedIdentity = await externalIdentityUpsert(database, {
+        issuer: profile.issuer,
+        subject: profile.subject,
+        userId,
+      })
+      if (!storedIdentity.success) return createResultError(op, storedIdentity.errorMessage)
+      if (storedIdentity.data.userId !== userId) {
+        return createResultError(op, "The external identity is already linked to another user.")
+      }
+    }
 
-    const storedIdentity = await externalIdentityUpsert(database, {
+    const membership = await oidcOrganizationMembershipUpsert(database, {
       issuer: profile.issuer,
+      organizationExternalId: profile.organizationExternalId,
       subject: profile.subject,
       userId,
     })
-    if (!storedIdentity.success) return createResultError(op, storedIdentity.errorMessage)
-    if (storedIdentity.data.userId !== userId) {
-      return createResultError(op, "The external identity is already linked to another user.")
-    }
+    if (!membership.success) return createResultError(op, membership.errorMessage)
     return createResult(storedUser.data)
   } catch (_error) {
     return createResultError(op, "The OIDC identity could not be stored.")

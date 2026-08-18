@@ -10,7 +10,7 @@ import { agentTable } from "./agentTable.js"
 
 export async function agentRepositoryCreate(
   database: DatabaseExecutor,
-  userId: string,
+  organizationId: string,
   serverId: string,
   input: unknown,
 ): Promise<
@@ -28,7 +28,7 @@ export async function agentRepositoryCreate(
     const [server] = await database
       .select({ id: serverTable.id })
       .from(serverTable)
-      .where(and(eq(serverTable.id, serverId), eq(serverTable.ownerUserId, userId)))
+      .where(and(eq(serverTable.id, serverId), eq(serverTable.organizationId, organizationId)))
       .limit(1)
     if (server === undefined) return createResultError(op, "The server could not be found.")
 

@@ -8,8 +8,10 @@ import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
 import { databaseSchema } from "../src/database/databaseSchema.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
-import { sessionCreate } from "../src/session/actions/sessionCreate.js"
+import { organizationMemberTable } from "../src/identity/db/organizationMemberTable.js"
+import { organizationTable } from "../src/identity/db/organizationTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
+import { sessionCreate } from "../src/session/actions/sessionCreate.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
 
 const client = postgres(Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline")
@@ -21,9 +23,11 @@ const fixture = {
   userKey: `message-api-user-${uuidv7()}`,
 }
 const configuration = {
+  authMode: "development" as const,
   databaseUrl: Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline",
   developmentIdentity: { displayName: "Message API User", identityKey: fixture.userKey },
   nodeEnv: "development" as const,
+  oidcOrganizationId: `development:${fixture.userKey}`,
 }
 const app = appCreate({ configuration, database })
 let userId: string | undefined
@@ -36,11 +40,18 @@ beforeAll(async () => {
   })
   if (!user.success) throw new Error(user.errorMessage)
   userId = user.data.id
+  await database.insert(organizationTable).values({ id: userId, externalId: userId, name: "Message API Organization" })
+  await database.insert(organizationMemberTable).values({
+    issuer: "urn:codeline:development",
+    organizationId: userId,
+    subject: fixture.userKey,
+    userId,
+  })
   await database.insert(serverTable).values({
     endpoint: "http://message-api-server.test",
     id: fixture.serverId,
     name: "Message API Server",
-    ownerUserId: userId,
+    organizationId: userId,
   })
   await database.insert(agentTable).values({
     id: fixture.agentId,
@@ -57,13 +68,18 @@ afterAll(async () => {
 
 test.skipIf(!databaseAvailable)("message HTTP route validates and appends finalized plain text", async () => {
   if (userId === undefined) return
-  const session = await sessionCreate(database, userId, {
-    clientRequestId: `message-api-session-${uuidv7()}`,
-    metadata: {},
-    primaryAgentId: fixture.agentId,
-    serverId: fixture.serverId,
-    title: "Message API session",
-  })
+  const session = await sessionCreate(
+    database,
+    userId,
+    {
+      clientRequestId: `message-api-session-${uuidv7()}`,
+      metadata: {},
+      primaryAgentId: fixture.agentId,
+      serverId: fixture.serverId,
+      title: "Message API session",
+    },
+    { organizationId: userId },
+  )
   expect(session.success).toBe(true)
   if (!session.success) return
 
