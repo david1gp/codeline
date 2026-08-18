@@ -54,7 +54,7 @@ export function WorkspacePage(props: { state: WorkspaceScreenView }) {
         aria-label="Conversation workspace"
         inert={state.isSessionDrawerOpen()}
       >
-        <div class="flex min-h-[56px] shrink-0 items-center gap-3 border-line-subtle border-b px-4 py-2 max-[760px]:items-stretch max-[760px]:gap-2 max-[760px]:overflow-x-auto">
+        <div class="hidden min-h-[56px] shrink-0 items-center gap-3 border-line-subtle border-b px-4 py-2 max-[760px]:flex max-[760px]:items-stretch max-[760px]:gap-2 max-[760px]:overflow-x-auto">
           <button
             class="hidden min-h-11 shrink-0 items-center rounded-lg border border-accent-border bg-accent-soft px-4 text-sm font-semibold text-accent max-[760px]:flex"
             type="button"
