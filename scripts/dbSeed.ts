@@ -40,10 +40,12 @@ if (!catalogResult.success) {
 const databaseClient = postgres(databaseUrl)
 const database = drizzle(databaseClient, { schema: databaseSchema })
 const reset = Bun.argv.includes("--reset")
+const userId = Bun.env.EXAMPLE_DATA_USER_ID
 const result = await exampleDataSeed(database, {
   catalog: catalogResult.data,
   configurationStore: configurationStoreResult.data,
   reset,
+  ...(userId === undefined ? {} : { userId }),
 })
 
 if (!result.success) {

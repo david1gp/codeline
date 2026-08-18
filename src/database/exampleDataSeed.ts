@@ -37,9 +37,10 @@ async function exampleDataMessagesDelete(database: DatabaseExecutor): Promise<vo
 async function exampleDataRowsReconcile(
   database: DatabaseExecutor,
   catalog: ProviderCatalog,
+  userId?: string,
 ): Promise<Result<{ sessionCount: number; messageCount: number }>> {
   const op = "exampleDataRowsReconcile"
-  const fixtureUser = exampleDataFixture.user
+  const fixtureUser = userId === undefined ? exampleDataFixture.user : { ...exampleDataFixture.user, id: userId }
   const catalogConfigurations = providerAgentCatalogConfigurationCompile(catalog)
   if (!catalogConfigurations.success) return createResultError(op, catalogConfigurations.errorMessage)
 
@@ -62,14 +63,16 @@ async function exampleDataRowsReconcile(
         },
       })
       .returning({ id: applicationUserTable.id })
-    if (user?.id !== fixtureUser.id) return createResultError(op, "The local-development user has an unexpected ID.")
+    if (user?.id !== fixtureUser.id) return createResultError(op, "The example-data user has an unexpected ID.")
 
-    const externalIdentity = await externalIdentityUpsert(database, {
-      userId: fixtureUser.id,
-      issuer: "urn:codeline:development",
-      subject: "local-development",
-    })
-    if (!externalIdentity.success) return createResultError(op, externalIdentity.errorMessage)
+    if (userId === undefined) {
+      const externalIdentity = await externalIdentityUpsert(database, {
+        userId: fixtureUser.id,
+        issuer: "urn:codeline:development",
+        subject: "local-development",
+      })
+      if (!externalIdentity.success) return createResultError(op, externalIdentity.errorMessage)
+    }
 
     for (const server of exampleDataFixture.servers) {
       await database
@@ -239,7 +242,12 @@ async function exampleDataRowsReconcile(
 
 export async function exampleDataSeed(
   database: DatabaseClient,
-  options: { catalog?: ProviderCatalog; configurationStore?: ConfigurationStore; reset?: boolean } = {},
+  options: {
+    catalog?: ProviderCatalog
+    configurationStore?: ConfigurationStore
+    reset?: boolean
+    userId?: string
+  } = {},
 ): Promise<Result<{ sessionCount: number; messageCount: number }>> {
   const op = "exampleDataSeed"
   const catalogResult =
@@ -250,7 +258,7 @@ export async function exampleDataSeed(
   const seeded = await databaseTransactionRun(database, async (transaction) => {
     try {
       if (options.reset === true) await exampleDataMessagesDelete(transaction)
-      return await exampleDataRowsReconcile(transaction, catalogResult.data)
+      return await exampleDataRowsReconcile(transaction, catalogResult.data, options.userId)
     } catch (_error) {
       return createResultError(op, "The example data seed transaction failed.")
     }
