@@ -14,6 +14,8 @@ import { Button } from "#ui/interactive/button/Button.jsx"
 import { ButtonIconOnly } from "#ui/interactive/button/ButtonIconOnly.jsx"
 import { buttonVariant } from "#ui/interactive/button/buttonCva.js"
 import { Icon } from "#ui/static/icon/Icon.jsx"
+import type { ActiveProjectState } from "./activeProjectStateCreate.js"
+import { NewProjectDialog } from "./NewProjectDialog.js"
 import { SessionSidebarDialogs } from "./SessionSidebarDialogs.js"
 import { SessionSidebarMenu } from "./SessionSidebarMenu.js"
 import type { SessionListState } from "./sessionListStateCreate.js"
@@ -120,6 +122,7 @@ function SessionRows(props: {
 }
 
 export function SessionList(props: {
+  activeProject: ActiveProjectState
   idPrefix?: string
   onSessionSelect?: () => void
   sessionCreateInProject?: (projectPath: string) => void
@@ -174,6 +177,12 @@ export function SessionList(props: {
             onInput={(event) => props.state.updateQuery(event.currentTarget.value)}
           />
         </label>
+      </Show>
+
+      <Show when={props.state.sidebar.activeTab() === "projects"}>
+        <div class="shrink-0 border-line border-b p-2">
+          <NewProjectDialog activeProject={props.activeProject} idPrefix={`${prefix()}-new-project`} />
+        </div>
       </Show>
 
       <div

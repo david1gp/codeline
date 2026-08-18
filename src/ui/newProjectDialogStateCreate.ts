@@ -1,4 +1,4 @@
-import { onCleanup } from "solid-js/dist/solid.js"
+import { createEffect, onCleanup } from "solid-js/dist/solid.js"
 import * as v from "valibot"
 import { apiErrorResponseSchema } from "../api/errors/apiErrorResponseSchema.js"
 import { projectApiDirectoryConfirmRequestSchema } from "../project/api/projectApiDirectoryConfirmRequestSchema.js"
@@ -12,6 +12,8 @@ type NewProjectDialogStateOptions = {
   debounceMs?: number
   fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
   idPrefix?: string
+  onProjectConfirmed?: (projectPath: string) => void
+  open?: () => boolean
 }
 
 function projectApiErrorMessageResolve(body: unknown, fallback: string): string {
@@ -98,6 +100,14 @@ export function newProjectDialogStateCreate(options: NewProjectDialogStateOption
     confirmController?.abort()
   }
 
+  let externalOpen: boolean | undefined
+  createEffect(() => {
+    const nextOpen = options.open?.()
+    if (nextOpen === undefined || nextOpen === externalOpen) return
+    externalOpen = nextOpen
+    openChange(nextOpen)
+  })
+
   const projectConfirm = async () => {
     if (confirmStatus.get() === "confirming" || disposed) return false
     const request = v.safeParse(projectApiDirectoryConfirmRequestSchema, { path: path.get() })
@@ -129,6 +139,7 @@ export function newProjectDialogStateCreate(options: NewProjectDialogStateOption
       }
       options.activeProject.projectActivate(parsed.output.project)
       path.set(parsed.output.project.path)
+      options.onProjectConfirmed?.(parsed.output.project.path)
       confirmStatus.set("idle")
       openChange(false)
       return true
@@ -147,6 +158,8 @@ export function newProjectDialogStateCreate(options: NewProjectDialogStateOption
     confirmController?.abort()
   })
 
+  const openState = options.open ?? open.get
+
   return {
     confirmStatus: confirmStatus.get,
     errorMessage: errorMessage.get,
@@ -156,7 +169,7 @@ export function newProjectDialogStateCreate(options: NewProjectDialogStateOption
     },
     helpId: `${idPrefix}-help`,
     inputId: `${idPrefix}-path`,
-    open: open.get,
+    open: openState,
     openChange,
     path: path.get,
     pathChange,

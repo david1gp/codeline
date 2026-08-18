@@ -1,9 +1,6 @@
-import { mdiPlus } from "@mdi/js"
 import { Show } from "solid-js"
-import { ButtonIcon } from "#ui/interactive/button/ButtonIcon.jsx"
-import { buttonVariant } from "#ui/interactive/button/buttonCva.js"
 import type { ActiveProjectState } from "./activeProjectStateCreate.js"
-import { NewProjectDialog } from "./NewProjectDialog.js"
+import { NewSessionDialog } from "./NewSessionDialog.js"
 import { SessionList } from "./SessionList.js"
 import type { SessionListState } from "./sessionListStateCreate.js"
 import type { SessionTargetSelectorState } from "./sessionTargetSelectorStateCreate.js"
@@ -36,21 +33,12 @@ export function SessionSidebar(props: {
         <h2 class="sr-only" id={props.headingId}>
           Sessions
         </h2>
-        <ButtonIcon
-          class="h-9 w-full justify-center"
-          disabled={!props.sessionTarget.canCreateSession()}
-          icon={mdiPlus}
-          iconClass="size-4"
-          isLoading={props.sessionTarget.isCreatingSession()}
-          title="Start a new session with the selected agent"
-          variant={buttonVariant.contrast}
-          onClick={() => void props.sessionTarget.sessionCreateStart()}
-        >
-          New Session
-        </ButtonIcon>
-        <div class="mt-1">
-          <NewProjectDialog activeProject={props.activeProject} idPrefix={props.idPrefix ?? "desktop-session"} />
-        </div>
+        <NewSessionDialog
+          activeProject={props.activeProject}
+          idPrefix={props.idPrefix ?? "desktop-session"}
+          projects={props.sessionList.sidebar.projectGroups}
+          sessionTarget={props.sessionTarget}
+        />
         <Show when={props.sessionTarget.sessionCreateStatus() === "error"}>
           <p class="mt-2 mb-0 text-[11px] text-danger" role="alert">
             The new session could not be created. Select New Session to retry.
@@ -59,6 +47,7 @@ export function SessionSidebar(props: {
       </header>
 
       <SessionList
+        activeProject={props.activeProject}
         idPrefix={props.idPrefix}
         state={props.sessionList}
         onSessionSelect={props.close}

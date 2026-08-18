@@ -109,7 +109,7 @@ export function DemoSpecimenPanel(props: {
       </Match>
       <Match when={props.specimen.slug === "session-list"}>
         <div class="w-[min(320px,100%)] p-6">
-          <SessionList state={props.state.sessionList} />
+          <SessionList activeProject={props.state.workspace.activeProject} state={props.state.sessionList} />
         </div>
       </Match>
       <Match when={props.specimen.slug === "selected-session"}>

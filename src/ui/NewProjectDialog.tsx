@@ -1,5 +1,5 @@
 import { mdiFolderPlusOutline } from "@mdi/js"
-import { For, Match, Show, Switch } from "solid-js"
+import { For, Match, Show, Switch, type JSX } from "solid-js"
 import { Input } from "#ui/input/input/Input.jsx"
 import { Button } from "#ui/interactive/button/Button.jsx"
 import { buttonVariant } from "#ui/interactive/button/buttonCva.js"
@@ -7,20 +7,36 @@ import { CorvuDialog } from "#ui/interactive/dialog/CorvuDialog.jsx"
 import type { ActiveProjectState } from "./activeProjectStateCreate.js"
 import { newProjectDialogStateCreate } from "./newProjectDialogStateCreate.js"
 
-export function NewProjectDialog(props: { activeProject: ActiveProjectState; idPrefix: string }) {
-  const state = newProjectDialogStateCreate({ activeProject: props.activeProject, idPrefix: props.idPrefix })
+export function NewProjectDialog(props: {
+  activeProject: ActiveProjectState
+  buttonClass?: string
+  buttonChildren?: JSX.Element
+  idPrefix: string
+  onProjectConfirmed?: (projectPath: string) => void
+  onOpenChange?: (open: boolean) => void
+  open?: () => boolean
+}) {
+  const state = newProjectDialogStateCreate({
+    activeProject: props.activeProject,
+    idPrefix: props.idPrefix,
+    onProjectConfirmed: props.onProjectConfirmed,
+    open: props.open,
+  })
 
   return (
     <CorvuDialog
       title="New Project"
       description="Select an existing folder. Codeline will not create a directory."
-      buttonChildren="New Project"
-      class="h-8 w-full justify-start px-2 text-xs font-normal text-faint"
+      buttonChildren={props.buttonChildren ?? "New Project"}
+      class={props.buttonClass ?? "h-8 w-full justify-start px-2 text-xs font-normal text-faint"}
       icon={mdiFolderPlusOutline}
       iconClass="size-4"
       innerClass="w-[min(92vw,36rem)]"
       open={state.open()}
-      onOpenChange={state.openChange}
+      onOpenChange={(open) => {
+        state.openChange(open)
+        props.onOpenChange?.(open)
+      }}
       variant={buttonVariant.ghost}
     >
       <form class="grid gap-3" onSubmit={state.formSubmit}>
