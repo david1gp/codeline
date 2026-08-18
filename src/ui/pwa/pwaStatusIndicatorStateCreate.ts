@@ -20,7 +20,6 @@ export function pwaStatusIndicatorStateCreate() {
       if (offlineSince.get() === undefined) offlineSince.set(Date.now())
     }
     const captureInstall = (event: Event) => {
-      event.preventDefault()
       installPrompt.set(event as PwaInstallPromptEvent)
     }
     const clearInstall = () => installPrompt.set(undefined)
