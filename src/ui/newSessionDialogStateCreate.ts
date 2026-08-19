@@ -36,9 +36,13 @@ export function newSessionDialogStateCreate(options: NewSessionDialogStateOption
     if (nextOpen) selectedProjectPath.set(options.activeProject.project().path)
     if (!nextOpen) newProjectOpen.set(false)
   }
+  // The project form is shown inside the same dialog, so only one modal is ever
+  // open and the nested overlays cannot dismiss each other.
+  const newProjectStart = () => newProjectOpen.set(true)
+  const newProjectOpenChange = (nextOpen: boolean) => newProjectOpen.set(nextOpen)
   const projectChange = (projectPath: string) => {
     if (projectPath === newProjectOptionValue) {
-      newProjectOpen.set(true)
+      selectedProjectPath.set(newProjectOptionValue)
       return
     }
     if (!projects().some((project) => project.projectPath === projectPath)) return
@@ -52,16 +56,34 @@ export function newSessionDialogStateCreate(options: NewSessionDialogStateOption
 
   return {
     canCreateSession: () => options.sessionTarget.canCreateSession() && selectedProjectPath.get().length > 0,
+    dialogDescription: () =>
+      newProjectOpen.get()
+        ? "Select an existing folder. Codeline will not create a directory."
+        : "Choose the project for this session.",
+    dialogTitle: () => (newProjectOpen.get() ? "New Project" : "New Session"),
     formSubmit: (event: SubmitEvent) => {
       event.preventDefault()
+      if (selectedProjectPath.get() === newProjectOptionValue) {
+        newProjectStart()
+        return
+      }
       void sessionCreate()
     },
     newProjectOpen: newProjectOpen.get,
-    newProjectOpenChange: (nextOpen: boolean) => newProjectOpen.set(nextOpen),
+    newProjectOpenChange,
     newProjectOptionValue,
+    primaryActionLabel: () => {
+      if (options.sessionTarget.sessionCreateStatus() === "creating") return "Creating..."
+      if (selectedProjectPath.get() === newProjectOptionValue) return "New Project"
+      return "Start session"
+    },
     open: open.get,
     openChange,
     projectChange,
+    projectConfirmed: (projectPath: string) => {
+      newProjectOpen.set(false)
+      projectChange(projectPath)
+    },
     projects,
     selectedProjectPath: selectedProjectPath.get,
     sessionCreateErrorMessage: options.sessionTarget.sessionCreateErrorMessage,
