@@ -41,6 +41,8 @@ import { streamReplayServiceCreate } from "../../stream/actions/streamReplayServ
 import type { ExecutionStreamEvent } from "../../stream/schema/executionStreamEventSchema.js"
 import { sessionArchive } from "../actions/sessionArchive.js"
 import { sessionChatAdapterCreate } from "../actions/sessionChatAdapterCreate.js"
+import { sessionChatLunaPingAdapterCreate } from "../actions/sessionChatLunaPingAdapterCreate.js"
+import { sessionChatLunaPingDetect } from "../actions/sessionChatLunaPingDetect.js"
 import { sessionChatPrepare } from "../actions/sessionChatPrepare.js"
 import { sessionChatSseStreamCreate } from "../actions/sessionChatSseStreamCreate.js"
 import { sessionChatStreamCreate } from "../actions/sessionChatStreamCreate.js"
@@ -339,7 +341,13 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
       return loaded.errorMessage.includes("could not be found") ? notFound(context) : internalServerError(context)
     if (loaded.data.session.archivedAt !== null) return conflict(context, "The session is archived.")
 
-    if (options.configurationStore !== undefined) {
+    const lunaPing = sessionChatLunaPingDetect({
+      primaryAgentId: loaded.data.session.primaryAgentId,
+      prompt,
+    })
+    if (lunaPing) adapter = sessionChatLunaPingAdapterCreate
+
+    if (options.configurationStore !== undefined && !lunaPing) {
       const admission = await sessionChatAdmissionResolve(
         context.var.database,
         userId,

@@ -45,6 +45,7 @@ const database = drizzle(client, { schema: databaseSchema })
 const databaseAvailable = await databaseReadyCheck(database).then((result) => result.success)
 const fixture = {
   agentId: `session-chat-agent-${uuidv7()}`,
+  lunaAgentId: `luna-high-${uuidv7()}`,
   otherAgentId: `session-chat-other-agent-${uuidv7()}`,
   providerAgentId: `session-chat-provider-agent-${uuidv7()}`,
   otherServerId: `session-chat-other-server-${uuidv7()}`,
@@ -303,6 +304,13 @@ beforeAll(async () => {
       serverId: fixture.otherServerId,
     },
     {
+      configuration: { model: "luna-test", provider: "deterministic" },
+      id: fixture.lunaAgentId,
+      name: "Luna Session Chat Agent",
+      role: "coding",
+      serverId: fixture.serverId,
+    },
+    {
       configuration: {
         apiKey: "$CLIPROXYAPI_API_KEY",
         baseUrl: "https://provider.test/v1",
@@ -399,6 +407,26 @@ test.skipIf(!databaseAvailable)("chat success streams valid events and uses only
   const replay = await streamReplay(sessionId, runId)
   expect(replay.events.map((event) => event.payload)).toEqual(events)
   expect(replay.checkpoint.lastSequence).toBe(events.length)
+})
+
+test.skipIf(!databaseAvailable)("chat intercepts a Luna ping and persists finalized pong", async () => {
+  if (userId === undefined) return
+  const sessionId = await sessionCreateForTest(userId, "Luna ping", fixture.serverId, fixture.lunaAgentId)
+  const runId = `session-chat-luna-ping-${uuidv7()}`
+  const response = await app.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+    body: JSON.stringify(chatBody(sessionId, runId, "ping")),
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+  })
+
+  expect(response.status).toBe(200)
+  expect((await sseEvents(response)).at(-1)).toMatchObject({ outcome: { type: "success" }, type: "RUN_FINISHED" })
+
+  const messages = await messageRows(sessionId)
+  expect(messages).toHaveLength(2)
+  expect(messages[0]).toMatchObject({ content: "ping", finalizedAt: expect.any(Date), role: "user", sequence: 1 })
+  expect(messages[1]).toMatchObject({ content: "pong", finalizedAt: expect.any(Date), role: "assistant", sequence: 2 })
+  expect(messages[1]?.content).toBe("pong")
 })
 
 test.skipIf(!databaseAvailable)("chat completes and replays after the SSE reader disconnects", async () => {
