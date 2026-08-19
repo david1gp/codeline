@@ -1,5 +1,6 @@
 import { A } from "@solidjs/router"
 import { For, Show } from "solid-js"
+import { ProjectAvatar } from "../../project/ui/ProjectAvatar.js"
 import { NotePage } from "./NotePage.js"
 import { noteContentSummarize } from "./noteContentSummarize.js"
 import type { NoteWorkspaceScreenView } from "./noteWorkspaceScreenView.js"
@@ -39,13 +40,14 @@ export function NoteWorkspacePage(props: { state: NoteWorkspaceScreenView }) {
             {(group) => (
               <li>
                 <span
-                  class="block px-2 py-1.5 font-mono text-xs font-semibold tracking-[0.08em] uppercase"
+                  class="flex items-center gap-1 px-2 py-1.5 font-mono text-xs font-semibold tracking-[0.08em] uppercase"
                   classList={{
                     "text-accent": group.projectPath === state.activeProjectPath(),
                     "text-faint": group.projectPath !== state.activeProjectPath(),
                   }}
                   aria-current={group.projectPath === state.activeProjectPath() ? "true" : undefined}
                 >
+                  <ProjectAvatar name={group.label} />
                   {group.label}
                 </span>
                 <ul class="m-0 grid list-none gap-0.5 p-0">

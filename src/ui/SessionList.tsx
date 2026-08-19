@@ -1,6 +1,5 @@
 import {
   mdiFolderMultipleOutline,
-  mdiFolderOutline,
   mdiHistory,
   mdiLoading,
   mdiMagnify,
@@ -14,6 +13,7 @@ import { Button } from "#ui/interactive/button/Button.jsx"
 import { ButtonIconOnly } from "#ui/interactive/button/ButtonIconOnly.jsx"
 import { buttonVariant } from "#ui/interactive/button/buttonCva.js"
 import { Icon } from "#ui/static/icon/Icon.jsx"
+import { ProjectAvatar } from "../project/ui/ProjectAvatar.js"
 import type { ActiveProjectState } from "./activeProjectStateCreate.js"
 import { NewProjectDialog } from "./NewProjectDialog.js"
 import { SessionSidebarDialogs } from "./SessionSidebarDialogs.js"
@@ -64,6 +64,7 @@ function SessionRows(props: {
                 </span>
                 <span class="mt-0.5 flex w-full min-w-0 items-center gap-1.5 text-[11px] text-faint">
                   <Show when={!props.hideProjectLabel}>
+                    <ProjectAvatar name={row.projectLabel} class="size-3 text-[8px]" />
                     <span class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">{row.projectLabel}</span>
                     <span aria-hidden="true">·</span>
                   </Show>
@@ -222,7 +223,7 @@ export function SessionList(props: {
                 {(project) => (
                   <details class="group" open={project.sessions.some((row) => props.state.isSelected(row.session.id))}>
                     <summary class="flex min-h-10 cursor-pointer list-none items-center gap-2 px-3 text-xs font-semibold text-strong hover:bg-surface-hover">
-                      <Icon path={mdiFolderOutline} class="size-4 shrink-0 fill-current text-faint dark:fill-current" />
+                      <ProjectAvatar name={project.projectLabel} />
                       <span
                         class="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
                         title={project.projectPath}
