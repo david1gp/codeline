@@ -38,6 +38,13 @@ test("child admission is disabled by the default budget", () => {
   })
 })
 
+test("child admission keeps the one-child budget closed for distinct requests", () => {
+  expect(runChildAdmissionResolve({ ...input, budget: { maxChildRuns: 1 }, descendantCount: 1 })).toEqual({
+    success: true,
+    data: { decision: "reject", reason: "child_run_limit_exhausted" },
+  })
+})
+
 test.each([
   ["parent_not_running", { parentStatus: "accepted" }],
   ["current_attempt_not_running", { attemptStatus: "accepted" }],

@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test"
 import { createResult } from "@adaptive-ds/result"
-import type { ExecutionStreamEvent } from "../src/stream/schema/executionStreamEventSchema.js"
 import { runDelegationExecute } from "../src/run/actions/runDelegationExecute.js"
 import { attemptTable } from "../src/run/db/attemptTable.js"
 import { runDelegationTable } from "../src/run/db/runDelegationTable.js"
 import { runTable } from "../src/run/db/runTable.js"
+import type { ExecutionStreamEvent } from "../src/stream/schema/executionStreamEventSchema.js"
 
 const userId = "delegation-test-user"
 const sessionId = "delegation-test-session"
@@ -104,14 +104,27 @@ function eventTerminal(status: "completed" | "error", code?: string): ExecutionS
   }
 }
 
-function harnessCreate(options: { budget?: Parameters<typeof runCreate>[1]; finalized?: boolean } = {}) {
+function harnessCreate(
+  options: {
+    budget?: Parameters<typeof runCreate>[1]
+    finalized?: boolean
+    reused?: boolean
+    reuseAfterFirstCreate?: boolean
+  } = {},
+) {
   const parent = parentCreate()
   const childRun = runCreate("accepted", options.budget)
   const childAttempt = attemptCreate(childRun.id, 1, "accepted")
   const delegation = delegationCreate(options.finalized ? { status: "succeeded", text: "replayed" } : null)
+  if (options.finalized === true) {
+    childRun.status = "succeeded"
+    childAttempt.status = "succeeded"
+  }
   const events: Array<{ eventType: string; payload: unknown; streamId: string }> = []
   const messages: Array<{ content: string; role: string }> = []
   const calls: number[] = []
+  const reusedStatuses: Array<string> = []
+  let childCreateCalls = 0
   let admittedSnapshot: unknown
   let clock = new Date("2030-01-01T00:00:01.000Z")
   let registeredController: AbortController | undefined
@@ -133,8 +146,11 @@ function harnessCreate(options: { budget?: Parameters<typeof runCreate>[1]; fina
       }
     },
     childCreate: async (input) => {
+      childCreateCalls += 1
       admittedSnapshot = input.snapshot
-      return createResult({ attempt: childAttempt, created: true, delegation, run: childRun })
+      const created = options.reused !== true && !(options.reuseAfterFirstCreate === true && childCreateCalls > 1)
+      if (!created) reusedStatuses.push(childRun.status)
+      return createResult({ attempt: childAttempt, created, delegation, run: childRun })
     },
     delegationFinalize: async (_delegationId, result) => {
       delegation.finalizedResult = result
@@ -167,10 +183,7 @@ function harnessCreate(options: { budget?: Parameters<typeof runCreate>[1]; fina
       events.push({ eventType: input.eventType, payload: input.payload, streamId: input.streamId })
       return createResult({})
     },
-    setTimeout: (handler, _timeout) => {
-      if (options.finalized !== true) return globalThis.setTimeout(handler, 60_000)
-      return globalThis.setTimeout(handler, 60_000)
-    },
+    setTimeout: (handler, timeout) => globalThis.setTimeout(handler, timeout),
   }
 
   return {
@@ -191,6 +204,8 @@ function harnessCreate(options: { budget?: Parameters<typeof runCreate>[1]; fina
       registeredController?.abort()
     },
     calls,
+    childCreateCalls: () => childCreateCalls,
+    reusedStatuses,
     get admittedSnapshot() {
       return admittedSnapshot
     },
@@ -205,6 +220,22 @@ async function execute(harness: ReturnType<typeof harnessCreate>, childSnapshot?
       parentRun: harness.parent.parentRun,
       ...(childSnapshot === undefined ? {} : { childSnapshot }),
       task: "private child task",
+    },
+    harness.optionsForAction,
+  )
+}
+
+async function executeWithDelegationKey(
+  harness: ReturnType<typeof harnessCreate>,
+  delegationKey: string,
+  task = "private child task",
+) {
+  return runDelegationExecute(
+    {
+      delegationKey,
+      parentAttempt: harness.parent.parentAttempt,
+      parentRun: harness.parent.parentRun,
+      task,
     },
     harness.optionsForAction,
   )
@@ -324,7 +355,7 @@ test("deadline aborts before child execution and does not retry", async () => {
 })
 
 test("returns a finalized replay without registering or executing a child", async () => {
-  const harness = harnessCreate({ finalized: true })
+  const harness = harnessCreate({ finalized: true, reused: true })
   let registrations = 0
   const originalRegister = harness.optionsForAction.cancellationRegister
   harness.optionsForAction.cancellationRegister = (input) => {
@@ -338,6 +369,174 @@ test("returns a finalized replay without registering or executing a child", asyn
   expect(harness.calls).toHaveLength(0)
   expect(registrations).toBe(0)
   expect(harness.events).toHaveLength(0)
+  expect(harness.reusedStatuses).toEqual(["succeeded"])
+})
+
+test("replays a reused child when a repeated delegation has a new tool-call key", async () => {
+  const harness = harnessCreate({ reuseAfterFirstCreate: true })
+
+  const first = await execute(harness)
+  const repeated = await executeWithDelegationKey(harness, "new-tool-call-key")
+
+  expect(first).toMatchObject({ success: true, data: { status: "succeeded", text: "completed" } })
+  expect(repeated).toEqual(first)
+  expect(harness.reusedStatuses).toEqual(["succeeded"])
+  expect(harness.calls).toEqual([1])
+})
+
+test("waits for a concurrently reused accepted child without executing it", async () => {
+  const harness = harnessCreate({ reuseAfterFirstCreate: true })
+  const firstCreate = new Promise<void>((resolve) => {
+    const originalChildCreate = harness.optionsForAction.childCreate
+    harness.optionsForAction.childCreate = async (input) => {
+      const result = await originalChildCreate(input)
+      if (harness.childCreateCalls() === 1) resolve()
+      return result
+    }
+  })
+  let transitionRelease: () => void = () => undefined
+  const transitionGate = new Promise<void>((resolve) => {
+    transitionRelease = resolve
+  })
+  let transitionStartedResolve: () => void = () => undefined
+  const transitionStarted = new Promise<void>((resolve) => {
+    transitionStartedResolve = resolve
+  })
+  const originalTransition = harness.optionsForAction.runTransition
+  harness.optionsForAction.runTransition = async (runId, input) => {
+    if (input.status === "running") {
+      transitionStartedResolve()
+      await transitionGate
+    }
+    return originalTransition(runId, input)
+  }
+
+  const firstPromise = execute(harness)
+  await firstCreate
+  await transitionStarted
+  const repeatedPromise = executeWithDelegationKey(harness, "new-tool-call-key")
+  while (harness.reusedStatuses.length === 0) await Promise.resolve()
+  transitionRelease()
+
+  const [first, repeated] = await Promise.all([firstPromise, repeatedPromise])
+
+  expect(first).toEqual({ success: true, data: { status: "succeeded", text: "completed" } })
+  expect(repeated).toEqual(first)
+  expect(harness.reusedStatuses[0]).toBe("accepted")
+  expect(harness.calls).toEqual([1])
+})
+
+test("waits for a concurrently reused running child without executing it", async () => {
+  const harness = harnessCreate({ reuseAfterFirstCreate: true })
+  let providerStartedResolve: () => void = () => undefined
+  const providerStarted = new Promise<void>((resolve) => {
+    providerStartedResolve = resolve
+  })
+  let providerRelease: () => void = () => undefined
+  const providerGate = new Promise<void>((resolve) => {
+    providerRelease = resolve
+  })
+  harness.setStreamFactory(async function* () {
+    providerStartedResolve()
+    await providerGate
+    yield eventText("completed")
+    yield eventTerminal("completed")
+  })
+
+  const firstPromise = execute(harness)
+  await providerStarted
+  const repeatedPromise = executeWithDelegationKey(harness, "new-tool-call-key")
+  while (harness.reusedStatuses.length === 0) await Promise.resolve()
+  providerRelease()
+
+  const [first, repeated] = await Promise.all([firstPromise, repeatedPromise])
+
+  expect(first).toEqual({ success: true, data: { status: "succeeded", text: "completed" } })
+  expect(repeated).toEqual(first)
+  expect(harness.reusedStatuses[0]).toBe("running")
+  expect(harness.calls).toEqual([1])
+})
+
+test("waits through a failed-to-retry transition and reuses the eventual success", async () => {
+  const harness = harnessCreate({
+    budget: { maxAttempts: 2, maxChildDepth: 1, maxChildRuns: 1, maxDurationMs: 60_000 },
+    reuseAfterFirstCreate: true,
+  })
+  harness.setStreamFactory(async function* (attempt) {
+    if (attempt.ordinal === 1) {
+      yield eventText("first attempt")
+      yield eventTerminal("error", "provider_failed")
+      return
+    }
+    yield eventText("second attempt")
+    yield eventTerminal("completed")
+  })
+  let retryRelease: () => void = () => undefined
+  const retryGate = new Promise<void>((resolve) => {
+    retryRelease = resolve
+  })
+  let retryStartedResolve: () => void = () => undefined
+  const retryStarted = new Promise<void>((resolve) => {
+    retryStartedResolve = resolve
+  })
+  const originalRetry = harness.optionsForAction.retryAttemptCreate
+  harness.optionsForAction.retryAttemptCreate = async (runId, options) => {
+    retryStartedResolve()
+    await retryGate
+    return originalRetry(runId, options)
+  }
+
+  const firstPromise = execute(harness)
+  await retryStarted
+  const repeatedPromise = executeWithDelegationKey(harness, "new-tool-call-key")
+  while (harness.reusedStatuses.length === 0) await Promise.resolve()
+  expect(harness.reusedStatuses[0]).toBe("failed")
+  retryRelease()
+
+  const [first, repeated] = await Promise.all([firstPromise, repeatedPromise])
+
+  expect(first).toEqual({ success: true, data: { status: "succeeded", text: "second attempt" } })
+  expect(repeated).toEqual(first)
+  expect(harness.calls).toEqual([1, 2])
+})
+
+test("waits through a failed-to-retry transition and reuses the eventual final failure", async () => {
+  const harness = harnessCreate({
+    budget: { maxAttempts: 2, maxChildDepth: 1, maxChildRuns: 1, maxDurationMs: 60_000 },
+    reuseAfterFirstCreate: true,
+  })
+  harness.setStreamFactory(async function* (attempt) {
+    yield eventText(`${attempt.ordinal} attempt failed`)
+    yield eventTerminal("error", "provider_failed")
+  })
+  let retryRelease: () => void = () => undefined
+  const retryGate = new Promise<void>((resolve) => {
+    retryRelease = resolve
+  })
+  let retryStartedResolve: () => void = () => undefined
+  const retryStarted = new Promise<void>((resolve) => {
+    retryStartedResolve = resolve
+  })
+  const originalRetry = harness.optionsForAction.retryAttemptCreate
+  harness.optionsForAction.retryAttemptCreate = async (runId, options) => {
+    retryStartedResolve()
+    await retryGate
+    return originalRetry(runId, options)
+  }
+
+  const firstPromise = execute(harness)
+  await retryStarted
+  const repeatedPromise = executeWithDelegationKey(harness, "new-tool-call-key")
+  while (harness.reusedStatuses.length === 0) await Promise.resolve()
+  expect(harness.reusedStatuses[0]).toBe("failed")
+  retryRelease()
+
+  const [first, repeated] = await Promise.all([firstPromise, repeatedPromise])
+
+  expect(first).toMatchObject({ success: true, data: { status: "failed", text: "2 attempt failed" } })
+  expect(repeated).toEqual(first)
+  expect(harness.delegation.finalizedResult).toMatchObject({ status: "failed" })
+  expect(harness.calls).toEqual([1, 2])
 })
 
 test("keeps child events isolated from the parent stream and visible transcript", async () => {

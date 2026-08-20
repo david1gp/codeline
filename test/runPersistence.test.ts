@@ -8,16 +8,16 @@ import { databaseSchema } from "../src/database/databaseSchema.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
 import { organizationTable } from "../src/identity/db/organizationTable.js"
-import { attemptTable } from "../src/run/db/attemptTable.js"
-import { runDelegationTable } from "../src/run/db/runDelegationTable.js"
-import { runTable } from "../src/run/db/runTable.js"
-import { runCreate } from "../src/run/actions/runCreate.js"
 import { runCancel } from "../src/run/actions/runCancel.js"
 import { runChildCreate } from "../src/run/actions/runChildCreate.js"
+import { runCreate } from "../src/run/actions/runCreate.js"
 import { runDelegationFinalize } from "../src/run/actions/runDelegationFinalize.js"
 import { runLoad } from "../src/run/actions/runLoad.js"
 import { runRetryAttemptCreate } from "../src/run/actions/runRetryAttemptCreate.js"
 import { runTransition } from "../src/run/actions/runTransition.js"
+import { attemptTable } from "../src/run/db/attemptTable.js"
+import { runDelegationTable } from "../src/run/db/runDelegationTable.js"
+import { runTable } from "../src/run/db/runTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
@@ -539,6 +539,38 @@ test.skipIf(!databaseAvailable)(
       success: true,
       data: { created: false, delegation: { id: admitted.data.delegation.id }, run: { id: admitted.data.run.id } },
     })
+
+    const repeatedToolCall = await runChildCreate(database, userId, fixture.sessionId, {
+      ...childInput,
+      delegationKey: "child-task-new-tool-call",
+    })
+    expect(repeatedToolCall).toMatchObject({
+      success: true,
+      data: { created: false, delegation: { id: admitted.data.delegation.id }, run: { id: admitted.data.run.id } },
+    })
+
+    const differentAgent = await runChildCreate(database, userId, fixture.sessionId, {
+      ...childInput,
+      delegationKey: "child-task-different-agent",
+      snapshot: {
+        ...parent.data.run.snapshot,
+        target: { ...parent.data.run.snapshot.target, agentId: "different-agent" },
+      },
+    })
+    expect(differentAgent).toMatchObject({
+      errorMessage: "The child run was not admitted: child_run_limit_exhausted.",
+      success: false,
+    })
+
+    const distinctTask = await runChildCreate(database, userId, fixture.sessionId, {
+      ...childInput,
+      delegationKey: "child-task-distinct",
+      task: "Inspect a different requested implementation.",
+    })
+    expect(distinctTask).toMatchObject({
+      errorMessage: "The child run was not admitted: child_run_limit_exhausted.",
+      success: false,
+    })
     expect(
       await database.select().from(runDelegationTable).where(eq(runDelegationTable.rootRunId, parent.data.run.id)),
     ).toHaveLength(1)
@@ -564,7 +596,7 @@ test.skipIf(!databaseAvailable)(
       delegationKey,
       parentAttemptId: parent.data.attempt.id,
       parentRunId: parent.data.run.id,
-      task: "Run a bounded child task.",
+      task: `Run a bounded child task: ${delegationKey}.`,
     })
     expect(await runChildCreate(database, userId, fixture.sessionId, childInput("boundary-child-1"))).toMatchObject({
       success: true,
