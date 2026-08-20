@@ -1,17 +1,18 @@
 import { useQuery } from "@rocicorp/zero/solid"
-import { createEffect, type Accessor } from "solid-js"
-import type { CodelineExecution } from "../providers/schema/codelineExecutionSchema.js"
-import { codelineQueries } from "./codelineQueries.js"
+import { type Accessor, createEffect } from "solid-js"
 import { finalizedMessageCopyStateCreate } from "../message/ui/finalizedMessageCopyStateCreate.js"
+import type { CodelineExecution } from "../providers/schema/codelineExecutionSchema.js"
 import { sessionRenameControlStateCreate } from "../session/ui/sessionRenameControlStateCreate.js"
+import { codelineQueries } from "./codelineQueries.js"
 import type { SelectedSessionView } from "./selectedSessionView.js"
-import type { SessionNavigationState } from "./sessionNavigationStateCreate.js"
 import { sessionChatStateCacheCreate } from "./sessionChatStateCacheCreate.js"
 import { sessionChatStateCreate } from "./sessionChatStateCreate.js"
-import { sessionInitialMessageStateCreate } from "./sessionInitialMessageStateCreate.js"
-import { sessionPinToggleStateCreate } from "./sessionPinToggleStateCreate.js"
 import { sessionDisplayModeStateCreate } from "./sessionDisplayModeStateCreate.js"
+import { sessionInitialMessageStateCreate } from "./sessionInitialMessageStateCreate.js"
+import type { SessionNavigationState } from "./sessionNavigationStateCreate.js"
+import { sessionPinToggleStateCreate } from "./sessionPinToggleStateCreate.js"
 import { sessionStreamStateCreate } from "./sessionStreamStateCreate.js"
+import { sessionSubagentThreadStateCreate } from "./sessionSubagentThreadStateCreate.js"
 import { signalObjectCreate } from "./signalObjectCreate.js"
 
 type SelectedSessionStateOptions = {
@@ -20,6 +21,8 @@ type SelectedSessionStateOptions = {
   sessionCreateStart: (projectPathOverride?: string) => Promise<string | null>
   sessionCreateErrorMessage: () => string | undefined
   sessionTargetAvailable: () => boolean
+  rightPanelClose: () => void
+  rightPanelShow: () => void
 }
 
 export function selectedSessionStateCreate(options: SelectedSessionStateOptions): SelectedSessionView {
@@ -32,6 +35,10 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
   const [messages, messagesResult] = useQuery(() => {
     const activeSession = session()
     return activeSession ? codelineQueries.finalizedMessages({ sessionId: activeSession.id }) : false
+  })
+  const [delegations] = useQuery(() => {
+    const activeSession = session()
+    return activeSession ? codelineQueries.sessionDelegations({ sessionId: activeSession.id }) : false
   })
   const copyStates = new Map<string, ReturnType<typeof finalizedMessageCopyStateCreate>>()
   const durableMessages = () =>
@@ -71,6 +78,20 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
     codelineExecution: options.codelineExecution,
     durableMessages,
   })
+  const subagentThread = sessionSubagentThreadStateCreate({
+    rightPanelClose: options.rightPanelClose,
+    rightPanelShow: options.rightPanelShow,
+    sessionId: selectedSessionId,
+  })
+  const streamDelegations = () =>
+    (delegations() ?? []).map((delegation) => ({
+      childRunId: delegation.childRunId,
+      delegationKey: delegation.delegationKey,
+      id: delegation.id,
+      parentAttemptId: delegation.parentAttemptId,
+      parentRunId: delegation.parentRunId,
+      task: delegation.task,
+    }))
   const sessionReady = async (sessionId: string) => {
     for (let attempt = 0; attempt < 100; attempt += 1) {
       if (session()?.id === sessionId) return true
@@ -79,11 +100,16 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
     return false
   }
   const streamState = sessionStreamStateCreate({
+    delegations: streamDelegations,
+    inFlightRunId: () => {
+      const currentSession = session()
+      return currentSession ? (chatCreate(currentSession.id).runId?.() ?? null) : null
+    },
     inFlightMessages: () => {
       const currentSession = session()
       return currentSession ? chatCreate(currentSession.id).pendingMessages() : []
     },
-    isEnabled: () => displayMode.mode() === "stream",
+    isEnabled: () => displayMode.mode() === "stream" || subagentThread.selected() !== undefined,
     sessionId: () => session()?.id,
   })
   const initialMessage = sessionInitialMessageStateCreate({
@@ -133,6 +159,7 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
     pinState,
     streamGroups: streamState.groups,
     isStreamLoading: streamState.isLoading,
+    subagentThread,
     hasSelection: () => selectedSessionId() !== null,
     isSessionLoading: () =>
       selectedSessionId() !== null && sessionResult().type === "unknown" && session() === undefined,

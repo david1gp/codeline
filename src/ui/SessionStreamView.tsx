@@ -1,19 +1,10 @@
 import { For, Show } from "solid-js"
 import { Badge } from "#ui/static/badge/Badge.jsx"
-import type { BadgeVariant } from "#ui/static/badge/badgeCva.jsx"
 import { FinalizedMessage } from "../message/ui/FinalizedMessage.js"
-import type { SessionStreamEntry } from "./sessionStreamGroupsDerive.js"
+import { SessionStreamEntryList } from "./SessionStreamEntryList.js"
 import type { SelectedSessionView } from "./selectedSessionView.js"
 
 const badgeCompactClass = "shrink-0 border-line-subtle px-1.5 py-0 text-[10px]"
-
-const streamEntryVariant: Record<SessionStreamEntry["kind"], BadgeVariant> = {
-  output: "contrast",
-  terminal: "outline",
-  thinking: "subtle",
-  tool: "subtle",
-  "written-file": "outline",
-}
 
 /**
  * Alternative session presentation: every finalized message followed by the
@@ -65,26 +56,9 @@ export function SessionStreamView(props: { state: SelectedSessionView }) {
                     </Show>
                     <span class="ml-auto truncate font-mono text-[10px] text-placeholder">{group.streamId}</span>
                   </div>
-                  <ol class="m-0 mt-2 grid list-none gap-1 p-0">
-                    <For each={group.entries}>
-                      {(entry) => (
-                        <li class="flex min-w-0 flex-wrap items-baseline gap-1.5 text-[11px] text-faint">
-                          <Badge class={badgeCompactClass} variant={streamEntryVariant[entry.kind]}>
-                            {entry.kind}
-                          </Badge>
-                          <span class="text-accent">{entry.label}</span>
-                          <Show when={entry.status}>{(status) => <span>· {status()}</span>}</Show>
-                          <Show when={entry.detail}>
-                            {(detail) => (
-                              <span class="min-w-0 basis-full whitespace-pre-wrap break-words text-placeholder">
-                                {detail()}
-                              </span>
-                            )}
-                          </Show>
-                        </li>
-                      )}
-                    </For>
-                  </ol>
+                  <div class="mt-2">
+                    <SessionStreamEntryList entries={group.entries} onDelegation={props.state.subagentThread.open} />
+                  </div>
                 </li>
               )}
             </For>

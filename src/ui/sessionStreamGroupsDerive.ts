@@ -1,11 +1,27 @@
 import { providerExecutionEventFromStreamChunk } from "../providers/runtime/providerExecutionEventFromStreamChunk.js"
+import { sessionStreamDelegationResolve } from "./sessionStreamDelegationResolve.js"
 
 export type SessionStreamEntry = {
+  delegation?: SessionStreamDelegationLink
   detail?: string
   id: string
   kind: "output" | "terminal" | "thinking" | "tool" | "written-file"
   label: string
   status?: string
+}
+
+export type SessionStreamDelegation = {
+  childRunId: string
+  delegationKey: string
+  id: string
+  parentAttemptId: string
+  parentRunId: string
+  task: string
+}
+
+export type SessionStreamDelegationLink = SessionStreamDelegation & {
+  childAgentId?: string
+  childStreamId: string
 }
 
 export type SessionStreamGroup = {
@@ -26,6 +42,7 @@ type SessionStreamEventRow = {
 }
 
 type SessionStreamAttemptRow = {
+  id?: string
   ordinal: number
   status: string
   streamId: string
@@ -33,14 +50,17 @@ type SessionStreamAttemptRow = {
 
 type SessionStreamRunRow = {
   attempts?: ReadonlyArray<SessionStreamAttemptRow>
+  clientRunId?: string
   createdAt: number
   id: string
+  snapshot?: unknown
   status: string
   streamId: string
 }
 
 type SessionStreamOrigin = {
   attemptOrdinal: number
+  attemptId?: string
   label: string
   runCreatedAt: number
   runId: string
@@ -65,6 +85,62 @@ function streamPayloadField(payload: unknown, key: string): string | undefined {
   return undefined
 }
 
+function streamPayloadObject(payload: unknown): Record<string, unknown> | undefined {
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return undefined
+  return payload as Record<string, unknown>
+}
+
+function streamDelegationActivityMerge(
+  current: { agentId?: string; serverId?: string; task?: string },
+  value: unknown,
+): void {
+  const object = streamPayloadObject(value)
+  if (object === undefined) return
+  if (typeof object.task === "string") current.task = object.task
+  if (typeof object.agentId === "string") current.agentId = object.agentId
+  if (typeof object.serverId === "string") current.serverId = object.serverId
+}
+
+function streamDelegationInputParse(value: unknown): Record<string, unknown> | undefined {
+  if (typeof value === "string") {
+    try {
+      return streamPayloadObject(JSON.parse(value))
+    } catch (_error: unknown) {
+      return undefined
+    }
+  }
+  return streamPayloadObject(value)
+}
+
+function streamDelegationActivitiesResolve(
+  events: ReadonlyArray<SessionStreamEventRow>,
+): Map<string, { agentId?: string; serverId?: string; task?: string }> {
+  const activities = new Map<string, { agentId?: string; serverId?: string; task?: string }>()
+  const argumentsByToolCall = new Map<string, string>()
+  for (const event of events) {
+    const payload = streamPayloadObject(event.payload)
+    if (payload === undefined) continue
+    const toolCallId = typeof payload.toolCallId === "string" ? payload.toolCallId : undefined
+    if (toolCallId === undefined) continue
+    const activity = activities.get(toolCallId) ?? {}
+    const eventType = event.eventType.toUpperCase()
+    if (eventType === "TOOL_CALL_START" || event.eventType === "tool_start") {
+      streamDelegationActivityMerge(activity, payload)
+      streamDelegationActivityMerge(activity, payload.input)
+    }
+    if (eventType === "TOOL_CALL_ARGS") {
+      const delta = typeof payload.delta === "string" ? payload.delta : undefined
+      const accumulated = typeof payload.args === "string" ? payload.args : undefined
+      const serialized = accumulated ?? `${argumentsByToolCall.get(toolCallId) ?? ""}${delta ?? ""}`
+      argumentsByToolCall.set(toolCallId, serialized)
+      streamDelegationActivityMerge(activity, streamDelegationInputParse(serialized))
+    }
+    if (eventType === "TOOL_CALL_END") streamDelegationActivityMerge(activity, payload.input)
+    activities.set(toolCallId, activity)
+  }
+  return activities
+}
+
 function streamEntryDetailBound(value: string | undefined): string | undefined {
   if (value === undefined) return undefined
   return value.length > streamEntryDetailLimit ? `${value.slice(0, streamEntryDetailLimit)}…` : value
@@ -84,6 +160,7 @@ function streamOriginsResolve(runs: ReadonlyArray<SessionStreamRunRow>): Map<str
     for (const attempt of attempts) {
       origins.set(attempt.streamId, {
         attemptOrdinal: attempt.ordinal,
+        ...(attempt.id === undefined ? {} : { attemptId: attempt.id }),
         label: `Attempt ${attempt.ordinal}`,
         runCreatedAt: run.createdAt,
         runId: run.id,
@@ -94,7 +171,17 @@ function streamOriginsResolve(runs: ReadonlyArray<SessionStreamRunRow>): Map<str
   return origins
 }
 
-function streamEntryResolve(event: SessionStreamEventRow): SessionStreamEntry | undefined {
+function streamRunAgentIdResolve(run: { snapshot?: unknown } | undefined): string | undefined {
+  const snapshot = streamPayloadObject(run?.snapshot)
+  const target = streamPayloadObject(snapshot?.target)
+  const agentId = streamPayloadField(target, "agentId")?.trim()
+  return agentId === undefined || agentId.length === 0 ? undefined : agentId
+}
+
+function streamEntryResolve(
+  event: SessionStreamEventRow,
+  delegation?: SessionStreamDelegationLink,
+): SessionStreamEntry | undefined {
   if (event.eventType === "thinking_status")
     return {
       id: event.id,
@@ -106,6 +193,7 @@ function streamEntryResolve(event: SessionStreamEventRow): SessionStreamEntry | 
     }
   if (event.eventType === "tool_start")
     return {
+      ...(delegation === undefined ? {} : { delegation }),
       id: event.id,
       kind: "tool",
       label: streamPayloadField(event.payload, "toolName") ?? "tool",
@@ -160,6 +248,46 @@ function streamEntryResolve(event: SessionStreamEventRow): SessionStreamEntry | 
   return undefined
 }
 
+export function sessionStreamDelegationLinkResolve(
+  delegation: SessionStreamDelegation,
+  runs: ReadonlyArray<{
+    attempts?: ReadonlyArray<{ streamId: string }>
+    id: string
+    snapshot?: unknown
+    streamId?: string
+  }>,
+): SessionStreamDelegationLink {
+  const childRun = runs.find((run) => run.id === delegation.childRunId)
+  const childAttempt = childRun?.attempts?.at(-1)
+  const childAgentId = streamRunAgentIdResolve(childRun)
+  return {
+    ...delegation,
+    ...(childAgentId === undefined ? {} : { childAgentId }),
+    childStreamId: childAttempt?.streamId ?? childRun?.streamId ?? `run-child:${delegation.childRunId}`,
+  }
+}
+
+function streamDelegationResolve(
+  event: SessionStreamEventRow,
+  origin: SessionStreamOrigin | undefined,
+  delegations: ReadonlyArray<SessionStreamDelegation>,
+  runs: ReadonlyArray<SessionStreamRunRow>,
+  activity?: { agentId?: string; serverId?: string; task?: string },
+): SessionStreamDelegationLink | undefined {
+  if (event.eventType !== "tool_start" || origin === undefined) return undefined
+  if (streamPayloadField(event.payload, "toolName") !== "delegate_task") return undefined
+  const toolCallId = streamPayloadField(event.payload, "toolCallId")
+  if (toolCallId === undefined) return undefined
+  const delegation = sessionStreamDelegationResolve({
+    activity: { ...activity, toolCallId },
+    delegations,
+    runs,
+    scope:
+      origin.attemptId === undefined ? undefined : { parentAttemptId: origin.attemptId, parentRunId: origin.runId },
+  })
+  return delegation === undefined ? undefined : sessionStreamDelegationLinkResolve(delegation, runs)
+}
+
 function streamEventNormalize(event: SessionStreamEventRow): SessionStreamEventRow | undefined {
   if (
     ["text_delta", "thinking_status", "tool_start", "tool_output", "tool_result", "written_file", "terminal"].includes(
@@ -176,8 +304,14 @@ function streamEventNormalize(event: SessionStreamEventRow): SessionStreamEventR
   return { ...event, eventType: parsed.data.type, payload: parsed.data }
 }
 
-function streamEntriesCollect(events: ReadonlyArray<SessionStreamEventRow>): Array<SessionStreamEntry> {
+function streamEntriesCollect(
+  events: ReadonlyArray<SessionStreamEventRow>,
+  origin: SessionStreamOrigin | undefined,
+  delegations: ReadonlyArray<SessionStreamDelegation>,
+  runs: ReadonlyArray<SessionStreamRunRow>,
+): Array<SessionStreamEntry> {
   const entries: Array<SessionStreamEntry> = []
+  const delegationActivities = streamDelegationActivitiesResolve(events)
   let output: { delta: string; id: string } | undefined
   const outputFlush = () => {
     if (output === undefined) return
@@ -193,7 +327,17 @@ function streamEntriesCollect(events: ReadonlyArray<SessionStreamEventRow>): Arr
       continue
     }
     outputFlush()
-    const entry = streamEntryResolve(event)
+    const toolCallId = streamPayloadField(event.payload, "toolCallId")
+    const entry = streamEntryResolve(
+      event,
+      streamDelegationResolve(
+        event,
+        origin,
+        delegations,
+        runs,
+        toolCallId === undefined ? undefined : delegationActivities.get(toolCallId),
+      ),
+    )
     if (entry !== undefined) entries.push(entry)
   }
   outputFlush()
@@ -207,6 +351,7 @@ function streamEntriesCollect(events: ReadonlyArray<SessionStreamEventRow>): Arr
  * row still render, sorted after the known ones by stream identity.
  */
 export function sessionStreamGroupsDerive(input: {
+  delegations?: ReadonlyArray<SessionStreamDelegation>
   events: ReadonlyArray<SessionStreamEventRow>
   runs: ReadonlyArray<SessionStreamRunRow>
 }): Array<SessionStreamGroup> {
@@ -222,7 +367,7 @@ export function sessionStreamGroupsDerive(input: {
     const origin = origins.get(streamId)
     const ordered = [...events].sort((left, right) => left.sequence - right.sequence || left.id.localeCompare(right.id))
     return {
-      entries: streamEntriesCollect(ordered),
+      entries: streamEntriesCollect(ordered, origin, input.delegations ?? [], input.runs),
       id: streamId,
       label: origin?.label ?? "Stream",
       ...(origin?.status === undefined ? {} : { status: origin.status }),

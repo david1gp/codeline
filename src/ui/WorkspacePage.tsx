@@ -3,6 +3,7 @@ import { ApplicationShell } from "./ApplicationShell.js"
 import { FilesPanel } from "./FilesPanel.js"
 import { SelectedSession } from "./SelectedSession.js"
 import { SessionSidebar } from "./SessionSidebar.js"
+import { SubagentThreadPanel } from "./SubagentThreadPanel.js"
 import { WorkspaceSetupPanel } from "./WorkspaceSetupPanel.js"
 import type { WorkspaceScreenView } from "./workspaceScreenView.js"
 
@@ -19,8 +20,15 @@ export function WorkspacePage(props: { state: WorkspaceScreenView }) {
           sessionTarget={props.state.sessionTargetSelector}
         />
       }
-      rightPanel={<FilesPanel close={props.state.shell.rightPanelClose} state={props.state.files} />}
-      rightPanelLabel="Project files"
+      rightPanel={
+        <Show
+          when={props.state.selectedSession.subagentThread.selected()}
+          fallback={<FilesPanel close={props.state.shell.rightPanelClose} state={props.state.files} />}
+        >
+          <SubagentThreadPanel state={props.state.selectedSession} />
+        </Show>
+      }
+      rightPanelLabel={props.state.selectedSession.subagentThread.selected() ? "Subagent thread" : "Project files"}
     >
       <Show when={state.isSessionDrawerOpen()}>
         <div

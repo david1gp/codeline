@@ -116,6 +116,7 @@ export function chatComposerStateCreate(options: ChatComposerOptions) {
     errorMessage: () => stopError.get() ?? (recoveryStatus.get() === "stale" ? undefined : chat.error()?.message),
     isBusy: chat.isLoading,
     recoveryStatus: recoveryStatus.get,
+    runId: chat.runId,
     setDraft: draft.set,
     isStopping: stopping.get,
     stop,

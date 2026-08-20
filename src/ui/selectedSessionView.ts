@@ -1,9 +1,10 @@
-import type { SessionChatState } from "./sessionChatStateCreate.js"
-import type { SessionStreamGroup } from "./sessionStreamGroupsDerive.js"
 import type { finalizedMessageCopyStateCreate } from "../message/ui/finalizedMessageCopyStateCreate.js"
 import type { sessionRenameControlStateCreate } from "../session/ui/sessionRenameControlStateCreate.js"
-import type { sessionPinToggleStateCreate } from "./sessionPinToggleStateCreate.js"
+import type { SessionChatState } from "./sessionChatStateCreate.js"
 import type { sessionDisplayModeStateCreate } from "./sessionDisplayModeStateCreate.js"
+import type { sessionPinToggleStateCreate } from "./sessionPinToggleStateCreate.js"
+import type { SessionStreamGroup } from "./sessionStreamGroupsDerive.js"
+import type { sessionSubagentThreadStateCreate } from "./sessionSubagentThreadStateCreate.js"
 
 export type SelectedSessionViewMessage = {
   copyState: ReturnType<typeof finalizedMessageCopyStateCreate>
@@ -40,4 +41,5 @@ export type SelectedSessionView = {
   streamGroups: () => ReadonlyArray<SessionStreamGroup>
   isStreamLoading: () => boolean
   session: () => SelectedSessionViewSession | undefined
+  subagentThread: ReturnType<typeof sessionSubagentThreadStateCreate>
 }

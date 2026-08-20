@@ -144,6 +144,7 @@ export function applicationShellStateCreate() {
     },
     rightPanelEnable: () => rightPanelAvailable.set(true),
     rightPanelOpen: rightPanelOpen.get,
+    rightPanelShow: () => rightPanelOpen.set(true),
     rightPanelToggle: () => rightPanelOpen.set(!rightPanelOpen.get()),
     rightPanelWidth: rightPanelWidth.get,
     sidebarWidth: sidebarWidth.get,

@@ -33,6 +33,7 @@ export function sessionChatStateCreate(options: SessionChatStateOptions) {
     },
     pendingMessages: () => transientMessagesResolve(composer.transientMessages(), options.durableMessages()),
     recoveryStatus: composer.recoveryStatus,
+    runId: composer.runId,
     stopHandle: () => void composer.stop(),
     submit: () => composer.submit(),
     submitHandle: (event: Event) => {
@@ -42,4 +43,6 @@ export function sessionChatStateCreate(options: SessionChatStateOptions) {
   }
 }
 
-export type SessionChatState = ReturnType<typeof sessionChatStateCreate>
+export type SessionChatState = Omit<ReturnType<typeof sessionChatStateCreate>, "runId"> & {
+  runId?: () => string | null
+}

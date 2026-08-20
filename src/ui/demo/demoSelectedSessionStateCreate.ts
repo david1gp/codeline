@@ -1,22 +1,30 @@
-import type { SelectedSessionView } from "../selectedSessionView.js"
 import { finalizedMessageCopyStateCreate } from "../../message/ui/finalizedMessageCopyStateCreate.js"
 import { sessionRenameControlStateCreate } from "../../session/ui/sessionRenameControlStateCreate.js"
+import type { SelectedSessionView } from "../selectedSessionView.js"
+import { sessionDisplayModeStateCreate } from "../sessionDisplayModeStateCreate.js"
+import { sessionPinToggleStateCreate } from "../sessionPinToggleStateCreate.js"
+import { sessionSubagentThreadStateCreate } from "../sessionSubagentThreadStateCreate.js"
 import { demoSessionChatStateCreate } from "./demoSessionChatStateCreate.js"
 import { demoSessionMessagesFixture } from "./demoSessionMessagesFixture.js"
-import { demoSessionStreamGroupsFixture } from "./demoSessionStreamGroupsFixture.js"
-import type { DemoSessionScreenVariant } from "./demoSessionScreenVariant.js"
 import { demoSessionRenameFetch } from "./demoSessionRenameFetch.js"
+import type { DemoSessionScreenVariant } from "./demoSessionScreenVariant.js"
+import { demoSessionStreamGroupsFixture } from "./demoSessionStreamGroupsFixture.js"
 import { demoWorkspaceSessionsFixture } from "./demoWorkspaceSessionsFixture.js"
-import { sessionPinToggleStateCreate } from "../sessionPinToggleStateCreate.js"
-import { sessionDisplayModeStateCreate } from "../sessionDisplayModeStateCreate.js"
 
 type DemoSelectedSessionStateOptions = {
   selectedSessionId: { get: () => string | null }
+  rightPanelClose: () => void
+  rightPanelShow: () => void
   variant: () => DemoSessionScreenVariant
 }
 
 export function demoSelectedSessionStateCreate(options: DemoSelectedSessionStateOptions): SelectedSessionView {
   const displayMode = sessionDisplayModeStateCreate()
+  const subagentThread = sessionSubagentThreadStateCreate({
+    rightPanelClose: options.rightPanelClose,
+    rightPanelShow: options.rightPanelShow,
+    sessionId: options.selectedSessionId.get,
+  })
   const chat = demoSessionChatStateCreate(options.variant)
   const copyStates = new Map<string, ReturnType<typeof finalizedMessageCopyStateCreate>>()
   const renameStates = new Map<string, ReturnType<typeof sessionRenameControlStateCreate>>()
@@ -81,6 +89,7 @@ export function demoSelectedSessionStateCreate(options: DemoSelectedSessionState
     isStreamLoading: () => options.variant() === "loading",
     session,
     pinState,
+    subagentThread,
   }
 }
 

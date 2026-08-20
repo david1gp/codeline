@@ -1,5 +1,6 @@
-import { providerModelSelectorStateCreate } from "../providers/ui/providerModelSelectorStateCreate.js"
 import { onCleanup, useContext } from "solid-js"
+import { providerModelSelectorStateCreate } from "../providers/ui/providerModelSelectorStateCreate.js"
+import { activeProjectStateCreate } from "./activeProjectStateCreate.js"
 import { applicationShellContext } from "./applicationShellContext.js"
 import { applicationShellStateCreate } from "./applicationShellStateCreate.js"
 import { appShellContext } from "./appShellContext.js"
@@ -12,7 +13,6 @@ import type { SessionSidebarRouteState } from "./sessionSidebarRouteStateCreate.
 import { sessionTargetSelectorStateCreate } from "./sessionTargetSelectorStateCreate.js"
 import { workspacePageStateCreate } from "./workspacePageStateCreate.js"
 import type { WorkspaceScreenView } from "./workspaceScreenView.js"
-import { activeProjectStateCreate } from "./activeProjectStateCreate.js"
 
 export function workspaceScreenStateCreate(
   navigation: SessionNavigationState = sessionNavigationStateCreate(),
@@ -45,6 +45,8 @@ export function workspaceScreenStateCreate(
     selectedSession: selectedSessionStateCreate({
       codelineExecution: providerModelSelector.codelineExecution,
       navigation: () => navigation,
+      rightPanelClose: shell.rightPanelClose,
+      rightPanelShow: shell.rightPanelShow,
       sessionCreateErrorMessage: sessionTargetSelector.sessionCreateErrorMessage,
       sessionCreateStart: sessionTargetSelector.sessionCreateStart,
       sessionTargetAvailable: sessionTargetSelector.canCreateSession,
