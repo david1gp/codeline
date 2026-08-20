@@ -3,15 +3,15 @@ import { and, count, desc, eq, max } from "drizzle-orm"
 import * as v from "valibot"
 import type { DatabaseClient, DatabaseExecutor } from "../../database/databaseClient.js"
 import { databaseTransactionRun } from "../../database/databaseTransactionRun.js"
+import { uuidv7 } from "../../uuid/uuidv7.js"
 import { runChildAdmissionResolve } from "../actions/runChildAdmissionResolve.js"
 import { runBudgetSchema } from "../schema/runBudgetSchema.js"
-import { runChildCreateInputSchema, type RunChildCreateInput } from "../schema/runChildCreateInputSchema.js"
 import type { RunChildAdmission } from "../schema/runChildAdmissionSchema.js"
+import { type RunChildCreateInput, runChildCreateInputSchema } from "../schema/runChildCreateInputSchema.js"
 import { runExecutionSnapshotSchema } from "../schema/runExecutionSnapshotSchema.js"
 import { attemptTable } from "./attemptTable.js"
 import { runDelegationTable } from "./runDelegationTable.js"
 import { runTable } from "./runTable.js"
-import { uuidv7 } from "../../uuid/uuidv7.js"
 
 type RunChildCreateResult = {
   admission: RunChildAdmission | null
@@ -21,6 +21,11 @@ type RunChildCreateResult = {
   run: typeof runTable.$inferSelect
 }
 
+type RunRepositoryChildTarget = {
+  agentId: string
+  serverId: string
+}
+
 function jsonCanonicalize(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value)
   if (Array.isArray(value)) return `[${value.map(jsonCanonicalize).join(",")}]`
@@ -28,6 +33,60 @@ function jsonCanonicalize(value: unknown): string {
     .sort()
     .map((key) => `${JSON.stringify(key)}:${jsonCanonicalize((value as Record<string, unknown>)[key])}`)
     .join(",")}}`
+}
+
+function runRepositoryChildTaskCanonicalize(task: string): string {
+  return task.trim()
+}
+
+async function runRepositoryChildExistingLoad(
+  transaction: DatabaseExecutor,
+  userId: string,
+  sessionId: string,
+  delegation: typeof runDelegationTable.$inferSelect,
+  expectedTarget?: RunRepositoryChildTarget,
+): Promise<Result<RunChildCreateResult>> {
+  const op = "runRepositoryChildCreate"
+  const [existingRun] = await transaction
+    .select()
+    .from(runTable)
+    .where(and(eq(runTable.id, delegation.childRunId), eq(runTable.sessionId, sessionId), eq(runTable.userId, userId)))
+    .for("update")
+    .limit(1)
+  if (existingRun === undefined) return createResultError(op, "The existing child run could not be found.")
+  if (expectedTarget !== undefined) {
+    const parsedSnapshot = v.safeParse(runExecutionSnapshotSchema, existingRun.snapshot)
+    if (!parsedSnapshot.success) return createResultError(op, "The existing child execution snapshot is invalid.")
+    if (
+      parsedSnapshot.output.target.agentId !== expectedTarget.agentId ||
+      parsedSnapshot.output.target.serverId !== expectedTarget.serverId
+    ) {
+      return createResultError(op, "The delegation key conflicts with a different agent.")
+    }
+  }
+
+  const [existingAttempt] = await transaction
+    .select()
+    .from(attemptTable)
+    .where(
+      and(
+        eq(attemptTable.runId, existingRun.id),
+        eq(attemptTable.sessionId, sessionId),
+        eq(attemptTable.userId, userId),
+      ),
+    )
+    .orderBy(desc(attemptTable.ordinal))
+    .for("update")
+    .limit(1)
+  if (existingAttempt === undefined) return createResultError(op, "The existing child attempt could not be found.")
+
+  return createResult({
+    admission: null,
+    attempt: existingAttempt,
+    created: false,
+    delegation,
+    run: existingRun,
+  })
 }
 
 export async function runRepositoryChildCreate(
@@ -92,45 +151,21 @@ export async function runRepositoryChildCreate(
         .for("update")
         .limit(1)
       if (existingDelegation !== undefined) {
-        if (existingDelegation.task !== parsedInput.output.task) {
+        if (runRepositoryChildTaskCanonicalize(existingDelegation.task) !== parsedInput.output.task) {
           return createResultError(op, "The delegation key conflicts with a different task.")
         }
-        const [existingRun] = await transaction
-          .select()
-          .from(runTable)
-          .where(
-            and(
-              eq(runTable.id, existingDelegation.childRunId),
-              eq(runTable.sessionId, sessionId),
-              eq(runTable.userId, userId),
-            ),
-          )
-          .for("update")
-          .limit(1)
-        if (existingRun === undefined) return createResultError(op, "The existing child run could not be found.")
-
-        const [existingAttempt] = await transaction
-          .select()
-          .from(attemptTable)
-          .where(
-            and(
-              eq(attemptTable.runId, existingRun.id),
-              eq(attemptTable.sessionId, sessionId),
-              eq(attemptTable.userId, userId),
-            ),
-          )
-          .orderBy(desc(attemptTable.ordinal))
-          .for("update")
-          .limit(1)
-        if (existingAttempt === undefined)
-          return createResultError(op, "The existing child attempt could not be found.")
-        return createResult({
-          admission: null,
-          attempt: existingAttempt,
-          created: false,
-          delegation: existingDelegation,
-          run: existingRun,
-        })
+        const requestedTarget = parsedInput.output.snapshot?.target
+        if (requestedTarget !== undefined)
+          return runRepositoryChildExistingLoad(transaction, userId, sessionId, existingDelegation, requestedTarget)
+        const parsedParentSnapshot = v.safeParse(runExecutionSnapshotSchema, parent.snapshot)
+        if (!parsedParentSnapshot.success) return createResultError(op, "The parent execution snapshot is invalid.")
+        return runRepositoryChildExistingLoad(
+          transaction,
+          userId,
+          sessionId,
+          existingDelegation,
+          parsedParentSnapshot.output.target,
+        )
       }
 
       const [currentAttempt] = await transaction
@@ -169,6 +204,39 @@ export async function runRepositoryChildCreate(
       const childSnapshot = parsedInput.output.snapshot ?? parsedSnapshot.output
       if (childSnapshot.target.serverId !== parsedSnapshot.output.target.serverId) {
         return createResultError(op, "The child execution snapshot server does not match the parent.")
+      }
+
+      const matchingDelegations = await transaction
+        .select({ childSnapshot: runTable.snapshot, delegation: runDelegationTable })
+        .from(runDelegationTable)
+        .innerJoin(runTable, eq(runTable.id, runDelegationTable.childRunId))
+        .where(
+          and(
+            eq(runDelegationTable.parentRunId, parent.id),
+            eq(runDelegationTable.parentAttemptId, parsedInput.output.parentAttemptId),
+            eq(runDelegationTable.sessionId, sessionId),
+            eq(runDelegationTable.userId, userId),
+          ),
+        )
+        .for("update")
+
+      const matchingDelegation = matchingDelegations.find((candidate) => {
+        if (runRepositoryChildTaskCanonicalize(candidate.delegation.task) !== parsedInput.output.task) return false
+        const parsedCandidateSnapshot = v.safeParse(runExecutionSnapshotSchema, candidate.childSnapshot)
+        if (!parsedCandidateSnapshot.success) return false
+        return (
+          parsedCandidateSnapshot.output.target.agentId === childSnapshot.target.agentId &&
+          parsedCandidateSnapshot.output.target.serverId === childSnapshot.target.serverId
+        )
+      })
+      if (matchingDelegation !== undefined) {
+        return runRepositoryChildExistingLoad(
+          transaction,
+          userId,
+          sessionId,
+          matchingDelegation.delegation,
+          childSnapshot.target,
+        )
       }
 
       const [descendantState] = await transaction

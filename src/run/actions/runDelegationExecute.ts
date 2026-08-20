@@ -2,17 +2,18 @@ import { createResult, createResultError, type Result } from "@adaptive-ds/resul
 import * as v from "valibot"
 import type { ExecutionStreamEvent } from "../../stream/schema/executionStreamEventSchema.js"
 import { executionStreamEventSchema } from "../../stream/schema/executionStreamEventSchema.js"
-import { runChildCreateInputSchema } from "../schema/runChildCreateInputSchema.js"
-import { runDelegationResultSchema, type RunDelegationResult } from "../schema/runDelegationResultSchema.js"
-import type { RunFailureMetadata } from "../schema/runFailureMetadataSchema.js"
-import type { RunTransitionInput } from "../schema/runTransitionInputSchema.js"
-import type { RunExecutionSnapshot } from "../schema/runExecutionSnapshotSchema.js"
 import { attemptTable } from "../db/attemptTable.js"
 import { runDelegationTable } from "../db/runDelegationTable.js"
 import { runTable } from "../db/runTable.js"
+import { type RunChildCreateInput, runChildCreateInputSchema } from "../schema/runChildCreateInputSchema.js"
+import { type RunDelegationResult, runDelegationResultSchema } from "../schema/runDelegationResultSchema.js"
+import type { RunExecutionSnapshot } from "../schema/runExecutionSnapshotSchema.js"
+import type { RunFailureMetadata } from "../schema/runFailureMetadataSchema.js"
+import type { RunTransitionInput } from "../schema/runTransitionInputSchema.js"
 import { runRetryAdmissionResolve } from "./runRetryAdmissionResolve.js"
 
 const PRIVATE_RESULT_LIMIT = 16_384
+const REUSED_RESULT_POLL_INTERVAL_MS = 50
 
 type RunDelegationChild = {
   attempt: typeof attemptTable.$inferSelect
@@ -97,6 +98,16 @@ function runDelegationResultCreate(
   const parsed = v.safeParse(runDelegationResultSchema, candidate)
   if (!parsed.success) return createResultError(op, "The delegated child result is invalid.")
   return createResult(parsed.output)
+}
+
+function runDelegationFinalizedResultResolve(
+  delegation: typeof runDelegationTable.$inferSelect,
+): Result<RunDelegationResult> {
+  const op = "runDelegationExecute"
+  if (delegation.finalizedResult === null) return createResultError(op, "The delegated child result is not finalized.")
+  const finalized = v.safeParse(runDelegationResultSchema, delegation.finalizedResult)
+  if (!finalized.success) return createResultError(op, "The finalized delegation result is invalid.")
+  return createResult(finalized.output)
 }
 
 function runDelegationNowResolve(options: RunDelegationExecuteOptions): Result<Date> {
@@ -312,6 +323,50 @@ async function runDelegationAttemptExecute(
   }
 }
 
+async function runDelegationReusedChildResolve(
+  input: RunChildCreateInput,
+  child: RunDelegationChild,
+  options: RunDelegationExecuteOptions,
+): Promise<Result<RunDelegationChild>> {
+  const op = "runDelegationExecute"
+  let current = child
+  while (current.delegation.finalizedResult === null) {
+    if (current.run.status !== "accepted" && current.run.status !== "running") {
+      if (current.run.status !== "failed") {
+        return createResultError(op, "The reused delegated child ended without a terminal result.")
+      }
+      const failure = current.attempt.failure ?? current.run.failure
+      if (failure === null) return createResultError(op, "The reused delegated child ended without a terminal result.")
+      const retryAdmission = runRetryAdmissionResolve({
+        attemptOrdinal: current.attempt.ordinal,
+        attemptStatus: current.attempt.status,
+        budget: current.run.budget,
+        failure,
+      })
+      if (!retryAdmission.success || retryAdmission.data.decision !== "retry") {
+        return createResultError(op, "The reused delegated child ended without a terminal result.")
+      }
+    }
+    const now = runDelegationNowResolve(options)
+    if (!now.success) return now
+    if (now.data.getTime() >= current.run.deadlineAt.getTime()) {
+      const observed = await options.childCreate(input)
+      if (!observed.success) return observed
+      current = observed.data
+      if (current.delegation.finalizedResult !== null) break
+      return createResultError(op, "The reused delegated child did not finalize before its immutable deadline.")
+    }
+    await new Promise<void>((resolve) => {
+      const setTimeoutFn = options.setTimeout ?? globalThis.setTimeout
+      setTimeoutFn(resolve, REUSED_RESULT_POLL_INTERVAL_MS)
+    })
+    const observed = await options.childCreate(input)
+    if (!observed.success) return observed
+    current = observed.data
+  }
+  return createResult(current)
+}
+
 export async function runDelegationExecute(
   input: RunDelegationExecuteInput,
   options: RunDelegationExecuteOptions,
@@ -339,12 +394,15 @@ export async function runDelegationExecute(
   const child = await options.childCreate(parsedInput.output)
   if (!child.success) return createResultError(op, child.errorMessage)
   if (child.data.delegation.finalizedResult !== null) {
-    const finalized = v.safeParse(runDelegationResultSchema, child.data.delegation.finalizedResult)
-    if (!finalized.success) return createResultError(op, "The finalized delegation result is invalid.")
-    return createResult(finalized.output)
+    return runDelegationFinalizedResultResolve(child.data.delegation)
   }
   if (child.data.run.deadlineAt.getTime() !== input.parentRun.deadlineAt.getTime()) {
     return createResultError(op, "The child run deadline is not inherited from the parent.")
+  }
+  if (!child.data.created) {
+    const reused = await runDelegationReusedChildResolve(parsedInput.output, child.data, options)
+    if (!reused.success) return reused
+    return runDelegationFinalizedResultResolve(reused.data.delegation)
   }
   if (child.data.run.status !== "accepted" || child.data.attempt.status !== "accepted") {
     return createResultError(op, "The delegated child attempt is not accepted for execution.")
