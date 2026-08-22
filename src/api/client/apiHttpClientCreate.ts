@@ -60,7 +60,14 @@ type ApiHttpMethodInput<TSchema extends v.GenericSchema, TRequestSchema extends 
   | Omit<ApiHttpRequestBodylessInput<TSchema>, "method">
   | Omit<ApiHttpRequestTypedInput<TSchema, TRequestSchema>, "method">
 
-type ApiHttpResponseResult = Result<unknown>
+type ApiHttpClientLoadedResponse = {
+  body: string | undefined
+  ok: boolean
+  status: number
+  statusText: string
+}
+
+type ApiHttpClientResponseResult = Result<ApiHttpClientLoadedResponse>
 
 function apiHttpClientErrorCreate(
   op: string,
@@ -79,8 +86,9 @@ function apiHttpClientAbortResult(op: string): ResultErr {
   return apiHttpClientErrorCreate(op, "The request was aborted.", "aborted")
 }
 
-function apiHttpClientPathValidate(path: string, op: string): Result<void> {
+function apiHttpClientPathValidate(path: unknown, op: string): Result<void> {
   if (
+    typeof path !== "string" ||
     path.length === 0 ||
     !path.startsWith("/") ||
     path.startsWith("//") ||
@@ -132,20 +140,6 @@ function apiHttpClientHeadersKey(headers: Headers): string {
   )
 }
 
-function apiHttpClientSchemaKey<TSchema extends v.GenericSchema>(
-  schema: TSchema,
-  schemaKeys: WeakMap<object, number>,
-  nextSchemaKey: { value: number },
-): number {
-  const objectSchema = schema as object
-  const existing = schemaKeys.get(objectSchema)
-  if (existing !== undefined) return existing
-  const next = nextSchemaKey.value
-  nextSchemaKey.value += 1
-  schemaKeys.set(objectSchema, next)
-  return next
-}
-
 function apiHttpClientJsonParse(body: string, op: string): Result<unknown> {
   const parsed = v.safeParse(v.pipe(v.string(), v.parseJson()), body)
   if (!parsed.success) {
@@ -154,7 +148,7 @@ function apiHttpClientJsonParse(body: string, op: string): Result<unknown> {
   return createResult(parsed.output)
 }
 
-function apiHttpClientResponseError(response: Response, body: string, op: string): ResultErr {
+function apiHttpClientResponseError(response: ApiHttpClientLoadedResponse, body: string, op: string): ResultErr {
   const parsedBody = apiHttpClientJsonParse(body, op)
   if (parsedBody.success) {
     const parsedError = v.safeParse(apiErrorResponseSchema, parsedBody.data)
@@ -181,7 +175,7 @@ function apiHttpClientResponseError(response: Response, body: string, op: string
 }
 
 function apiHttpClientResponseParse<TSchema extends v.GenericSchema>(
-  response: Response,
+  response: ApiHttpClientLoadedResponse,
   body: string,
   schema: TSchema,
   op: string,
@@ -203,7 +197,7 @@ function apiHttpClientResponseParse<TSchema extends v.GenericSchema>(
 }
 
 function apiHttpClientEmptyResponseParse<TSchema extends v.GenericSchema>(
-  response: Response,
+  response: ApiHttpClientLoadedResponse,
   schema: TSchema,
   op: string,
 ): Result<v.InferOutput<TSchema>> {
@@ -220,44 +214,65 @@ function apiHttpClientEmptyResponseParse<TSchema extends v.GenericSchema>(
   return createResult(parsed.output)
 }
 
-async function apiHttpClientResponseLoad<
-  TSchema extends v.GenericSchema,
-  TRequestSchema extends v.GenericSchema | undefined,
->(
+async function apiHttpClientResponseLoad(
   dependencies: ApiHttpClientDependencies,
-  input: ApiHttpRequestInput<TSchema, TRequestSchema>,
   url: string,
   headers: Headers,
+  method: ApiHttpMethod,
   body: string | undefined,
   op: string,
   signal: AbortSignal | undefined,
-): Promise<Result<v.InferOutput<TSchema>>> {
+): Promise<ApiHttpClientResponseResult> {
   const init: RequestInit = {
     headers,
-    method: input.method,
+    method,
   }
   if (body !== undefined) init.body = body
   if (signal !== undefined) init.signal = signal
 
-  let response: Response
+  let responseValue: unknown
   try {
-    response = await dependencies.fetch(url, init)
+    responseValue = await dependencies.fetch(url, init)
   } catch (_error) {
     if (signal?.aborted) return apiHttpClientAbortResult(op)
     return apiHttpClientErrorCreate(op, "The request could not be completed.", "network_error")
   }
 
-  if (response.status === 204 || response.status === 205)
-    return apiHttpClientEmptyResponseParse(response, input.responseSchema, op)
+  if (signal?.aborted) return apiHttpClientAbortResult(op)
 
-  let responseBody: string
+  let response: ApiHttpClientLoadedResponse
   try {
-    responseBody = await response.text()
+    if (typeof responseValue !== "object" || responseValue === null) throw new Error("response is not an object")
+    const candidate = responseValue as Partial<Response>
+    if (
+      typeof candidate.status !== "number" ||
+      !Number.isInteger(candidate.status) ||
+      candidate.status < 100 ||
+      candidate.status > 599 ||
+      typeof candidate.ok !== "boolean" ||
+      typeof candidate.text !== "function" ||
+      (candidate.statusText !== undefined && typeof candidate.statusText !== "string")
+    )
+      throw new Error("response shape is invalid")
+    response = {
+      body: undefined,
+      ok: candidate.ok,
+      status: candidate.status,
+      statusText: candidate.statusText ?? "",
+    }
+
+    if (response.status === 204 || response.status === 205) return createResult(response)
+
+    const responseBody = await candidate.text.call(responseValue)
+    if (typeof responseBody !== "string") throw new Error("response body is not text")
+    response.body = responseBody
   } catch (_error) {
-    return apiHttpClientErrorCreate(op, "The response could not be read.", "response_read_error", response.status)
+    if (signal?.aborted) return apiHttpClientAbortResult(op)
+    return apiHttpClientErrorCreate(op, "The injected fetch response is invalid.", "invalid_response")
   }
-  if (!response.ok) return apiHttpClientResponseError(response, responseBody, op)
-  return apiHttpClientResponseParse(response, responseBody, input.responseSchema, op)
+
+  if (signal?.aborted) return apiHttpClientAbortResult(op)
+  return createResult(response)
 }
 
 function apiHttpClientResultOperationSet<T>(result: Result<T>, op: string): Result<T> {
@@ -294,21 +309,29 @@ function apiHttpClientRequestKey<TSchema extends v.GenericSchema, TRequestSchema
   input: ApiHttpRequestInput<TSchema, TRequestSchema>,
   url: string,
   headers: Headers,
-  schemaKeys: WeakMap<object, number>,
-  nextSchemaKey: { value: number },
 ): string {
   return JSON.stringify({
     headers: apiHttpClientHeadersKey(headers),
     method: input.method,
-    schema: apiHttpClientSchemaKey(input.responseSchema, schemaKeys, nextSchemaKey),
     url,
   })
 }
 
+function apiHttpClientLoadedResponseResolve<TSchema extends v.GenericSchema>(
+  loadedResponse: ApiHttpClientLoadedResponse,
+  schema: TSchema,
+  op: string,
+): Result<v.InferOutput<TSchema>> {
+  if (loadedResponse.status === 204 || loadedResponse.status === 205)
+    return apiHttpClientEmptyResponseParse(loadedResponse, schema, op)
+  if (loadedResponse.body === undefined)
+    return apiHttpClientErrorCreate(op, "The response body is missing.", "invalid_response", loadedResponse.status)
+  if (!loadedResponse.ok) return apiHttpClientResponseError(loadedResponse, loadedResponse.body, op)
+  return apiHttpClientResponseParse(loadedResponse, loadedResponse.body, schema, op)
+}
+
 export function apiHttpClientCreate(dependencies: ApiHttpClientDependencies) {
-  const inFlight = new Map<string, Promise<ApiHttpResponseResult>>()
-  const schemaKeys = new WeakMap<object, number>()
-  const nextSchemaKey = { value: 1 }
+  const inFlight = new Map<string, Promise<ApiHttpClientResponseResult>>()
 
   const request = async <
     TSchema extends v.GenericSchema,
@@ -346,18 +369,33 @@ export function apiHttpClientCreate(dependencies: ApiHttpClientDependencies) {
     } catch (_error) {
       return apiHttpClientErrorCreate(op, "The request path or query is invalid.", "invalid_request")
     }
-    const load = () => apiHttpClientResponseLoad(dependencies, input, url, headersResult.data, body, op, undefined)
+    const load = () =>
+      apiHttpClientResponseLoad(dependencies, url, headersResult.data, input.method, body, op, undefined)
 
     if (input.method !== "GET" || input.coalesce === false) {
-      return apiHttpClientResponseLoad(dependencies, input, url, headersResult.data, body, op, input.signal)
+      const loadedResponse = await apiHttpClientResponseLoad(
+        dependencies,
+        url,
+        headersResult.data,
+        input.method,
+        body,
+        op,
+        input.signal,
+      )
+      if (!loadedResponse.success) return loadedResponse
+      return apiHttpClientLoadedResponseResolve(loadedResponse.data, input.responseSchema, op)
     }
 
-    const key = apiHttpClientRequestKey(input, url, headersResult.data, schemaKeys, nextSchemaKey)
+    // Coalescing is transport-level. Every caller validates the shared body with its own schema.
+    const key = apiHttpClientRequestKey(input, url, headersResult.data)
     const existing = inFlight.get(key)
-    if (existing !== undefined)
-      return apiHttpClientResultAwait(existing as Promise<Result<v.InferOutput<TSchema>>>, input.signal, op)
+    if (existing !== undefined) {
+      const loadedResponse = await apiHttpClientResultAwait(existing, input.signal, op)
+      if (!loadedResponse.success) return loadedResponse
+      return apiHttpClientLoadedResponseResolve(loadedResponse.data, input.responseSchema, op)
+    }
 
-    const pending = load() as Promise<ApiHttpResponseResult>
+    const pending = load()
     inFlight.set(key, pending)
     void pending.then(
       () => {
@@ -367,7 +405,9 @@ export function apiHttpClientCreate(dependencies: ApiHttpClientDependencies) {
         if (inFlight.get(key) === pending) inFlight.delete(key)
       },
     )
-    return apiHttpClientResultAwait(pending as Promise<Result<v.InferOutput<TSchema>>>, input.signal, op)
+    const loadedResponse = await apiHttpClientResultAwait(pending, input.signal, op)
+    if (!loadedResponse.success) return loadedResponse
+    return apiHttpClientLoadedResponseResolve(loadedResponse.data, input.responseSchema, op)
   }
 
   const get = <TSchema extends v.GenericSchema, TRequestSchema extends v.GenericSchema = v.GenericSchema>(

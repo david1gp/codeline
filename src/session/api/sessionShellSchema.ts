@@ -1,4 +1,5 @@
 import * as v from "valibot"
+import { apiRevisionSchema } from "../../api/schema/apiRevisionSchema.js"
 import { apiPublicIdSchema } from "../../api/schema/apiPublicIdSchema.js"
 
 const sessionTimestampSchema = v.pipe(v.string(), v.isoTimestamp())
@@ -12,6 +13,7 @@ export const sessionShellSchema = v.strictObject({
   pinned: v.boolean(),
   primaryAgentId: apiPublicIdSchema,
   projectPath: v.pipe(v.string(), v.maxLength(4_096)),
+  revision: apiRevisionSchema,
   serverId: apiPublicIdSchema,
   title: v.pipe(v.string(), v.maxLength(500)),
   updatedAt: sessionTimestampSchema,

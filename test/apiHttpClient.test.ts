@@ -61,6 +61,24 @@ test("structured API errors become coded Results with HTTP status and body data"
     })
 })
 
+test("standard API errors preserve validated extension fields", async () => {
+  const error = {
+    code: "not_found",
+    details: { resource: "session", sessionId: "session-1" },
+    message: "The session was not found.",
+    op: "sessionLoad",
+    requestId: "request-1",
+    retryable: false,
+    status: 404,
+  }
+  const client = apiHttpClientCreate({ fetch: async () => Response.json({ error }, { status: 404 }) })
+
+  const result = await client.get({ path: "/api/sessions/session-1", responseSchema: healthResponseSchema })
+
+  expect(result).toMatchObject({ code: "not_found", statusCode: 404, success: false })
+  if (!result.success) expect(JSON.parse(result.errorData ?? "{}")).toEqual({ error })
+})
+
 test("structured precondition errors retain current revision and ETag fields", async () => {
   const client = apiHttpClientCreate({
     fetch: async () =>
@@ -127,6 +145,28 @@ test("identical GET requests coalesce without sharing caller abort state", async
   expect(await second).toEqual({ success: true, data: { service: "codeline", status: "ok" } })
 })
 
+test("a non-coalesced request remains aborted when injected fetch resolves late", async () => {
+  let resolveResponse: ((response: Response) => void) | undefined
+  const client = apiHttpClientCreate({
+    fetch: async () =>
+      new Promise((resolve) => {
+        resolveResponse = resolve
+      }),
+  })
+  const controller = new AbortController()
+  const request = client.get({
+    coalesce: false,
+    path: "/api/health",
+    responseSchema: healthResponseSchema,
+    signal: controller.signal,
+  })
+
+  controller.abort()
+  resolveResponse?.(Response.json({ service: "codeline", status: "ok" }))
+
+  expect(await request).toMatchObject({ code: "aborted", success: false })
+})
+
 test("different canonical query keys issue independent GET requests", async () => {
   let fetchCount = 0
   const urls: string[] = []
@@ -157,6 +197,18 @@ test("malformed accepted-looking paths return a Result error instead of rejectin
   const client = apiHttpClientCreate({ fetch: async () => Response.json({ service: "codeline", status: "ok" }) })
   const result = await client.get({ path: "/api/%ZZ", responseSchema: healthResponseSchema })
   expect(result).toMatchObject({ code: "invalid_request", success: false })
+})
+
+test("malformed runtime path values return a Result error instead of rejecting", async () => {
+  const client = apiHttpClientCreate({ fetch: async () => Response.json({ service: "codeline", status: "ok" }) })
+  const result = await client.get({ path: null as never, responseSchema: healthResponseSchema })
+  expect(result).toMatchObject({ code: "invalid_request", success: false })
+})
+
+test("malformed injected fetch results return a Result error instead of rejecting", async () => {
+  const client = apiHttpClientCreate({ fetch: async () => null as never })
+  const result = await client.get({ path: "/api/health", responseSchema: healthResponseSchema })
+  expect(result).toMatchObject({ code: "invalid_response", success: false })
 })
 
 test("bodyless requests omit body validation and Content-Type", async () => {
@@ -245,4 +297,25 @@ test("coalescing recovers after a shared request fails", async () => {
     data: { service: "codeline", status: "ok" },
   })
   expect(fetchCount).toBe(2)
+})
+
+test("coalesced callers validate a shared response independently without schema identity hashing", async () => {
+  let fetchCount = 0
+  const firstSchema = v.strictObject({ service: v.string(), status: v.literal("ok") })
+  const secondSchema = v.strictObject({ service: v.string(), status: v.literal("other") })
+  const client = apiHttpClientCreate({
+    fetch: async () => {
+      fetchCount += 1
+      return Response.json({ service: "codeline", status: "ok" })
+    },
+  })
+
+  const [first, second] = await Promise.all([
+    client.get({ path: "/api/health", responseSchema: firstSchema }),
+    client.get({ path: "/api/health", responseSchema: secondSchema }),
+  ])
+
+  expect(first).toEqual({ success: true, data: { service: "codeline", status: "ok" } })
+  expect(second).toMatchObject({ code: "invalid_response", success: false })
+  expect(fetchCount).toBe(1)
 })

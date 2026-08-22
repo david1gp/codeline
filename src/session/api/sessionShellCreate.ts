@@ -1,0 +1,51 @@
+import { createResult, createResultError, type Result } from "@adaptive-ds/result"
+import * as v from "valibot"
+import { sessionShellSchema, type SessionShell } from "./sessionShellSchema.js"
+
+type SessionShellSource = {
+  archivedAt: Date | string | null
+  createdAt: Date | string
+  id: string
+  metadata: unknown
+  parentSessionId: string | null
+  pinned: boolean
+  primaryAgentId: string
+  projectPath: string
+  revision: number
+  serverId: string
+  title: string
+  updatedAt: Date | string
+}
+
+export function sessionShellCreate(session: SessionShellSource): Result<SessionShell> {
+  const op = "sessionShellCreate"
+  const archivedAt = sessionTimestampSerialize(session.archivedAt)
+  const createdAt = sessionTimestampSerialize(session.createdAt)
+  const updatedAt = sessionTimestampSerialize(session.updatedAt)
+  if (createdAt === undefined || updatedAt === undefined || (session.archivedAt !== null && archivedAt === undefined))
+    return createResultError(op, "The session representation timestamp is invalid.")
+
+  const parsed = v.safeParse(sessionShellSchema, {
+    archivedAt: archivedAt ?? null,
+    createdAt,
+    id: session.id,
+    metadata: session.metadata,
+    parentSessionId: session.parentSessionId,
+    pinned: session.pinned,
+    primaryAgentId: session.primaryAgentId,
+    projectPath: session.projectPath,
+    revision: session.revision,
+    serverId: session.serverId,
+    title: session.title,
+    updatedAt,
+  })
+  if (!parsed.success) return createResultError(op, "The session representation is invalid.")
+  return createResult(parsed.output)
+}
+
+function sessionTimestampSerialize(value: Date | string | null): string | null | undefined {
+  if (value === null) return null
+  if (typeof value === "string") return value
+  if (Number.isNaN(value.getTime())) return undefined
+  return value.toISOString()
+}

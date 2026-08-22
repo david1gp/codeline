@@ -2,7 +2,7 @@ import * as v from "valibot"
 import { apiPreconditionFailedResponseSchema } from "./apiPreconditionFailedResponseSchema.js"
 
 const apiStandardErrorResponseSchema = v.strictObject({
-  error: v.object({
+  error: v.strictObject({
     code: v.picklist([
       "bad_request",
       "conflict",
@@ -13,7 +13,12 @@ const apiStandardErrorResponseSchema = v.strictObject({
       "not_found",
       "unauthorized",
     ]),
+    details: v.optional(v.record(v.string(), v.unknown())),
     message: v.string(),
+    op: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(200))),
+    requestId: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(200))),
+    retryable: v.optional(v.boolean()),
+    status: v.optional(v.pipe(v.number(), v.integer(), v.minValue(100), v.maxValue(599))),
   }),
 })
 
