@@ -4,16 +4,19 @@ import { apiAgentRoutesAdd } from "../agents/api/apiAgentRoutesAdd.js"
 import { appKnownRouteResolve } from "../app/appKnownRouteResolve.js"
 import type { ConfigurationStore } from "../configuration/configurationStore.js"
 import type { RuntimeConfiguration } from "../configuration/runtimeConfigurationSchema.js"
-import type { ServerAgentConvexClient } from "../convex/serverAgentConvexClient.js"
-import type { SessionNoteConvexClient } from "../convex/sessionNoteConvexClient.js"
 import type { ExecutionConvexClient } from "../convex/executionConvexClient.js"
+import type { ServerAgentConvexClient } from "../convex/serverAgentConvexClient.js"
 import type { DatabaseClient } from "../database/databaseClient.js"
+import { apiEventsRoutesAdd } from "../events/api/apiEventsRoutesAdd.js"
 import { identitySessionRevoke } from "../identity/actions/identitySessionRevoke.js"
 import { apiAuthRoutesAdd } from "../identity/api/apiAuthRoutesAdd.js"
 import type { IdentityClient } from "../identity/convex/identityClient.js"
 import { oidcLoginTransactionCreate } from "../identity/db/oidcLoginTransactionCreate.js"
 import { oidcProviderDiscoveryCreate } from "../identity/oidc/oidcProviderDiscoveryCreate.js"
 import type { OidcProviderFetch } from "../identity/oidc/oidcProviderFetch.js"
+import { journalBacklogRead } from "../journal/actions/journalBacklogRead.js"
+import type { JournalCursorCodec } from "../journal/actions/journalCursorCodecCreate.js"
+import { journalPostCommitPublishCreate } from "../journal/actions/journalPostCommitPublishCreate.js"
 import { apiMessageRoutesAdd } from "../message/api/apiMessageRoutesAdd.js"
 import { apiProjectRoutesAdd } from "../project/api/apiProjectRoutesAdd.js"
 import type { ProjectLimits } from "../project/projectLimitsSchema.js"
@@ -34,9 +37,12 @@ import { runTransition } from "../run/actions/runTransition.js"
 import { apiRunRoutesAdd } from "../run/api/apiRunRoutesAdd.js"
 import { apiServerRoutesAdd } from "../servers/api/apiServerRoutesAdd.js"
 import { sessionChatAdapterCreate } from "../session/actions/sessionChatAdapterCreate.js"
+import { apiSessionBranchRoutesAdd } from "../session/api/apiSessionBranchRoutesAdd.js"
 import { apiSessionRenameRoutesAdd } from "../session/api/apiSessionRenameRoutesAdd.js"
 import { apiSessionRoutesAdd } from "../session/api/apiSessionRoutesAdd.js"
+import { streamLiveSubscriptionCreate } from "../stream/actions/streamLiveSubscriptionCreate.js"
 import { streamReplayServiceCreate } from "../stream/actions/streamReplayServiceCreate.js"
+import { streamSseConnectionWriterCreate } from "../stream/actions/streamSseConnectionWriterCreate.js"
 import { apiStreamRoutesAdd } from "../stream/api/apiStreamRoutesAdd.js"
 import type { AppEnvironment } from "./appEnvironment.js"
 import type { HealthResponse } from "./health/healthResponseSchema.js"
@@ -51,7 +57,6 @@ type ApiRoutesAddOptions = {
   database?: DatabaseClient
   identityClient?: IdentityClient
   serverAgentConvexClient?: ServerAgentConvexClient
-  sessionNoteConvexClient?: SessionNoteConvexClient
   executionConvexClient?: ExecutionConvexClient
   projectLimits?: ProjectLimits
   projectRootDirs?: readonly string[]
@@ -89,6 +94,13 @@ type ApiRoutesAddOptions = {
   sessionChatAdapter?: typeof sessionChatAdapterCreate
   streamInactivityTimeoutMs?: number
   streamReplayServiceCreate?: typeof streamReplayServiceCreate
+  journalBacklogRead?: typeof journalBacklogRead
+  journalCursorCodec?: JournalCursorCodec
+  journalPostCommitPublish?: ReturnType<typeof journalPostCommitPublishCreate>
+  streamLiveSubscription?: ReturnType<typeof streamLiveSubscriptionCreate>
+  streamSseConnectionWriterCreate?: typeof streamSseConnectionWriterCreate
+  streamSseNow?: () => number
+  streamSseScheduler?: Parameters<typeof streamSseConnectionWriterCreate>[0]["scheduler"]
 }
 
 export function apiRoutesAdd(
@@ -97,6 +109,20 @@ export function apiRoutesAdd(
   options: ApiRoutesAddOptions = {},
 ): void {
   const api = new Hono<AppEnvironment>()
+  const streamLiveSubscription = options.streamLiveSubscription ?? streamLiveSubscriptionCreate()
+  const journalPostCommitPublish =
+    options.journalPostCommitPublish ??
+    (options.journalCursorCodec === undefined
+      ? undefined
+      : journalPostCommitPublishCreate({
+          cursorCodec: options.journalCursorCodec,
+          liveSubscription: streamLiveSubscription,
+        }))
+
+  api.use("*", async (context, next) => {
+    context.set("streamLiveSubscription", streamLiveSubscription)
+    await next()
+  })
 
   api.get("/health", (context) => {
     const response = {
@@ -134,15 +160,38 @@ export function apiRoutesAdd(
     fetch: options.providerFetch,
     serverAgentConvexClient: options.serverAgentConvexClient,
   })
-  apiSessionRoutesAdd(api, options)
+  if (
+    options.configuration !== undefined &&
+    options.database !== undefined &&
+    options.journalCursorCodec !== undefined &&
+    journalPostCommitPublish !== undefined
+  ) {
+    apiSessionRoutesAdd(api, {
+      ...options,
+      database: options.database,
+      journalCursorCodec: options.journalCursorCodec,
+      journalPostCommitPublish,
+    })
+  }
   apiRunRoutesAdd(api, {
     runCancel: options.runCancel,
     runCancellationCoordinator: options.runCancellationCoordinator,
     runLoad: options.runLoad,
     executionConvexClient: options.executionConvexClient,
   })
-  apiSessionRenameRoutesAdd(api, { sessionNoteConvexClient: options.sessionNoteConvexClient })
-  apiMessageRoutesAdd(api, { executionConvexClient: options.executionConvexClient })
+  if (
+    options.configuration !== undefined &&
+    options.database !== undefined &&
+    options.journalCursorCodec !== undefined &&
+    journalPostCommitPublish !== undefined
+  ) {
+    apiSessionBranchRoutesAdd(api, { database: options.database, journalPostCommitPublish })
+    apiSessionRenameRoutesAdd(api, { database: options.database, journalPostCommitPublish })
+    apiMessageRoutesAdd(api, {
+      journalCursorCodec: options.journalCursorCodec,
+      journalPostCommitPublish,
+    })
+  }
   if (options.projectRootDir !== undefined) {
     apiProjectRoutesAdd(api, { limits: options.projectLimits, rootDir: options.projectRootDir })
   } else if (options.projectRootDirs !== undefined) {
@@ -162,6 +211,23 @@ export function apiRoutesAdd(
     replayServiceCreate: options.streamReplayServiceCreate,
     executionConvexClient: options.executionConvexClient,
   })
+  // The authenticated feed is only constructed when both its auth middleware and
+  // opaque cursor codec are present. It must not be exposed as a route that can
+  // discover a missing production dependency with a runtime 503.
+  if (
+    options.configuration !== undefined &&
+    options.database !== undefined &&
+    options.journalCursorCodec !== undefined
+  ) {
+    apiEventsRoutesAdd(api, {
+      backlogRead: options.journalBacklogRead,
+      connectionWriterCreate: options.streamSseConnectionWriterCreate,
+      cursorCodec: options.journalCursorCodec,
+      liveSubscription: streamLiveSubscription,
+      now: options.streamSseNow,
+      scheduler: options.streamSseScheduler,
+    })
+  }
   apiMutationRoutesAdd(api)
   apiQueryRoutesAdd(api)
   apiTestingRoutesAdd(api)

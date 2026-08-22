@@ -47,6 +47,18 @@ test("shared API composition mounts project routes with the injected root", asyn
   expect(await response.json()).toMatchObject({ content: "Codeline\n", path: "README.md" })
 })
 
+test("does not mount the authenticated events route without auth and cursor construction dependencies", async () => {
+  const response = await app.request("http://codeline.test/api/events")
+
+  expect(response.status).toBe(404)
+})
+
+test("does not mount migrated session routes without authenticated Drizzle journal dependencies", async () => {
+  const response = await app.request("http://codeline.test/api/sessions")
+
+  expect(response.status).toBe(404)
+})
+
 test("shared API composition mounts stream routes with injected replay dependencies", async () => {
   const response = await app.request("http://codeline.test/api/sessions/session/streams/stream/events")
 

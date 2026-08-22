@@ -4,6 +4,7 @@ import { apiErrorResponseSchema } from "../src/api/errors/apiErrorResponseSchema
 import { apiIdempotencyResultSchemaCreate } from "../src/api/schema/apiIdempotencyResultSchemaCreate.js"
 import { runActiveSnapshotResponseSchema } from "../src/run/api/runActiveSnapshotResponseSchema.js"
 import { runActiveSummarySchema } from "../src/run/api/runActiveSummarySchema.js"
+import { sessionSnapshotResponseSchema } from "../src/session/api/sessionSnapshotResponseSchema.js"
 import { streamSseFrameSchema } from "../src/stream/api/streamSseFrameSchema.js"
 import { streamSseFrameSerialize } from "../src/stream/api/streamSseFrameSerialize.js"
 
@@ -46,6 +47,31 @@ test("the shared API error contract accepts structured precondition failures", (
   ).toBe(false)
 })
 
+test("standard API error extensions are deliberately validated", () => {
+  expect(
+    v.safeParse(apiErrorResponseSchema, {
+      error: {
+        code: "not_found",
+        details: { resource: "session" },
+        message: "The session was not found.",
+        op: "sessionLoad",
+        requestId: "request-1",
+        retryable: false,
+        status: 404,
+      },
+    }).success,
+  ).toBe(true)
+  expect(
+    v.safeParse(apiErrorResponseSchema, {
+      error: {
+        code: "not_found",
+        extra: "not-supported",
+        message: "The session was not found.",
+      },
+    }).success,
+  ).toBe(false)
+})
+
 test("active-run reconciliation accepts terminal statuses intentionally", () => {
   for (const status of ["succeeded", "failed", "aborted"] as const) {
     expect(
@@ -61,6 +87,39 @@ test("active-run reconciliation accepts terminal statuses intentionally", () => 
       v.safeParse(runActiveSnapshotResponseSchema, { lastSequence: 4, partialText: "partial", status }).success,
     ).toBe(true)
   }
+})
+
+test("settled session reconciliation uses the complete authoritative typed payload", () => {
+  const response = {
+    asOfSequence: 4,
+    etag: '"session-4"',
+    messages: [],
+    revision: 4,
+    schemaVersion: "session-snapshot-v1",
+    session: {
+      archivedAt: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      id: "session-1",
+      metadata: null,
+      parentSessionId: null,
+      pinned: false,
+      primaryAgentId: "agent-1",
+      projectPath: "/tmp/project",
+      revision: 4,
+      serverId: "server-1",
+      title: "Session",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    },
+    settled: true,
+  }
+  expect(v.safeParse(sessionSnapshotResponseSchema, response).success).toBe(true)
+  expect(
+    v.safeParse(sessionSnapshotResponseSchema, {
+      ...response,
+      session: { ...response.session, id: "session-2" },
+    }).success,
+  ).toBe(true)
+  expect(v.safeParse(sessionSnapshotResponseSchema, { revision: 4 }).success).toBe(false)
 })
 
 test("SSE size validation covers the complete serialized frame", () => {

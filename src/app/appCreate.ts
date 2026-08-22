@@ -6,9 +6,8 @@ import type { ApiErrorResponse } from "../api/errors/apiErrorResponseSchema.js"
 import type { HealthResponse } from "../api/health/healthResponseSchema.js"
 import type { ConfigurationStore } from "../configuration/configurationStore.js"
 import type { RuntimeConfiguration } from "../configuration/runtimeConfigurationSchema.js"
-import type { ServerAgentConvexClient } from "../convex/serverAgentConvexClient.js"
-import type { SessionNoteConvexClient } from "../convex/sessionNoteConvexClient.js"
 import type { ExecutionConvexClient } from "../convex/executionConvexClient.js"
+import type { ServerAgentConvexClient } from "../convex/serverAgentConvexClient.js"
 import type { DatabaseClient } from "../database/databaseClient.js"
 import { databaseReadyCheck } from "../database/databaseReadyCheck.js"
 import { identitySessionCreate } from "../identity/actions/identitySessionCreate.js"
@@ -23,6 +22,9 @@ import { oidcLoginTransactionConsume } from "../identity/db/oidcLoginTransaction
 import { oidcLoginTransactionCreate } from "../identity/db/oidcLoginTransactionCreate.js"
 import { oidcProviderDiscoveryCreate } from "../identity/oidc/oidcProviderDiscoveryCreate.js"
 import type { OidcProviderFetch } from "../identity/oidc/oidcProviderFetch.js"
+import { journalBacklogRead } from "../journal/actions/journalBacklogRead.js"
+import type { JournalCursorCodec } from "../journal/actions/journalCursorCodecCreate.js"
+import { journalPostCommitPublishCreate } from "../journal/actions/journalPostCommitPublishCreate.js"
 import type { ProjectLimits } from "../project/projectLimitsSchema.js"
 import { providerDelegationToolLoopCreate } from "../providers/runtime/providerDelegationToolLoopCreate.js"
 import type { ProviderModelDiscoveryOptions } from "../providers/runtime/providerModelDiscovery.js"
@@ -37,7 +39,9 @@ import { runLoad } from "../run/actions/runLoad.js"
 import { runRetryAttemptCreate } from "../run/actions/runRetryAttemptCreate.js"
 import { runTransition } from "../run/actions/runTransition.js"
 import { sessionChatAdapterCreate } from "../session/actions/sessionChatAdapterCreate.js"
+import { streamLiveSubscriptionCreate } from "../stream/actions/streamLiveSubscriptionCreate.js"
 import { streamReplayServiceCreate } from "../stream/actions/streamReplayServiceCreate.js"
+import { streamSseConnectionWriterCreate } from "../stream/actions/streamSseConnectionWriterCreate.js"
 import { appKnownRouteResolve } from "./appKnownRouteResolve.js"
 import { appUiShellFallbackAdd } from "./appUiShellFallbackAdd.js"
 
@@ -47,7 +51,6 @@ export type AppCreateOptions = {
   database?: DatabaseClient
   identityClient?: IdentityClient
   serverAgentConvexClient?: ServerAgentConvexClient
-  sessionNoteConvexClient?: SessionNoteConvexClient
   executionConvexClient?: ExecutionConvexClient
   databaseReadyCheck?: typeof databaseReadyCheck
   developmentIdentityUpsert?: typeof developmentIdentityUpsert
@@ -86,12 +89,28 @@ export type AppCreateOptions = {
   sessionChatAdapter?: typeof sessionChatAdapterCreate
   streamInactivityTimeoutMs?: number
   streamReplayServiceCreate?: typeof streamReplayServiceCreate
+  journalCursorCodec?: JournalCursorCodec
+  journalBacklogRead?: typeof journalBacklogRead
+  journalPostCommitPublish?: ReturnType<typeof journalPostCommitPublishCreate>
+  streamLiveSubscription?: ReturnType<typeof streamLiveSubscriptionCreate>
+  streamSseConnectionWriterCreate?: typeof streamSseConnectionWriterCreate
+  streamSseNow?: () => number
+  streamSseScheduler?: Parameters<typeof streamSseConnectionWriterCreate>[0]["scheduler"]
   uiShellPath?: string
 }
 
 export function appCreate(options: AppCreateOptions = {}): App {
   const app = new Hono<AppEnvironment>()
   const runCancellationCoordinator = options.runCancellationCoordinator ?? runCancellationCoordinatorCreate()
+  const streamLiveSubscription = options.streamLiveSubscription ?? streamLiveSubscriptionCreate()
+  const journalPostCommitPublish =
+    options.journalPostCommitPublish ??
+    (options.journalCursorCodec === undefined
+      ? undefined
+      : journalPostCommitPublishCreate({
+          cursorCodec: options.journalCursorCodec,
+          liveSubscription: streamLiveSubscription,
+        }))
 
   app.get("/health", (context) => {
     const response = {
@@ -134,12 +153,16 @@ export function appCreate(options: AppCreateOptions = {}): App {
     )
   }
 
+  app.use("/api/*", async (context, next) => {
+    context.set("streamLiveSubscription", streamLiveSubscription)
+    await next()
+  })
+
   apiRoutesAdd(app, readyCheck, {
     configuration: options.configuration,
     database: options.database,
     identityClient: options.identityClient,
     serverAgentConvexClient: options.serverAgentConvexClient,
-    sessionNoteConvexClient: options.sessionNoteConvexClient,
     executionConvexClient: options.executionConvexClient,
     projectLimits: options.projectLimits,
     projectRootDir: options.projectRootDir,
@@ -177,6 +200,13 @@ export function appCreate(options: AppCreateOptions = {}): App {
     sessionChatAdapter: options.sessionChatAdapter,
     streamInactivityTimeoutMs: options.streamInactivityTimeoutMs,
     streamReplayServiceCreate: options.streamReplayServiceCreate,
+    journalCursorCodec: options.journalCursorCodec,
+    journalBacklogRead: options.journalBacklogRead,
+    journalPostCommitPublish,
+    streamLiveSubscription,
+    streamSseConnectionWriterCreate: options.streamSseConnectionWriterCreate,
+    streamSseNow: options.streamSseNow,
+    streamSseScheduler: options.streamSseScheduler,
   })
 
   const uiShellPath = options.uiShellPath ?? "./dist/ui/index.html"

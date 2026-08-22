@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import type { App } from "../api/appEnvironment.js"
@@ -7,17 +8,17 @@ import { configurationStoreCreate } from "../configuration/configurationStoreCre
 import { projectRootConfigurationParse } from "../configuration/projectRootConfigurationParse.js"
 import { runtimeConfigurationParse } from "../configuration/runtimeConfigurationParse.js"
 import type { RuntimeConfiguration } from "../configuration/runtimeConfigurationSchema.js"
-import type { ServerAgentConvexClient } from "../convex/serverAgentConvexClient.js"
-import { serverAgentConvexClientCreate } from "../convex/serverAgentConvexClientCreate.js"
-import type { SessionNoteConvexClient } from "../convex/sessionNoteConvexClient.js"
-import { sessionNoteConvexClientCreate } from "../convex/sessionNoteConvexClientCreate.js"
 import type { ExecutionConvexClient } from "../convex/executionConvexClient.js"
 import { executionConvexClientCreate } from "../convex/executionConvexClient.js"
+import type { ServerAgentConvexClient } from "../convex/serverAgentConvexClient.js"
+import { serverAgentConvexClientCreate } from "../convex/serverAgentConvexClientCreate.js"
 import type { DatabaseConnection } from "../database/databaseClient.js"
 import { databaseConnectionClose } from "../database/databaseConnectionClose.js"
 import { databaseCreate } from "../database/databaseCreate.js"
 import type { IdentityClient } from "../identity/convex/identityClient.js"
 import { identityClientCreate } from "../identity/convex/identityClientCreate.js"
+import type { JournalCursorCodec } from "../journal/actions/journalCursorCodecCreate.js"
+import { journalCursorCodecCreate } from "../journal/actions/journalCursorCodecCreate.js"
 import { providerAgentCatalogLoad } from "../providers/catalog/providerAgentCatalogLoad.js"
 import type { ProviderCatalog } from "../providers/schema/providerCatalogSchema.js"
 
@@ -44,22 +45,22 @@ type ServerStartOptions = {
     database: DatabaseConnection["db"]
     identityClient?: IdentityClient
     serverAgentConvexClient?: ServerAgentConvexClient
-    sessionNoteConvexClient?: SessionNoteConvexClient
     executionConvexClient?: ExecutionConvexClient
     projectRootDirs: readonly string[]
     projectRootDir?: string
     providerAgentCatalog?: ProviderCatalog
+    journalCursorCodec?: JournalCursorCodec
   }) => App
   configuration?: RuntimeConfiguration
   configurationStore?: ConfigurationStore
   database?: DatabaseConnection
   identityClient?: IdentityClient
   serverAgentConvexClient?: ServerAgentConvexClient
-  sessionNoteConvexClient?: SessionNoteConvexClient
   executionConvexClient?: ExecutionConvexClient
   projectRootDirs?: readonly string[]
   projectRootDir?: string
   providerAgentCatalog?: ProviderCatalog
+  journalCursorCodec?: JournalCursorCodec
   serve?: Serve
   signalSource?: SignalSource
 }
@@ -119,6 +120,7 @@ export async function serverStart(options: ServerStartOptions = {}): Promise<Ser
   const port = Number(Bun.env.PORT ?? 6001)
   const hostname = Bun.env.HOST ?? "127.0.0.1"
   const createApp = options.appCreate ?? appCreate
+  const journalCursorCodec = options.journalCursorCodec ?? serverJournalCursorCodecCreate()
   const identityClient =
     options.identityClient ??
     (Bun.env.CONVEX_SELF_HOSTED_URL === undefined ? undefined : identityClientCreate(Bun.env.CONVEX_SELF_HOSTED_URL))
@@ -131,16 +133,6 @@ export async function serverStart(options: ServerStartOptions = {}): Promise<Ser
     const created = serverAgentConvexClientCreate(Bun.env.CONVEX_SELF_HOSTED_URL, Bun.env.CONVEX_SELF_HOSTED_ADMIN_KEY)
     if (!created.success) throw new Error(created.errorMessage)
     serverAgentConvexClient = created.data
-  }
-  let sessionNoteConvexClient = options.sessionNoteConvexClient
-  if (
-    sessionNoteConvexClient === undefined &&
-    Bun.env.CONVEX_SELF_HOSTED_URL !== undefined &&
-    Bun.env.CONVEX_SELF_HOSTED_ADMIN_KEY !== undefined
-  ) {
-    const created = sessionNoteConvexClientCreate(Bun.env.CONVEX_SELF_HOSTED_URL, Bun.env.CONVEX_SELF_HOSTED_ADMIN_KEY)
-    if (!created.success) throw new Error(created.errorMessage)
-    sessionNoteConvexClient = created.data
   }
   let executionConvexClient = options.executionConvexClient
   if (
@@ -159,11 +151,11 @@ export async function serverStart(options: ServerStartOptions = {}): Promise<Ser
       database: database.data.db,
       identityClient,
       ...(serverAgentConvexClient === undefined ? {} : { serverAgentConvexClient }),
-      ...(sessionNoteConvexClient === undefined ? {} : { sessionNoteConvexClient }),
       ...(executionConvexClient === undefined ? {} : { executionConvexClient }),
       ...(options.projectRootDir === undefined ? {} : { projectRootDir: options.projectRootDir }),
       projectRootDirs,
       providerAgentCatalog: providerAgentCatalogResult.data,
+      journalCursorCodec,
     }).fetch,
     hostname,
     port,
@@ -189,6 +181,14 @@ export async function serverStart(options: ServerStartOptions = {}): Promise<Ser
 
   console.log(`Codeline API listening at ${server.url}`)
   return server
+}
+
+function serverJournalCursorCodecCreate(): JournalCursorCodec {
+  const secret = Bun.env.SESSION_SECRET
+  if (secret === undefined || secret.length === 0) throw new Error("SESSION_SECRET is required for session routes.")
+  const result = journalCursorCodecCreate({ randomBytes, secret })
+  if (!result.success) throw new Error(result.errorMessage)
+  return result.data
 }
 
 function projectRootConfigurationRead(): readonly string[] {

@@ -1,20 +1,19 @@
 import * as v from "valibot"
 import { apiPublicIdSchema } from "../api/schema/apiPublicIdSchema.js"
 import { apiRevisionSchema } from "../api/schema/apiRevisionSchema.js"
-import { apiSequenceSchema } from "../api/schema/apiSequenceSchema.js"
-import { journalEventIdSchema } from "../stream/schema/journalEventIdSchema.js"
+import { eventFeedCursorSchema } from "../stream/client/eventFeedCursorSchema.js"
 
 const uiResourceTypeSchema = v.picklist(["agent", "message", "note", "run", "server", "session", "session-list"])
 
 export const uiDataLayerStatusSchema = v.variant("status", [
   v.strictObject({
-    asOfSequence: apiSequenceSchema,
-    lastEventId: v.nullable(journalEventIdSchema),
+    asOfCursor: v.nullable(eventFeedCursorSchema),
+    lastEventId: v.nullable(eventFeedCursorSchema),
     status: v.literal("connected"),
   }),
   v.strictObject({
     attempt: v.pipe(v.number(), v.integer(), v.minValue(1)),
-    lastEventId: v.nullable(journalEventIdSchema),
+    lastEventId: v.nullable(eventFeedCursorSchema),
     status: v.literal("reconnecting"),
   }),
   v.strictObject({
