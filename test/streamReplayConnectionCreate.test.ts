@@ -114,3 +114,28 @@ test("does not start replay after stop aborts the live connection", async () => 
   await expect(next).resolves.toMatchObject({ done: true })
   expect(requests).toEqual(["POST /api/sessions/session/chat"])
 })
+
+test("preserves a terminal provider error when the server has exhausted retries", async () => {
+  const statuses: string[] = []
+  const connection = streamReplayConnectionCreate({
+    fetcher: async (_input, init) => {
+      if (init?.method !== "POST") return streamResponse("")
+      return streamResponse(
+        `${sseEvent("event-1", "RUN_ERROR", chunk("RUN_ERROR", { code: "provider_failed", message: "temporary" }))}${sseEvent(
+          "event-2",
+          "RUN_FINISHED",
+          chunk("RUN_FINISHED", { outcome: { type: "success" } }),
+        )}`,
+      )
+    },
+    onStateChange: (status) => statuses.push(status),
+    sessionId: "session",
+  })
+
+  const events = []
+  for await (const event of connection.connect([], {}, undefined, { runId: "run", threadId: "session" }))
+    events.push(event)
+
+  expect(events.map((event) => String(event.type))).toEqual(["RUN_ERROR", "RUN_FINISHED"])
+  expect(statuses).toEqual(["streaming", "error", "terminal"])
+})

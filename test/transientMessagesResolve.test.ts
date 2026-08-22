@@ -52,3 +52,18 @@ test("role mismatch does not reconcile transient content", () => {
 
   expect(resolved.map((message) => message.id)).toEqual(["u1"])
 })
+
+test("transient messages converge by durable occurrence without dropping repeated prompts", () => {
+  const transient = [
+    { content: "same prompt", id: "transient-1", role: "user" as const },
+    { content: "same prompt", id: "transient-2", role: "user" as const },
+    { content: "answer", id: "transient-3", role: "assistant" as const },
+  ]
+
+  expect(
+    transientMessagesResolve(transient, [
+      { content: "same prompt", role: "user" },
+      { content: "answer", role: "assistant" },
+    ]),
+  ).toEqual([{ content: "same prompt", id: "transient-2", role: "user" }])
+})
