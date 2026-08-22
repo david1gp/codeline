@@ -1,7 +1,14 @@
+import type { Result } from "@adaptive-ds/result"
 import { useQuery } from "@rocicorp/zero/solid"
-import { type Accessor, createEffect } from "solid-js"
+import { makeFunctionReference } from "convex/server"
+import { type Accessor, createEffect, useContext } from "solid-js"
+import { codelineConvexMutationCreate } from "../convex/codelineConvexMutationCreate.js"
+import { codelineConvexQueryCreate } from "../convex/codelineConvexQueryCreate.js"
+import { convexContext } from "../convex/convexContext.js"
 import { finalizedMessageCopyStateCreate } from "../message/ui/finalizedMessageCopyStateCreate.js"
 import type { CodelineExecution } from "../providers/schema/codelineExecutionSchema.js"
+import type { SessionListRow } from "../session/convex/sessionListRow.js"
+import type { SessionRecord } from "../session/convex/sessionRecord.js"
 import { sessionRenameControlStateCreate } from "../session/ui/sessionRenameControlStateCreate.js"
 import { codelineQueries } from "./codelineQueries.js"
 import type { SelectedSessionView } from "./selectedSessionView.js"
@@ -14,6 +21,16 @@ import { sessionPinToggleStateCreate } from "./sessionPinToggleStateCreate.js"
 import { sessionStreamStateCreate } from "./sessionStreamStateCreate.js"
 import { sessionSubagentThreadStateCreate } from "./sessionSubagentThreadStateCreate.js"
 import { signalObjectCreate } from "./signalObjectCreate.js"
+
+const sessionDetailReference = makeFunctionReference<"query", Record<string, unknown>, Result<SessionListRow>>(
+  "sessions:sessionDetail",
+)
+const sessionRenameReference = makeFunctionReference<"mutation", Record<string, unknown>, Result<SessionRecord>>(
+  "sessions:sessionUpdate",
+)
+const sessionPinReference = makeFunctionReference<"mutation", Record<string, unknown>, Result<SessionRecord>>(
+  "sessions:sessionPin",
+)
 
 type SelectedSessionStateOptions = {
   codelineExecution: Accessor<CodelineExecution | null>
@@ -28,10 +45,37 @@ type SelectedSessionStateOptions = {
 export function selectedSessionStateCreate(options: SelectedSessionStateOptions): SelectedSessionView {
   const displayMode = sessionDisplayModeStateCreate()
   const selectedSessionId = () => options.navigation().selectedSessionId()
-  const [session, sessionResult] = useQuery(() => {
-    const sessionId = selectedSessionId()
-    return sessionId ? codelineQueries.activeSession({ sessionId }) : false
-  })
+  const convex = useContext(convexContext)
+  const zeroSessionState =
+    convex === undefined
+      ? useQuery(() => {
+          const sessionId = selectedSessionId()
+          return sessionId ? codelineQueries.activeSession({ sessionId }) : false
+        })
+      : undefined
+  const convexSessionState =
+    convex === undefined
+      ? undefined
+      : codelineConvexQueryCreate<SessionListRow>(
+          sessionDetailReference,
+          () => ({
+            sessionId: selectedSessionId() ?? "",
+            organizationId: convex?.organizationId ?? "",
+          }),
+          { enabled: () => selectedSessionId() !== null && convex?.organizationId !== undefined },
+        )
+  const session = () => (convex === undefined ? zeroSessionState?.[0]() : convexSessionState?.data()?.session)
+  const sessionResult = () => {
+    if (convex === undefined) return zeroSessionState?.[1]() ?? { type: "unknown" as const }
+    return {
+      retry: convexSessionState?.retry ?? (() => undefined),
+      type: convexSessionState?.isError()
+        ? ("error" as const)
+        : convexSessionState?.isLoading()
+          ? ("unknown" as const)
+          : ("complete" as const),
+    }
+  }
   const [messages, messagesResult] = useQuery(() => {
     const activeSession = session()
     return activeSession ? codelineQueries.finalizedMessages({ sessionId: activeSession.id }) : false
@@ -48,6 +92,9 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
     }))
   const renameStates = new Map<string, ReturnType<typeof sessionRenameControlStateCreate>>()
   const pinStates = new Map<string, ReturnType<typeof sessionPinToggleStateCreate>>()
+  const convexRename =
+    convex === undefined ? undefined : codelineConvexMutationCreate<SessionRecord>(sessionRenameReference)
+  const convexPin = convex === undefined ? undefined : codelineConvexMutationCreate<SessionRecord>(sessionPinReference)
   const renameState = () => {
     const current = session()
     if (!current) return undefined
@@ -56,6 +103,16 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
     const created = sessionRenameControlStateCreate({
       sessionId: () => current.id,
       title: () => current.title,
+      ...(convexRename === undefined
+        ? {}
+        : {
+            mutate: (sessionId, title) =>
+              convexRename({
+                sessionId,
+                title,
+                organizationId: convex?.organizationId ?? "",
+              }),
+          }),
     })
     renameStates.set(current.id, created)
     return created
@@ -68,6 +125,16 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
     const created = sessionPinToggleStateCreate({
       sessionId: () => current.id,
       pinned: () => session()?.pinned ?? current.pinned,
+      ...(convexPin === undefined
+        ? {}
+        : {
+            mutate: (sessionId, pinned) =>
+              convexPin({
+                pinned,
+                sessionId,
+                organizationId: convex?.organizationId ?? "",
+              }),
+          }),
     })
     pinStates.set(current.id, created)
     return created

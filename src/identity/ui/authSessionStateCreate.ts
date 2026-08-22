@@ -17,6 +17,8 @@ export function authSessionStateCreate(options: AuthSessionStateOptions = {}) {
   const fetcher = options.fetcher ?? fetch
   const [status, statusSet] = createSignal<AuthSessionStatus>("loading")
   const [displayName, displayNameSet] = createSignal<string | undefined>(undefined)
+  const [organizationId, organizationIdSet] = createSignal<string | undefined>(undefined)
+  const [token, tokenSet] = createSignal<string | undefined>(undefined)
   const [userId, userIdSet] = createSignal<string | undefined>(undefined)
   let controller: AbortController | undefined
   let requestVersion = 0
@@ -28,6 +30,8 @@ export function authSessionStateCreate(options: AuthSessionStateOptions = {}) {
     const requestController = new AbortController()
     controller = requestController
     displayNameSet(undefined)
+    organizationIdSet(undefined)
+    tokenSet(undefined)
     userIdSet(undefined)
     statusSet("loading")
 
@@ -42,6 +46,7 @@ export function authSessionStateCreate(options: AuthSessionStateOptions = {}) {
 
       if (response.status === 401 || response.status === 403) {
         displayNameSet(undefined)
+        organizationIdSet(undefined)
         userIdSet(undefined)
         statusSet("signed-out")
         return
@@ -54,11 +59,15 @@ export function authSessionStateCreate(options: AuthSessionStateOptions = {}) {
         throw new Error("The session response is invalid.")
 
       displayNameSet(parsed.output.displayName)
+      organizationIdSet(parsed.output.organizationId)
+      tokenSet(parsed.output.token)
       userIdSet(parsed.output.userId)
       statusSet("signed-in")
     } catch (_error: unknown) {
       if (requestController.signal.aborted || version !== requestVersion) return
       displayNameSet(undefined)
+      organizationIdSet(undefined)
+      tokenSet(undefined)
       userIdSet(undefined)
       statusSet("error")
     }
@@ -69,15 +78,19 @@ export function authSessionStateCreate(options: AuthSessionStateOptions = {}) {
 
   return {
     displayName,
+    organizationId,
     retry: () => void load(),
     signOut: () => {
       requestVersion += 1
       controller?.abort()
       displayNameSet(undefined)
+      organizationIdSet(undefined)
+      tokenSet(undefined)
       userIdSet(undefined)
       statusSet("signed-out")
     },
     status,
+    token,
     userId,
   }
 }

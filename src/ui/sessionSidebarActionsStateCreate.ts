@@ -4,6 +4,7 @@ import { sessionSidebarProjectLabelResolve } from "./sessionSidebarProjectLabelR
 import { sessionSidebarSessionDelete } from "./sessionSidebarSessionDelete.js"
 import { sessionSidebarSessionRename } from "./sessionSidebarSessionRename.js"
 import { signalObjectCreate } from "./signalObjectCreate.js"
+import type { Result } from "@adaptive-ds/result"
 
 type SessionSidebarDialog =
   | { kind: "closed" }
@@ -15,6 +16,8 @@ type SessionSidebarDialog =
 type SessionSidebarActionsOptions = {
   fetcher?: typeof fetch
   onSessionDeleted?: (sessionId: string) => void
+  sessionDelete?: (sessionId: string) => Promise<Result<true>>
+  sessionRename?: (sessionId: string, title: string) => Promise<Result<string>>
   sessionTitle: (sessionId: string) => string | undefined
   sessionIdsForProject: (projectPath: string) => readonly string[]
   sessionTitlesForProject: (projectPath: string) => readonly string[]
@@ -79,7 +82,10 @@ export function sessionSidebarActionsStateCreate(options: SessionSidebarActionsO
     if (current.kind !== "sessionRename" || isSaving.get()) return
     isSaving.set(true)
     errorMessage.set(null)
-    const result = await sessionSidebarSessionRename(current.sessionId, draft.get(), fetcher)
+    const result =
+      options.sessionRename === undefined
+        ? await sessionSidebarSessionRename(current.sessionId, draft.get(), fetcher)
+        : await options.sessionRename(current.sessionId, draft.get())
     isSaving.set(false)
     if (!result.success) {
       errorMessage.set(result.errorMessage)
@@ -89,7 +95,10 @@ export function sessionSidebarActionsStateCreate(options: SessionSidebarActionsO
   }
 
   const sessionDeleteImmediate = async (sessionId: string) => {
-    const result = await sessionSidebarSessionDelete(sessionId, fetcher)
+    const result =
+      options.sessionDelete === undefined
+        ? await sessionSidebarSessionDelete(sessionId, fetcher)
+        : await options.sessionDelete(sessionId)
     if (result.success) options.onSessionDeleted?.(sessionId)
   }
 
@@ -98,7 +107,10 @@ export function sessionSidebarActionsStateCreate(options: SessionSidebarActionsO
     if (current.kind !== "sessionDelete" || isSaving.get()) return
     isSaving.set(true)
     errorMessage.set(null)
-    const result = await sessionSidebarSessionDelete(current.sessionId, fetcher)
+    const result =
+      options.sessionDelete === undefined
+        ? await sessionSidebarSessionDelete(current.sessionId, fetcher)
+        : await options.sessionDelete(current.sessionId)
     isSaving.set(false)
     if (!result.success) {
       errorMessage.set(result.errorMessage)
@@ -115,7 +127,10 @@ export function sessionSidebarActionsStateCreate(options: SessionSidebarActionsO
     errorMessage.set(null)
     const deletedIds = options.sessionIdsForProject(current.projectPath)
     for (const sessionId of deletedIds) {
-      const result = await sessionSidebarSessionDelete(sessionId, fetcher)
+      const result =
+        options.sessionDelete === undefined
+          ? await sessionSidebarSessionDelete(sessionId, fetcher)
+          : await options.sessionDelete(sessionId)
       if (!result.success) {
         isSaving.set(false)
         errorMessage.set(result.errorMessage)

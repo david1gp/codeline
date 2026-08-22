@@ -1,10 +1,11 @@
 import type { JSX } from "solid-js"
 import { Match, Switch } from "solid-js"
+import { CodelineConvexProvider } from "../convex/CodelineConvexProvider.js"
 import { authSessionStateCreate } from "../identity/ui/authSessionStateCreate.js"
 import { App } from "./App.js"
-import { CodelineZeroProvider } from "./CodelineZeroProvider.js"
-import { appShellStateCreate } from "./appShellStateCreate.js"
 import { applicationShellStateCreate } from "./applicationShellStateCreate.js"
+import { appShellStateCreate } from "./appShellStateCreate.js"
+import { CodelineZeroProvider } from "./CodelineZeroProvider.js"
 import { protectedShellStateCreate } from "./protectedShellStateCreate.js"
 
 export function ApplicationRoot(props: { children?: JSX.Element }) {
@@ -50,17 +51,24 @@ export function ApplicationRoot(props: { children?: JSX.Element }) {
       <Match
         when={
           session.status() === "signed-in" && session.userId() !== undefined && session.displayName() !== undefined
-            ? { displayName: session.displayName() as string, userId: session.userId() as string }
+            ? {
+                displayName: session.displayName() as string,
+                organizationId: session.organizationId(),
+                token: session.token(),
+                userId: session.userId() as string,
+              }
             : undefined
         }
         keyed
       >
         {(user) => (
-          <CodelineZeroProvider userId={user.userId}>
-            <ProtectedShell displayName={user.displayName} userId={user.userId} sessionClear={session.signOut}>
-              {props.children}
-            </ProtectedShell>
-          </CodelineZeroProvider>
+          <CodelineConvexProvider organizationId={user.organizationId} token={user.token}>
+            <CodelineZeroProvider userId={user.userId}>
+              <ProtectedShell displayName={user.displayName} userId={user.userId} sessionClear={session.signOut}>
+                {props.children}
+              </ProtectedShell>
+            </CodelineZeroProvider>
+          </CodelineConvexProvider>
         )}
       </Match>
     </Switch>

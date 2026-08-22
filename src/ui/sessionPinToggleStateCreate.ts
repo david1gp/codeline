@@ -1,4 +1,5 @@
 import { createSignalObject } from "@adaptive-ds/solid-ui/utils/createSignalObject"
+import type { Result } from "@adaptive-ds/result"
 import * as v from "valibot"
 import { apiErrorResponseSchema } from "../api/errors/apiErrorResponseSchema.js"
 
@@ -6,6 +7,7 @@ type SessionPinToggleStateOptions = {
   fetcher?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
   sessionId: () => string
   pinned: () => boolean
+  mutate?: (sessionId: string, pinned: boolean) => Promise<Result<unknown>>
 }
 
 export function sessionPinToggleStateCreate(options: SessionPinToggleStateOptions) {
@@ -24,6 +26,16 @@ export function sessionPinToggleStateCreate(options: SessionPinToggleStateOption
     isSaving.set(true)
 
     try {
+      if (options.mutate !== undefined) {
+        const result = await options.mutate(options.sessionId(), next)
+        if (result.success) {
+          optimisticPinned.set(undefined)
+          return
+        }
+        optimisticPinned.set(previous)
+        errorMessage.set(result.errorMessage)
+        return
+      }
       const response = await fetcher(`/api/sessions/${encodeURIComponent(options.sessionId())}/pin`, {
         body: JSON.stringify({ pinned: next }),
         headers: { "Content-Type": "application/json" },

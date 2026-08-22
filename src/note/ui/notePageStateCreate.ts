@@ -1,10 +1,11 @@
 import { createSignalObject } from "@adaptive-ds/solid-ui/utils/createSignalObject"
-import { useQuery, useZero } from "@rocicorp/zero/solid"
+import { makeFunctionReference } from "convex/server"
 import { useNavigate } from "@solidjs/router"
 import { createEffect } from "solid-js"
-import type { zeroSchema } from "../../database/zeroSchema.js"
-import { codelineQueries } from "../../ui/codelineQueries.js"
-import { type NoteMutationContext, noteMutators } from "../noteMutators.js"
+import type { Result } from "@adaptive-ds/result"
+import { codelineConvexMutationCreate } from "../../convex/codelineConvexMutationCreate.js"
+import { codelineConvexQueryCreate } from "../../convex/codelineConvexQueryCreate.js"
+import type { NoteRecord } from "../convex/noteRecord.js"
 import { noteLineCount } from "./noteLineCount.js"
 import { noteContentFieldStateCreate } from "./noteContentFieldStateCreate.js"
 import { noteProjectChoicesResolve } from "./noteProjectChoicesResolve.js"
@@ -12,6 +13,16 @@ import { noteProjectListStateCreate } from "./noteProjectListStateCreate.js"
 import type { NoteScreenView } from "./noteScreenView.js"
 import { noteTitleStateCreate } from "./noteTitleStateCreate.js"
 import { noteViewModeStateCreate } from "./noteViewModeStateCreate.js"
+
+const noteDetailReference = makeFunctionReference<"query", Record<string, unknown>, Result<NoteRecord | undefined>>(
+  "notes:noteDetail",
+)
+const noteUpdateReference = makeFunctionReference<"mutation", Record<string, unknown>, Result<NoteRecord>>(
+  "notes:noteUpdate",
+)
+const noteDeleteReference = makeFunctionReference<"mutation", Record<string, unknown>, Result<NoteRecord>>(
+  "notes:noteDelete",
+)
 
 type NotePageStateOptions = {
   apiBase?: string
@@ -23,9 +34,11 @@ export function notePageStateCreate(options: NotePageStateOptions): NoteScreenVi
   const navigate = useNavigate()
   const apiBase = options.apiBase ?? "/api/project"
   const fetcher = options.fetcher ?? fetch
-  const zero = useZero<typeof zeroSchema, undefined, NoteMutationContext>()
-  const [note, noteResult] = useQuery(() => codelineQueries.note({ noteId: options.noteId }))
-
+  const noteQuery = codelineConvexQueryCreate<NoteRecord | undefined>(noteDetailReference, () => ({
+    noteId: options.noteId,
+  }))
+  const noteUpdate = codelineConvexMutationCreate<NoteRecord>(noteUpdateReference)
+  const noteDelete = codelineConvexMutationCreate<NoteRecord>(noteDeleteReference)
   const content = createSignalObject<string | null>(null)
   const projectId = createSignalObject<string | null>(null)
   const projectList = noteProjectListStateCreate({ apiBase, fetcher })
@@ -33,30 +46,25 @@ export function notePageStateCreate(options: NotePageStateOptions): NoteScreenVi
   const isDeleteConfirmOpen = createSignalObject(false)
 
   createEffect(() => {
-    const loaded = note()
+    const loaded = noteQuery.data()
     if (loaded === undefined || content.get() !== null) return
     content.set(loaded.content)
     projectId.set(loaded.projectPath)
   })
 
   const noteSave = async () => {
-    const current = note()
+    const current = noteQuery.data()
     const editedContent = content.get()
     if (current === undefined || editedContent === null || status.get() === "saving") return
-
     status.set("saving")
-    const mutation = zero().mutate(
-      noteMutators.note.update({
-        id: current.id,
-        content: editedContent,
-        projectPath: projectId.get(),
-        updatedAt: Date.now(),
-      }),
-    )
-    const result = await mutation.client
-    status.set(result.type === "error" ? "error" : "idle")
+    const result = await noteUpdate({
+      content: editedContent,
+      id: current.id,
+      projectPath: projectId.get(),
+      updatedAt: Date.now(),
+    })
+    status.set(result.success ? "idle" : "error")
   }
-
   const viewModeState = noteViewModeStateCreate()
   const contentField = noteContentFieldStateCreate({
     content: () => content.get() ?? "",
@@ -69,45 +77,47 @@ export function notePageStateCreate(options: NotePageStateOptions): NoteScreenVi
     contentField,
     title: titleState.title,
     content: () => content.get() ?? "",
-    contentUpdate: (event: InputEvent & { currentTarget: HTMLTextAreaElement }) => {
+    contentUpdate: (event) => {
       content.set(event.currentTarget.value)
       if (status.get() === "error") status.set("idle")
     },
     deleteConfirmClose: () => isDeleteConfirmOpen.set(false),
     deleteConfirmOpen: () => isDeleteConfirmOpen.set(true),
-    deleteConfirm: async () => {
-      const current = note()
+    deleteConfirm: () => {
+      const current = noteQuery.data()
       if (current === undefined || status.get() === "saving") return
-
       status.set("saving")
-      const mutation = zero().mutate(noteMutators.note.delete(current.id))
-      const result = await mutation.client
-      if (result.type === "error") {
-        status.set("error")
-        isDeleteConfirmOpen.set(false)
-        return
-      }
-      navigate("/notes")
+      void noteDelete({ noteId: current.id }).then((result) => {
+        if (!result.success) {
+          status.set("error")
+          isDeleteConfirmOpen.set(false)
+          return
+        }
+        navigate("/notes")
+      })
     },
-    hasError: () => status.get() === "error",
-    hasNote: () => note() !== undefined,
+    hasError: () => status.get() === "error" || noteQuery.isError(),
+    hasNote: () => noteQuery.data() !== undefined,
     isDeleteConfirmOpen: isDeleteConfirmOpen.get,
     isDirty: () => {
-      const current = note()
-      if (current === undefined || content.get() === null) return false
-      return content.get() !== current.content || projectId.get() !== current.projectPath
+      const current = noteQuery.data()
+      return (
+        current !== undefined &&
+        content.get() !== null &&
+        (content.get() !== current.content || projectId.get() !== current.projectPath)
+      )
     },
-    isLoading: () => noteResult().type === "unknown" && note() === undefined,
-    isNotFound: () => noteResult().type === "complete" && note() === undefined,
+    isLoading: () => noteQuery.isLoading() && noteQuery.data() === undefined,
+    isNotFound: () => noteQuery.isComplete() && noteQuery.data() === undefined,
     isSaving: () => status.get() === "saving",
     lineCount: () => noteLineCount(content.get() ?? ""),
     projectId: () => projectId.get() ?? "",
     projects: () => noteProjectChoicesResolve(projectList.projects(), projectId.get()),
-    projectIdUpdate: (event: Event & { currentTarget: HTMLSelectElement }) => {
+    projectIdUpdate: (event) => {
       projectId.set(event.currentTarget.value === "" ? null : event.currentTarget.value)
       if (status.get() === "error") status.set("idle")
     },
-    submit: async (event: SubmitEvent) => {
+    submit: async (event) => {
       event.preventDefault()
       await noteSave()
     },

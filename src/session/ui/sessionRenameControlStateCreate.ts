@@ -1,4 +1,5 @@
 import { createSignal } from "solid-js/dist/solid.js"
+import type { Result } from "@adaptive-ds/result"
 import * as v from "valibot"
 import { apiErrorResponseSchema } from "../../api/errors/apiErrorResponseSchema.js"
 import { sessionRenameRequestSchema } from "../schema/sessionRenameRequestSchema.js"
@@ -6,6 +7,7 @@ import { sessionRenameRequestSchema } from "../schema/sessionRenameRequestSchema
 type SessionRenameControlStateOptions = {
   fetcher?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
   onRenamed?: (title: string) => void
+  mutate?: (sessionId: string, title: string) => Promise<Result<unknown>>
   sessionId: () => string
   title: () => string
 }
@@ -44,6 +46,20 @@ export function sessionRenameControlStateCreate(options: SessionRenameControlSta
     isSavingSet(true)
     errorMessageSet(undefined)
     try {
+      if (options.mutate !== undefined) {
+        const result = await options.mutate(options.sessionId(), parsed.output.title)
+        if (!result.success) {
+          errorMessageSet(result.errorMessage)
+          return
+        }
+        renamedTitleSet(parsed.output.title)
+        draftSet(parsed.output.title)
+        isEditingSet(false)
+        options.onRenamed?.(parsed.output.title)
+        editFocus()
+        return
+      }
+
       const response = await fetcher(`/api/sessions/${encodeURIComponent(options.sessionId())}`, {
         body: JSON.stringify(parsed.output),
         headers: { "Content-Type": "application/json" },
