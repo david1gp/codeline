@@ -1,6 +1,7 @@
 import * as v from "valibot"
+import { apiPreconditionFailedResponseSchema } from "./apiPreconditionFailedResponseSchema.js"
 
-export const apiErrorResponseSchema = v.object({
+const apiStandardErrorResponseSchema = v.strictObject({
   error: v.object({
     code: v.picklist([
       "bad_request",
@@ -15,5 +16,7 @@ export const apiErrorResponseSchema = v.object({
     message: v.string(),
   }),
 })
+
+export const apiErrorResponseSchema = v.union([apiStandardErrorResponseSchema, apiPreconditionFailedResponseSchema])
 
 export type ApiErrorResponse = v.InferOutput<typeof apiErrorResponseSchema>
