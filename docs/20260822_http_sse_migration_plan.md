@@ -23,6 +23,7 @@ Filesystem access, Git, shells, provider processes, credentials, path authorizat
 ### Server and transport
 
 - Keep Hono as the application boundary and PostgreSQL/Drizzle as the only durable datastore. Remove Zero and Convex from the target architecture.
+- Do not migrate or retain Zero/Convex data, configuration, compatibility layers, generated code, tests, fixtures, tooling, services, volumes, or documentation. Delete all of them after their active paths have been replaced; only PostgreSQL/Drizzle domain data remains authoritative.
 - Run one API process. It owns provider execution, the active-run registry, live SSE fan-out, and all journal-producing writes. Do not add horizontal scaling, PostgreSQL `LISTEN`/`NOTIFY`, a general WebSocket RPC layer, or cross-tab connection sharing in this migration.
 - Use plain JSON HTTP `GET` requests for reads and `POST`/`PATCH`/`DELETE` for mutations. Commands never travel through SSE.
 - Use keyset pagination for lists. Session lists key on `(updatedAt, id)` and message-list endpoints key on `messageTable.sequence`; do not add offset pagination.
@@ -137,12 +138,14 @@ The Convex migration is partially applied: some domains route through Convex, th
 
 Build the HTTP/SSE foundation first against existing Drizzle-backed identity/auth. Then move each domain directly from Convex to Drizzle plus the new HTTP layer in one pass. Do not introduce dual writes. Keep the application runnable after each domain cutover, and remove Zero/Convex only after equivalent behavior is verified.
 
+Current context: tasks 1 and 2 are complete; task 3 is implemented and under review. Zero and Convex remain only as temporary active-path dependencies until each replacement is runnable, after which their code and artifacts are deleted rather than migrated.
+
 ## Tasks
 
 ### Phase A — inventory and foundation
 
-- [ ] 1. Inventory every active Zero, Convex, PostgreSQL, HTTP, SSE, authentication, UI read, mutation, subscription, and stream path; create a cutover matrix and define the shared Valibot contracts.
-- [ ] 2. Restore the repository-managed PostgreSQL development service under `ops/dev/`, verify all Drizzle migrations, and add deterministic reset/migrate/seed coverage without dual writes.
+- [x] 1. Inventory every active Zero, Convex, PostgreSQL, HTTP, SSE, authentication, UI read, mutation, subscription, and stream path; create a cutover matrix and define the shared Valibot contracts.
+- [x] 2. Restore the repository-managed PostgreSQL development service under `ops/dev/`, verify all Drizzle migrations, and add deterministic reset/migrate/seed coverage without dual writes.
 - [ ] 3. Add the typed HTTP client using an injected `fetch`, shared validated contracts, canonical query keys, request coalescing, structured errors, and `Result`; remove unused `zod`.
 - [ ] 4. Add explicit representation revisions, strong ETag generation, conditional request handling, `Cache-Control`, `Vary`, compression, mutation idempotency records, and revision preconditions. Verify `200`, `304`, retry deduplication, and `412` behavior against a Drizzle-backed domain.
 
@@ -173,7 +176,7 @@ Build the HTTP/SSE foundation first against existing Drizzle-backed identity/aut
 ### Phase F — cleanup and verification
 
 - [ ] 17. Add unit, integration, and browser coverage for consistent snapshot/feed bootstrap, `200`/`304`, complete session responses, mutation deduplication and conflicts, independent 500ms coalescing, first/size/lifecycle flushes, per-user sequence ordering, shared-resource fan-out, cross-user cursor rejection, finalized-delta compaction, 12-hour/count/size pruning, reconnect through completion checkpoints, cursor reset, multiple tabs and parallel runs, slow clients, active-run reload, process-restart interruption, atomic IndexedDB replacement, account isolation, retained sign-out data, and signed-out/offline reads.
-- [ ] 18. Remove Zero and Convex runtime code, providers, routes, generated files, environment variables, operations units, documentation, and dependencies after all domains have cut over.
+- [ ] 18. Remove all Zero and Convex runtime code, providers, routes, compatibility branches, generated files, schemas, seeds, fixtures, tests, environment variables, dependencies, build/release tooling, operations units, persistent service data/volumes, and documentation after all domains have cut over.
 - [ ] 19. Verify proxy buffering, compression, auth expiry, disconnect cleanup, metrics, deterministic seeding, managed services, build/type checks, and end-to-end behavior before declaring the migration complete.
 
 ## Main paths
