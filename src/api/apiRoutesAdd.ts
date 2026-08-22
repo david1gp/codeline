@@ -1,33 +1,37 @@
 import type { Result } from "@adaptive-ds/result"
 import { Hono } from "hono"
 import { apiAgentRoutesAdd } from "../agents/api/apiAgentRoutesAdd.js"
+import { appKnownRouteResolve } from "../app/appKnownRouteResolve.js"
 import type { ConfigurationStore } from "../configuration/configurationStore.js"
 import type { RuntimeConfiguration } from "../configuration/runtimeConfigurationSchema.js"
+import type { ServerAgentConvexClient } from "../convex/serverAgentConvexClient.js"
+import type { SessionNoteConvexClient } from "../convex/sessionNoteConvexClient.js"
+import type { ExecutionConvexClient } from "../convex/executionConvexClient.js"
 import type { DatabaseClient } from "../database/databaseClient.js"
 import { identitySessionRevoke } from "../identity/actions/identitySessionRevoke.js"
 import { apiAuthRoutesAdd } from "../identity/api/apiAuthRoutesAdd.js"
+import type { IdentityClient } from "../identity/convex/identityClient.js"
 import { oidcLoginTransactionCreate } from "../identity/db/oidcLoginTransactionCreate.js"
 import { oidcProviderDiscoveryCreate } from "../identity/oidc/oidcProviderDiscoveryCreate.js"
 import type { OidcProviderFetch } from "../identity/oidc/oidcProviderFetch.js"
-import { appKnownRouteResolve } from "../app/appKnownRouteResolve.js"
 import { apiMessageRoutesAdd } from "../message/api/apiMessageRoutesAdd.js"
 import { apiProjectRoutesAdd } from "../project/api/apiProjectRoutesAdd.js"
 import type { ProjectLimits } from "../project/projectLimitsSchema.js"
 import { apiProviderRoutesAdd } from "../providers/api/apiProviderRoutesAdd.js"
-import type { ProviderModelDiscoveryOptions } from "../providers/runtime/providerModelDiscovery.js"
-import type { ProviderCatalog } from "../providers/schema/providerCatalogSchema.js"
-import { providerRuntimeAdapterCreate } from "../providers/runtime/providerRuntimeAdapterCreate.js"
 import { providerDelegationToolLoopCreate } from "../providers/runtime/providerDelegationToolLoopCreate.js"
-import { apiRunRoutesAdd } from "../run/api/apiRunRoutesAdd.js"
-import { runCreate } from "../run/actions/runCreate.js"
+import type { ProviderModelDiscoveryOptions } from "../providers/runtime/providerModelDiscovery.js"
+import { providerRuntimeAdapterCreate } from "../providers/runtime/providerRuntimeAdapterCreate.js"
+import type { ProviderCatalog } from "../providers/schema/providerCatalogSchema.js"
 import { runCancel } from "../run/actions/runCancel.js"
 import { runCancellationCoordinatorCreate } from "../run/actions/runCancellationCoordinatorCreate.js"
 import { runChildStreamResolve } from "../run/actions/runChildStreamResolve.js"
+import { runCreate } from "../run/actions/runCreate.js"
 import { runDelegationExecute } from "../run/actions/runDelegationExecute.js"
 import { runExecutionSnapshotResolve } from "../run/actions/runExecutionSnapshotResolve.js"
 import { runLoad } from "../run/actions/runLoad.js"
 import { runRetryAttemptCreate } from "../run/actions/runRetryAttemptCreate.js"
 import { runTransition } from "../run/actions/runTransition.js"
+import { apiRunRoutesAdd } from "../run/api/apiRunRoutesAdd.js"
 import { apiServerRoutesAdd } from "../servers/api/apiServerRoutesAdd.js"
 import { sessionChatAdapterCreate } from "../session/actions/sessionChatAdapterCreate.js"
 import { apiSessionRenameRoutesAdd } from "../session/api/apiSessionRenameRoutesAdd.js"
@@ -45,6 +49,10 @@ type ApiRoutesAddOptions = {
   configuration?: RuntimeConfiguration
   configurationStore?: ConfigurationStore
   database?: DatabaseClient
+  identityClient?: IdentityClient
+  serverAgentConvexClient?: ServerAgentConvexClient
+  sessionNoteConvexClient?: SessionNoteConvexClient
+  executionConvexClient?: ExecutionConvexClient
   projectLimits?: ProjectLimits
   projectRootDirs?: readonly string[]
   projectRootDir?: string
@@ -103,6 +111,7 @@ export function apiRoutesAdd(
   apiAuthRoutesAdd(api, {
     configuration: options.configuration,
     database: options.database,
+    identityClient: options.identityClient,
     idCreate: options.oidcIdCreate,
     identitySessionRevoke: options.identitySessionRevoke,
     identitySessionCreate: options.identitySessionCreate,
@@ -119,19 +128,21 @@ export function apiRoutesAdd(
     oidcSessionIdCreate: options.oidcSessionIdCreate,
     callbackRoute: options.authCallbackRoute ?? app,
   })
-  apiServerRoutesAdd(api)
+  apiServerRoutesAdd(api, { serverAgentConvexClient: options.serverAgentConvexClient })
   apiAgentRoutesAdd(api, {
     environment: options.providerEnvironment,
     fetch: options.providerFetch,
+    serverAgentConvexClient: options.serverAgentConvexClient,
   })
   apiSessionRoutesAdd(api, options)
   apiRunRoutesAdd(api, {
     runCancel: options.runCancel,
     runCancellationCoordinator: options.runCancellationCoordinator,
     runLoad: options.runLoad,
+    executionConvexClient: options.executionConvexClient,
   })
-  apiSessionRenameRoutesAdd(api)
-  apiMessageRoutesAdd(api)
+  apiSessionRenameRoutesAdd(api, { sessionNoteConvexClient: options.sessionNoteConvexClient })
+  apiMessageRoutesAdd(api, { executionConvexClient: options.executionConvexClient })
   if (options.projectRootDir !== undefined) {
     apiProjectRoutesAdd(api, { limits: options.projectLimits, rootDir: options.projectRootDir })
   } else if (options.projectRootDirs !== undefined) {
@@ -149,6 +160,7 @@ export function apiRoutesAdd(
     childStreamResolve: options.runChildStreamResolve,
     inactivityTimeoutMs: options.streamInactivityTimeoutMs,
     replayServiceCreate: options.streamReplayServiceCreate,
+    executionConvexClient: options.executionConvexClient,
   })
   apiMutationRoutesAdd(api)
   apiQueryRoutesAdd(api)

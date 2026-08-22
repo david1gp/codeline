@@ -9,8 +9,10 @@ import { apiRequestParse } from "../../api/apiRequestParse.js"
 import type { AppEnvironment } from "../../api/appEnvironment.js"
 import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.js"
 import type { ConfigurationStore } from "../../configuration/configurationStore.js"
-import type { DatabaseClient } from "../../database/databaseClient.js"
+import type { SessionNoteConvexClient } from "../../convex/sessionNoteConvexClient.js"
+import type { ExecutionConvexClient } from "../../convex/executionConvexClient.js"
 import { databaseTransactionRun } from "../../database/databaseTransactionRun.js"
+import { projectPathReferenceResolve } from "../../project/projectPathReferenceResolve.js"
 import { providerAgentCatalogExecutionResolve } from "../../providers/catalog/providerAgentCatalogExecutionResolve.js"
 import type { CliProxyApiAdapter } from "../../providers/runtime/cliProxyApiAdapterCreate.js"
 import { providerDelegationAdapterCreate } from "../../providers/runtime/providerDelegationAdapterCreate.js"
@@ -22,21 +24,15 @@ import { providerRuntimeAdapterCreate } from "../../providers/runtime/providerRu
 import { providerRuntimeAdapterResolve } from "../../providers/runtime/providerRuntimeAdapterResolve.js"
 import type { ProviderCatalog } from "../../providers/schema/providerCatalogSchema.js"
 import { runCancellationCoordinatorCreate } from "../../run/actions/runCancellationCoordinatorCreate.js"
-import { runChildCreate } from "../../run/actions/runChildCreate.js"
-import { runCreate } from "../../run/actions/runCreate.js"
 import { runDelegationExecute } from "../../run/actions/runDelegationExecute.js"
-import { runDelegationFinalize } from "../../run/actions/runDelegationFinalize.js"
 import { runExecutionSnapshotResolve } from "../../run/actions/runExecutionSnapshotResolve.js"
 import { runFailureClassResolve } from "../../run/actions/runFailureClassResolve.js"
-import { runLoad } from "../../run/actions/runLoad.js"
-import { runRetryAttemptCreate } from "../../run/actions/runRetryAttemptCreate.js"
-import { runTransition } from "../../run/actions/runTransition.js"
 import type { attemptTable } from "../../run/db/attemptTable.js"
 import type { runTable } from "../../run/db/runTable.js"
 import type { RunExecutionSnapshot } from "../../run/schema/runExecutionSnapshotSchema.js"
 import { runExecutionSnapshotSchema } from "../../run/schema/runExecutionSnapshotSchema.js"
 import { executionStreamEventNormalize } from "../../stream/actions/executionStreamEventNormalize.js"
-import { streamAppend } from "../../stream/actions/streamAppend.js"
+import { streamReplayErrorRetryableResolve } from "../../stream/actions/streamReplayErrorRetryableResolve.js"
 import { streamReplayServiceCreate } from "../../stream/actions/streamReplayServiceCreate.js"
 import type { ExecutionStreamEvent } from "../../stream/schema/executionStreamEventSchema.js"
 import { sessionArchive } from "../actions/sessionArchive.js"
@@ -57,6 +53,9 @@ import { sessionPinRequestSchema } from "../schema/sessionPinRequestSchema.js"
 import { sessionQuerySchema } from "../schema/sessionQuerySchema.js"
 
 type ApiContext = Context<AppEnvironment>
+type SessionCreateResult =
+  | Awaited<ReturnType<typeof sessionCreate>>
+  | Awaited<ReturnType<SessionNoteConvexClient["sessionCreate"]>>
 
 function badRequest(context: ApiContext, message: string) {
   const response = { error: { code: "bad_request", message } } satisfies ApiErrorResponse
@@ -91,14 +90,12 @@ type ApiSessionRoutesOptions = {
   projectRootDirs?: readonly string[]
   providerDelegationToolLoopCreate?: typeof providerDelegationToolLoopCreate
   providerRuntimeAdapterCreate?: typeof providerRuntimeAdapterCreate
-  runCreate?: typeof runCreate
   runCancellationCoordinator?: ReturnType<typeof runCancellationCoordinatorCreate>
   runDelegationExecute?: typeof runDelegationExecute
   runExecutionSnapshotResolve?: typeof runExecutionSnapshotResolve
-  runLoad?: typeof runLoad
-  runRetryAttemptCreate?: typeof runRetryAttemptCreate
-  runTransition?: typeof runTransition
   sessionChatAdapter?: typeof sessionChatAdapterCreate
+  sessionNoteConvexClient?: SessionNoteConvexClient
+  executionConvexClient?: ExecutionConvexClient
   streamInactivityTimeoutMs?: number
   streamReplayServiceCreate?: typeof streamReplayServiceCreate
 }
@@ -120,9 +117,12 @@ async function* sessionChatStreamReplay(
   events: Array<{ id: string; payload: unknown }>,
   eventIds: Array<string | undefined>,
 ): AsyncGenerator<StreamChunk> {
-  for (const [index, event] of events.entries()) {
-    eventIds[index] = event.id
-    yield event.payload as StreamChunk
+  let delivered = 0
+  for (const event of events) {
+    const chunk = event.payload as StreamChunk
+    eventIds[delivered] = event.id
+    delivered += 1
+    yield chunk
   }
 }
 
@@ -190,16 +190,16 @@ type SessionChatAdmission = {
 }
 
 async function sessionChatAdmissionResolve(
-  database: DatabaseClient,
   userId: string,
   sessionId: string,
   runId: string,
   target: { agentId: string; serverId: string },
   forwardedExecution: unknown,
   options: ApiSessionRoutesOptions,
+  executionConvexClient: ExecutionConvexClient,
 ): Promise<Result<SessionChatAdmission>> {
   const op = "sessionChatAdmissionResolve"
-  const loaded = await (options.runLoad ?? runLoad)(database, userId, sessionId, runId)
+  const loaded = await executionConvexClient.runLoad(userId, sessionId, runId)
   if (loaded.success) {
     const parsedSnapshot = v.safeParse(runExecutionSnapshotSchema, loaded.data.run.snapshot)
     if (!parsedSnapshot.success) return createResultError(op, "The persisted run snapshot is invalid.")
@@ -234,7 +234,7 @@ async function sessionChatAdmissionResolve(
 async function sessionChatReplayEventsLoad(
   attempts: ReadonlyArray<typeof attemptTable.$inferSelect>,
   options: {
-    database: DatabaseClient
+    executionConvexClient: ExecutionConvexClient
     inactivityTimeoutMs: number
     sessionId: string
     streamReplayServiceCreate: typeof streamReplayServiceCreate
@@ -244,9 +244,10 @@ async function sessionChatReplayEventsLoad(
   const op = "sessionChatReplayEventsLoad"
   const events: Array<{ id: string; payload: unknown }> = []
 
-  for (const attempt of attempts) {
+  for (const [attemptIndex, attempt] of attempts.entries()) {
     const replayService = options.streamReplayServiceCreate({
-      database: options.database,
+      database: undefined,
+      executionConvexClient: options.executionConvexClient,
       inactivityTimeoutMs: options.inactivityTimeoutMs,
       sessionId: options.sessionId,
       streamId: attempt.streamId,
@@ -256,7 +257,14 @@ async function sessionChatReplayEventsLoad(
     if (!started.success) return createResultError(op, started.errorMessage)
     const replay = await replayService.replay({ limit: 100 })
     if (!replay.success) return createResultError(op, replay.errorMessage)
-    events.push(...replay.data.events.map((event) => ({ id: event.id, payload: event.payload })))
+    events.push(
+      ...replay.data.events
+        .filter(
+          (event) =>
+            !(attemptIndex < attempts.length - 1 && streamReplayErrorRetryableResolve(event.payload as StreamChunk)),
+        )
+        .map((event) => ({ id: event.id, payload: event.payload })),
+    )
   }
 
   return createResult(events)
@@ -270,12 +278,22 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     const parsed = apiRequestParse("sessionQueryParse", sessionQuerySchema, context.req.query())
     if (!parsed.success) return badRequest(context, "The session query is invalid.")
 
-    const result = await sessionList(context.var.database, userId, organizationId, {
+    const listOptions = {
       cursor: parsed.data.cursor,
       includeArchived: parsed.data.includeArchived === "1",
       limit: parsed.data.limit,
       search: parsed.data.search === "" ? undefined : parsed.data.search,
-    })
+    }
+    const result =
+      options.sessionNoteConvexClient === undefined
+        ? await sessionList(context.var.database, userId, organizationId, listOptions)
+        : parsed.data.search === undefined
+          ? await options.sessionNoteConvexClient.sessionList(userId, organizationId, listOptions)
+          : await options.sessionNoteConvexClient.sessionSearch(userId, organizationId, parsed.data.search, {
+              cursor: parsed.data.cursor,
+              includeArchived: parsed.data.includeArchived === "1",
+              limit: parsed.data.limit,
+            })
     if (!result.success) {
       if (result.errorMessage.includes("cursor")) return badRequest(context, "The session list cursor is invalid.")
       return internalServerError(context)
@@ -295,12 +313,26 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     const parsed = apiRequestParse("sessionCreateRequestParse", sessionCreateRequestSchema, body)
     if (!parsed.success) return badRequest(context, "The session request is invalid.")
 
-    const result = await databaseTransactionRun(context.var.database, (transaction) =>
-      sessionCreate(transaction, userId, parsed.data, {
-        organizationId,
-        projectRootDirs: options.projectRootDir === undefined ? options.projectRootDirs : [options.projectRootDir],
-      }),
-    )
+    let result: SessionCreateResult
+    if (options.sessionNoteConvexClient === undefined) {
+      result = await databaseTransactionRun(context.var.database, (transaction) =>
+        sessionCreate(transaction, userId, parsed.data, {
+          organizationId,
+          projectRootDirs: options.projectRootDir === undefined ? options.projectRootDirs : [options.projectRootDir],
+        }),
+      )
+    } else {
+      const projectPath = await projectPathReferenceResolve(
+        parsed.data.projectPath,
+        options.projectRootDir === undefined ? (options.projectRootDirs ?? []) : [options.projectRootDir],
+      )
+      if (!projectPath.success) return badRequest(context, "The session project path is invalid.")
+      result = await options.sessionNoteConvexClient.sessionCreate(userId, organizationId, {
+        ...parsed.data,
+        metadata: parsed.data.metadata,
+        projectPath: projectPath.data,
+      })
+    }
     if (!result.success) {
       if (result.errorMessage.includes("project path"))
         return badRequest(context, "The session project path is invalid.")
@@ -336,10 +368,15 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     let activeRun: typeof runTable.$inferSelect | undefined
     let activeAttempt: typeof attemptTable.$inferSelect | undefined
     let runtimeAgentPrompt: string | undefined
-    const loaded = await sessionLoad(context.var.database, userId, organizationId, sessionId)
+    const loaded =
+      options.sessionNoteConvexClient === undefined
+        ? await sessionLoad(context.var.database, userId, organizationId, sessionId)
+        : await options.sessionNoteConvexClient.sessionLoad(userId, organizationId, sessionId)
     if (!loaded.success)
       return loaded.errorMessage.includes("could not be found") ? notFound(context) : internalServerError(context)
     if (loaded.data.session.archivedAt !== null) return conflict(context, "The session is archived.")
+    const executionConvexClient = options.executionConvexClient
+    if (executionConvexClient === undefined) return internalServerError(context)
 
     const lunaPing = sessionChatLunaPingDetect({
       primaryAgentId: loaded.data.session.primaryAgentId,
@@ -349,13 +386,13 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
 
     if (options.configurationStore !== undefined && !lunaPing) {
       const admission = await sessionChatAdmissionResolve(
-        context.var.database,
         userId,
         sessionId,
         parsed.data.runId,
         { agentId: loaded.data.session.primaryAgentId, serverId: loaded.data.session.serverId },
         parsed.data.forwardedProps?.codelineExecution,
         options,
+        executionConvexClient,
       )
       if (!admission.success) {
         if (admission.errorMessage.includes("execution override") || admission.errorMessage.includes("catalog"))
@@ -365,12 +402,13 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
       runtimeConfiguration = admission.data.runtimeConfiguration
       runtimeAgentPrompt = admission.data.agentPrompt
 
-      const created = await (options.runCreate ?? runCreate)(context.var.database, userId, sessionId, {
+      const runInput = {
         budget: sessionChatRootBudgetResolve(runtimeConfiguration ?? admission.data.snapshot.configuration),
         clientRunId: parsed.data.runId,
         snapshot: admission.data.snapshot,
         streamId: sessionChatStreamIdCreate(sessionId, parsed.data.runId),
-      })
+      }
+      const created = await executionConvexClient.runCreate(userId, sessionId, runInput)
       if (!created.success) {
         if (created.errorMessage.includes("could not be found")) return notFound(context)
         if (created.errorMessage.includes("conflicts")) return conflict(context, created.errorMessage)
@@ -378,7 +416,12 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
       }
       admittedRun = created.data.run
       admittedAttempt = created.data.attempt
-      admittedAttempts = admission.data.attempts ?? [created.data.attempt]
+      if (admission.data.attempts !== undefined) {
+        admittedAttempts = admission.data.attempts
+      } else {
+        const persisted = await executionConvexClient.runLoad(userId, sessionId, parsed.data.runId)
+        admittedAttempts = persisted.success ? persisted.data.attempts : [created.data.attempt]
+      }
       activeRun = admittedRun
       activeAttempt = admittedAttempt
     } else if (adapter === undefined) {
@@ -463,14 +506,14 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
           },
           cancellationRegister: (registration) =>
             options.runCancellationCoordinator?.register(registration) ?? (() => undefined),
-          childCreate: (childInput) => runChildCreate(context.var.database, userId, sessionId, childInput),
+          childCreate: (childInput) => executionConvexClient.runChildCreate(userId, sessionId, childInput),
           delegationFinalize: (delegationId, result) =>
-            runDelegationFinalize(context.var.database, userId, sessionId, delegationId, result),
+            executionConvexClient.runDelegationFinalize(userId, sessionId, delegationId, result),
           retryAttemptCreate: (runId, retryOptions) =>
-            runRetryAttemptCreate(context.var.database, userId, sessionId, runId, retryOptions),
+            executionConvexClient.runRetryAttemptCreate(userId, sessionId, runId, retryOptions),
           runTransition: (runId, transition) =>
-            runTransition(context.var.database, userId, sessionId, runId, transition),
-          streamAppend: (event) => streamAppend(context.var.database, userId, sessionId, event),
+            executionConvexClient.runTransition(userId, sessionId, runId, transition),
+          streamAppend: (event) => executionConvexClient.streamAppend(userId, sessionId, event),
         },
       )
       if (!childExecute.success) throw new Error(childExecute.errorMessage)
@@ -478,11 +521,15 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
       return childExecute.data.text
     }
 
-    const prepared = await databaseTransactionRun(context.var.database, (transaction) =>
-      sessionChatPrepare(transaction, userId, sessionId, {
+    const prepared = await sessionChatPrepare(
+      undefined,
+      userId,
+      sessionId,
+      {
         clientRequestId: parsed.data.runId,
         content: prompt,
-      }),
+      },
+      executionConvexClient,
     )
     if (!prepared.success) {
       if (prepared.errorMessage.includes("could not be found")) return notFound(context)
@@ -498,9 +545,11 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     const replayServiceCreate = options.streamReplayServiceCreate ?? streamReplayServiceCreate
     const inactivityTimeoutMs = options.streamInactivityTimeoutMs ?? sessionChatDefaultInactivityTimeoutMs
     let stream: AsyncIterable<StreamChunk>
+    const pendingEventIds: Array<string> = []
     const initialStreamId = admittedAttempt?.streamId ?? sessionChatStreamIdCreate(sessionId, parsed.data.runId)
     const initialReplayService = replayServiceCreate({
-      database: context.var.database,
+      database: undefined,
+      executionConvexClient,
       inactivityTimeoutMs,
       sessionId,
       streamId: initialStreamId,
@@ -509,9 +558,22 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     const started = await initialReplayService.start()
     if (!started.success) return internalServerError(context)
 
-    if (admittedRun !== undefined && admittedRun.status !== "accepted") {
+    let executionClaimed = admittedRun === undefined
+    if (admittedRun !== undefined && admittedAttempt !== undefined && admittedRun.status === "accepted") {
+      const claimed = await executionConvexClient.runTransition(userId, sessionId, admittedRun.id, {
+        status: "running",
+      })
+      if (!claimed.success) return internalServerError(context)
+      admittedRun = claimed.data.run
+      admittedAttempt = claimed.data.attempt
+      activeRun = claimed.data.run
+      activeAttempt = claimed.data.attempt
+      executionClaimed = claimed.data.changed
+    }
+
+    if (admittedRun !== undefined && !executionClaimed) {
       const replay = await sessionChatReplayEventsLoad(admittedAttempts, {
-        database: context.var.database,
+        executionConvexClient,
         inactivityTimeoutMs,
         sessionId,
         streamReplayServiceCreate: replayServiceCreate,
@@ -548,19 +610,6 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
             : resolved.data
       }
 
-      if (admittedRun !== undefined && admittedAttempt !== undefined) {
-        const transitioned = await (options.runTransition ?? runTransition)(
-          context.var.database,
-          userId,
-          sessionId,
-          admittedRun.id,
-          { status: "running" },
-        )
-        if (!transitioned.success) return internalServerError(context)
-        activeRun = transitioned.data.run
-        activeAttempt = transitioned.data.attempt
-      }
-
       const unregisterCancellation =
         admittedRun === undefined
           ? undefined
@@ -580,15 +629,15 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
             const attemptStream = sessionChatStreamCreate({
               adapter: adapter as NonNullable<typeof adapter>,
               attemptOrdinal: currentAttempt?.ordinal,
-              database: context.var.database,
+              database: undefined,
+              executionConvexClient,
               history: prepared.data.history,
               onEventId: (_sequence, eventId) => {
-                eventIds[eventIds.length] = eventId
+                pendingEventIds.push(eventId)
               },
               onTerminal: async (terminal) => {
                 if (activeRun === undefined || currentAttempt === undefined) return
-                const transitioned = await (options.runTransition ?? runTransition)(
-                  context.var.database,
+                const transitioned = await executionConvexClient.runTransition(
                   userId,
                   sessionId,
                   activeRun.id,
@@ -600,12 +649,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
                 if (terminal.status !== "failed" || terminal.failure === undefined) return
                 if (runFailureClassResolve(terminal.failure) !== "retryable") return
 
-                const retry = await (options.runRetryAttemptCreate ?? runRetryAttemptCreate)(
-                  context.var.database,
-                  userId,
-                  sessionId,
-                  activeRun.id,
-                )
+                const retry = await executionConvexClient.runRetryAttemptCreate(userId, sessionId, activeRun.id)
                 if (!retry.success) {
                   if (retry.errorMessage.includes("The run retry was not admitted:")) return
                   throw new Error(retry.errorMessage)
@@ -627,12 +671,18 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
               userId,
             })
 
-            for await (const chunk of attemptStream) yield chunk
+            for await (const chunk of attemptStream) {
+              const eventId = pendingEventIds.shift()
+              if (nextAttempt !== undefined && streamReplayErrorRetryableResolve(chunk)) continue
+              eventIds[eventIds.length] = eventId
+              yield chunk
+            }
             if (nextAttempt === undefined) return
 
             currentAttempt = nextAttempt
             const nextReplayService = replayServiceCreate({
-              database: context.var.database,
+              database: undefined,
+              executionConvexClient,
               inactivityTimeoutMs,
               sessionId,
               streamId: nextAttempt.streamId,
@@ -643,13 +693,9 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
             replayService = nextReplayService
 
             if (activeRun !== undefined) {
-              const transitioned = await (options.runTransition ?? runTransition)(
-                context.var.database,
-                userId,
-                sessionId,
-                activeRun.id,
-                { status: "running" },
-              )
+              const transitioned = await executionConvexClient.runTransition(userId, sessionId, activeRun.id, {
+                status: "running",
+              })
               if (!transitioned.success) throw new Error(transitioned.errorMessage)
               activeRun = transitioned.data.run
               activeAttempt = transitioned.data.attempt
@@ -678,20 +724,38 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     const userId = context.var.requestIdentity.userId
     const organizationId = context.var.requestIdentity.organizationId
     if (organizationId === undefined) return notFound(context)
-    const result = await sessionLoad(context.var.database, userId, organizationId, context.req.param("sessionId"))
+    const result =
+      options.sessionNoteConvexClient === undefined
+        ? await sessionLoad(context.var.database, userId, organizationId, context.req.param("sessionId"))
+        : await options.sessionNoteConvexClient.sessionLoad(userId, organizationId, context.req.param("sessionId"))
     if (!result.success)
       return result.errorMessage.includes("could not be found") ? notFound(context) : internalServerError(context)
     return context.json(result.data)
   })
 
   api.patch("/sessions/:sessionId/pin", async (context) => {
+    const organizationId = context.var.requestIdentity.organizationId
+    if (options.sessionNoteConvexClient !== undefined && organizationId === undefined) return notFound(context)
     const body = await context.req.json<unknown>().catch(() => undefined)
     const parsed = apiRequestParse("sessionPinRequestParse", sessionPinRequestSchema, body)
     if (!parsed.success) return badRequest(context, "The session pin request is invalid.")
 
-    const result = await databaseTransactionRun(context.var.database, (transaction) =>
-      sessionPin(transaction, context.var.requestIdentity.userId, context.req.param("sessionId"), parsed.data.pinned),
-    )
+    const result =
+      options.sessionNoteConvexClient === undefined
+        ? await databaseTransactionRun(context.var.database, (transaction) =>
+            sessionPin(
+              transaction,
+              context.var.requestIdentity.userId,
+              context.req.param("sessionId"),
+              parsed.data.pinned,
+            ),
+          )
+        : await options.sessionNoteConvexClient.sessionPin(
+            context.var.requestIdentity.userId,
+            organizationId ?? "",
+            context.req.param("sessionId"),
+            parsed.data.pinned,
+          )
     if (!result.success) {
       if (result.errorMessage === "The session is archived.") return conflict(context, result.errorMessage)
       if (result.errorMessage.includes("could not be found")) return notFound(context)
@@ -702,9 +766,18 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
 
   api.post("/sessions/:sessionId/archive", async (context) => {
     const userId = context.var.requestIdentity.userId
-    const result = await databaseTransactionRun(context.var.database, (transaction) =>
-      sessionArchive(transaction, userId, context.req.param("sessionId")),
-    )
+    const organizationId = context.var.requestIdentity.organizationId
+    if (options.sessionNoteConvexClient !== undefined && organizationId === undefined) return notFound(context)
+    const result =
+      options.sessionNoteConvexClient === undefined
+        ? await databaseTransactionRun(context.var.database, (transaction) =>
+            sessionArchive(transaction, userId, context.req.param("sessionId")),
+          )
+        : await options.sessionNoteConvexClient.sessionArchive(
+            userId,
+            organizationId ?? "",
+            context.req.param("sessionId"),
+          )
     if (!result.success)
       return result.errorMessage.includes("could not be found") ? notFound(context) : internalServerError(context)
     return context.json({ session: result.data })
@@ -712,9 +785,18 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
 
   api.delete("/sessions/:sessionId", async (context) => {
     const userId = context.var.requestIdentity.userId
-    const result = await databaseTransactionRun(context.var.database, (transaction) =>
-      sessionDelete(transaction, userId, context.req.param("sessionId")),
-    )
+    const organizationId = context.var.requestIdentity.organizationId
+    if (options.sessionNoteConvexClient !== undefined && organizationId === undefined) return notFound(context)
+    const result =
+      options.sessionNoteConvexClient === undefined
+        ? await databaseTransactionRun(context.var.database, (transaction) =>
+            sessionDelete(transaction, userId, context.req.param("sessionId")),
+          )
+        : await options.sessionNoteConvexClient.sessionDelete(
+            userId,
+            organizationId ?? "",
+            context.req.param("sessionId"),
+          )
     if (!result.success)
       return result.errorMessage.includes("could not be found") ? notFound(context) : internalServerError(context)
     return context.json({ session: result.data })

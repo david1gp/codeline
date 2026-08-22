@@ -6,6 +6,9 @@ import type { ApiErrorResponse } from "../api/errors/apiErrorResponseSchema.js"
 import type { HealthResponse } from "../api/health/healthResponseSchema.js"
 import type { ConfigurationStore } from "../configuration/configurationStore.js"
 import type { RuntimeConfiguration } from "../configuration/runtimeConfigurationSchema.js"
+import type { ServerAgentConvexClient } from "../convex/serverAgentConvexClient.js"
+import type { SessionNoteConvexClient } from "../convex/sessionNoteConvexClient.js"
+import type { ExecutionConvexClient } from "../convex/executionConvexClient.js"
 import type { DatabaseClient } from "../database/databaseClient.js"
 import { databaseReadyCheck } from "../database/databaseReadyCheck.js"
 import { identitySessionCreate } from "../identity/actions/identitySessionCreate.js"
@@ -14,6 +17,7 @@ import { identitySessionRevoke } from "../identity/actions/identitySessionRevoke
 import { oidcIdentityUpsert } from "../identity/actions/oidcIdentityUpsert.js"
 import { organizationMemberLoad } from "../identity/actions/organizationMemberLoad.js"
 import { authenticationMiddleware } from "../identity/api/authenticationMiddleware.js"
+import type { IdentityClient } from "../identity/convex/identityClient.js"
 import { developmentIdentityUpsert } from "../identity/db/developmentIdentityUpsert.js"
 import { oidcLoginTransactionConsume } from "../identity/db/oidcLoginTransactionConsume.js"
 import { oidcLoginTransactionCreate } from "../identity/db/oidcLoginTransactionCreate.js"
@@ -41,6 +45,10 @@ export type AppCreateOptions = {
   configuration?: RuntimeConfiguration
   configurationStore?: ConfigurationStore
   database?: DatabaseClient
+  identityClient?: IdentityClient
+  serverAgentConvexClient?: ServerAgentConvexClient
+  sessionNoteConvexClient?: SessionNoteConvexClient
+  executionConvexClient?: ExecutionConvexClient
   databaseReadyCheck?: typeof databaseReadyCheck
   developmentIdentityUpsert?: typeof developmentIdentityUpsert
   identitySessionLoad?: typeof identitySessionLoad
@@ -118,6 +126,7 @@ export function appCreate(options: AppCreateOptions = {}): App {
     app.use(
       "/api/*",
       authenticationMiddleware(options.configuration, options.database, {
+        identityClient: options.identityClient,
         developmentIdentityUpsert: options.developmentIdentityUpsert,
         organizationMemberLoad: options.organizationMemberLoad,
         identitySessionLoad: options.identitySessionLoad,
@@ -128,6 +137,10 @@ export function appCreate(options: AppCreateOptions = {}): App {
   apiRoutesAdd(app, readyCheck, {
     configuration: options.configuration,
     database: options.database,
+    identityClient: options.identityClient,
+    serverAgentConvexClient: options.serverAgentConvexClient,
+    sessionNoteConvexClient: options.sessionNoteConvexClient,
+    executionConvexClient: options.executionConvexClient,
     projectLimits: options.projectLimits,
     projectRootDir: options.projectRootDir,
     projectRootDirs: options.projectRootDirs,

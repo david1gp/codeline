@@ -3,9 +3,7 @@ import type { Context } from "hono"
 import type { AppEnvironment } from "../../api/appEnvironment.js"
 import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.js"
 import { apiRequestParse } from "../../api/apiRequestParse.js"
-import { databaseTransactionRun } from "../../database/databaseTransactionRun.js"
-import { messageAppend } from "../actions/messageAppend.js"
-import { messageListFinalized } from "../actions/messageListFinalized.js"
+import type { ExecutionConvexClient } from "../../convex/executionConvexClient.js"
 import { messageAppendRequestSchema } from "../schema/messageAppendRequestSchema.js"
 import { messageQuerySchema } from "../schema/messageQuerySchema.js"
 
@@ -35,14 +33,20 @@ function internalServerError(context: ApiContext) {
   return context.json(response, 500)
 }
 
-export function apiMessageRoutesAdd(api: Hono<AppEnvironment>): void {
+export function apiMessageRoutesAdd(
+  api: Hono<AppEnvironment>,
+  options: { executionConvexClient?: ExecutionConvexClient } = {},
+): void {
   api.post("/sessions/:sessionId/messages", async (context) => {
+    if (options.executionConvexClient === undefined) return internalServerError(context)
     const body = await context.req.json<unknown>().catch(() => undefined)
     const parsed = apiRequestParse("messageAppendRequestParse", messageAppendRequestSchema, body)
     if (!parsed.success) return badRequest(context, "The message request is invalid.")
 
-    const result = await databaseTransactionRun(context.var.database, (transaction) =>
-      messageAppend(transaction, context.var.requestIdentity.userId, context.req.param("sessionId"), parsed.data),
+    const result = await options.executionConvexClient.messageAppend(
+      context.var.requestIdentity.userId,
+      context.req.param("sessionId"),
+      parsed.data,
     )
     if (!result.success) {
       if (result.errorMessage.includes("could not be found")) return notFound(context)
@@ -54,11 +58,11 @@ export function apiMessageRoutesAdd(api: Hono<AppEnvironment>): void {
   })
 
   api.get("/sessions/:sessionId/messages", async (context) => {
+    if (options.executionConvexClient === undefined) return internalServerError(context)
     const parsed = apiRequestParse("messageQueryParse", messageQuerySchema, context.req.query())
     if (!parsed.success) return badRequest(context, "The message query is invalid.")
 
-    const result = await messageListFinalized(
-      context.var.database,
+    const result = await options.executionConvexClient.messageListFinalized(
       context.var.requestIdentity.userId,
       context.req.param("sessionId"),
       parsed.data,

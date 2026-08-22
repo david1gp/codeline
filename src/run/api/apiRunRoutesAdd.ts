@@ -3,6 +3,7 @@ import type { Context } from "hono"
 import type { AppEnvironment } from "../../api/appEnvironment.js"
 import { apiRequestParse } from "../../api/apiRequestParse.js"
 import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.js"
+import type { ExecutionConvexClient } from "../../convex/executionConvexClient.js"
 import { runCancel } from "../actions/runCancel.js"
 import { runCancellationCoordinatorCreate } from "../actions/runCancellationCoordinatorCreate.js"
 import { runLoad } from "../actions/runLoad.js"
@@ -15,6 +16,7 @@ type ApiRunRoutesOptions = {
   runCancel?: typeof runCancel
   runCancellationCoordinator?: RunCancellationCoordinator
   runLoad?: typeof runLoad
+  executionConvexClient?: ExecutionConvexClient
 }
 
 function badRequest(context: ApiContext, message: string) {
@@ -43,24 +45,48 @@ export function apiRunRoutesAdd(api: Hono<AppEnvironment>, options: ApiRunRoutes
     if (!parsed.success) return badRequest(context, "The run cancellation request is invalid.")
 
     const sessionId = context.req.param("sessionId")
-    const loaded = await (options.runLoad ?? runLoad)(
-      context.var.database,
-      context.var.requestIdentity.userId,
-      sessionId,
-      context.req.param("runId"),
-    )
+    const executionConvexClient = options.executionConvexClient
+    const legacyRunLoad = options.runLoad
+    let loaded
+    if (executionConvexClient !== undefined) {
+      loaded = await executionConvexClient.runLoad(
+        context.var.requestIdentity.userId,
+        sessionId,
+        context.req.param("runId"),
+      )
+    } else {
+      if (legacyRunLoad === undefined) return internalServerError(context)
+      loaded = await legacyRunLoad(
+        context.var.database,
+        context.var.requestIdentity.userId,
+        sessionId,
+        context.req.param("runId"),
+      )
+    }
     if (!loaded.success) {
       if (loaded.errorMessage.includes("could not be found")) return notFound(context)
       return internalServerError(context)
     }
 
-    const result = await (options.runCancel ?? runCancel)(
-      context.var.database,
-      context.var.requestIdentity.userId,
-      sessionId,
-      loaded.data.run.id,
-      parsed.data,
-    )
+    const legacyRunCancel = options.runCancel
+    let result
+    if (executionConvexClient !== undefined) {
+      result = await executionConvexClient.runCancel(
+        context.var.requestIdentity.userId,
+        sessionId,
+        loaded.data.run.id,
+        parsed.data,
+      )
+    } else {
+      if (legacyRunCancel === undefined) return internalServerError(context)
+      result = await legacyRunCancel(
+        context.var.database,
+        context.var.requestIdentity.userId,
+        sessionId,
+        loaded.data.run.id,
+        parsed.data,
+      )
+    }
     if (!result.success) {
       if (result.errorMessage.includes("could not be found")) return notFound(context)
       if (result.errorMessage.includes("input") || result.errorMessage.includes("kind"))

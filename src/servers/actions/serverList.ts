@@ -1,10 +1,9 @@
-import type { DatabaseExecutor } from "../../database/databaseClient.js"
-import { serverRepositoryList } from "../db/serverRepositoryList.js"
+import type { ServerAgentConvexClient } from "../../convex/serverAgentConvexClient.js"
 
 export function serverList(
-  database: DatabaseExecutor,
+  client: ServerAgentConvexClient,
   organizationId: string,
   search?: string,
-): ReturnType<typeof serverRepositoryList> {
-  return serverRepositoryList(database, organizationId, search)
+): ReturnType<ServerAgentConvexClient["serverList"]> {
+  return client.serverList(organizationId, search)
 }

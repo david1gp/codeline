@@ -3,6 +3,7 @@ import { Hono } from "hono"
 import { apiRequestParse } from "../../api/apiRequestParse.js"
 import type { AppEnvironment } from "../../api/appEnvironment.js"
 import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.js"
+import type { SessionNoteConvexClient } from "../../convex/sessionNoteConvexClient.js"
 import { databaseTransactionRun } from "../../database/databaseTransactionRun.js"
 import { sessionRename } from "../actions/sessionRename.js"
 import { sessionRenameRequestSchema } from "../schema/sessionRenameRequestSchema.js"
@@ -37,15 +38,33 @@ function internalServerError(context: ApiContext) {
   return context.json(response, 500)
 }
 
-export function apiSessionRenameRoutesAdd(api: Hono<AppEnvironment>): void {
+export function apiSessionRenameRoutesAdd(
+  api: Hono<AppEnvironment>,
+  options: { sessionNoteConvexClient?: SessionNoteConvexClient } = {},
+): void {
   api.patch("/sessions/:sessionId", async (context) => {
+    const organizationId = context.var.requestIdentity.organizationId
+    if (options.sessionNoteConvexClient !== undefined && organizationId === undefined) return notFound(context)
     const body = await context.req.json<unknown>().catch(() => undefined)
     const parsed = apiRequestParse("sessionRenameRequestParse", sessionRenameRequestSchema, body)
     if (!parsed.success) return badRequest(context)
 
-    const result = await databaseTransactionRun(context.var.database, (transaction) =>
-      sessionRename(transaction, context.var.requestIdentity.userId, context.req.param("sessionId"), parsed.data.title),
-    )
+    const result =
+      options.sessionNoteConvexClient === undefined
+        ? await databaseTransactionRun(context.var.database, (transaction) =>
+            sessionRename(
+              transaction,
+              context.var.requestIdentity.userId,
+              context.req.param("sessionId"),
+              parsed.data.title,
+            ),
+          )
+        : await options.sessionNoteConvexClient.sessionUpdate(
+            context.var.requestIdentity.userId,
+            organizationId ?? "",
+            context.req.param("sessionId"),
+            parsed.data.title,
+          )
     if (!result.success) {
       if (result.errorMessage.includes("archived")) return conflict(context)
       if (result.errorMessage.includes("could not be found")) return notFound(context)

@@ -6,12 +6,14 @@ import type { DatabaseClient } from "../../database/databaseClient.js"
 import { databaseTransactionRun } from "../../database/databaseTransactionRun.js"
 import { identitySessionLoad } from "../actions/identitySessionLoad.js"
 import { organizationMemberLoad } from "../actions/organizationMemberLoad.js"
+import type { IdentityClient } from "../convex/identityClient.js"
 import { developmentIdentityUpsert } from "../db/developmentIdentityUpsert.js"
 import { identitySessionCookieRead } from "./identitySessionCookieRead.js"
 
 const developmentIdentityIssuer = "urn:codeline:development"
 
 type AuthenticationMiddlewareOptions = {
+  identityClient?: IdentityClient
   developmentIdentityUpsert?: typeof developmentIdentityUpsert
   organizationMemberLoad?: typeof organizationMemberLoad
   identitySessionLoad?: typeof identitySessionLoad
@@ -26,6 +28,7 @@ export function authenticationMiddleware(
   const developmentIdentityStore = options.developmentIdentityUpsert ?? developmentIdentityUpsert
   const memberLoad = options.organizationMemberLoad ?? organizationMemberLoad
   const sessionLoad = options.identitySessionLoad ?? identitySessionLoad
+  const identityClient = options.identityClient
 
   return async (context, next) => {
     context.set("database", database)
@@ -36,12 +39,20 @@ export function authenticationMiddleware(
       const organizationExternalId = configuration.oidcOrganizationId
       if (identity === undefined || organizationExternalId === undefined) return authenticationUnauthorized(context)
 
-      const result = await databaseTransactionRun(database, (transaction) =>
-        developmentIdentityStore(transaction, identity),
-      )
+      const result =
+        identityClient === undefined
+          ? await databaseTransactionRun(database, (transaction) => developmentIdentityStore(transaction, identity))
+          : await identityClient.developmentIdentityUpsert(identity)
       if (!result.success) return authenticationUnauthorized(context)
 
-      const membership = await memberLoad(database, result.data.id, organizationExternalId, developmentIdentityIssuer)
+      const membership =
+        identityClient === undefined
+          ? await memberLoad(database, result.data.id, organizationExternalId, developmentIdentityIssuer)
+          : await identityClient.developmentOrganizationMemberLoad(
+              identity.identityKey,
+              organizationExternalId,
+              developmentIdentityIssuer,
+            )
       if (!membership.success || membership.data === undefined) return authenticationUnauthorized(context)
       if (
         membership.data.organizationId === undefined ||
@@ -62,17 +73,22 @@ export function authenticationMiddleware(
 
     const token = identitySessionCookieRead(context)
     if (token === undefined) return authenticationUnauthorized(context)
-    const session = await sessionLoad(database, token)
+    const session =
+      identityClient === undefined
+        ? await sessionLoad(database, token)
+        : await identityClient.identitySessionLoad(token)
     if (!session.success || session.data === undefined) return authenticationUnauthorized(context)
 
     let organizationId: string | undefined
     if (configuration.oidcOrganizationId !== undefined && configuration.oidcIssuer !== undefined) {
-      const membership = await memberLoad(
-        database,
-        session.data.userId,
-        configuration.oidcOrganizationId,
-        configuration.oidcIssuer,
-      )
+      const membership =
+        identityClient === undefined
+          ? await memberLoad(database, session.data.userId, configuration.oidcOrganizationId, configuration.oidcIssuer)
+          : await identityClient.organizationMemberLoad(
+              token,
+              configuration.oidcOrganizationId,
+              configuration.oidcIssuer,
+            )
       if (!membership.success || membership.data === undefined) return authenticationUnauthorized(context)
       organizationId = membership.data.organizationId
     }
