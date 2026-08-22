@@ -6,6 +6,7 @@ import { oidcCallbackPathResolve } from "./src/configuration/oidcCallbackPathRes
 import { oidcCallbackProxyContextResolve } from "./src/configuration/oidcCallbackProxyContextResolve.js"
 
 const solidUiRoot = resolve(import.meta.dirname, "ui")
+const convexRoot = resolve(import.meta.dirname, "convex")
 const dependenciesRoot = resolve(import.meta.dirname, "node_modules")
 
 export default defineConfig(({ mode }) => {
@@ -21,6 +22,7 @@ export default defineConfig(({ mode }) => {
     plugins: [solid(), tailwindcss()],
     resolve: {
       alias: [
+        { find: "#convex", replacement: convexRoot },
         { find: "#ui", replacement: solidUiRoot },
         {
           find: "@adaptive-ds/solid-ui/static/badge/Badge",
