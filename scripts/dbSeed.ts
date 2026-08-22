@@ -1,14 +1,17 @@
-import { drizzle } from "drizzle-orm/postgres-js"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import { drizzle } from "drizzle-orm/postgres-js"
 import postgres from "postgres"
 import { configurationStoreCreate } from "../src/configuration/configurationStoreCreate.js"
 import { databaseSchema } from "../src/database/databaseSchema.js"
 import { exampleDataSeed } from "../src/database/exampleDataSeed.js"
 import { providerAgentCatalogLoad } from "../src/providers/catalog/providerAgentCatalogLoad.js"
+import { managedDatabaseConsumersStop } from "./managedDatabaseConsumersStop.js"
+import { managedPostgresServiceEnsure } from "./managedPostgresServiceEnsure.js"
+import { managedPostgresTargetAssert } from "./managedPostgresTargetAssert.js"
 
-const databaseUrl = Bun.env.DATABASE_URL
-if (databaseUrl === undefined) {
+const configuredDatabaseUrl = Bun.env.DATABASE_URL
+if (configuredDatabaseUrl === undefined) {
   console.error("DATABASE_URL is required.")
   process.exit(1)
 }
@@ -23,6 +26,28 @@ const organizationExternalId = Bun.env.ZITADEL_ORGANIZATION_ID
 if (organizationExternalId === undefined || organizationExternalId.trim().length === 0) {
   console.error("ZITADEL_ORGANIZATION_ID is required to seed the Contentoren organization.")
   process.exit(1)
+}
+
+const reset = Bun.argv.includes("--reset")
+
+let databaseUrl = configuredDatabaseUrl
+if (reset) {
+  const target = managedPostgresTargetAssert()
+  if (!target.success) {
+    console.error(target.errorMessage)
+    process.exit(1)
+  }
+  const consumers = managedDatabaseConsumersStop()
+  if (!consumers.success) {
+    console.error(consumers.errorMessage)
+    process.exit(1)
+  }
+  const service = managedPostgresServiceEnsure()
+  if (!service.success) {
+    console.error(service.errorMessage)
+    process.exit(1)
+  }
+  databaseUrl = target.data.databaseUrl
 }
 
 const configurationStoreResult = await configurationStoreCreate({
@@ -45,7 +70,6 @@ if (!catalogResult.success) {
 
 const databaseClient = postgres(databaseUrl)
 const database = drizzle(databaseClient, { schema: databaseSchema })
-const reset = Bun.argv.includes("--reset")
 const result = await exampleDataSeed(database, {
   catalog: catalogResult.data,
   configurationStore: configurationStoreResult.data,
