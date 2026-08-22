@@ -21,7 +21,7 @@ const releaseInputManifestSchema = v.object({
   schemaVersion: v.literal(1),
   bun: v.object({ version: v.string() }),
   inputs: v.object({
-    zero: releaseInputSchema,
+    zero: v.optional(releaseInputSchema),
     gitStore: releaseInputSchema,
   }),
 })
@@ -278,10 +278,12 @@ export async function releaseInputsVerify(options: ReleaseInputsVerifyOptions): 
     return createResultError(op, `Bun version is ${bunVersion}, expected pinned version ${manifest.data.bun.version}`)
   }
 
-  const inputNames = options.inputNames ?? (["zero", "gitStore"] satisfies ReleaseInputName[])
+  const inputNames = options.inputNames ?? (["gitStore"] satisfies ReleaseInputName[])
   const verifiedInputs: string[] = []
   for (const inputName of inputNames) {
-    const result = releaseInputVerify(root, inputName, manifest.data.inputs[inputName], options)
+    const input = manifest.data.inputs[inputName]
+    if (input === undefined) return createResultError(op, `${inputName} is not declared in release-inputs.json`)
+    const result = releaseInputVerify(root, inputName, input, options)
     if (!result.success) return result
     verifiedInputs.push(result.data)
   }

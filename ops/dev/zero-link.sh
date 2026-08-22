@@ -3,70 +3,46 @@ set -euo pipefail
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 root=$(git -C "$script_dir/../.." rev-parse --show-toplevel)
-
-if [[ -z "${ZERO_CHECKOUT+x}" && -f "$root/.env" ]]; then
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    line=${line%$'\r'}
-    [[ "$line" =~ ^[[:space:]]*(export[[:space:]]+)?ZERO_CHECKOUT[[:space:]]*=(.*)$ ]] || continue
-    value=${BASH_REMATCH[2]}
-    if [[ "$value" == \"*\" && "$value" == *\" ]]; then
-      value=${value:1:${#value}-2}
-    elif [[ "$value" == \'*\' && "$value" == *\' ]]; then
-      value=${value:1:${#value}-2}
-    fi
-    ZERO_CHECKOUT=$value
-    break
-  done < "$root/.env"
-fi
-
-checkout=${ZERO_CHECKOUT:-/home/david/opensource/zero}
-package_dir="$checkout/packages/zero"
-expected_pnpm=11.11.0
+zero_path="$root/node_modules/@rocicorp/zero"
 
 fail() {
-  printf 'zero-link: %s\n' "$1" >&2
+  printf 'zero-registry: %s\n' "$1" >&2
   exit 1
 }
 
 command -v bun >/dev/null 2>&1 || fail 'bun is required'
-[[ -d "$checkout" ]] || fail "Zero checkout not found: $checkout"
-[[ -f "$package_dir/package.json" ]] || fail "Zero package not found: $package_dir"
 
-verify_link() {
+verify_registry() {
   local bun_config
-  bun "$root/scripts/releaseInputsVerify.ts" --root "$root" --input zero || fail 'release-input manifest verification failed'
+  [[ -e "$zero_path" ]] || fail "installed Zero package not found: $zero_path"
+  [[ ! -L "$zero_path" ]] || fail 'Zero is still linked; install the registry package instead'
   bun_config=$(mktemp)
-  trap 'rm -f "$bun_config"' RETURN
-  bun --config "$bun_config" -e '
-    const zero = await import("@rocicorp/zero");
-    await import("@rocicorp/zero/solid");
-    const schema = zero.table("linkCheck").columns({id: zero.string()}).primaryKey("id");
-    if (typeof schema.unique !== "function") {
-      throw new Error("latest Zero schema API does not expose table.unique()");
+  trap 'rm -f "${bun_config:-}"' RETURN
+  (cd "$root" && bun --config "$bun_config" -e '
+    const packageJson = await Bun.file("package.json").json()
+    const dependency = packageJson.dependencies?.["@rocicorp/zero"]
+    if (typeof dependency !== "string" || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(dependency)) {
+      throw new Error("package.json does not pin @rocicorp/zero to an exact version")
     }
-    schema.unique("id");
-  '
+    const installed = await Bun.file("node_modules/@rocicorp/zero/package.json").json()
+    if (installed.version !== dependency) {
+      throw new Error(`installed @rocicorp/zero is ${installed.version}, expected ${dependency}`)
+    }
+    const zero = await import("@rocicorp/zero")
+    await import("@rocicorp/zero/solid")
+    const schema = zero.table("registryCheck").columns({id: zero.string()}).primaryKey("id")
+    if (typeof schema.unique !== "function") throw new Error("installed Zero schema API does not expose table.unique()")
+    schema.unique("id")
+  ') || fail 'registry package verification failed'
 }
 
 setup() {
-  local bun_config
-  bun_config=$(mktemp)
-  trap 'rm -f "$bun_config"' RETURN
-  if [[ ! -f "$package_dir/out/zero/src/zero.js" || ! -f "$package_dir/out/zero/src/solid.js" ]]; then
-    [[ "$(cd "$checkout" && bun --config "$bun_config" x "pnpm@$expected_pnpm" --version)" == "$expected_pnpm" ]] || fail "expected pnpm@$expected_pnpm"
-    (cd "$checkout" && bun --config "$bun_config" x "pnpm@$expected_pnpm" install --frozen-lockfile)
-    (cd "$checkout" && bun --config "$bun_config" x "pnpm@$expected_pnpm" --filter '@rocicorp/zero...' build)
-  fi
-  (cd "$package_dir" && bun link)
-  if [[ -e "$root/node_modules/@rocicorp/zero" && ! -L "$root/node_modules/@rocicorp/zero" ]]; then
-    (cd "$root" && bun --config "$bun_config" remove @rocicorp/zero)
-  fi
-  (cd "$root" && bun --config "$bun_config" link @rocicorp/zero)
-  verify_link
+  (cd "$root" && bun install) || fail 'bun install failed'
+  verify_registry
 }
 
 case "${1:-verify}" in
   setup) setup ;;
-  verify) verify_link ;;
+  verify) verify_registry ;;
   *) fail "usage: $0 {setup|verify}" ;;
 esac
