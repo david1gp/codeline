@@ -1,0 +1,27 @@
+# Self-hosted Convex backend for the Codeline development deployment.
+# Quadlet generates codeline-convex-backend.service from this file.
+[Unit]
+Description=Codeline self-hosted Convex backend (Podman Quadlet)
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+ContainerName=codeline-convex-backend
+Image=ghcr.io/get-convex/convex-backend:latest
+AutoUpdate=registry
+Network=host
+Volume=codeline-convex-data.volume:/convex/data
+EnvironmentFile=%h/codeline/ops/dev/convex/.env.docker
+Environment=DOCUMENT_RETENTION_DELAY=172800
+Environment=RUST_LOG=info
+Notify=healthy
+HealthCmd=curl -f http://127.0.0.1:3210/version
+HealthInterval=5s
+HealthStartPeriod=10s
+
+[Service]
+Restart=always
+RestartSec=2s
+
+[Install]
+WantedBy=default.target

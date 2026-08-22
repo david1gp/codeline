@@ -26,7 +26,7 @@ Codeline is a runnable AI coding workspace. It provides synchronized session nav
 
 The Hono API persists durable state in PostgreSQL through Drizzle. Zero synchronizes authorized reads into the browser; commands and chat execution continue to go through the application API. The chat runtime supports deterministic fixtures and the configured local CLIProxyAPI/Codex-LB provider targets.
 
-Local development and verification currently use the pinned local Zero and git-store checkouts through Bun links. `bun run release` runs the local format, test, and build preflight; `bun run deploy` runs the local build preflight only. GitHub release artifacts, clean-clone/CI reproducibility, and deployment automation are deferred and are not current priorities.
+Local development uses the immutable registry Zero package and a pinned git-store checkout through a Bun link. `bun run release` runs the local format, test, and build preflight; `bun run deploy` runs the local build preflight only. GitHub release artifacts, clean-clone/CI reproducibility, and deployment automation are deferred and are not current priorities.
 
 Provider OAuth, Pi ecosystem integrations, MCP, full-text web search, custom scrollbar behavior, trusted folders / project trust, editing or limiting AI capabilities, and AI permission management are out of scope.
 
@@ -144,7 +144,7 @@ bun run db:seed
 
 ## Local Development
 
-Requirements: Bun 1.3 or newer, rootless Podman with a working Compose provider, and `git`.
+Requirements: Bun 1.3 or newer, rootless Podman, user systemd with Quadlet support, and `git`.
 
 The Codeline wrapper uses Podman's default rootless storage and does not set project-specific `--root` or `--runroot` paths. On this development host those defaults are `/home/david/.local/share/containers/storage` and `/run/user/1001/containers`; no Codeline Podman state is created under `/tmp`.
 
@@ -152,17 +152,15 @@ The Codeline wrapper uses Podman's default rootless storage and does not set pro
 bun install
 cp .env.example .env
 chmod 600 .env
-# Replace the local password/admin placeholders in .env. Keep all real values there.
+# Replace the Convex admin-key placeholder in .env. Keep all real values there.
+cp ops/dev/convex/env.docker.example ops/dev/convex/.env.docker
+# Replace INSTANCE_SECRET in ops/dev/convex/.env.docker with 64 hex characters.
 ./ops/dev/git-store-link.sh setup
 ./ops/dev/zero-link.sh setup
-./ops/dev/codeline-dev.sh config
-./ops/dev/codeline-dev.sh build
-./ops/dev/codeline-dev.sh up
-./ops/dev/codeline-dev.sh clean
-./ops/dev/codeline-dev.sh status
+./ops/dev/codeline-dev.sh validate
 ```
 
-`clean` is the managed local setup command. It recreates the local PostgreSQL and Zero data, starts the repository-managed services, applies committed Drizzle migrations, and runs the deterministic seed. Do not run `bun run dev` alongside the managed systemd UI and API services.
+The Convex-only managed stack is intentionally prepared but offline during the migration. Do not install, enable, or start its units until the Convex application cutover is complete.
 
 ### ZITADEL organization access
 
@@ -178,20 +176,20 @@ For example, configure multiple roots with:
 CODELINE_PROJECT_ROOTS=["./projects","../shared-projects"]
 ```
 
-Services use an isolated `codeline-dev` network and named volumes (`codeline-dev-postgres` and `codeline-dev-zero`). The managed host listeners are UI `127.0.0.1:6000`, API `127.0.0.1:6001`, PostgreSQL `127.0.0.1:6002`, and Zero sync `http://127.0.0.1:6003`. PostgreSQL and Zero retain their upstream-required container ports `5432` and `4848`; the Vite server proxies `/api` to `http://127.0.0.1:6001`.
+The replacement services use host-local listeners: UI `127.0.0.1:6000`, API `127.0.0.1:6001`, Convex backend `127.0.0.1:3210`, Convex site `127.0.0.1:3211`, and Convex dashboard `127.0.0.1:6791`. The persistent backend volume is `codeline-convex-data`; the Vite server proxies `/api` to `http://127.0.0.1:6001`.
 
-Postgres starts with logical replication enabled (`wal_level=logical`, 10 replication slots, and 10 WAL senders). Zero waits for the Postgres health check, persists its SQLite replica in its named volume, and exposes `/` as its health check. Migrations stay on a separate command so schema changes remain owned by Drizzle.
+The self-hosted Convex backend persists `/convex/data` and reports readiness from `/version`; the dashboard waits for a healthy backend and reports readiness from `/`. `ops/dev/caddy/Caddyfile` contains the preview routes for the UI, Convex backend, site, and dashboard. Register those routes through the host project-registry during cutover; this repository does not reload Caddy.
 
-Set up or verify the local Zero link without using registry Zero:
+Install or verify the pinned registry Zero package:
 
 ```bash
 ./ops/dev/zero-link.sh setup
 ./ops/dev/zero-link.sh verify
 ```
 
-After cloning, run `./ops/dev/zero-link.sh setup` from a Codeline checkout. `ZERO_CHECKOUT` in `.env` selects the pinned Zero checkout and defaults to `/home/david/opensource/zero`. Setup builds `packages/zero` with `pnpm@11.11.0`, registers that public package with Bun, and links `@rocicorp/zero` into Codeline. Setup and verify are idempotent.
+After cloning, run `./ops/dev/zero-link.sh setup` from a Codeline checkout. Setup installs the exact `@rocicorp/zero` version recorded in `package.json` and verifies its runtime API. The Zero package remains a migration input; the replacement managed operations do not build or run a Zero Cache.
 
-This is intentionally the latest local Zero workflow. It is not reproducible from a clean clone or CI yet; that work is deferred. `ops/dev/zero-pkgs/` remains ignored for old local artifacts but is not used.
+The application package no longer depends on generated output from the local Zero checkout. Removing the remaining Zero application path is deferred to the later migration tasks.
 
 Set up or verify the local git-store link:
 
@@ -210,24 +208,24 @@ Verify the immutable release inputs without network access:
 bun run release:inputs:verify
 ```
 
-This checks the pinned Bun version, linked package targets, Git revisions and cleanliness, package identities and exports, and required build outputs. It reports a blocker when a provisioned source directory cannot prove its Git provenance.
+This checks the pinned Bun version and the linked git-store target, including its Git revision, cleanliness, package identity, exports, and required build outputs. It reports a blocker when a provisioned source directory cannot prove its Git provenance.
 
-GitHub release artifacts and clean-clone/CI dependency reproducibility are deferred. Typecheck, tests, build, database checks, and release-input verification remain local commands after the Zero and git-store links are established.
+GitHub release artifacts and clean-clone/CI dependency reproducibility are deferred. Typecheck, tests, build, database checks, and release-input verification remain local commands after the registry Zero package and git-store link are established.
 
 Service lifecycle:
 
 ```bash
-./ops/dev/codeline-dev.sh up
-./ops/dev/codeline-dev.sh start
-./ops/dev/codeline-dev.sh stop
+./ops/dev/codeline-dev.sh validate
+./ops/dev/codeline-dev.sh install
+systemctl --user enable --now codeline-dev.target
 ./ops/dev/codeline-dev.sh status
-./ops/dev/codeline-dev.sh logs zero-cache
-./ops/dev/codeline-dev.sh down
+./ops/dev/codeline-dev.sh logs codeline-convex-backend.service
+./ops/dev/codeline-dev.sh stop
 ./ops/dev/codeline-dev.sh reset
-./ops/dev/codeline-dev.sh clean
+./ops/dev/codeline-dev.sh remove
 ```
 
-`down` removes containers but keeps data. `reset` removes both named volumes and is the destructive local reset. `clean` is the managed destructive reset: it removes the containers and volumes, restarts the managed target, applies committed migrations, and seeds the deterministic example data so the local workspace is usable immediately. Run `migrate` after `up` when preserving local data, and after any new migration generation:
+`install` only links the repository-managed user units and Quadlets and reloads user systemd; it does not enable or start anything. `stop`/`down` stop the target while retaining data. `reset` stops the target and deletes only `codeline-convex-data`. The final cutover, not this preparation step, enables and starts `codeline-dev.target`.
 
 ```bash
 ./ops/dev/codeline-dev.sh migrate
@@ -242,30 +240,14 @@ bun run db:seed
 bun run db:seed -- --reset
 ```
 
-Use the managed systemd user target for database, Zero, API, and UI verification. Do not start replacement services for seeding or browser checks:
-
-```bash
-./ops/dev/systemd/codeline-dev-systemd.sh status
-systemctl --user restart codeline-dev.target
-bun run db:seed
-```
-
-For repository-managed development startup, install and enable the user target:
-
-```bash
-./ops/dev/systemd/codeline-dev-systemd.sh install
-systemctl --user enable --now codeline-dev.target
-./ops/dev/systemd/codeline-dev-systemd.sh status
-```
-
-The target starts PostgreSQL before Zero Cache, then the Bun/Hono API on port `6001`, and finally the Vite UI on port `6000`. It waits for dependency health, API readiness at `/api/ready`, and the UI root; Vite's strict port check makes a UI port conflict fail the managed UI unit. The services load the ignored `.env`, run from the repository root, and restart on failure. It uses the user's default rootless Podman storage; it does not create Codeline-specific `/tmp` or `--root`/`--runroot` paths. Stop or remove it with `systemctl --user stop codeline-dev.target` or `./ops/dev/systemd/codeline-dev-systemd.sh remove`.
+The target starts the self-hosted Convex backend and dashboard, then the Convex function deployer, Bun/Hono API, and Vite UI. It waits for backend/dashboard health, API readiness at `/api/ready`, and the UI root; Vite's strict port check makes a UI port conflict fail the managed UI unit. The services load ignored environment files, run from the stable `~/codeline` checkout link, and restart on failure. It uses the user's default rootless Podman storage and does not create Codeline-specific `/tmp` or `--root`/`--runroot` paths.
 
 Troubleshooting:
 
 - If configuration validation reports a missing variable, ensure `.env` exists and contains the required names from `.env.example`. The wrapper reports names only, never values.
-- If `podman compose` is unavailable, install or configure a Podman Compose provider and retry `./ops/dev/codeline-dev.sh config`.
-- If managed host ports `6000` through `6003` are busy, change the corresponding host variables in ignored `.env` and `DATABASE_URL`. Keep `VITE_ZERO_*`, `ZERO_QUERY_URL`, and `ZERO_MUTATE_URL` derived from `PUBLIC_ORIGIN`. Then reinstall/reload the user units.
-- Inspect `./ops/dev/codeline-dev.sh logs postgres` and `./ops/dev/codeline-dev.sh logs zero-cache` for service diagnostics.
+- If Quadlet support is unavailable, install/configure the Podman systemd generator before the final cutover; no replacement service should be started as a workaround.
+- If a managed host port is busy, fix the conflicting service before cutover. Preview routing expects `preview.codeline.work`, `convex.preview.codeline.work`, `api.preview.codeline.work`, and `dash.preview.codeline.work` to map to the ports in `ops/dev/caddy/Caddyfile`.
+- Inspect `./ops/dev/codeline-dev.sh logs codeline-convex-backend.service` and the corresponding dashboard, deployer, API, or UI unit for diagnostics.
 
 Example route checks:
 
@@ -280,14 +262,7 @@ curl -N 'http://127.0.0.1:6001/api/testing/stream?scenario=normal'
 
 ## End-to-end tests
 
-`bun run test:e2e` runs the Playwright organization-access check against the repository-managed development services. It starts no server of its own, so `codeline-dev.target` must already serve the database, Zero cache, API, and UI, and `bun run db:seed` must have created the Contentoren organization and its example servers. Install the browser binaries once with `bunx playwright install chromium`.
-
-```bash
-./ops/dev/systemd/codeline-dev-systemd.sh status
-bun run db:seed
-bunx playwright install chromium
-bun run test:e2e
-```
+Browser verification remains deferred until the Convex application cutover. Do not activate the prepared target or run browser tests as part of this operations-only step.
 
 The run mutates local development data. It creates two run-unique synthetic organization members, their identity sessions, and one conversation per member through the regular API, then deletes those users again in a teardown that also runs after a failed assertion; the cascading delete removes the generated memberships, identity sessions, conversations, messages, runs, notes, and stream rows. Seeded example data is untouched, and repeated runs stay independent because every run uses a fresh identifier.
 

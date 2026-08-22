@@ -1,0 +1,20 @@
+[Unit]
+Description=Codeline Convex function deployment watcher
+After=network-online.target codeline-convex-backend.service
+Wants=network-online.target
+Requires=codeline-convex-backend.service
+PartOf=codeline-dev.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/codeline
+EnvironmentFile=%h/codeline/.env
+Environment=PATH=%h/.local/bin:%h/.bun/bin:/usr/local/bin:/usr/bin:/bin
+Environment=CI=1
+Nice=10
+ExecStart=/usr/bin/env bun run convex dev --env-file=.env
+Restart=always
+RestartSec=2s
+
+[Install]
+WantedBy=default.target

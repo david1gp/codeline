@@ -3,8 +3,9 @@ set -euo pipefail
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 root=$(git -C "$script_dir/../.." rev-parse --show-toplevel)
-compose_file="$root/ops/dev/compose.yaml"
 env_file="$root/.env"
+docker_env_file="$root/ops/dev/convex/.env.docker"
+target_unit=codeline-dev.target
 
 fail() {
   printf 'codeline-dev: %s\n' "$1" >&2
@@ -12,15 +13,18 @@ fail() {
 }
 
 [[ -f "$env_file" ]] || fail "missing $env_file; copy .env.example to .env first"
+[[ -f "$docker_env_file" ]] || fail "missing $docker_env_file; copy ops/dev/convex/env.docker.example first"
+
+declare -A loaded_env
 
 load_env_file() {
-  local line name value
+  local file=$1 export_values=${2:-false} line name value
   loaded_env=()
   while IFS= read -r line || [[ -n "$line" ]]; do
     line=${line%$'\r'}
     [[ "$line" =~ ^[[:space:]]*$ || "$line" =~ ^[[:space:]]*# ]] && continue
     [[ "$line" =~ ^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*=(.*)$ ]] ||
-      fail "invalid line in $env_file"
+      fail "invalid line in $file"
     name=${BASH_REMATCH[2]}
     value=${BASH_REMATCH[3]}
     if [[ "$value" == \"*\" && "$value" == *\" ]]; then
@@ -28,70 +32,79 @@ load_env_file() {
     elif [[ "$value" == \'*\' && "$value" == *\' ]]; then
       value=${value:1:${#value}-2}
     fi
-    export "$name=$value"
-    loaded_env["$name"]=1
-  done < "$env_file"
+    loaded_env["$name"]=$value
+    if [[ "$export_values" == true ]]; then
+      export "$name=$value"
+    fi
+  done < "$file"
 }
 
-declare -A loaded_env
-load_env_file
-ZERO_CHECKOUT=${ZERO_CHECKOUT:-/home/david/opensource/zero}
-export ZERO_CHECKOUT
-
-required_env=(
-  POSTGRES_DB
-  POSTGRES_PASSWORD
-  POSTGRES_PORT
-  POSTGRES_USER
-  DATABASE_URL
-  ZITADEL_ORGANIZATION_ID
-  PORT
-  PUBLIC_ORIGIN
-  UI_PORT
-  VITE_ZERO_CACHE_URL
-  VITE_ZERO_MUTATE_URL
-  VITE_ZERO_QUERY_URL
-  ZERO_ADMIN_PASSWORD
-  ZERO_APP_ID
-  ZERO_CHANGE_DB
-  ZERO_CVR_DB
-  ZERO_MUTATE_URL
-  ZERO_PORT
-  ZERO_REPLICA_FILE
-  ZERO_QUERY_URL
-  ZERO_UPSTREAM_DB
-  CODEX_LB_API_TOKEN
-  CLIPROXYAPI_API_KEY
-)
-for name in "${required_env[@]}"; do
-  [[ "${loaded_env[$name]:-}" == 1 && -n "${!name:-}" ]] || fail "$name is required in .env"
-done
-[[ -d "$ZERO_CHECKOUT" ]] || fail "Zero checkout not found: $ZERO_CHECKOUT"
-
-# Browser and cache must share PUBLIC_ORIGIN. Loopback query URLs break the
-# Zero allowlist when the UI is reached through the HTTPS preview origin.
-public_origin=${PUBLIC_ORIGIN%/}
-[[ "$public_origin" == http://* || "$public_origin" == https://* ]] ||
-  fail "PUBLIC_ORIGIN must be an absolute http(s) origin"
-expected_zero_cache_url=$public_origin
-expected_zero_query_url="$public_origin/api/query"
-expected_zero_mutate_url="$public_origin/api/mutate"
-require_matching_url() {
-  local name=$1 expected=$2
-  [[ "${!name}" == "$expected" ]] ||
-    fail "$name must equal $expected (derived from PUBLIC_ORIGIN); do not point Zero query/mutate URLs at 127.0.0.1 while the UI uses the preview origin"
+require_loaded() {
+  local name=$1
+  [[ -n "${loaded_env[$name]:-}" ]] || fail "$name is required in $2"
 }
-require_matching_url VITE_ZERO_CACHE_URL "$expected_zero_cache_url"
-require_matching_url VITE_ZERO_QUERY_URL "$expected_zero_query_url"
-require_matching_url VITE_ZERO_MUTATE_URL "$expected_zero_mutate_url"
-require_matching_url ZERO_QUERY_URL "$expected_zero_query_url"
-require_matching_url ZERO_MUTATE_URL "$expected_zero_mutate_url"
-export VITE_ZERO_CACHE_URL VITE_ZERO_QUERY_URL VITE_ZERO_MUTATE_URL ZERO_QUERY_URL ZERO_MUTATE_URL
 
-compose() {
-  command -v podman >/dev/null 2>&1 || fail "podman is required"
-  # Use the user's configured rootless defaults; Codeline must not create custom roots.
-  podman compose -f "$compose_file" "$@"
+validate_public_origin() {
+  local public_origin=${loaded_env[PUBLIC_ORIGIN]%/}
+  [[ "$public_origin" =~ ^https?://[^/]+$ ]] || fail "PUBLIC_ORIGIN must be an absolute origin without a path"
+  [[ "$public_origin" == https://preview.codeline.work ]] ||
+    fail "PUBLIC_ORIGIN must equal https://preview.codeline.work for the managed preview stack"
+
+  local scheme=${public_origin%%://*}
+  local host=${public_origin#*://}
+  local expected_convex_url="$scheme://convex.$host"
+  local expected_site_url="$scheme://api.$host"
+
+  [[ "${loaded_env[VITE_CONVEX_URL]}" == "$expected_convex_url" ]] ||
+    fail "VITE_CONVEX_URL must equal $expected_convex_url (the preview Convex route)"
+  [[ "${loaded_env[CONVEX_SELF_HOSTED_URL]}" == "$expected_convex_url" ]] ||
+    fail "CONVEX_SELF_HOSTED_URL must equal $expected_convex_url (the preview Convex route)"
+
+  load_env_file "$docker_env_file"
+  local name
+  for name in CONVEX_CLOUD_ORIGIN CONVEX_SITE_ORIGIN NEXT_PUBLIC_DEPLOYMENT_URL INSTANCE_NAME INSTANCE_SECRET DISABLE_BEACON; do
+    require_loaded "$name" "$docker_env_file"
+  done
+  [[ "${loaded_env[CONVEX_CLOUD_ORIGIN]}" == "$expected_convex_url" ]] ||
+    fail "CONVEX_CLOUD_ORIGIN must equal $expected_convex_url (the preview Convex route)"
+  [[ "${loaded_env[NEXT_PUBLIC_DEPLOYMENT_URL]}" == "$expected_convex_url" ]] ||
+    fail "NEXT_PUBLIC_DEPLOYMENT_URL must equal $expected_convex_url (the preview Convex route)"
+  [[ "${loaded_env[CONVEX_SITE_ORIGIN]}" == "$expected_site_url" ]] ||
+    fail "CONVEX_SITE_ORIGIN must equal $expected_site_url (the preview Convex API route)"
+  [[ "${loaded_env[INSTANCE_SECRET]}" =~ ^[[:xdigit:]]{64}$ ]] ||
+    fail "INSTANCE_SECRET must contain exactly 64 hexadecimal characters"
+  [[ "${loaded_env[DISABLE_BEACON]}" == true ]] || fail "DISABLE_BEACON must be true for local development"
+}
+
+validate_environment() {
+  load_env_file "$env_file"
+  local name
+  for name in NODE_ENV AUTH_MODE HOST PORT PUBLIC_ORIGIN UI_PORT VITE_CONVEX_URL CONVEX_SELF_HOSTED_URL CONVEX_SELF_HOSTED_ADMIN_KEY; do
+    require_loaded "$name" "$env_file"
+  done
+  [[ "${loaded_env[NODE_ENV]}" == development ]] || fail "NODE_ENV must be development"
+  [[ "${loaded_env[PORT]}" == 6001 ]] || fail "PORT must equal 6001 for the managed preview stack"
+  [[ "${loaded_env[UI_PORT]}" == 6000 ]] || fail "UI_PORT must equal 6000 for the managed preview stack"
+  [[ "${loaded_env[CONVEX_SELF_HOSTED_ADMIN_KEY]}" != replace-with-* ]] ||
+    fail "CONVEX_SELF_HOSTED_ADMIN_KEY must be replaced in $env_file"
+  validate_public_origin
+  load_env_file "$env_file"
+}
+
+systemctl_user() {
+  command -v systemctl >/dev/null 2>&1 || fail 'systemctl is required'
+  systemctl --user "$@"
+}
+
+curl_wait() {
+  local service=$1 url=$2
+  command -v curl >/dev/null 2>&1 || fail "curl is required to wait for $service"
+  local deadline=$((SECONDS + 180))
+  while (( SECONDS < deadline )); do
+    if curl --fail --silent --show-error "$url" >/dev/null 2>&1; then exit 0; fi
+    sleep 2
+  done
+  fail "$service did not become available"
 }
 
 usage() {
@@ -99,116 +112,64 @@ usage() {
 Usage: ops/dev/codeline-dev.sh <command> [args]
 
 Commands:
-  build             Build the local Zero image from the sibling checkout; does not start containers.
-  clean             Recreate local containers and volumes, restart the managed target, and seed example data.
-  config            Resolve Compose configuration without printing it.
-  down              Stop and remove containers, keeping named volumes.
+  config            Validate Convex deployment and preview-origin configuration.
+  down              Stop the managed Convex-only target, keeping data.
   help              Show this help.
-  logs [service...] Show service logs; extra arguments pass to Compose.
-  migrate           Apply committed Drizzle migrations to local Postgres.
-  link-zero         Build and link the pinned local Zero package into Codeline.
-  reset             Remove containers and named volumes, deleting local service data.
-  reset-zero-cache  Remove only the managed Zero Cache container and replica volume.
-  start             Start existing containers without recreating them.
-  status            Show container status.
-  stop              Stop containers without removing them.
-  up                Start the local services in detached mode.
-  wait              Wait for a service health check to pass.
-  verify-zero       Verify the linked local Zero package.
+  install           Install definitions only; never enables or starts them.
+  logs [unit]       Show user-systemd logs for the target or one service.
+  remove            Remove repository-managed user-unit links only.
+  reset             Stop the target and delete the persistent Convex volume.
+  start             Start the managed Convex-only target.
+  status            Show target, Convex, API, and UI service status.
+  stop              Stop the managed Convex-only target.
+  up                Alias for start.
+  validate          Validate environment without contacting a service.
+  wait <service>    Wait for convex-backend, convex-dashboard, api, or ui.
 EOF
 }
 
 case "${1:-help}" in
-  build) compose build zero-cache ;;
-  clean)
-    command -v systemctl >/dev/null 2>&1 || fail "systemctl is required for clean"
-    systemctl --user cat codeline-dev.target >/dev/null 2>&1 ||
-      fail "codeline-dev.target is not installed; run ops/dev/systemd/codeline-dev-systemd.sh install first"
-    systemctl --user stop codeline-dev.target codeline-dev-postgres.service 2>/dev/null || true
-    compose down --remove-orphans --volumes
-    systemctl --user start codeline-dev-postgres.service
-    (cd "$root" && bun run db:seed)
-    systemctl --user start codeline-dev.target
+  config|validate)
+    validate_environment
+    printf 'codeline-dev: environment is valid\n'
     ;;
-  config) compose config --quiet ;;
-  down) compose down --remove-orphans ;;
+  down|stop)
+    validate_environment
+    systemctl_user stop "$target_unit"
+    ;;
   help) usage ;;
+  install) bash "$root/ops/dev/systemd/install.sh" install ;;
   logs)
-    shift
-    compose logs "$@"
+    validate_environment
+    unit=${2:-$target_unit}
+    journalctl --user -u "$unit" --no-pager
     ;;
-  migrate) (cd "$root" && bun run db:migrate) ;;
-  link-zero)
-    bash "$root/ops/dev/zero-link.sh" setup
+  remove) bash "$root/ops/dev/systemd/install.sh" remove ;;
+  reset)
+    validate_environment
+    systemctl_user stop "$target_unit" 2>/dev/null || true
+    command -v podman >/dev/null 2>&1 || fail 'podman is required to reset Convex data'
+    podman volume rm --force codeline-convex-data >/dev/null 2>&1 || true
     ;;
-  reset) compose down --remove-orphans --volumes ;;
-  reset-zero-cache)
-    container_id=$(compose ps -aq zero-cache 2>/dev/null || true)
-    if [[ -n "$container_id" ]]; then
-      podman rm --force "$container_id" >/dev/null
-    fi
-    podman volume rm codeline-dev-zero >/dev/null 2>&1 || true
+  start|up)
+    validate_environment
+    systemctl_user start "$target_unit"
     ;;
-  start)
-    shift
-    compose start "$@"
-    ;;
-  status) compose ps ;;
-  stop)
-    shift
-    compose stop "$@"
-    ;;
-  up)
-    shift
-    compose up -d "$@"
+  status)
+    validate_environment
+    systemctl_user status "$target_unit" codeline-convex-backend.service codeline-convex-dashboard.service \
+      codeline-convex-dev.service codeline-dev-api.service codeline-dev-ui.service --no-pager
     ;;
   wait)
+    validate_environment
     service=${2:-}
-    if [[ "$service" == api ]]; then
-      command -v curl >/dev/null 2>&1 || fail "curl is required to wait for $service"
-      url="http://127.0.0.1:${PORT:-6001}/api/ready"
-      deadline=$((SECONDS + 180))
-      while (( SECONDS < deadline )); do
-        if curl --fail --silent --show-error "$url" >/dev/null 2>&1; then
-          exit 0
-        fi
-        sleep 2
-      done
-      fail "$service did not become available"
-    fi
-    if [[ "$service" == ui ]]; then
-      command -v curl >/dev/null 2>&1 || fail "curl is required to wait for $service"
-      url="http://127.0.0.1:${UI_PORT:-6000}/"
-      deadline=$((SECONDS + 180))
-      while (( SECONDS < deadline )); do
-        if curl --fail --silent --show-error "$url" >/dev/null 2>&1; then
-          exit 0
-        fi
-        sleep 2
-      done
-      fail "$service did not become available"
-    fi
-    [[ "$service" == postgres || "$service" == zero-cache ]] || fail "usage: $0 wait {postgres|zero-cache|api|ui}"
-    deadline=$((SECONDS + 180))
-    while (( SECONDS < deadline )); do
-      container_id=$(compose ps -q "$service" 2>/dev/null || true)
-      if [[ -z "$container_id" ]]; then
-        sleep 2
-        continue
-      fi
-      read -r container_state health_state < <(
-        podman inspect "$container_id" --format '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}'
-      )
-      if [[ "$health_state" == healthy ]]; then
-        exit 0
-      fi
-      if [[ "$container_state" == exited || "$container_state" == dead || "$health_state" == unhealthy ]]; then
-        fail "$service health check failed"
-      fi
-      sleep 2
-    done
-    fail "$service did not become healthy"
+    case "$service" in
+      convex-backend) curl_wait "$service" http://127.0.0.1:3210/version ;;
+      convex-dashboard) curl_wait "$service" http://127.0.0.1:6791/ ;;
+      api) curl_wait "$service" "http://127.0.0.1:${loaded_env[PORT]}/api/ready" ;;
+      ui) curl_wait "$service" "http://127.0.0.1:${loaded_env[UI_PORT]}/" ;;
+      *) fail 'usage: ops/dev/codeline-dev.sh wait {convex-backend|convex-dashboard|api|ui}' ;;
+    esac
     ;;
-  verify-zero) bash "$root/ops/dev/zero-link.sh" verify ;;
   *) usage >&2; exit 2 ;;
 esac

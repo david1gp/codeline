@@ -1,0 +1,8 @@
+[Unit]
+Description=Codeline Convex-only development stack
+Requires=codeline-convex-backend.service codeline-convex-dashboard.service codeline-convex-dev.service codeline-dev-api.service codeline-dev-ui.service
+After=network-online.target codeline-convex-backend.service codeline-convex-dashboard.service codeline-convex-dev.service codeline-dev-api.service codeline-dev-ui.service
+Wants=network-online.target
+
+[Install]
+WantedBy=default.target

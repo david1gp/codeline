@@ -1,0 +1,17 @@
+[Unit]
+Description=Codeline development API
+After=network-online.target codeline-convex-dev.service
+Wants=network-online.target
+Requires=codeline-convex-dev.service
+PartOf=codeline-dev.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/codeline
+EnvironmentFile=%h/codeline/.env
+Environment=PATH=%h/.local/bin:%h/.bun/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/env bun run dev:api
+ExecStartPost=%h/codeline/ops/dev/codeline-dev.sh wait api
+Restart=on-failure
+RestartSec=2s
+TimeoutStopSec=10s

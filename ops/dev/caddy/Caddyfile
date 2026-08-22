@@ -1,0 +1,35 @@
+# Preview routes for the repository-managed Codeline services. Register these
+# routes with the host's project-registry/Caddy installation during cutover;
+# this file intentionally does not start or reload Caddy.
+
+preview.codeline.work {
+	import shared_config_web
+	header {
+		Routed "codeline"
+	}
+	reverse_proxy localhost:6000
+}
+
+convex.preview.codeline.work {
+	import shared_config_simple
+	header {
+		Routed "codeline-convex"
+	}
+	reverse_proxy localhost:3210
+}
+
+api.preview.codeline.work {
+	import shared_config_simple
+	header {
+		Routed "codeline-convex-api"
+	}
+	reverse_proxy localhost:3211
+}
+
+dash.preview.codeline.work {
+	import shared_config_simple
+	header {
+		Routed "codeline-convex-dashboard"
+	}
+	reverse_proxy localhost:6791
+}

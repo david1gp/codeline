@@ -41,3 +41,9 @@ data/
 .turbo/
 *.tsbuildinfo
 .wrangler/
+
+# Convex generated API, server, and data-model types. Regenerate with bun run convex:codegen.
+convex/_generated/
+
+# Self-hosted Convex container credentials.
+ops/dev/convex/.env.docker
