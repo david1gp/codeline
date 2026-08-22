@@ -1,5 +1,8 @@
 # Codeline Agent Instructions
 
+Run tests with a maximum concurrency of 1.
+After a failure, run only the failing file/test name.
+
 ## Development Services
 
 - Use only the repository-managed systemd user services defined under `ops/dev/` for Codeline development dependencies and application services.

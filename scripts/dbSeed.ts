@@ -7,6 +7,7 @@ import { databaseSchema } from "../src/database/databaseSchema.js"
 import { exampleDataSeed } from "../src/database/exampleDataSeed.js"
 import { providerAgentCatalogLoad } from "../src/providers/catalog/providerAgentCatalogLoad.js"
 import { managedDatabaseConsumersStop } from "./managedDatabaseConsumersStop.js"
+import { managedDatabaseResetLockRun } from "./managedDatabaseResetLockRun.js"
 import { managedPostgresServiceEnsure } from "./managedPostgresServiceEnsure.js"
 import { managedPostgresTargetAssert } from "./managedPostgresTargetAssert.js"
 
@@ -29,6 +30,19 @@ if (organizationExternalId === undefined || organizationExternalId.trim().length
 }
 
 const reset = Bun.argv.includes("--reset")
+
+if (reset && Bun.env.CODELINE_MANAGED_DATABASE_RESET_LOCK_HELD !== "1") {
+  const lock = await managedDatabaseResetLockRun([
+    process.execPath,
+    fileURLToPath(import.meta.url),
+    ...Bun.argv.slice(2),
+  ])
+  if (!lock.success) {
+    console.error(lock.errorMessage)
+    process.exit(1)
+  }
+  process.exit(lock.data)
+}
 
 let databaseUrl = configuredDatabaseUrl
 if (reset) {

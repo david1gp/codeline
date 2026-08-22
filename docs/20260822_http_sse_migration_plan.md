@@ -138,7 +138,7 @@ The Convex migration is partially applied: some domains route through Convex, th
 
 Build the HTTP/SSE foundation first against existing Drizzle-backed identity/auth. Then move each domain directly from Convex to Drizzle plus the new HTTP layer in one pass. Do not introduce dual writes. Keep the application runnable after each domain cutover, and remove Zero/Convex only after equivalent behavior is verified.
 
-Current context: tasks 1 and 2 are complete; task 3 is implemented and under review. Zero and Convex remain only as temporary active-path dependencies until each replacement is runnable, after which their code and artifacts are deleted rather than migrated.
+Current context: tasks 1 through 7 are complete; task 8 is next. Zero and Convex remain only as temporary active-path dependencies until each replacement is runnable, after which their code and artifacts are deleted rather than migrated.
 
 ## Tasks
 
@@ -146,14 +146,14 @@ Current context: tasks 1 and 2 are complete; task 3 is implemented and under rev
 
 - [x] 1. Inventory every active Zero, Convex, PostgreSQL, HTTP, SSE, authentication, UI read, mutation, subscription, and stream path; create a cutover matrix and define the shared Valibot contracts.
 - [x] 2. Restore the repository-managed PostgreSQL development service under `ops/dev/`, verify all Drizzle migrations, and add deterministic reset/migrate/seed coverage without dual writes.
-- [ ] 3. Add the typed HTTP client using an injected `fetch`, shared validated contracts, canonical query keys, request coalescing, structured errors, and `Result`; remove unused `zod`.
-- [ ] 4. Add explicit representation revisions, strong ETag generation, conditional request handling, `Cache-Control`, `Vary`, compression, mutation idempotency records, and revision preconditions. Verify `200`, `304`, retry deduplication, and `412` behavior against a Drizzle-backed domain.
+- [x] 3. Add the typed HTTP client using an injected `fetch`, shared validated contracts, canonical query keys, request coalescing, structured errors, and `Result`; remove unused `zod`.
+- [x] 4. Add explicit representation revisions, strong ETag generation, conditional request handling, `Cache-Control`, `Vary`, compression, mutation idempotency records, and revision preconditions. Verify `200`, `304`, retry deduplication, and `412` behavior against a Drizzle-backed domain.
 
 ### Phase B — durable event channel
 
-- [ ] 5. Add per-user sequence-counter and event-journal tables. Implement row-locked transactional allocation, deterministic shared-resource fan-out, opaque same-user cursors, persist-before-publish behavior, delta compaction, and pruning at 12 hours, 500,000 events, or 512 MiB per user.
-- [ ] 6. Generalize the server endpoint at `GET /api/events`: one frame per event, subscribe-before-backlog, `Last-Event-ID` before `?after=`, compact lifecycle checkpoints, 15-second heartbeat, anti-buffering headers, cursor validation, explicit reset, event-size enforcement, slow-client queue limits, blocked-write timeout, and disconnect cleanup.
-- [ ] 7. Add the client feed: one `EventSource` per tab, session/run demultiplexing, ordered available-event application, revision-aware invalidation, active delta application, completion replacement through HTTP, and non-destructive reset reconciliation.
+- [x] 5. Add per-user sequence-counter and event-journal tables. Implement row-locked transactional allocation, deterministic shared-resource fan-out, opaque same-user cursors, persist-before-publish behavior, delta compaction, and pruning at 12 hours, 500,000 events, or 512 MiB per user.
+- [x] 6. Generalize the server endpoint at `GET /api/events`: one frame per event, subscribe-before-backlog, `Last-Event-ID` before `?after=`, compact lifecycle checkpoints, 15-second heartbeat, anti-buffering headers, cursor validation, explicit reset, event-size enforcement, slow-client queue limits, blocked-write timeout, and disconnect cleanup.
+- [x] 7. Add the client feed: one `EventSource` per tab, session/run demultiplexing, ordered available-event application, revision-aware invalidation, active delta application, completion replacement through HTTP, and non-destructive reset reconciliation.
 
 ### Phase C — sessions and runs
 

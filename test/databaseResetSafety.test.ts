@@ -6,6 +6,7 @@ const packageJson = JSON.parse(await Bun.file(new URL("../package.json", import.
 }
 const resetScript = await Bun.file(new URL("../scripts/dbReset.ts", import.meta.url)).text()
 const seedScript = await Bun.file(new URL("../scripts/dbSeed.ts", import.meta.url)).text()
+const resetLockScript = await Bun.file(new URL("../scripts/managedDatabaseResetLockRun.ts", import.meta.url)).text()
 const consumersScript = await Bun.file(new URL("../scripts/managedDatabaseConsumersStop.ts", import.meta.url)).text()
 const serviceScript = await Bun.file(new URL("../scripts/managedPostgresServiceEnsure.ts", import.meta.url)).text()
 const developmentScript = await Bun.file(new URL("../ops/dev/codeline-dev.sh", import.meta.url)).text()
@@ -43,10 +44,24 @@ test("direct reset and reset-seed use the validated target after consumer stop a
   expect(seedScript).toContain("postgres(databaseUrl)")
 
   expect(packageJson.scripts["db:reset"]).toBe("bun scripts/dbReset.ts")
-  expect(packageJson.scripts["db:reset-seed"]).toBe(
-    "bun run db:reset && bun run db:migrate && bun scripts/dbSeed.ts --reset",
-  )
+  expect(packageJson.scripts["db:seed"]).toContain("bun scripts/managedDatabaseResetLockRun.ts --")
+  expect(packageJson.scripts["db:seed"]).toContain("bun run db:migrate")
+  expect(packageJson.scripts["db:seed"]).toContain('bun scripts/dbSeed.ts \"$@\"')
+  expect(packageJson.scripts["db:reset-seed"]).toContain("bun scripts/managedDatabaseResetLockRun.ts --")
+  expect(packageJson.scripts["db:reset-seed"]).toContain("bun run db:migrate")
+  expect(packageJson.scripts["db:reset-seed"]).toContain("bun scripts/dbSeed.ts --reset")
   expect(packageJson.scripts["db:migrate"]).toBe("drizzle-kit migrate --config drizzle.config.ts")
+})
+
+test("reset workflows use a nonblocking managed-database lock", () => {
+  expect(resetLockScript).toContain("managedPostgresTargetAssert()")
+  expect(resetLockScript).toContain("databaseTarget.hostname")
+  expect(resetLockScript).toContain('"--nonblock"')
+  expect(resetLockScript).toContain('"--conflict-exit-code"')
+  expect(resetLockScript).toContain("Another managed database reset/bootstrap command")
+  expect(resetLockScript).toContain("CODELINE_MANAGED_DATABASE_RESET_LOCK_HELD")
+  expect(resetScript).toContain("managedDatabaseResetLockRun(")
+  expect(seedScript).toContain("managedDatabaseResetLockRun(")
 })
 
 test("managed reset workflow starts and verifies PostgreSQL without enabling the full target", () => {

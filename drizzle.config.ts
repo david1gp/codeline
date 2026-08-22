@@ -14,6 +14,7 @@ migrationDatabaseUrl.searchParams.set("options", `-c codeline.organization_exter
 export default defineConfig({
   dialect: "postgresql",
   schema: [
+    "./src/api/db/*Table.ts",
     "./src/identity/db/*Table.ts",
     "./src/servers/db/*Table.ts",
     "./src/agents/db/*Table.ts",
@@ -22,6 +23,7 @@ export default defineConfig({
     "./src/note/db/*Table.ts",
     "./src/run/db/*Table.ts",
     "./src/stream/db/*Table.ts",
+    "./src/journal/db/*Table.ts",
   ],
   out: "./src/database/migrations",
   dbCredentials: {

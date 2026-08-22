@@ -1,5 +1,7 @@
+import { fileURLToPath } from "node:url"
 import postgres from "postgres"
 import { managedDatabaseConsumersStop } from "./managedDatabaseConsumersStop.js"
+import { managedDatabaseResetLockRun } from "./managedDatabaseResetLockRun.js"
 import { managedPostgresServiceEnsure } from "./managedPostgresServiceEnsure.js"
 import { managedPostgresTargetAssert } from "./managedPostgresTargetAssert.js"
 
@@ -7,6 +9,15 @@ const argumentsList = Bun.argv.slice(2)
 if (argumentsList.length > 0) {
   console.error("Usage: bun scripts/dbReset.ts")
   process.exit(1)
+}
+
+if (Bun.env.CODELINE_MANAGED_DATABASE_RESET_LOCK_HELD !== "1") {
+  const lock = await managedDatabaseResetLockRun([process.execPath, fileURLToPath(import.meta.url), ...argumentsList])
+  if (!lock.success) {
+    console.error(lock.errorMessage)
+    process.exit(1)
+  }
+  process.exit(lock.data)
 }
 
 const target = managedPostgresTargetAssert()
