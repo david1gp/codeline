@@ -1,0 +1,27 @@
+# Repository-managed PostgreSQL for Codeline development.
+# Quadlet generates codeline-dev-postgres.service from this file.
+[Unit]
+Description=Codeline development PostgreSQL (Podman Quadlet)
+After=network-online.target
+Wants=network-online.target
+PartOf=codeline-dev.target
+
+[Container]
+ContainerName=codeline-dev-postgres
+Image=postgres:18-alpine
+EnvironmentFile=%h/codeline/.env
+PublishPort=127.0.0.1:6002:5432
+Volume=codeline-dev-postgres.volume:/var/lib/postgresql
+Exec=postgres -c wal_level=logical -c max_replication_slots=10 -c max_wal_senders=10 -c search_path=public
+Notify=healthy
+HealthCmd=pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+HealthInterval=5s
+HealthTimeout=5s
+HealthRetries=12
+
+[Service]
+Restart=always
+RestartSec=2s
+
+[Install]
+WantedBy=codeline-dev.target

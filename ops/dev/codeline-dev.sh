@@ -13,7 +13,6 @@ fail() {
 }
 
 [[ -f "$env_file" ]] || fail "missing $env_file; copy .env.example to .env first"
-[[ -f "$docker_env_file" ]] || fail "missing $docker_env_file; copy ops/dev/convex/env.docker.example first"
 
 declare -A loaded_env
 
@@ -44,6 +43,16 @@ require_loaded() {
   [[ -n "${loaded_env[$name]:-}" ]] || fail "$name is required in $2"
 }
 
+validate_database_environment() {
+  load_env_file "$env_file"
+  local name
+  for name in NODE_ENV DATABASE_URL POSTGRES_DB POSTGRES_PASSWORD POSTGRES_PORT POSTGRES_USER CONFIG_STORE_DIR ZITADEL_ORGANIZATION_ID; do
+    require_loaded "$name" "$env_file"
+  done
+  [[ "${loaded_env[NODE_ENV]}" == development ]] || fail "NODE_ENV must be development"
+  [[ "${loaded_env[POSTGRES_PORT]}" == 6002 ]] || fail "POSTGRES_PORT must equal 6002 for the managed development service"
+}
+
 validate_public_origin() {
   local public_origin=${loaded_env[PUBLIC_ORIGIN]%/}
   [[ "$public_origin" =~ ^https?://[^/]+$ ]] || fail "PUBLIC_ORIGIN must be an absolute origin without a path"
@@ -60,6 +69,7 @@ validate_public_origin() {
   [[ "${loaded_env[CONVEX_SELF_HOSTED_URL]}" == "$expected_convex_url" ]] ||
     fail "CONVEX_SELF_HOSTED_URL must equal $expected_convex_url (the preview Convex route)"
 
+  [[ -f "$docker_env_file" ]] || fail "missing $docker_env_file; copy ops/dev/convex/env.docker.example first"
   load_env_file "$docker_env_file"
   local name
   for name in CONVEX_CLOUD_ORIGIN CONVEX_SITE_ORIGIN NEXT_PUBLIC_DEPLOYMENT_URL INSTANCE_NAME INSTANCE_SECRET DISABLE_BEACON; do
@@ -113,18 +123,20 @@ Usage: ops/dev/codeline-dev.sh <command> [args]
 
 Commands:
   config            Validate Convex deployment and preview-origin configuration.
-  down              Stop the managed Convex-only target, keeping data.
+  db-reset          Reset the local PostgreSQL public schema.
+  db-reset-seed     Reset, migrate, and seed deterministic PostgreSQL fixtures.
+  down              Stop the managed development target, keeping data.
   help              Show this help.
   install           Install definitions only; never enables or starts them.
   logs [unit]       Show user-systemd logs for the target or one service.
   remove            Remove repository-managed user-unit links only.
-  reset             Stop the target and delete the persistent Convex volume.
-  start             Start the managed Convex-only target.
-  status            Show target, Convex, API, and UI service status.
-  stop              Stop the managed Convex-only target.
+  reset             Stop the target and reset, migrate, and seed PostgreSQL.
+  start             Start the managed development target.
+  status            Show target, PostgreSQL, Convex, API, and UI status.
+  stop              Stop the managed development target.
   up                Alias for start.
   validate          Validate environment without contacting a service.
-  wait <service>    Wait for convex-backend, convex-dashboard, api, or ui.
+  wait <service>    Wait for postgres, convex-backend, convex-dashboard, api, or ui.
 EOF
 }
 
@@ -132,6 +144,14 @@ case "${1:-help}" in
   config|validate)
     validate_environment
     printf 'codeline-dev: environment is valid\n'
+    ;;
+  db-reset)
+    validate_database_environment
+    (cd "$root" && bun run db:reset)
+    ;;
+  db-reset-seed)
+    validate_database_environment
+    (cd "$root" && bun run db:reset-seed)
     ;;
   down|stop)
     validate_environment
@@ -147,9 +167,8 @@ case "${1:-help}" in
   remove) bash "$root/ops/dev/systemd/install.sh" remove ;;
   reset)
     validate_environment
-    systemctl_user stop "$target_unit" 2>/dev/null || true
-    command -v podman >/dev/null 2>&1 || fail 'podman is required to reset Convex data'
-    podman volume rm --force codeline-convex-data >/dev/null 2>&1 || true
+    validate_database_environment
+    (cd "$root" && bun run db:reset-seed)
     ;;
   start|up)
     validate_environment
@@ -157,18 +176,26 @@ case "${1:-help}" in
     ;;
   status)
     validate_environment
-    systemctl_user status "$target_unit" codeline-convex-backend.service codeline-convex-dashboard.service \
+    systemctl_user status "$target_unit" codeline-dev-postgres.service codeline-convex-backend.service codeline-convex-dashboard.service \
       codeline-convex-dev.service codeline-dev-api.service codeline-dev-ui.service --no-pager
     ;;
   wait)
-    validate_environment
     service=${2:-}
     case "$service" in
-      convex-backend) curl_wait "$service" http://127.0.0.1:3210/version ;;
-      convex-dashboard) curl_wait "$service" http://127.0.0.1:6791/ ;;
-      api) curl_wait "$service" "http://127.0.0.1:${loaded_env[PORT]}/api/ready" ;;
-      ui) curl_wait "$service" "http://127.0.0.1:${loaded_env[UI_PORT]}/" ;;
-      *) fail 'usage: ops/dev/codeline-dev.sh wait {convex-backend|convex-dashboard|api|ui}' ;;
+      postgres)
+        validate_database_environment
+        systemctl_user start codeline-dev-postgres.service
+        ;;
+      convex-backend|convex-dashboard|api|ui)
+        validate_environment
+        case "$service" in
+          convex-backend) curl_wait "$service" http://127.0.0.1:3210/version ;;
+          convex-dashboard) curl_wait "$service" http://127.0.0.1:6791/ ;;
+          api) curl_wait "$service" "http://127.0.0.1:${loaded_env[PORT]}/api/ready" ;;
+          ui) curl_wait "$service" "http://127.0.0.1:${loaded_env[UI_PORT]}/" ;;
+        esac
+        ;;
+      *) fail 'usage: ops/dev/codeline-dev.sh wait {postgres|convex-backend|convex-dashboard|api|ui}' ;;
     esac
     ;;
   *) usage >&2; exit 2 ;;

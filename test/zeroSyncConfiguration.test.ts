@@ -15,6 +15,12 @@ const convexDataVolumeDefinition = await Bun.file(
 const convexDeploymentService = await Bun.file(
   new URL("../ops/dev/systemd/codeline-convex-dev.service", import.meta.url),
 ).text()
+const postgresDefinition = await Bun.file(
+  new URL("../ops/dev/postgres/codeline-dev-postgres.container", import.meta.url),
+).text()
+const postgresVolumeDefinition = await Bun.file(
+  new URL("../ops/dev/postgres/codeline-dev-postgres.volume", import.meta.url),
+).text()
 const apiService = await Bun.file(new URL("../ops/dev/systemd/codeline-dev-api.service", import.meta.url)).text()
 const uiService = await Bun.file(new URL("../ops/dev/systemd/codeline-dev-ui.service", import.meta.url)).text()
 const developmentTarget = await Bun.file(new URL("../ops/dev/systemd/codeline-dev.target", import.meta.url)).text()
@@ -26,6 +32,8 @@ const managedDefinitions = [
   convexDashboardDefinition,
   convexDataVolumeDefinition,
   convexDeploymentService,
+  postgresDefinition,
+  postgresVolumeDefinition,
   apiService,
   uiService,
   developmentTarget,
@@ -43,8 +51,8 @@ function dockerEnvironmentValue(name: string): string | undefined {
   return line?.slice(name.length + 1)
 }
 
-test("managed development definitions are Convex-only", () => {
-  expect(developmentTarget).toContain("Description=Codeline Convex-only development stack")
+test("managed development definitions retain Convex and PostgreSQL services", () => {
+  expect(developmentTarget).toContain("Description=Codeline development stack")
   for (const unit of [
     "codeline-convex-backend.service",
     "codeline-convex-dashboard.service",
@@ -63,9 +71,14 @@ test("managed development definitions are Convex-only", () => {
   expect(convexDataVolumeDefinition).toContain("VolumeName=codeline-convex-data")
   expect(convexDeploymentService).toContain("Requires=codeline-convex-backend.service")
   expect(convexDeploymentService).toContain("ExecStart=/usr/bin/env bun run convex dev --env-file=.env")
-  expect(apiService).toContain("Requires=codeline-convex-dev.service")
+  expect(postgresDefinition).toContain("PublishPort=127.0.0.1:6002:5432")
+  expect(postgresDefinition).toContain("Notify=healthy")
+  expect(postgresDefinition).toContain('HealthCmd=pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"')
+  expect(postgresDefinition).toContain("WantedBy=codeline-dev.target")
+  expect(postgresVolumeDefinition).toContain("VolumeName=codeline-dev-postgres")
+  expect(apiService).toContain("Requires=codeline-dev-postgres.service codeline-convex-dev.service")
   expect(uiService).toContain("Requires=codeline-dev-api.service")
-  expect(managedDefinitions).not.toMatch(/postgres|zero/i)
+  expect(managedDefinitions).toMatch(/postgres/i)
 })
 
 test("the installer only links definitions and reloads systemd", () => {
@@ -114,5 +127,5 @@ test("legacy PostgreSQL and Zero managed topology is absent", async () => {
   for (const path of legacyManagedPaths) {
     expect(await Bun.file(new URL(path, import.meta.url)).exists()).toBe(false)
   }
-  expect(managedDefinitions).not.toMatch(/postgres|zero|POSTGRES_|ZERO_/i)
+  expect(managedDefinitions).not.toMatch(/codeline-dev-zero|codeline-dev-postgres\.service\.in|ZERO_/i)
 })

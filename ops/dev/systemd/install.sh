@@ -27,6 +27,10 @@ install_units() {
     ln -sf "$script_dir/$unit" "$unit_dir/$unit"
     printf 'linked %s\n' "$unit"
   done
+  for quadlet in codeline-dev-postgres.container codeline-dev-postgres.volume; do
+    ln -sf "$root/ops/dev/postgres/$quadlet" "$quadlet_dir/$quadlet"
+    printf 'linked %s\n' "$quadlet"
+  done
   for quadlet in codeline-convex-backend.container codeline-convex-dashboard.container codeline-convex-data.volume; do
     ln -sf "$root/ops/dev/convex/$quadlet" "$quadlet_dir/$quadlet"
     printf 'linked %s\n' "$quadlet"
@@ -41,6 +45,9 @@ remove_units() {
   local unit quadlet
   for unit in codeline-convex-dev.service codeline-dev-api.service codeline-dev-ui.service codeline-dev.target; do
     rm -f "$unit_dir/$unit"
+  done
+  for quadlet in codeline-dev-postgres.container codeline-dev-postgres.volume; do
+    rm -f "$quadlet_dir/$quadlet"
   done
   for quadlet in codeline-convex-backend.container codeline-convex-dashboard.container codeline-convex-data.volume; do
     rm -f "$quadlet_dir/$quadlet"

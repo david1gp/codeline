@@ -160,7 +160,7 @@ cp ops/dev/convex/env.docker.example ops/dev/convex/.env.docker
 ./ops/dev/codeline-dev.sh validate
 ```
 
-The Convex-only managed stack is intentionally prepared but offline during the migration. Do not install, enable, or start its units until the Convex application cutover is complete.
+The managed development stack includes the repository-owned PostgreSQL service and the currently required Convex, API, and UI services. Use the wrapper below for lifecycle and database operations; do not start replacement services outside the managed units.
 
 ### ZITADEL organization access
 
@@ -176,7 +176,7 @@ For example, configure multiple roots with:
 CODELINE_PROJECT_ROOTS=["./projects","../shared-projects"]
 ```
 
-The replacement services use host-local listeners: UI `127.0.0.1:6000`, API `127.0.0.1:6001`, Convex backend `127.0.0.1:3210`, Convex site `127.0.0.1:3211`, and Convex dashboard `127.0.0.1:6791`. The persistent backend volume is `codeline-convex-data`; the Vite server proxies `/api` to `http://127.0.0.1:6001`.
+The managed services use host-local listeners: PostgreSQL `127.0.0.1:6002`, UI `127.0.0.1:6000`, API `127.0.0.1:6001`, Convex backend `127.0.0.1:3210`, Convex site `127.0.0.1:3211`, and Convex dashboard `127.0.0.1:6791`. PostgreSQL persists in the repository-managed `codeline-dev-postgres` volume and Convex persists in `codeline-convex-data`; the Vite server proxies `/api` to `http://127.0.0.1:6001`.
 
 The self-hosted Convex backend persists `/convex/data` and reports readiness from `/version`; the dashboard waits for a healthy backend and reports readiness from `/`. `ops/dev/caddy/Caddyfile` contains the preview routes for the UI, Convex backend, site, and dashboard. Register those routes through the host project-registry during cutover; this repository does not reload Caddy.
 
@@ -217,20 +217,21 @@ Service lifecycle:
 ```bash
 ./ops/dev/codeline-dev.sh validate
 ./ops/dev/codeline-dev.sh install
-systemctl --user enable --now codeline-dev.target
+./ops/dev/codeline-dev.sh start
+./ops/dev/codeline-dev.sh wait postgres
 ./ops/dev/codeline-dev.sh status
-./ops/dev/codeline-dev.sh logs codeline-convex-backend.service
+./ops/dev/codeline-dev.sh logs codeline-dev-postgres.service
 ./ops/dev/codeline-dev.sh stop
-./ops/dev/codeline-dev.sh reset
+./ops/dev/codeline-dev.sh db-reset-seed
 ./ops/dev/codeline-dev.sh remove
 ```
 
-`install` only links the repository-managed user units and Quadlets and reloads user systemd; it does not enable or start anything. `stop`/`down` stop the target while retaining data. `reset` stops the target and deletes only `codeline-convex-data`. The final cutover, not this preparation step, enables and starts `codeline-dev.target`.
+`install` only links the repository-managed user units and Quadlets and reloads user systemd; it does not enable or start anything. `start` starts the managed target. `stop`/`down` stop the target while retaining data. `db-reset-seed` stops and verifies the managed database consumers, resets PostgreSQL schemas, runs Drizzle migrations, and seeds deterministic fixtures. `reset` is an alias for that full PostgreSQL reset workflow.
 
 ```bash
-./ops/dev/codeline-dev.sh migrate
+bun run db:migrate
 bun run db:generate
-./ops/dev/codeline-dev.sh migrate
+bun run db:migrate
 ```
 
 Seed deterministic local example data through the repository-owned command. It applies Drizzle migrations first, reconciles the Contentoren organization from `ZITADEL_ORGANIZATION_ID`, assigns two stable servers to it, keeps the local-development user for private fixture sessions and messages, and reconciles catalog provider models and agents from `providers/` and `agents/` into the Git-backed configuration store under `example-server-local`. Repeated default runs preserve unrelated rows; `--reset` removes and recreates only the known fixture-owned rows.
@@ -240,14 +241,14 @@ bun run db:seed
 bun run db:seed -- --reset
 ```
 
-The target starts the self-hosted Convex backend and dashboard, then the Convex function deployer, Bun/Hono API, and Vite UI. It waits for backend/dashboard health, API readiness at `/api/ready`, and the UI root; Vite's strict port check makes a UI port conflict fail the managed UI unit. The services load ignored environment files, run from the stable `~/codeline` checkout link, and restart on failure. It uses the user's default rootless Podman storage and does not create Codeline-specific `/tmp` or `--root`/`--runroot` paths.
+The target starts repository-managed PostgreSQL, the self-hosted Convex backend and dashboard, then the Convex function deployer, Bun/Hono API, and Vite UI. It waits for backend/dashboard health, API readiness at `/api/ready`, and the UI root; Vite's strict port check makes a UI port conflict fail the managed UI unit. The services load ignored environment files, run from the stable `~/codeline` checkout link, and restart on failure. It uses the user's default rootless Podman storage and does not create Codeline-specific `/tmp` or `--root`/`--runroot` paths.
 
 Troubleshooting:
 
 - If configuration validation reports a missing variable, ensure `.env` exists and contains the required names from `.env.example`. The wrapper reports names only, never values.
 - If Quadlet support is unavailable, install/configure the Podman systemd generator before the final cutover; no replacement service should be started as a workaround.
 - If a managed host port is busy, fix the conflicting service before cutover. Preview routing expects `preview.codeline.work`, `convex.preview.codeline.work`, `api.preview.codeline.work`, and `dash.preview.codeline.work` to map to the ports in `ops/dev/caddy/Caddyfile`.
-- Inspect `./ops/dev/codeline-dev.sh logs codeline-convex-backend.service` and the corresponding dashboard, deployer, API, or UI unit for diagnostics.
+- Inspect `./ops/dev/codeline-dev.sh logs codeline-dev-postgres.service` and the corresponding Convex backend, dashboard, deployer, API, or UI unit for diagnostics.
 
 Example route checks:
 
@@ -262,7 +263,7 @@ curl -N 'http://127.0.0.1:6001/api/testing/stream?scenario=normal'
 
 ## End-to-end tests
 
-Browser verification remains deferred until the Convex application cutover. Do not activate the prepared target or run browser tests as part of this operations-only step.
+Browser verification is outside this operations-only step. Do not replace the managed services or start ad-hoc development servers while verifying them.
 
 The run mutates local development data. It creates two run-unique synthetic organization members, their identity sessions, and one conversation per member through the regular API, then deletes those users again in a teardown that also runs after a failed assertion; the cascading delete removes the generated memberships, identity sessions, conversations, messages, runs, notes, and stream rows. Seeded example data is untouched, and repeated runs stay independent because every run uses a fresh identifier.
 

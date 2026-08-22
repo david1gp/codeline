@@ -1,8 +1,8 @@
 [Unit]
 Description=Codeline development API
-After=network-online.target codeline-convex-dev.service
+After=network-online.target codeline-dev-postgres.service codeline-convex-dev.service
 Wants=network-online.target
-Requires=codeline-convex-dev.service
+Requires=codeline-dev-postgres.service codeline-convex-dev.service
 PartOf=codeline-dev.target
 
 [Service]
