@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
+import { randomBytes } from "node:crypto"
 import { createResult } from "@adaptive-ds/result"
 import { and, eq } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/postgres-js"
@@ -12,10 +13,11 @@ import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentit
 import { identitySessionTable } from "../src/identity/db/identitySessionTable.js"
 import { organizationMemberTable } from "../src/identity/db/organizationMemberTable.js"
 import { organizationTable } from "../src/identity/db/organizationTable.js"
-import { sessionChatAdapterCreate } from "../src/session/actions/sessionChatAdapterCreate.js"
+import { journalCursorCodecCreate } from "../src/journal/actions/journalCursorCodecCreate.js"
+import { messageTable } from "../src/message/db/messageTable.js"
 import { runTable } from "../src/run/db/runTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
-import { messageTable } from "../src/message/db/messageTable.js"
+import { sessionChatAdapterCreate } from "../src/session/actions/sessionChatAdapterCreate.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
 
@@ -50,9 +52,12 @@ const configuration = {
   oidcOrganizationId: fixture.organizationId,
   publicOrigin: "https://codeline.test",
 }
+const journalCursorCodec = journalCursorCodecCreate({ randomBytes, secret: `session-organization-${uuidv7()}` })
+if (!journalCursorCodec.success) throw new Error(journalCursorCodec.errorMessage)
 const app = appCreate({
   configuration,
   database,
+  journalCursorCodec: journalCursorCodec.data,
   identitySessionLoad: async () => createResult(identitySession),
   sessionChatAdapter: sessionChatAdapterCreate,
 })

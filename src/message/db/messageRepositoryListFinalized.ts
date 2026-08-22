@@ -1,82 +1,118 @@
-import { createResult, createResultError, type Result } from "@adaptive-ds/result"
-import * as v from "valibot"
+import { createResult, createResultError, createResultErrorCode, type Result } from "@adaptive-ds/result"
 import { and, asc, eq, gt, isNotNull, or } from "drizzle-orm"
-import type { DatabaseExecutor } from "../../database/databaseClient.js"
-import { messageTable } from "./messageTable.js"
+import * as v from "valibot"
+import type { DatabaseClient } from "../../database/databaseClient.js"
+import type { JournalCursorCodec } from "../../journal/actions/journalCursorCodecCreate.js"
+import { journalSequenceCounterTable } from "../../journal/db/journalSequenceCounterTable.js"
+import { serverTable } from "../../servers/db/serverTable.js"
 import { sessionTable } from "../../session/db/sessionTable.js"
+import { type MessageListRequest, messageListRequestSchema } from "../api/messageListRequestSchema.js"
+import { messageListCursorCodecCreate } from "./messageListCursorCodecCreate.js"
+import { messageTable } from "./messageTable.js"
 
-const messageCursorSchema = v.object({
-  id: v.pipe(v.string(), v.minLength(1)),
-  sequence: v.pipe(v.number(), v.integer(), v.minValue(0)),
-})
-
-type MessageCursor = v.InferOutput<typeof messageCursorSchema>
-
-function messageCursorDecode(cursor: string | undefined): Result<MessageCursor | undefined> {
-  const op = "messageCursorDecode"
-  if (cursor === undefined) return createResult(undefined)
-
-  try {
-    const decoded = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as unknown
-    const parsed = v.safeParse(messageCursorSchema, decoded)
-    if (!parsed.success) return createResultError(op, "The message list cursor is invalid.")
-    return createResult(parsed.output)
-  } catch (_error) {
-    return createResultError(op, "The message list cursor is invalid.")
-  }
-}
-
-function messageCursorEncode(cursor: MessageCursor): string {
-  return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url")
+type MessageRepositoryListFinalizedDependencies = {
+  cursorCodec: Pick<JournalCursorCodec, "encodeDeterministic">
 }
 
 export async function messageRepositoryListFinalized(
-  database: DatabaseExecutor,
+  database: DatabaseClient,
   userId: string,
+  organizationId: string,
   sessionId: string,
-  options: { cursor?: string; limit: number },
-): Promise<Result<{ messages: Array<typeof messageTable.$inferSelect>; nextCursor: string | null }>> {
+  options: MessageListRequest,
+  dependencies: MessageRepositoryListFinalizedDependencies,
+): Promise<
+  Result<{
+    asOfCursor: string
+    hasMore: boolean
+    messages: Array<typeof messageTable.$inferSelect>
+    nextCursor: string | null
+    revision: number
+  }>
+> {
   const op = "messageRepositoryListFinalized"
-  const decodedCursor = messageCursorDecode(options.cursor)
+  const parsedOptions = v.safeParse(messageListRequestSchema, options)
+  if (!parsedOptions.success) return createResultError(op, "The message list request is invalid.")
+
+  const cursorCodec = messageListCursorCodecCreate()
+  const decodedCursor = cursorCodec.decode(parsedOptions.output.cursor)
   if (!decodedCursor.success) return decodedCursor
+  if (decodedCursor.data !== undefined && decodedCursor.data.sessionId !== sessionId)
+    return createResultError(op, "The message list cursor is invalid.")
 
   try {
-    const [session] = await database
-      .select({ id: sessionTable.id })
-      .from(sessionTable)
-      .where(and(eq(sessionTable.id, sessionId), eq(sessionTable.userId, userId)))
-      .limit(1)
-    if (session === undefined) return createResultError(op, "The session could not be found.")
+    return await database.transaction(
+      async (transaction) => {
+        const [session] = await transaction
+          .select({ id: sessionTable.id, revision: sessionTable.revision })
+          .from(sessionTable)
+          .innerJoin(serverTable, eq(sessionTable.serverId, serverTable.id))
+          .where(
+            and(
+              eq(sessionTable.id, sessionId),
+              eq(sessionTable.userId, userId),
+              eq(serverTable.organizationId, organizationId),
+            ),
+          )
+          .limit(1)
+        if (session === undefined) return createResultError(op, "The session could not be found.")
 
-    const conditions = [
-      eq(messageTable.sessionId, sessionId),
-      eq(sessionTable.userId, userId),
-      isNotNull(messageTable.finalizedAt),
-    ]
-    if (decodedCursor.data !== undefined) {
-      const cursorCondition = or(
-        gt(messageTable.sequence, decodedCursor.data.sequence),
-        and(eq(messageTable.sequence, decodedCursor.data.sequence), gt(messageTable.id, decodedCursor.data.id)),
-      )
-      if (cursorCondition !== undefined) conditions.push(cursorCondition)
-    }
+        const [counter] = await transaction
+          .select({ nextSequence: journalSequenceCounterTable.nextSequence })
+          .from(journalSequenceCounterTable)
+          .where(eq(journalSequenceCounterTable.userId, userId))
+          .limit(1)
+        const highestSequence = counter?.nextSequence === undefined ? 0 : counter.nextSequence - 1
+        if (!Number.isSafeInteger(highestSequence) || highestSequence < 0)
+          return createResultErrorCode(
+            op,
+            "The authenticated user's journal counter is invalid.",
+            "journal_unavailable",
+          )
+        const asOfCursor = dependencies.cursorCodec.encodeDeterministic(userId, highestSequence)
+        if (!asOfCursor.success) return createResultError(op, asOfCursor.errorMessage)
 
-    const rows = await database
-      .select({ message: messageTable })
-      .from(messageTable)
-      .innerJoin(sessionTable, eq(messageTable.sessionId, sessionTable.id))
-      .where(and(...conditions))
-      .orderBy(asc(messageTable.sequence), asc(messageTable.id))
-      .limit(options.limit + 1)
+        const conditions = [
+          eq(messageTable.sessionId, sessionId),
+          eq(sessionTable.userId, userId),
+          eq(serverTable.organizationId, organizationId),
+          isNotNull(messageTable.finalizedAt),
+        ]
+        if (decodedCursor.data !== undefined) {
+          const cursorCondition = or(
+            gt(messageTable.sequence, decodedCursor.data.sequence),
+            and(eq(messageTable.sequence, decodedCursor.data.sequence), gt(messageTable.id, decodedCursor.data.id)),
+          )
+          if (cursorCondition !== undefined) conditions.push(cursorCondition)
+        }
 
-    const page = rows.slice(0, options.limit).map((row) => row.message)
-    const last = page.at(-1)
-    const nextCursor =
-      rows.length > options.limit && last !== undefined
-        ? messageCursorEncode({ id: last.id, sequence: last.sequence })
-        : null
+        const rows = await transaction
+          .select({ message: messageTable })
+          .from(messageTable)
+          .innerJoin(sessionTable, eq(messageTable.sessionId, sessionTable.id))
+          .innerJoin(serverTable, eq(sessionTable.serverId, serverTable.id))
+          .where(and(...conditions))
+          .orderBy(asc(messageTable.sequence), asc(messageTable.id))
+          .limit(parsedOptions.output.limit + 1)
 
-    return createResult({ messages: page, nextCursor })
+        const hasMore = rows.length > parsedOptions.output.limit
+        const page = rows.slice(0, parsedOptions.output.limit).map((row) => row.message)
+        const last = page.at(-1)
+        const nextCursor =
+          hasMore && last !== undefined
+            ? cursorCodec.encode({ id: last.id, sequence: last.sequence, sessionId, version: 1 })
+            : null
+
+        return createResult({
+          asOfCursor: asOfCursor.data,
+          hasMore,
+          messages: page,
+          nextCursor,
+          revision: session.revision,
+        })
+      },
+      { accessMode: "read only", isolationLevel: "repeatable read" },
+    )
   } catch (_error) {
     return createResultError(op, "The finalized messages could not be loaded.")
   }

@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
+import { createResult } from "@adaptive-ds/result"
 import { and, asc, eq } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/postgres-js"
 import { Hono } from "hono"
@@ -18,6 +19,7 @@ import { sessionArchive } from "../src/session/actions/sessionArchive.js"
 import { sessionBranch } from "../src/session/actions/sessionBranch.js"
 import { sessionCreate } from "../src/session/actions/sessionCreate.js"
 import { apiSessionBranchRoutesAdd } from "../src/session/api/apiSessionBranchRoutesAdd.js"
+import { sessionJournalRecipientResolverCreate } from "../src/session/db/sessionJournalRecipientResolverCreate.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
 
@@ -33,6 +35,12 @@ let developmentUser: ApplicationUser | undefined
 let sourceSessionId: string | undefined
 let selectedMessageId: string | undefined
 const app = new Hono<AppEnvironment>()
+
+test("requires authenticated session database and journal publisher at construction", () => {
+  expect(() => apiSessionBranchRoutesAdd(new Hono<AppEnvironment>(), {} as never)).toThrow(
+    "The authenticated session database is required.",
+  )
+})
 
 beforeAll(async () => {
   if (!databaseAvailable) return
@@ -100,7 +108,10 @@ beforeAll(async () => {
     context.set("requestIdentity", { organizationId: developmentUser.id, userId: developmentUser.id })
     await next()
   })
-  apiSessionBranchRoutesAdd(app)
+  apiSessionBranchRoutesAdd(app, {
+    database,
+    journalPostCommitPublish: async () => createResult(undefined),
+  })
 })
 
 afterAll(async () => {
@@ -157,6 +168,82 @@ test.skipIf(!databaseAvailable)("does not branch a session for another owner", a
     },
   )
   expect(unauthorized).toMatchObject({ success: false, errorMessage: "The session could not be found." })
+})
+
+test.skipIf(!databaseAvailable)("denies branch journal recipients when the source organization changes", async () => {
+  if (developmentUser === undefined || sourceSessionId === undefined || selectedMessageId === undefined) return
+
+  const otherOrganizationId = `session-branch-denied-organization-${uuidv7()}`
+  await database.insert(organizationTable).values({
+    externalId: otherOrganizationId,
+    id: otherOrganizationId,
+    name: "Session Branch Denied Organization",
+  })
+  await database
+    .update(serverTable)
+    .set({ organizationId: otherOrganizationId })
+    .where(eq(serverTable.id, fixture.serverId))
+  const denied = await app.request(`http://codeline.test/sessions/${sourceSessionId}/branch`, {
+    body: JSON.stringify({
+      clientRequestId: `session-branch-denied-${uuidv7()}`,
+      messageId: selectedMessageId,
+    }),
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+  })
+  expect(denied.status).toBe(404)
+  await database
+    .update(serverTable)
+    .set({ organizationId: developmentUser.id })
+    .where(eq(serverTable.id, fixture.serverId))
+  await database.delete(organizationTable).where(eq(organizationTable.id, otherOrganizationId))
+})
+
+test.skipIf(!databaseAvailable)("denies create journal recipients outside the transaction organization", async () => {
+  if (developmentUser === undefined) return
+  const otherOrganizationId = `session-create-denied-organization-${uuidv7()}`
+  await database.insert(organizationTable).values({
+    externalId: otherOrganizationId,
+    id: otherOrganizationId,
+    name: "Session Create Denied Organization",
+  })
+  await database
+    .update(serverTable)
+    .set({ organizationId: otherOrganizationId })
+    .where(eq(serverTable.id, fixture.serverId))
+
+  const denied = await sessionCreate(
+    database,
+    developmentUser.id,
+    {
+      clientRequestId: `session-create-denied-${uuidv7()}`,
+      metadata: {},
+      primaryAgentId: fixture.agentId,
+      serverId: fixture.serverId,
+      title: "Denied create",
+    },
+    {
+      journal: {
+        postCommitPublish: async () => createResult(undefined),
+        resolveRecipients: sessionJournalRecipientResolverCreate({
+          organizationId: developmentUser.id,
+          pendingSessionAuthorization: {
+            primaryAgentId: fixture.agentId,
+            serverId: fixture.serverId,
+            userId: developmentUser.id,
+          },
+        }),
+      },
+      organizationId: developmentUser.id,
+    },
+  )
+  expect(denied).toMatchObject({ success: false })
+
+  await database
+    .update(serverTable)
+    .set({ organizationId: developmentUser.id })
+    .where(eq(serverTable.id, fixture.serverId))
+  await database.delete(organizationTable).where(eq(organizationTable.id, otherOrganizationId))
 })
 
 test.skipIf(!databaseAvailable)("branches idempotently and rejects invalid or archived sources", async () => {
@@ -230,4 +317,42 @@ test.skipIf(!databaseAvailable)("keeps branch routes strict and independently re
     method: "POST",
   })
   expect(missingSource.status).toBe(404)
+})
+
+test.skipIf(!databaseAvailable)("does not publish a journal invalidation for an archived no-op", async () => {
+  if (developmentUser === undefined) return
+  const created = await sessionCreate(
+    database,
+    developmentUser.id,
+    {
+      clientRequestId: `session-branch-archive-no-op-${uuidv7()}`,
+      metadata: {},
+      primaryAgentId: fixture.agentId,
+      serverId: fixture.serverId,
+      title: "Archive no-op",
+    },
+    { organizationId: developmentUser.id },
+  )
+  expect(created.success).toBe(true)
+  if (!created.success) return
+
+  const published: unknown[] = []
+  const journal = {
+    postCommitPublish: async (events: readonly unknown[]) => {
+      published.push(...events)
+      return createResult(undefined)
+    },
+    resolveRecipients: sessionJournalRecipientResolverCreate({ organizationId: developmentUser.id }),
+  }
+  const archived = await sessionArchive(database, developmentUser.id, created.data.session.id, {
+    journal,
+    organizationId: developmentUser.id,
+  })
+  expect(archived).toMatchObject({ data: { changed: true }, success: true })
+  const noOp = await sessionArchive(database, developmentUser.id, created.data.session.id, {
+    journal,
+    organizationId: developmentUser.id,
+  })
+  expect(noOp).toMatchObject({ data: { changed: false }, success: true })
+  expect(published).toHaveLength(1)
 })

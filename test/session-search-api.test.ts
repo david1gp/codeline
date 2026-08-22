@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
+import { randomBytes } from "node:crypto"
 import { eq } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/postgres-js"
 import postgres from "postgres"
@@ -10,10 +11,11 @@ import { applicationUserTable } from "../src/identity/db/applicationUserTable.js
 import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
 import { organizationMemberTable } from "../src/identity/db/organizationMemberTable.js"
 import { organizationTable } from "../src/identity/db/organizationTable.js"
+import { journalCursorCodecCreate } from "../src/journal/actions/journalCursorCodecCreate.js"
 import { messageTable } from "../src/message/db/messageTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
-import { uuidv7 } from "../src/uuid/uuidv7.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
+import { uuidv7 } from "../src/uuid/uuidv7.js"
 
 const client = postgres(Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline")
 const database = drizzle(client, { schema: databaseSchema })
@@ -29,7 +31,9 @@ const configuration = {
   nodeEnv: "development" as const,
   oidcOrganizationId: userId,
 }
-const app = appCreate({ configuration, database })
+const journalCursorCodec = journalCursorCodecCreate({ randomBytes, secret: `session-search-${uuidv7()}` })
+if (!journalCursorCodec.success) throw new Error(journalCursorCodec.errorMessage)
+const app = appCreate({ configuration, database, journalCursorCodec: journalCursorCodec.data })
 
 beforeAll(async () => {
   if (!databaseAvailable) return

@@ -1,0 +1,537 @@
+import { afterAll, beforeAll, expect, test } from "bun:test"
+import { randomBytes } from "node:crypto"
+import { createResult } from "@adaptive-ds/result"
+import { eq, inArray } from "drizzle-orm"
+import { drizzle } from "drizzle-orm/postgres-js"
+import { Hono } from "hono"
+import postgres from "postgres"
+import * as v from "valibot"
+import { agentTable } from "../src/agents/db/agentTable.js"
+import type { AppEnvironment } from "../src/api/appEnvironment.js"
+import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
+import { databaseSchema } from "../src/database/databaseSchema.js"
+import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
+import { organizationTable } from "../src/identity/db/organizationTable.js"
+import { journalCursorCodecCreate } from "../src/journal/actions/journalCursorCodecCreate.js"
+import { journalSequenceCounterTable } from "../src/journal/db/journalSequenceCounterTable.js"
+import { apiMessageRoutesAdd } from "../src/message/api/apiMessageRoutesAdd.js"
+import { messageTable } from "../src/message/db/messageTable.js"
+import { runCreate } from "../src/run/actions/runCreate.js"
+import { serverTable } from "../src/servers/db/serverTable.js"
+import { sessionListSnapshot } from "../src/session/actions/sessionListSnapshot.js"
+import { sessionSettledSnapshot } from "../src/session/actions/sessionSettledSnapshot.js"
+import { apiSessionRoutesAdd } from "../src/session/api/apiSessionRoutesAdd.js"
+import { sessionRepresentationEtagCreate } from "../src/session/api/sessionRepresentationEtagCreate.js"
+import { sessionRepresentationSchemaVersion } from "../src/session/api/sessionRepresentationSchemaVersion.js"
+import { sessionSettledSnapshotResponseSchema } from "../src/session/api/sessionSettledSnapshotResponseSchema.js"
+import { sessionTable } from "../src/session/db/sessionTable.js"
+import { uuidv7 } from "../src/uuid/uuidv7.js"
+
+const client = postgres(Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline")
+const database = drizzle(client, { schema: databaseSchema })
+const databaseAvailable = await databaseReadyCheck(database).then((result) => result.success)
+const fixturePrefix = `task8-snapshot-${uuidv7()}`
+const userId = `${fixturePrefix}-user`
+const otherUserId = `${fixturePrefix}-other-user`
+const organizationId = `${fixturePrefix}-organization`
+const otherOrganizationId = `${fixturePrefix}-other-organization`
+const serverId = `${fixturePrefix}-server`
+const otherServerId = `${fixturePrefix}-other-server`
+const agentId = `${fixturePrefix}-agent`
+const otherAgentId = `${fixturePrefix}-other-agent`
+const tiedUpdatedAt = new Date("2026-08-22T12:00:00.000Z")
+const oldUpdatedAt = new Date("2026-08-21T12:00:00.000Z")
+const listSessionIds = {
+  low: `${fixturePrefix}-session-a`,
+  middle: `${fixturePrefix}-session-m`,
+  high: `${fixturePrefix}-session-z`,
+  old: `${fixturePrefix}-session-old`,
+  otherOrganization: `${fixturePrefix}-session-other-org`,
+  otherUser: `${fixturePrefix}-session-other-user`,
+}
+const settledSessionId = `${fixturePrefix}-settled`
+const activeSessionId = `${fixturePrefix}-active`
+const codecResult = journalCursorCodecCreate({
+  randomBytes: (size) => randomBytes(size),
+  secret: `${fixturePrefix}-cursor-secret`,
+})
+
+const httpApi = new Hono<AppEnvironment>()
+httpApi.use("*", async (context, next) => {
+  context.set("database", database)
+  context.set("requestIdentity", { organizationId, userId })
+  await next()
+})
+if (codecResult.success) {
+  apiSessionRoutesAdd(httpApi, {
+    database,
+    journalCursorCodec: codecResult.data,
+    journalPostCommitPublish: async () => createResult(undefined),
+  })
+  apiMessageRoutesAdd(httpApi, {
+    journalCursorCodec: codecResult.data,
+    journalPostCommitPublish: async () => createResult(undefined),
+  })
+}
+
+const snapshotDependencies = () => {
+  if (!codecResult.success) throw new Error(codecResult.errorMessage)
+  return {
+    cursorCodec: codecResult.data,
+    etagCreate: sessionRepresentationEtagCreate,
+    schemaVersion: sessionRepresentationSchemaVersion,
+  }
+}
+
+async function responseJsonRead(response: Response): Promise<unknown> {
+  const bytes = new Uint8Array(await response.arrayBuffer())
+  const encoding = response.headers.get("Content-Encoding")
+  if (encoding === "gzip" || encoding === "deflate") {
+    const decompressed = new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream(encoding)))
+    return decompressed.json()
+  }
+  return JSON.parse(new TextDecoder().decode(bytes))
+}
+
+beforeAll(async () => {
+  if (!databaseAvailable) return
+  await database.insert(applicationUserTable).values([
+    { displayName: "Task 8 Snapshot User", id: userId },
+    { displayName: "Task 8 Snapshot Other User", id: otherUserId },
+  ])
+  await database.insert(organizationTable).values([
+    { externalId: organizationId, id: organizationId, name: "Task 8 Snapshot Organization" },
+    { externalId: otherOrganizationId, id: otherOrganizationId, name: "Task 8 Snapshot Other Organization" },
+  ])
+  await database.insert(serverTable).values([
+    {
+      endpoint: "http://task8-snapshot-server.test",
+      id: serverId,
+      name: "Task 8 Snapshot Server",
+      organizationId,
+    },
+    {
+      endpoint: "http://task8-snapshot-other-server.test",
+      id: otherServerId,
+      name: "Task 8 Snapshot Other Server",
+      organizationId: otherOrganizationId,
+    },
+  ])
+  await database.insert(agentTable).values([
+    { id: agentId, name: "Task 8 Snapshot Agent", role: "coding", serverId },
+    { id: otherAgentId, name: "Task 8 Snapshot Other Agent", role: "coding", serverId: otherServerId },
+  ])
+  await database.insert(journalSequenceCounterTable).values([
+    { nextSequence: 42, userId },
+    { nextSequence: 8, userId: otherUserId },
+  ])
+  await database.insert(sessionTable).values([
+    {
+      clientRequestId: `${fixturePrefix}-request-a`,
+      createdAt: tiedUpdatedAt,
+      id: listSessionIds.low,
+      metadata: { order: "a" },
+      primaryAgentId: agentId,
+      serverId,
+      title: "Tied low",
+      updatedAt: tiedUpdatedAt,
+      userId,
+    },
+    {
+      clientRequestId: `${fixturePrefix}-request-m`,
+      createdAt: tiedUpdatedAt,
+      id: listSessionIds.middle,
+      metadata: { order: "m" },
+      primaryAgentId: agentId,
+      serverId,
+      title: "Tied middle",
+      updatedAt: tiedUpdatedAt,
+      userId,
+    },
+    {
+      clientRequestId: `${fixturePrefix}-request-z`,
+      createdAt: tiedUpdatedAt,
+      id: listSessionIds.high,
+      metadata: { order: "z" },
+      primaryAgentId: agentId,
+      serverId,
+      title: "Tied high",
+      updatedAt: tiedUpdatedAt,
+      userId,
+    },
+    {
+      clientRequestId: `${fixturePrefix}-request-old`,
+      createdAt: oldUpdatedAt,
+      id: listSessionIds.old,
+      metadata: { order: "old" },
+      primaryAgentId: agentId,
+      serverId,
+      title: "Older",
+      updatedAt: oldUpdatedAt,
+      userId,
+    },
+    {
+      clientRequestId: `${fixturePrefix}-request-other-org`,
+      createdAt: tiedUpdatedAt,
+      id: listSessionIds.otherOrganization,
+      metadata: { order: "other-org" },
+      primaryAgentId: otherAgentId,
+      serverId: otherServerId,
+      title: "Other organization",
+      updatedAt: tiedUpdatedAt,
+      userId,
+    },
+    {
+      clientRequestId: `${fixturePrefix}-request-other-user`,
+      createdAt: tiedUpdatedAt,
+      id: listSessionIds.otherUser,
+      metadata: { order: "other-user" },
+      primaryAgentId: agentId,
+      serverId,
+      title: "Other user",
+      updatedAt: tiedUpdatedAt,
+      userId: otherUserId,
+    },
+    {
+      clientRequestId: `${fixturePrefix}-request-settled`,
+      createdAt: tiedUpdatedAt,
+      id: settledSessionId,
+      metadata: { snapshot: "settled" },
+      primaryAgentId: agentId,
+      revision: 7,
+      serverId,
+      title: "Settled session",
+      updatedAt: tiedUpdatedAt,
+      userId,
+    },
+    {
+      clientRequestId: `${fixturePrefix}-request-active`,
+      createdAt: tiedUpdatedAt,
+      id: activeSessionId,
+      metadata: { snapshot: "active" },
+      primaryAgentId: agentId,
+      serverId,
+      title: "Active session",
+      updatedAt: tiedUpdatedAt,
+      userId,
+    },
+  ])
+  await database.insert(messageTable).values([
+    {
+      agentId,
+      clientRequestId: `${fixturePrefix}-message-3`,
+      content: "third",
+      createdAt: new Date("2026-08-22T12:00:03.000Z"),
+      finalizedAt: new Date("2026-08-22T12:00:03.000Z"),
+      id: `${fixturePrefix}-message-3`,
+      metadata: { sequence: 3 },
+      role: "assistant",
+      sequence: 3,
+      sessionId: settledSessionId,
+    },
+    {
+      agentId,
+      clientRequestId: `${fixturePrefix}-message-1`,
+      content: "first",
+      createdAt: new Date("2026-08-22T12:00:01.000Z"),
+      finalizedAt: new Date("2026-08-22T12:00:01.000Z"),
+      id: `${fixturePrefix}-message-1`,
+      metadata: { sequence: 1 },
+      role: "user",
+      sequence: 1,
+      sessionId: settledSessionId,
+    },
+    {
+      agentId,
+      clientRequestId: `${fixturePrefix}-message-2`,
+      content: "second",
+      createdAt: new Date("2026-08-22T12:00:02.000Z"),
+      finalizedAt: new Date("2026-08-22T12:00:02.000Z"),
+      id: `${fixturePrefix}-message-2`,
+      metadata: { sequence: 2 },
+      role: "assistant",
+      sequence: 2,
+      sessionId: settledSessionId,
+    },
+  ])
+})
+
+afterAll(async () => {
+  if (databaseAvailable) {
+    await database.delete(sessionTable).where(inArray(sessionTable.userId, [userId, otherUserId]))
+    await database.delete(agentTable).where(inArray(agentTable.id, [agentId, otherAgentId]))
+    await database.delete(serverTable).where(inArray(serverTable.id, [serverId, otherServerId]))
+    await database.delete(organizationTable).where(inArray(organizationTable.id, [organizationId, otherOrganizationId]))
+    await database.delete(applicationUserTable).where(inArray(applicationUserTable.id, [userId, otherUserId]))
+  }
+  await client.end()
+})
+
+test.skipIf(!databaseAvailable)("paginates tied updatedAt values without duplicates", async () => {
+  const first = await sessionListSnapshot(
+    database,
+    userId,
+    organizationId,
+    { limit: 2, search: "Tied" },
+    snapshotDependencies(),
+  )
+  expect(first.success).toBe(true)
+  if (!first.success) return
+  expect(first.data.sessions.map((session) => session.id)).toEqual([listSessionIds.high, listSessionIds.middle])
+  expect(first.data.nextCursor).not.toBeNull()
+
+  const second = await sessionListSnapshot(
+    database,
+    userId,
+    organizationId,
+    { cursor: first.data.nextCursor ?? undefined, limit: 2, search: "Tied" },
+    snapshotDependencies(),
+  )
+  expect(second.success).toBe(true)
+  if (!second.success) return
+  expect(second.data.sessions.map((session) => session.id)).toEqual([listSessionIds.low])
+  expect(new Set([...first.data.sessions, ...second.data.sessions].map((session) => session.id)).size).toBe(3)
+})
+
+test.skipIf(!databaseAvailable)("isolates authenticated accounts and organizations", async () => {
+  const organization = await sessionListSnapshot(database, userId, organizationId, {}, snapshotDependencies())
+  expect(organization.success).toBe(true)
+  if (!organization.success) return
+  expect(organization.data.sessions.every((session) => session.id !== listSessionIds.otherOrganization)).toBe(true)
+  expect(organization.data.sessions.every((session) => session.id !== listSessionIds.otherUser)).toBe(true)
+
+  const otherOrganization = await sessionListSnapshot(database, userId, otherOrganizationId, {}, snapshotDependencies())
+  expect(otherOrganization.success).toBe(true)
+  if (!otherOrganization.success) return
+  expect(otherOrganization.data.sessions.map((session) => session.id)).toEqual([listSessionIds.otherOrganization])
+
+  const otherAccount = await sessionListSnapshot(database, otherUserId, organizationId, {}, snapshotDependencies())
+  expect(otherAccount.success).toBe(true)
+  if (!otherAccount.success) return
+  expect(otherAccount.data.sessions.map((session) => session.id)).toEqual([listSessionIds.otherUser])
+})
+
+test.skipIf(!databaseAvailable)("returns the authenticated journal boundary as an opaque cursor", async () => {
+  const snapshot = await sessionListSnapshot(database, userId, organizationId, {}, snapshotDependencies())
+  expect(snapshot.success).toBe(true)
+  if (!snapshot.success || !codecResult.success) return
+  if (!("asOfCursor" in snapshot.data)) return
+  const decoded = codecResult.data.validate(snapshot.data.asOfCursor, userId)
+  expect(decoded).toMatchObject({ success: true, data: { journalId: userId, sequence: 41, version: 1 } })
+  expect(snapshot.data.asOfCursor).not.toContain(userId)
+})
+
+test.skipIf(!databaseAvailable)("keeps session/message data and the cursor in one consistent snapshot", async () => {
+  let releaseWriter: (() => void) | undefined
+  let writerReadyResolve: (() => void) | undefined
+  const writerReady = new Promise<void>((resolve) => {
+    writerReadyResolve = resolve
+  })
+  const writer = database.transaction(async (transaction) => {
+    await transaction
+      .update(sessionTable)
+      .set({ revision: 8, title: "Uncommitted title", updatedAt: new Date("2026-08-22T13:00:00.000Z") })
+      .where(eq(sessionTable.id, settledSessionId))
+    await transaction
+      .update(journalSequenceCounterTable)
+      .set({ nextSequence: 100 })
+      .where(eq(journalSequenceCounterTable.userId, userId))
+    writerReadyResolve?.()
+    await new Promise<void>((resolve) => {
+      releaseWriter = resolve
+    })
+  })
+
+  await writerReady
+  const snapshot = await sessionSettledSnapshot(
+    database,
+    userId,
+    organizationId,
+    settledSessionId,
+    snapshotDependencies(),
+  )
+  releaseWriter?.()
+  await writer
+
+  expect(snapshot.success).toBe(true)
+  if (!snapshot.success || !codecResult.success) return
+  expect(snapshot.data.asOfCursor).toEqual(expect.any(String))
+  expect(snapshot.data.revision).toBe(7)
+  expect(snapshot.data.session.title).toBe("Settled session")
+  const decoded = codecResult.data.validate(snapshot.data.asOfCursor, userId)
+  expect(decoded).toMatchObject({ success: true, data: { sequence: 41 } })
+  await database
+    .update(sessionTable)
+    .set({ revision: 7, title: "Settled session", updatedAt: tiedUpdatedAt })
+    .where(eq(sessionTable.id, settledSessionId))
+  await database
+    .update(journalSequenceCounterTable)
+    .set({ nextSequence: 42 })
+    .where(eq(journalSequenceCounterTable.userId, userId))
+})
+
+test.skipIf(!databaseAvailable)("rejects active sessions as settled snapshots", async () => {
+  const created = await runCreate(database, userId, activeSessionId, {
+    budget: { maxDurationMs: 10_000 },
+    clientRunId: `${fixturePrefix}-active-run`,
+    snapshot: {
+      configuration: { model: "task8-model", provider: "deterministic" },
+      configurationRevision: "task8-revision",
+      target: { agentId, serverId },
+    },
+    streamId: `${fixturePrefix}-active-stream`,
+  })
+  expect(created.success).toBe(true)
+  if (!created.success) return
+
+  const snapshot = await sessionSettledSnapshot(
+    database,
+    userId,
+    organizationId,
+    activeSessionId,
+    snapshotDependencies(),
+  )
+  expect(snapshot).toMatchObject({ code: "session_active", success: false })
+})
+
+test.skipIf(!databaseAvailable)("returns a complete ordered settled payload with representation inputs", async () => {
+  const snapshot = await sessionSettledSnapshot(
+    database,
+    userId,
+    organizationId,
+    settledSessionId,
+    snapshotDependencies(),
+  )
+  expect(snapshot.success).toBe(true)
+  if (!snapshot.success) return
+  expect(v.safeParse(sessionSettledSnapshotResponseSchema, snapshot.data).success).toBe(true)
+  expect(snapshot.data.settled).toBe(true)
+  expect(snapshot.data.session.revision).toBe(snapshot.data.revision)
+  expect(snapshot.data.etag).toBe(sessionRepresentationEtagCreate(settledSessionId, 7))
+  expect(snapshot.data.schemaVersion).toBe(sessionRepresentationSchemaVersion)
+  expect(snapshot.data.messages.map((message) => message.sequence)).toEqual([1, 2, 3])
+  expect(snapshot.data.messages.map((message) => message.content)).toEqual(["first", "second", "third"])
+})
+
+test.skipIf(!databaseAvailable)("serves authenticated Drizzle shell/list snapshots with keysets and 304", async () => {
+  const firstResponse = await httpApi.request("http://codeline.test/sessions?limit=2&search=Tied", {
+    headers: { "Accept-Encoding": "gzip" },
+  })
+  expect(firstResponse.status).toBe(200)
+  expect(firstResponse.headers.get("Cache-Control")).toBe("private, no-cache")
+  expect(firstResponse.headers.get("Vary")).toBe("Cookie, Accept-Encoding")
+  expect(firstResponse.headers.get("Content-Encoding")).toBe("gzip")
+  const first = (await responseJsonRead(firstResponse)) as {
+    asOfCursor: string
+    etag: string
+    nextCursor: string | null
+    sessions: Array<{ id: string }>
+  }
+  expect(first.sessions.map((session) => session.id)).toEqual([listSessionIds.high, listSessionIds.middle])
+  expect(first.asOfCursor).not.toContain(userId)
+  expect(firstResponse.headers.get("ETag")).toBe(first.etag)
+
+  const repeatedBodyResponse = await httpApi.request("http://codeline.test/sessions?limit=2&search=Tied", {
+    headers: { "Accept-Encoding": "gzip" },
+  })
+  expect(repeatedBodyResponse.status).toBe(200)
+  const repeatedBody = await responseJsonRead(repeatedBodyResponse)
+  expect(repeatedBody).toEqual(first)
+  expect(repeatedBodyResponse.headers.get("ETag")).toBe(first.etag)
+
+  const repeated = await httpApi.request("http://codeline.test/sessions?limit=2&search=Tied", {
+    headers: { "If-None-Match": first.etag },
+  })
+  expect(repeated.status).toBe(304)
+  expect(repeated.headers.get("ETag")).toBe(first.etag)
+
+  const secondResponse = await httpApi.request(
+    `http://codeline.test/sessions?cursor=${encodeURIComponent(first.nextCursor ?? "")}&limit=2&search=Tied`,
+  )
+  expect(secondResponse.status).toBe(200)
+  const second = (await secondResponse.json()) as { sessions: Array<{ id: string }> }
+  expect(second.sessions.map((session) => session.id)).toEqual([listSessionIds.low])
+
+  const detail = await httpApi.request(`http://codeline.test/sessions/${settledSessionId}`)
+  expect(detail.status).toBe(200)
+  const detailBody = (await detail.json()) as { asOfCursor: string; etag: string; session: { id: string } }
+  expect(detailBody.session.id).toBe(settledSessionId)
+  expect(detailBody.asOfCursor).not.toContain(userId)
+  const detail304 = await httpApi.request(`http://codeline.test/sessions/${settledSessionId}`, {
+    headers: { "If-None-Match": detailBody.etag },
+  })
+  expect(detail304.status).toBe(304)
+})
+
+test.skipIf(!databaseAvailable)("serves ordered message pages and complete conditional snapshots", async () => {
+  const firstMessages = await httpApi.request(`http://codeline.test/sessions/${settledSessionId}/messages?limit=2`, {
+    headers: { "Accept-Encoding": "gzip" },
+  })
+  expect(firstMessages.status).toBe(200)
+  expect(firstMessages.headers.get("Content-Encoding")).toBe("gzip")
+  const first = (await responseJsonRead(firstMessages)) as {
+    messages: Array<{ sequence: number }>
+    nextCursor: string | null
+  }
+  expect(first.messages.map((message) => message.sequence)).toEqual([1, 2])
+  expect(first.nextCursor).not.toBeNull()
+
+  const secondMessages = await httpApi.request(
+    `http://codeline.test/sessions/${settledSessionId}/messages?cursor=${encodeURIComponent(first.nextCursor ?? "")}`,
+  )
+  expect(secondMessages.status).toBe(200)
+  expect((await secondMessages.json()).messages.map((message: { sequence: number }) => message.sequence)).toEqual([3])
+
+  const snapshot = await httpApi.request(`http://codeline.test/sessions/${settledSessionId}/snapshot`, {
+    headers: { "Accept-Encoding": "gzip" },
+  })
+  expect(snapshot.status).toBe(200)
+  expect(snapshot.headers.get("Cache-Control")).toBe("private, no-cache")
+  expect(snapshot.headers.get("Vary")).toBe("Cookie, Accept-Encoding")
+  expect(snapshot.headers.get("Content-Encoding")).toBe("gzip")
+  const body = (await responseJsonRead(snapshot)) as {
+    asOfCursor: string
+    etag: string
+    messages: Array<{ sequence: number }>
+  }
+  expect(body.messages.map((message) => message.sequence)).toEqual([1, 2, 3])
+  expect(snapshot.headers.get("ETag")).toBe(body.etag)
+
+  const notModified = await httpApi.request(`http://codeline.test/sessions/${settledSessionId}/snapshot`, {
+    headers: { "If-None-Match": body.etag },
+  })
+  expect(notModified.status).toBe(304)
+  expect(notModified.headers.get("ETag")).toBe(body.etag)
+
+  const active = await httpApi.request(`http://codeline.test/sessions/${activeSessionId}/snapshot`)
+  expect(active.status).toBe(409)
+})
+
+test.skipIf(!databaseAvailable)("does not serve a session or messages across organization scope", async () => {
+  const otherOrganizationApi = new Hono<AppEnvironment>()
+  otherOrganizationApi.use("*", async (context, next) => {
+    context.set("database", database)
+    context.set("requestIdentity", { organizationId: otherOrganizationId, userId })
+    await next()
+  })
+  if (codecResult.success) {
+    apiSessionRoutesAdd(otherOrganizationApi, {
+      database,
+      journalCursorCodec: codecResult.data,
+      journalPostCommitPublish: async () => createResult(undefined),
+    })
+    apiMessageRoutesAdd(otherOrganizationApi, {
+      journalCursorCodec: codecResult.data,
+      journalPostCommitPublish: async () => createResult(undefined),
+    })
+  }
+
+  expect((await otherOrganizationApi.request("http://codeline.test/sessions")).status).toBe(200)
+  expect((await otherOrganizationApi.request(`http://codeline.test/sessions/${settledSessionId}`)).status).toBe(404)
+  expect(
+    (await otherOrganizationApi.request(`http://codeline.test/sessions/${settledSessionId}/messages`)).status,
+  ).toBe(404)
+  expect(
+    (await otherOrganizationApi.request(`http://codeline.test/sessions/${settledSessionId}/snapshot`)).status,
+  ).toBe(404)
+})

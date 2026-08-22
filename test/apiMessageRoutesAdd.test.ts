@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
+import { randomBytes } from "node:crypto"
 import { eq } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/postgres-js"
 import postgres from "postgres"
@@ -10,6 +11,7 @@ import { applicationUserTable } from "../src/identity/db/applicationUserTable.js
 import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
 import { organizationMemberTable } from "../src/identity/db/organizationMemberTable.js"
 import { organizationTable } from "../src/identity/db/organizationTable.js"
+import { journalCursorCodecCreate } from "../src/journal/actions/journalCursorCodecCreate.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionCreate } from "../src/session/actions/sessionCreate.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
@@ -29,7 +31,9 @@ const configuration = {
   nodeEnv: "development" as const,
   oidcOrganizationId: `development:${fixture.userKey}`,
 }
-const app = appCreate({ configuration, database })
+const journalCursorCodec = journalCursorCodecCreate({ randomBytes, secret: `message-api-${uuidv7()}` })
+if (!journalCursorCodec.success) throw new Error(journalCursorCodec.errorMessage)
+const app = appCreate({ configuration, database, journalCursorCodec: journalCursorCodec.data })
 let userId: string | undefined
 
 beforeAll(async () => {

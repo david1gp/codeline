@@ -1,8 +1,12 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
+import { randomBytes } from "node:crypto"
+import { createResult } from "@adaptive-ds/result"
 import { eq } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/postgres-js"
+import { Hono } from "hono"
 import postgres from "postgres"
 import { agentTable } from "../src/agents/db/agentTable.js"
+import type { AppEnvironment } from "../src/api/appEnvironment.js"
 import { appCreate } from "../src/app/appCreate.js"
 import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
 import { databaseSchema } from "../src/database/databaseSchema.js"
@@ -10,8 +14,10 @@ import { applicationUserTable } from "../src/identity/db/applicationUserTable.js
 import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
 import { organizationMemberTable } from "../src/identity/db/organizationMemberTable.js"
 import { organizationTable } from "../src/identity/db/organizationTable.js"
+import { journalCursorCodecCreate } from "../src/journal/actions/journalCursorCodecCreate.js"
 import { messageTable } from "../src/message/db/messageTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
+import { apiSessionRoutesAdd } from "../src/session/api/apiSessionRoutesAdd.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
 
 const client = postgres(Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline")
@@ -31,7 +37,28 @@ const configuration = {
   nodeEnv: "development" as const,
   oidcOrganizationId: userId,
 }
-const app = appCreate({ configuration, database })
+const journalCursorCodec = journalCursorCodecCreate({ randomBytes, secret: `session-http-${uuidv7()}` })
+if (!journalCursorCodec.success) throw new Error(journalCursorCodec.errorMessage)
+const app = appCreate({ configuration, database, journalCursorCodec: journalCursorCodec.data })
+
+test("requires the authenticated session cursor and journal dependencies at construction", () => {
+  expect(() =>
+    apiSessionRoutesAdd(new Hono<AppEnvironment>(), {
+      database,
+      journalPostCommitPublish: async () => createResult(undefined),
+    } as never),
+  ).toThrow("The authenticated session cursor codec is required.")
+})
+
+async function responseJsonRead(response: Response): Promise<unknown> {
+  const bytes = new Uint8Array(await response.arrayBuffer())
+  const encoding = response.headers.get("Content-Encoding")
+  if (encoding === "gzip" || encoding === "deflate") {
+    const decompressed = new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream(encoding)))
+    return decompressed.json()
+  }
+  return JSON.parse(new TextDecoder().decode(bytes))
+}
 
 beforeAll(async () => {
   if (!databaseAvailable) return
@@ -97,8 +124,8 @@ test.skipIf(!databaseAvailable)(
       headers: { "Content-Type": "application/json" },
       method: "POST",
     })
-    expect(repeated.status).toBe(200)
-    expect(await repeated.json()).toMatchObject({ created: false, session: { id: sessionId, title: "HTTP session" } })
+    expect(repeated.status).toBe(409)
+    expect(await repeated.json()).toMatchObject({ error: { code: "conflict" } })
 
     const loaded = await app.request(`http://codeline.test/api/sessions/${sessionId}`)
     expect(loaded.status).toBe(200)
@@ -107,30 +134,39 @@ test.skipIf(!databaseAvailable)(
       server: { id: serverId },
       agent: { id: agentId },
     })
+    let sessionEtag = loaded.headers.get("ETag") as string
 
     const renamed = await app.request(`http://codeline.test/api/sessions/${sessionId}`, {
       body: JSON.stringify({ title: "Renamed HTTP session" }),
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "If-Match": sessionEtag },
       method: "PATCH",
     })
     expect(renamed.status).toBe(200)
     expect(await renamed.json()).toMatchObject({ session: { title: "Renamed HTTP session" } })
+    sessionEtag = (await app.request(`http://codeline.test/api/sessions/${sessionId}`)).headers.get("ETag") as string
 
     const unpinned = await app.request(`http://codeline.test/api/sessions/${sessionId}/pin`, {
       body: JSON.stringify({ pinned: false }),
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "If-Match": sessionEtag },
       method: "PATCH",
     })
     expect(unpinned.status).toBe(200)
     expect(await unpinned.json()).toMatchObject({ session: { id: sessionId, pinned: false } })
+    sessionEtag = (await app.request(`http://codeline.test/api/sessions/${sessionId}`)).headers.get("ETag") as string
 
-    const archived = await app.request(`http://codeline.test/api/sessions/${sessionId}/archive`, { method: "POST" })
+    const archived = await app.request(`http://codeline.test/api/sessions/${sessionId}/archive`, {
+      headers: { "If-Match": sessionEtag },
+      method: "POST",
+    })
     expect(archived.status).toBe(200)
     expect(await archived.json()).toMatchObject({ session: { id: sessionId, archivedAt: expect.any(String) } })
+    sessionEtag = (await app.request(`http://codeline.test/api/sessions/${sessionId}?includeArchived=1`)).headers.get(
+      "ETag",
+    ) as string
 
     const pinArchived = await app.request(`http://codeline.test/api/sessions/${sessionId}/pin`, {
       body: JSON.stringify({ pinned: true }),
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "If-Match": sessionEtag },
       method: "PATCH",
     })
     expect(pinArchived.status).toBe(409)
@@ -142,11 +178,194 @@ test.skipIf(!databaseAvailable)(
     expect(archivedList.status).toBe(200)
     expect(await archivedList.json()).toMatchObject({ sessions: [{ session: { id: sessionId } }] })
 
-    const deleted = await app.request(`http://codeline.test/api/sessions/${sessionId}`, { method: "DELETE" })
+    sessionEtag = (await app.request(`http://codeline.test/api/sessions/${sessionId}?includeArchived=1`)).headers.get(
+      "ETag",
+    ) as string
+    const deleted = await app.request(`http://codeline.test/api/sessions/${sessionId}`, {
+      headers: { "If-Match": sessionEtag },
+      method: "DELETE",
+    })
     expect(deleted.status).toBe(200)
     expect(await deleted.json()).toMatchObject({ session: { id: sessionId } })
     const missing = await app.request(`http://codeline.test/api/sessions/${sessionId}`)
     expect(missing.status).toBe(404)
+  },
+)
+
+test.skipIf(!databaseAvailable)(
+  "session action routes return selected representations and replay Drizzle retries",
+  async () => {
+    const created = await app.request("http://codeline.test/api/sessions", {
+      body: JSON.stringify({
+        clientRequestId: `session-http-task4-${uuidv7()}`,
+        metadata: {},
+        primaryAgentId: agentId,
+        serverId,
+        title: "Task 4 action session",
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+    expect(created.status).toBe(201)
+    const createdBody = (await created.json()) as { session: { id: string } }
+    const sessionId = createdBody.session.id
+    const loaded = await app.request(`http://codeline.test/api/sessions/${sessionId}`)
+    const initialEtag = loaded.headers.get("ETag") as string
+
+    const unauthorizedApi = new Hono<AppEnvironment>()
+    unauthorizedApi.use("*", async (context, next) => {
+      context.set("database", database)
+      context.set("requestIdentity", { organizationId: "other-organization", userId })
+      await next()
+    })
+    apiSessionRoutesAdd(unauthorizedApi, {
+      database,
+      journalCursorCodec: {
+        decode: (cursor) => createResult({ journalId: String(cursor), sequence: 0, version: 1 }),
+        encode: (journalId, sequence) => createResult(`cursor-${journalId}-${sequence}`),
+        encodeDeterministic: (journalId, sequence) => createResult(`cursor-${journalId}-${sequence}`),
+        validate: (cursor, journalId) =>
+          createResult({ journalId: String(journalId), sequence: Number(cursor), version: 1 }),
+      },
+      journalPostCommitPublish: async () => createResult(undefined),
+    })
+    for (const [path, method, body] of [
+      [`/sessions/${sessionId}/pin`, "PATCH", JSON.stringify({ pinned: false })],
+      [`/sessions/${sessionId}/archive`, "POST", undefined],
+      [`/sessions/${sessionId}`, "DELETE", undefined],
+    ] as const) {
+      const unauthorized = await unauthorizedApi.request(`http://codeline.test${path}`, {
+        body,
+        headers:
+          body === undefined
+            ? { "If-Match": initialEtag }
+            : { "Content-Type": "application/json", "If-Match": initialEtag },
+        method,
+      })
+      expect(unauthorized.status).toBe(404)
+    }
+
+    const missingPin = await app.request(`http://codeline.test/api/sessions/${sessionId}/pin`, {
+      body: JSON.stringify({ pinned: false }),
+      headers: { "Content-Type": "application/json" },
+      method: "PATCH",
+    })
+    expect(missingPin.status).toBe(412)
+
+    const malformedPin = await app.request(`http://codeline.test/api/sessions/${sessionId}/pin`, {
+      body: JSON.stringify({ pinned: false }),
+      headers: { "Content-Type": "application/json", "If-Match": "not-an-etag" },
+      method: "PATCH",
+    })
+    expect(malformedPin.status).toBe(400)
+    expect(await malformedPin.json()).toMatchObject({ error: { code: "bad_request" } })
+
+    const pinKey = `session-http-pin-${uuidv7()}`
+    const pinned = await app.request(`http://codeline.test/api/sessions/${sessionId}/pin`, {
+      body: JSON.stringify({ pinned: false }),
+      headers: {
+        Accept: "application/json",
+        "Accept-Encoding": "gzip",
+        "Content-Type": "application/json",
+        "Idempotency-Key": pinKey,
+        "If-Match": initialEtag,
+      },
+      method: "PATCH",
+    })
+    expect(pinned.status).toBe(200)
+    expect(pinned.headers.get("Content-Encoding")).toBe("gzip")
+    expect(pinned.headers.get("Cache-Control")).toBe("private, no-cache")
+    expect(pinned.headers.get("Vary")).toBe("Cookie, Accept-Encoding")
+    const pinnedBytes = await pinned.clone().arrayBuffer()
+    expect(pinned.headers.get("Content-Length")).toBe(String(pinnedBytes.byteLength))
+    const pinnedBody = (await responseJsonRead(pinned)) as {
+      etag: string
+      revision: number
+      session: { pinned: boolean }
+    }
+    expect(pinned.headers.get("ETag")).toBe(pinnedBody.etag)
+    expect(pinned.headers.get("Idempotency-Replayed")).toBe("false")
+    expect(pinnedBody).toMatchObject({ revision: 2, session: { pinned: false } })
+
+    const pinReplay = await app.request(`http://codeline.test/api/sessions/${sessionId}/pin`, {
+      body: JSON.stringify({ pinned: false }),
+      headers: { "Content-Type": "application/json", "Idempotency-Key": pinKey, "If-Match": initialEtag },
+      method: "PATCH",
+    })
+    expect(pinReplay.status).toBe(200)
+    expect(pinReplay.headers.get("Idempotency-Replayed")).toBe("true")
+    expect(await responseJsonRead(pinReplay)).toEqual(pinnedBody)
+
+    const pinConflict = await app.request(`http://codeline.test/api/sessions/${sessionId}/pin`, {
+      body: JSON.stringify({ pinned: true }),
+      headers: { "Content-Type": "application/json", "Idempotency-Key": pinKey, "If-Match": initialEtag },
+      method: "PATCH",
+    })
+    expect(pinConflict.status).toBe(409)
+
+    const archiveMissing = await app.request(`http://codeline.test/api/sessions/${sessionId}/archive`, {
+      method: "POST",
+    })
+    expect(archiveMissing.status).toBe(412)
+    const archiveStale = await app.request(`http://codeline.test/api/sessions/${sessionId}/archive`, {
+      headers: { "If-Match": initialEtag },
+      method: "POST",
+    })
+    expect(archiveStale.status).toBe(412)
+
+    const archiveKey = `session-http-archive-${uuidv7()}`
+    const archived = await app.request(`http://codeline.test/api/sessions/${sessionId}/archive`, {
+      headers: {
+        "Accept-Encoding": "deflate",
+        "Idempotency-Key": archiveKey,
+        "If-Match": pinnedBody.etag,
+      },
+      method: "POST",
+    })
+    expect(archived.status).toBe(200)
+    expect(archived.headers.get("Content-Encoding")).toBe("deflate")
+    const archivedBody = (await responseJsonRead(archived)) as { etag: string; revision: number }
+    expect(archived.headers.get("ETag")).toBe(archivedBody.etag)
+    expect(archived.headers.get("Idempotency-Replayed")).toBe("false")
+    expect(archivedBody.revision).toBe(3)
+
+    const archiveReplay = await app.request(`http://codeline.test/api/sessions/${sessionId}/archive`, {
+      headers: { "Idempotency-Key": archiveKey, "If-Match": pinnedBody.etag },
+      method: "POST",
+    })
+    expect(archiveReplay.status).toBe(200)
+    expect(archiveReplay.headers.get("Idempotency-Replayed")).toBe("true")
+    expect(await responseJsonRead(archiveReplay)).toEqual(archivedBody)
+
+    const deleteMissing = await app.request(`http://codeline.test/api/sessions/${sessionId}`, { method: "DELETE" })
+    expect(deleteMissing.status).toBe(412)
+    const malformedDelete = await app.request(`http://codeline.test/api/sessions/${sessionId}`, {
+      headers: { "If-Match": "malformed" },
+      method: "DELETE",
+    })
+    expect(malformedDelete.status).toBe(400)
+
+    const deleteKey = `session-http-delete-${uuidv7()}`
+    const deleted = await app.request(`http://codeline.test/api/sessions/${sessionId}`, {
+      headers: { "Accept-Encoding": "gzip", "Idempotency-Key": deleteKey, "If-Match": archivedBody.etag },
+      method: "DELETE",
+    })
+    expect(deleted.status).toBe(200)
+    expect(deleted.headers.get("ETag")).toBeNull()
+    expect(deleted.headers.get("Content-Encoding")).toBe("gzip")
+    expect(deleted.headers.get("Vary")).toBe("Cookie, Accept-Encoding")
+    const deletedBytes = await deleted.clone().arrayBuffer()
+    expect(deleted.headers.get("Content-Length")).toBe(String(deletedBytes.byteLength))
+    expect(deleted.headers.get("Idempotency-Replayed")).toBe("false")
+    expect(await responseJsonRead(deleted)).toMatchObject({ deleted: true, session: { id: sessionId, revision: 3 } })
+
+    const deleteReplay = await app.request(`http://codeline.test/api/sessions/${sessionId}`, {
+      headers: { "Idempotency-Key": deleteKey, "If-Match": archivedBody.etag },
+      method: "DELETE",
+    })
+    expect(deleteReplay.status).toBe(200)
+    expect(deleteReplay.headers.get("Idempotency-Replayed")).toBe("true")
+    expect(await responseJsonRead(deleteReplay)).toMatchObject({ deleted: true, session: { id: sessionId } })
   },
 )
 
@@ -257,7 +476,10 @@ test.skipIf(!databaseAvailable)("session and message HTTP routes persist the com
 
   const renamed = await app.request(`http://codeline.test/api/sessions/${sessionId}`, {
     body: JSON.stringify({ title: "Renamed persistence flow" }),
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "If-Match": (await app.request(`http://codeline.test/api/sessions/${sessionId}`)).headers.get("ETag") as string,
+    },
     method: "PATCH",
   })
   expect(renamed.status).toBe(200)
@@ -273,7 +495,11 @@ test.skipIf(!databaseAvailable)("session and message HTTP routes persist the com
   expect(listedBeforeArchive.status).toBe(200)
   expect(await listedBeforeArchive.json()).toMatchObject({ sessions: [{ session: { id: sessionId } }] })
 
-  const archived = await app.request(`http://codeline.test/api/sessions/${sessionId}/archive`, { method: "POST" })
+  const archivedRead = await app.request(`http://codeline.test/api/sessions/${sessionId}`)
+  const archived = await app.request(`http://codeline.test/api/sessions/${sessionId}/archive`, {
+    headers: { "If-Match": archivedRead.headers.get("ETag") as string },
+    method: "POST",
+  })
   expect(archived.status).toBe(200)
   expect(await archived.json()).toMatchObject({ session: { id: sessionId, archivedAt: expect.any(String) } })
 
@@ -298,7 +524,11 @@ test.skipIf(!databaseAvailable)("session and message HTTP routes persist the com
   expect(readArchived.status).toBe(200)
   expect(await readArchived.json()).toMatchObject({ session: { id: sessionId, archivedAt: expect.any(String) } })
 
-  const deleted = await app.request(`http://codeline.test/api/sessions/${sessionId}`, { method: "DELETE" })
+  const readBeforeDelete = await app.request(`http://codeline.test/api/sessions/${sessionId}`)
+  const deleted = await app.request(`http://codeline.test/api/sessions/${sessionId}`, {
+    headers: { "If-Match": readBeforeDelete.headers.get("ETag") as string },
+    method: "DELETE",
+  })
   expect(deleted.status).toBe(200)
   expect(await deleted.json()).toMatchObject({ session: { id: sessionId } })
 

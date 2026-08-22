@@ -1,0 +1,1 @@
+ALTER TABLE "journal_sequence_counter" ADD CONSTRAINT "journal_sequence_counter_next_sequence_safe" CHECK ("journal_sequence_counter"."next_sequence" <= 9007199254740991);

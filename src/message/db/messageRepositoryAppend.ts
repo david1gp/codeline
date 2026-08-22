@@ -1,5 +1,5 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
-import { and, eq, max } from "drizzle-orm"
+import { and, eq, max, sql } from "drizzle-orm"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { sessionTable } from "../../session/db/sessionTable.js"
 import { uuidv7 } from "../../uuid/uuidv7.js"
@@ -62,7 +62,7 @@ export async function messageRepositoryAppend(
 
     const [updatedSession] = await database
       .update(sessionTable)
-      .set({ updatedAt: new Date() })
+      .set({ revision: sql`${sessionTable.revision} + 1`, updatedAt: new Date() })
       .where(and(eq(sessionTable.id, sessionId), eq(sessionTable.userId, userId)))
       .returning({ id: sessionTable.id })
     if (updatedSession === undefined) return createResultError(op, "The session could not be updated.")

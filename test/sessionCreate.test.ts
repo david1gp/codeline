@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/postgres-js"
 import postgres from "postgres"
 import { agentTable } from "../src/agents/db/agentTable.js"
+import { apiIdempotencyRequestHashCreate } from "../src/api/idempotency/apiIdempotencyRequestHashCreate.js"
 import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
 import { databaseSchema } from "../src/database/databaseSchema.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
@@ -127,6 +128,45 @@ test.skipIf(!databaseAvailable)("session actions create idempotently and enforce
 
   const deleted = await sessionDelete(database, userId, created.data.session.id)
   expect(deleted).toMatchObject({ success: true, data: { id: created.data.session.id } })
+})
+
+test.skipIf(!databaseAvailable)("session creation binds retries to the original payload", async () => {
+  if (userId === undefined) return
+  const clientRequestId = `session-test-payload-${uuidv7()}`
+  const input = {
+    clientRequestId,
+    metadata: { payload: "original" },
+    primaryAgentId: fixture.agentId,
+    serverId: fixture.serverId,
+    title: "Original payload",
+  }
+  const requestHash = apiIdempotencyRequestHashCreate(input)
+  const created = await sessionCreate(database, userId, input, {
+    idempotencyKey: clientRequestId,
+    organizationId: userId,
+    requestHash,
+  })
+  expect(created).toMatchObject({ success: true, data: { created: true, replayed: false } })
+
+  const changed = await sessionCreate(
+    database,
+    userId,
+    { ...input, title: "Changed payload" },
+    {
+      idempotencyKey: clientRequestId,
+      organizationId: userId,
+      requestHash: apiIdempotencyRequestHashCreate({ ...input, title: "Changed payload" }),
+    },
+  )
+  expect(changed).toMatchObject({ code: "idempotency_conflict", success: false })
+
+  const replayed = await sessionCreate(database, userId, input, {
+    idempotencyKey: clientRequestId,
+    organizationId: userId,
+    requestHash,
+  })
+  expect(replayed).toMatchObject({ success: true, data: { created: false, replayed: true } })
+  if (replayed.success) await sessionDelete(database, userId, replayed.data.session.id)
 })
 
 test.skipIf(!databaseAvailable)("session list paginates in updated order and rejects malformed cursors", async () => {

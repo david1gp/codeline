@@ -1,11 +1,16 @@
 import type { Context } from "hono"
 import { Hono } from "hono"
+import * as v from "valibot"
 import { apiRequestParse } from "../../api/apiRequestParse.js"
 import type { AppEnvironment } from "../../api/appEnvironment.js"
 import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.js"
-import { databaseTransactionRun } from "../../database/databaseTransactionRun.js"
+import { apiIdempotencyRequestHashCreate } from "../../api/idempotency/apiIdempotencyRequestHashCreate.js"
+import type { DatabaseClient } from "../../database/databaseClient.js"
+import type { journalPostCommitPublishCreate } from "../../journal/actions/journalPostCommitPublishCreate.js"
 import { sessionBranch } from "../actions/sessionBranch.js"
+import { sessionJournalRecipientResolverCreate } from "../db/sessionJournalRecipientResolverCreate.js"
 import { sessionBranchRequestSchema } from "../schema/sessionBranchRequestSchema.js"
+import { sessionCreateMutationResponseSchema } from "./sessionCreateMutationResponseSchema.js"
 
 type ApiContext = Context<AppEnvironment>
 
@@ -35,7 +40,17 @@ function internalServerError(context: ApiContext) {
   return context.json(response, 500)
 }
 
-export function apiSessionBranchRoutesAdd(api: Hono<AppEnvironment>): void {
+export function apiSessionBranchRoutesAdd(
+  api: Hono<AppEnvironment>,
+  options: {
+    database: DatabaseClient
+    journalPostCommitPublish: ReturnType<typeof journalPostCommitPublishCreate>
+  },
+): void {
+  if (options.database === undefined) throw new Error("The authenticated session database is required.")
+  if (options.journalPostCommitPublish === undefined)
+    throw new Error("The authenticated session journal publisher is required.")
+
   api.post("/sessions/:sessionId/branch", async (context) => {
     const organizationId = context.var.requestIdentity.organizationId
     if (organizationId === undefined) return notFound(context)
@@ -43,25 +58,46 @@ export function apiSessionBranchRoutesAdd(api: Hono<AppEnvironment>): void {
     const parsed = apiRequestParse("sessionBranchRequestParse", sessionBranchRequestSchema, body)
     if (!parsed.success) return badRequest(context)
 
-    const result = await databaseTransactionRun(context.var.database, (transaction) =>
-      sessionBranch(
-        transaction,
-        context.var.requestIdentity.userId,
-        organizationId,
-        context.req.param("sessionId"),
-        parsed.data,
-      ),
+    const requestHash = apiIdempotencyRequestHashCreate({
+      messageId: parsed.data.messageId,
+      sourceSessionId: context.req.param("sessionId"),
+    })
+    const result = await sessionBranch(
+      options.database,
+      context.var.requestIdentity.userId,
+      organizationId,
+      context.req.param("sessionId"),
+      {
+        ...parsed.data,
+        journal: {
+          postCommitPublish: options.journalPostCommitPublish,
+          resolveRecipients: sessionJournalRecipientResolverCreate({
+            organizationId,
+            pendingSessionAuthorization: {
+              sourceSessionId: context.req.param("sessionId"),
+              userId: context.var.requestIdentity.userId,
+            },
+          }),
+        },
+        requestHash,
+      },
     )
     if (!result.success) {
+      if (result.code === "idempotency_conflict") return conflict(context, result.errorMessage)
       if (
         result.errorMessage.includes("could not be found") ||
-        result.errorMessage.includes("message could not be found")
+        result.errorMessage.includes("message could not be found") ||
+        result.errorMessage.includes("could not be authorized")
       )
         return notFound(context)
       if (result.errorMessage.includes("archived")) return conflict(context, result.errorMessage)
       return internalServerError(context)
     }
 
-    return context.json({ created: result.data.created, session: result.data.session }, result.data.created ? 201 : 200)
+    const response = result.data.responseBody
+    if (response === undefined || !v.safeParse(sessionCreateMutationResponseSchema, response).success)
+      return internalServerError(context)
+    context.header("Idempotency-Replayed", result.data.replayed ? "true" : "false")
+    return context.json(response, result.data.created && !result.data.replayed ? 201 : 200)
   })
 }

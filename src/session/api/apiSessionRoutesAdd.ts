@@ -7,12 +7,18 @@ import { agentConfigurationExecutionResolve } from "../../agents/actions/agentCo
 import type { AgentConfiguration } from "../../agents/schema/agentConfigurationSchema.js"
 import { apiRequestParse } from "../../api/apiRequestParse.js"
 import type { AppEnvironment } from "../../api/appEnvironment.js"
+import { apiIfMatchEtagParse } from "../../api/conditional/apiIfMatchEtagParse.js"
+import { apiIfNoneMatchMatches } from "../../api/conditional/apiIfNoneMatchMatches.js"
 import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.js"
+import { apiIdempotencyRequestHashCreate } from "../../api/idempotency/apiIdempotencyRequestHashCreate.js"
+import { apiRepresentationHeadersCreate } from "../../api/representation/apiRepresentationHeadersCreate.js"
+import { apiCompleteSnapshotResponseCreate } from "../../api/response/apiCompleteSnapshotResponseCreate.js"
+import { apiIdempotencyKeySchema } from "../../api/schema/apiIdempotencyKeySchema.js"
 import type { ConfigurationStore } from "../../configuration/configurationStore.js"
-import type { SessionNoteConvexClient } from "../../convex/sessionNoteConvexClient.js"
 import type { ExecutionConvexClient } from "../../convex/executionConvexClient.js"
-import { databaseTransactionRun } from "../../database/databaseTransactionRun.js"
-import { projectPathReferenceResolve } from "../../project/projectPathReferenceResolve.js"
+import type { DatabaseClient } from "../../database/databaseClient.js"
+import type { JournalCursorCodec } from "../../journal/actions/journalCursorCodecCreate.js"
+import type { journalPostCommitPublishCreate } from "../../journal/actions/journalPostCommitPublishCreate.js"
 import { providerAgentCatalogExecutionResolve } from "../../providers/catalog/providerAgentCatalogExecutionResolve.js"
 import type { CliProxyApiAdapter } from "../../providers/runtime/cliProxyApiAdapterCreate.js"
 import { providerDelegationAdapterCreate } from "../../providers/runtime/providerDelegationAdapterCreate.js"
@@ -36,7 +42,7 @@ import { streamReplayErrorRetryableResolve } from "../../stream/actions/streamRe
 import { streamReplayServiceCreate } from "../../stream/actions/streamReplayServiceCreate.js"
 import type { ExecutionStreamEvent } from "../../stream/schema/executionStreamEventSchema.js"
 import { sessionArchive } from "../actions/sessionArchive.js"
-import { sessionChatAdapterCreate } from "../actions/sessionChatAdapterCreate.js"
+import type { sessionChatAdapterCreate } from "../actions/sessionChatAdapterCreate.js"
 import { sessionChatLunaPingAdapterCreate } from "../actions/sessionChatLunaPingAdapterCreate.js"
 import { sessionChatLunaPingDetect } from "../actions/sessionChatLunaPingDetect.js"
 import { sessionChatPrepare } from "../actions/sessionChatPrepare.js"
@@ -44,19 +50,22 @@ import { sessionChatSseStreamCreate } from "../actions/sessionChatSseStreamCreat
 import { sessionChatStreamCreate } from "../actions/sessionChatStreamCreate.js"
 import { sessionCreate } from "../actions/sessionCreate.js"
 import { sessionDelete } from "../actions/sessionDelete.js"
-import { sessionList } from "../actions/sessionList.js"
+import { sessionListSnapshot } from "../actions/sessionListSnapshot.js"
 import { sessionLoad } from "../actions/sessionLoad.js"
 import { sessionPin } from "../actions/sessionPin.js"
+import { sessionSettledSnapshot } from "../actions/sessionSettledSnapshot.js"
+import { sessionShellSnapshot } from "../actions/sessionShellSnapshot.js"
+import { sessionJournalRecipientResolverCreate } from "../db/sessionJournalRecipientResolverCreate.js"
 import { sessionChatRequestSchema } from "../schema/sessionChatRequestSchema.js"
 import { sessionCreateRequestSchema } from "../schema/sessionCreateRequestSchema.js"
 import { sessionPinRequestSchema } from "../schema/sessionPinRequestSchema.js"
 import { sessionQuerySchema } from "../schema/sessionQuerySchema.js"
+import { sessionCreateMutationResponseCreate } from "./sessionCreateMutationResponseCreate.js"
+import { sessionPreconditionFailedResponseCreate } from "./sessionPreconditionFailedResponseCreate.js"
+import { sessionRepresentationEtagCreate } from "./sessionRepresentationEtagCreate.js"
+import { sessionRepresentationSchemaVersion } from "./sessionRepresentationSchemaVersion.js"
 
 type ApiContext = Context<AppEnvironment>
-type SessionCreateResult =
-  | Awaited<ReturnType<typeof sessionCreate>>
-  | Awaited<ReturnType<SessionNoteConvexClient["sessionCreate"]>>
-
 function badRequest(context: ApiContext, message: string) {
   const response = { error: { code: "bad_request", message } } satisfies ApiErrorResponse
   return context.json(response, 400)
@@ -81,7 +90,42 @@ function internalServerError(context: ApiContext) {
   return context.json(response, 500)
 }
 
+function preconditionFailed(context: ApiContext, errorData: string | null | undefined, message: string, op: string) {
+  return context.json(sessionPreconditionFailedResponseCreate({ errorData, message, op }), 412)
+}
+
+function idempotencyConflict(context: ApiContext) {
+  const response = {
+    error: { code: "conflict", message: "The idempotency key was already used for a different request." },
+  } satisfies ApiErrorResponse
+  return context.json(response, 409)
+}
+
+async function completeJsonResponse(context: ApiContext, body: unknown, headers: Headers): Promise<Response> {
+  const complete = await apiCompleteSnapshotResponseCreate(body, {
+    acceptEncoding: context.req.header("Accept-Encoding"),
+    dependencies: { compressionStreamCreate: (encoding) => new CompressionStream(encoding) },
+    headers,
+  })
+  if (!complete.success) {
+    if (complete.code === "not_acceptable") return new Response(null, { headers, status: 406 })
+    return internalServerError(context)
+  }
+  return complete.data
+}
+
+function idempotencyKeyParse(context: ApiContext, bodyKey?: string): string | undefined | Response {
+  const headerKey = context.req.header("Idempotency-Key")
+  if (headerKey !== undefined && bodyKey !== undefined && headerKey.trim() !== bodyKey)
+    return badRequest(context, "The idempotency key is invalid.")
+  const rawKey = headerKey ?? bodyKey
+  const parsed = v.safeParse(apiIdempotencyKeySchema, rawKey)
+  if (!parsed.success && rawKey !== undefined) return badRequest(context, "The idempotency key is invalid.")
+  return parsed.success ? parsed.output : undefined
+}
+
 type ApiSessionRoutesOptions = {
+  database: DatabaseClient
   configurationStore?: ConfigurationStore
   providerAgentCatalog?: ProviderCatalog
   providerEnvironment?: Readonly<Record<string, string | undefined>>
@@ -94,8 +138,9 @@ type ApiSessionRoutesOptions = {
   runDelegationExecute?: typeof runDelegationExecute
   runExecutionSnapshotResolve?: typeof runExecutionSnapshotResolve
   sessionChatAdapter?: typeof sessionChatAdapterCreate
-  sessionNoteConvexClient?: SessionNoteConvexClient
+  journalPostCommitPublish: ReturnType<typeof journalPostCommitPublishCreate>
   executionConvexClient?: ExecutionConvexClient
+  journalCursorCodec: JournalCursorCodec
   streamInactivityTimeoutMs?: number
   streamReplayServiceCreate?: typeof streamReplayServiceCreate
 }
@@ -270,11 +315,16 @@ async function sessionChatReplayEventsLoad(
   return createResult(events)
 }
 
-export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessionRoutesOptions = {}): void {
+export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessionRoutesOptions): void {
+  if (options.database === undefined) throw new Error("The authenticated session database is required.")
+  if (options.journalCursorCodec === undefined) throw new Error("The authenticated session cursor codec is required.")
+  if (options.journalPostCommitPublish === undefined)
+    throw new Error("The authenticated session journal publisher is required.")
+
   api.get("/sessions", async (context) => {
     const userId = context.var.requestIdentity.userId
     const organizationId = context.var.requestIdentity.organizationId
-    if (organizationId === undefined) return context.json({ nextCursor: null, sessions: [] })
+    if (organizationId === undefined) return notFound(context)
     const parsed = apiRequestParse("sessionQueryParse", sessionQuerySchema, context.req.query())
     if (!parsed.success) return badRequest(context, "The session query is invalid.")
 
@@ -284,25 +334,18 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
       limit: parsed.data.limit,
       search: parsed.data.search === "" ? undefined : parsed.data.search,
     }
-    const result =
-      options.sessionNoteConvexClient === undefined
-        ? await sessionList(context.var.database, userId, organizationId, listOptions)
-        : parsed.data.search === undefined
-          ? await options.sessionNoteConvexClient.sessionList(userId, organizationId, listOptions)
-          : await options.sessionNoteConvexClient.sessionSearch(userId, organizationId, parsed.data.search, {
-              cursor: parsed.data.cursor,
-              includeArchived: parsed.data.includeArchived === "1",
-              limit: parsed.data.limit,
-            })
+    const result = await sessionListSnapshot(options.database, userId, organizationId, listOptions, {
+      cursorCodec: options.journalCursorCodec,
+    })
     if (!result.success) {
       if (result.errorMessage.includes("cursor")) return badRequest(context, "The session list cursor is invalid.")
       return internalServerError(context)
     }
 
-    return context.json({
-      nextCursor: result.data.nextCursor,
-      sessions: result.data.rows.map(({ agent, server, session }) => ({ agent, server, session })),
-    })
+    const headers = apiRepresentationHeadersCreate(result.data.etag)
+    if (apiIfNoneMatchMatches(context.req.header("If-None-Match"), result.data.etag))
+      return new Response(null, { headers, status: 304 })
+    return completeJsonResponse(context, result.data, headers)
   })
 
   api.post("/sessions", async (context) => {
@@ -313,34 +356,45 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     const parsed = apiRequestParse("sessionCreateRequestParse", sessionCreateRequestSchema, body)
     if (!parsed.success) return badRequest(context, "The session request is invalid.")
 
-    let result: SessionCreateResult
-    if (options.sessionNoteConvexClient === undefined) {
-      result = await databaseTransactionRun(context.var.database, (transaction) =>
-        sessionCreate(transaction, userId, parsed.data, {
+    const requestHash = apiIdempotencyRequestHashCreate({
+      metadata: parsed.data.metadata,
+      primaryAgentId: parsed.data.primaryAgentId,
+      projectPath: parsed.data.projectPath,
+      serverId: parsed.data.serverId,
+      title: parsed.data.title,
+    })
+    const result = await sessionCreate(options.database, userId, parsed.data, {
+      idempotencyKey: parsed.data.clientRequestId,
+      journal: {
+        postCommitPublish: options.journalPostCommitPublish,
+        resolveRecipients: sessionJournalRecipientResolverCreate({
           organizationId,
-          projectRootDirs: options.projectRootDir === undefined ? options.projectRootDirs : [options.projectRootDir],
+          pendingSessionAuthorization: {
+            primaryAgentId: parsed.data.primaryAgentId,
+            serverId: parsed.data.serverId,
+            userId,
+          },
         }),
-      )
-    } else {
-      const projectPath = await projectPathReferenceResolve(
-        parsed.data.projectPath,
-        options.projectRootDir === undefined ? (options.projectRootDirs ?? []) : [options.projectRootDir],
-      )
-      if (!projectPath.success) return badRequest(context, "The session project path is invalid.")
-      result = await options.sessionNoteConvexClient.sessionCreate(userId, organizationId, {
-        ...parsed.data,
-        metadata: parsed.data.metadata,
-        projectPath: projectPath.data,
-      })
-    }
+      },
+      organizationId,
+      projectRootDirs: options.projectRootDir === undefined ? options.projectRootDirs : [options.projectRootDir],
+      requestHash,
+    })
     if (!result.success) {
+      if (result.code === "idempotency_conflict") return idempotencyConflict(context)
       if (result.errorMessage.includes("project path"))
         return badRequest(context, "The session project path is invalid.")
-      if (result.errorMessage.includes("could not be found")) return notFound(context)
+      if (result.errorMessage.includes("could not be found") || result.errorMessage.includes("could not be authorized"))
+        return notFound(context)
       return internalServerError(context)
     }
 
-    return context.json({ created: result.data.created, session: result.data.session }, result.data.created ? 201 : 200)
+    context.header("Idempotency-Replayed", result.data.replayed ? "true" : "false")
+    if (result.data.responseBody !== undefined)
+      return context.json(result.data.responseBody, result.data.created && !result.data.replayed ? 201 : 200)
+    const response = sessionCreateMutationResponseCreate({ created: result.data.created, session: result.data.session })
+    if (!response.success) return internalServerError(context)
+    return context.json(response.data, result.data.created && !result.data.replayed ? 201 : 200)
   })
 
   api.post("/sessions/:sessionId/chat", async (context) => {
@@ -368,10 +422,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     let activeRun: typeof runTable.$inferSelect | undefined
     let activeAttempt: typeof attemptTable.$inferSelect | undefined
     let runtimeAgentPrompt: string | undefined
-    const loaded =
-      options.sessionNoteConvexClient === undefined
-        ? await sessionLoad(context.var.database, userId, organizationId, sessionId)
-        : await options.sessionNoteConvexClient.sessionLoad(userId, organizationId, sessionId)
+    const loaded = await sessionLoad(options.database, userId, organizationId, sessionId)
     if (!loaded.success)
       return loaded.errorMessage.includes("could not be found") ? notFound(context) : internalServerError(context)
     if (loaded.data.session.archivedAt !== null) return conflict(context, "The session is archived.")
@@ -720,85 +771,186 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     })
   })
 
+  api.get("/sessions/:sessionId/snapshot", async (context) => {
+    const organizationId = context.var.requestIdentity.organizationId
+    if (organizationId === undefined) return notFound(context)
+    const result = await sessionSettledSnapshot(
+      options.database,
+      context.var.requestIdentity.userId,
+      organizationId,
+      context.req.param("sessionId"),
+      {
+        cursorCodec: options.journalCursorCodec,
+        etagCreate: sessionRepresentationEtagCreate,
+        schemaVersion: sessionRepresentationSchemaVersion,
+      },
+    )
+    if (!result.success) {
+      if (result.code === "session_active") return conflict(context, result.errorMessage)
+      if (result.code === "session_not_found" || result.errorMessage.includes("could not be found"))
+        return notFound(context)
+      return internalServerError(context)
+    }
+
+    const headers = apiRepresentationHeadersCreate(result.data.etag)
+    if (apiIfNoneMatchMatches(context.req.header("If-None-Match"), result.data.etag))
+      return new Response(null, { headers, status: 304 })
+    return completeJsonResponse(context, result.data, headers)
+  })
+
   api.get("/sessions/:sessionId", async (context) => {
     const userId = context.var.requestIdentity.userId
     const organizationId = context.var.requestIdentity.organizationId
     if (organizationId === undefined) return notFound(context)
-    const result =
-      options.sessionNoteConvexClient === undefined
-        ? await sessionLoad(context.var.database, userId, organizationId, context.req.param("sessionId"))
-        : await options.sessionNoteConvexClient.sessionLoad(userId, organizationId, context.req.param("sessionId"))
+
+    const result = await sessionShellSnapshot(
+      options.database,
+      userId,
+      organizationId,
+      context.req.param("sessionId"),
+      { cursorCodec: options.journalCursorCodec },
+    )
     if (!result.success)
       return result.errorMessage.includes("could not be found") ? notFound(context) : internalServerError(context)
-    return context.json(result.data)
+
+    const headers = apiRepresentationHeadersCreate(result.data.etag)
+    if (apiIfNoneMatchMatches(context.req.header("If-None-Match"), result.data.etag))
+      return new Response(null, { headers, status: 304 })
+    return completeJsonResponse(context, result.data, headers)
   })
 
   api.patch("/sessions/:sessionId/pin", async (context) => {
     const organizationId = context.var.requestIdentity.organizationId
-    if (options.sessionNoteConvexClient !== undefined && organizationId === undefined) return notFound(context)
     const body = await context.req.json<unknown>().catch(() => undefined)
     const parsed = apiRequestParse("sessionPinRequestParse", sessionPinRequestSchema, body)
     if (!parsed.success) return badRequest(context, "The session pin request is invalid.")
 
-    const result =
-      options.sessionNoteConvexClient === undefined
-        ? await databaseTransactionRun(context.var.database, (transaction) =>
-            sessionPin(
-              transaction,
-              context.var.requestIdentity.userId,
-              context.req.param("sessionId"),
-              parsed.data.pinned,
-            ),
-          )
-        : await options.sessionNoteConvexClient.sessionPin(
-            context.var.requestIdentity.userId,
-            organizationId ?? "",
-            context.req.param("sessionId"),
-            parsed.data.pinned,
-          )
+    if (organizationId === undefined) return notFound(context)
+    const expectedEtag = apiIfMatchEtagParse(context.req.header("If-Match"))
+    if (!expectedEtag.success) return badRequest(context, "The If-Match header is invalid.")
+    const idempotencyKey = idempotencyKeyParse(context, parsed.data.idempotencyKey)
+    if (idempotencyKey instanceof Response) return idempotencyKey
+    const requestHash =
+      idempotencyKey === undefined
+        ? undefined
+        : apiIdempotencyRequestHashCreate({ ifMatch: expectedEtag.data, pinned: parsed.data.pinned })
+    const result = await sessionPin(
+      options.database,
+      context.var.requestIdentity.userId,
+      context.req.param("sessionId"),
+      parsed.data.pinned,
+      {
+        expectedEtag: expectedEtag.data,
+        idempotencyKey,
+        journal: {
+          postCommitPublish: options.journalPostCommitPublish,
+          resolveRecipients: sessionJournalRecipientResolverCreate({ organizationId }),
+        },
+        organizationId,
+        requireIfMatch: true,
+        requestHash,
+      },
+    )
     if (!result.success) {
+      if (result.code === "idempotency_conflict") return idempotencyConflict(context)
+      if (result.code === "precondition_failed")
+        return preconditionFailed(
+          context,
+          result.errorData,
+          "The session changed before it could be pinned.",
+          "sessionPin",
+        )
       if (result.errorMessage === "The session is archived.") return conflict(context, result.errorMessage)
-      if (result.errorMessage.includes("could not be found")) return notFound(context)
+      if (result.errorMessage.includes("could not be found") || result.errorMessage.includes("could not be authorized"))
+        return notFound(context)
       return internalServerError(context)
     }
-    return context.json({ session: result.data })
+    if (result.data.responseBody === undefined) return internalServerError(context)
+    const headers = apiRepresentationHeadersCreate(result.data.responseBody.etag)
+    headers.set("Idempotency-Replayed", result.data.replayed ? "true" : "false")
+    return completeJsonResponse(context, result.data.responseBody, headers)
   })
 
   api.post("/sessions/:sessionId/archive", async (context) => {
     const userId = context.var.requestIdentity.userId
     const organizationId = context.var.requestIdentity.organizationId
-    if (options.sessionNoteConvexClient !== undefined && organizationId === undefined) return notFound(context)
-    const result =
-      options.sessionNoteConvexClient === undefined
-        ? await databaseTransactionRun(context.var.database, (transaction) =>
-            sessionArchive(transaction, userId, context.req.param("sessionId")),
-          )
-        : await options.sessionNoteConvexClient.sessionArchive(
-            userId,
-            organizationId ?? "",
-            context.req.param("sessionId"),
-          )
-    if (!result.success)
-      return result.errorMessage.includes("could not be found") ? notFound(context) : internalServerError(context)
-    return context.json({ session: result.data })
+    if (organizationId === undefined) return notFound(context)
+    const expectedEtag = apiIfMatchEtagParse(context.req.header("If-Match"))
+    if (!expectedEtag.success) return badRequest(context, "The If-Match header is invalid.")
+    const idempotencyKey = idempotencyKeyParse(context)
+    if (idempotencyKey instanceof Response) return idempotencyKey
+    const requestHash =
+      idempotencyKey === undefined ? undefined : apiIdempotencyRequestHashCreate({ ifMatch: expectedEtag.data })
+    const result = await sessionArchive(options.database, userId, context.req.param("sessionId"), {
+      expectedEtag: expectedEtag.data,
+      idempotencyKey,
+      journal: {
+        postCommitPublish: options.journalPostCommitPublish,
+        resolveRecipients: sessionJournalRecipientResolverCreate({ organizationId }),
+      },
+      organizationId,
+      requireIfMatch: true,
+      requestHash,
+    })
+    if (!result.success) {
+      if (result.code === "idempotency_conflict") return idempotencyConflict(context)
+      if (result.code === "precondition_failed")
+        return preconditionFailed(
+          context,
+          result.errorData,
+          "The session changed before it could be archived.",
+          "sessionArchive",
+        )
+      if (result.errorMessage.includes("could not be found") || result.errorMessage.includes("could not be authorized"))
+        return notFound(context)
+      return internalServerError(context)
+    }
+    if (result.data.responseBody === undefined) return internalServerError(context)
+    const headers = apiRepresentationHeadersCreate(result.data.responseBody.etag)
+    headers.set("Idempotency-Replayed", result.data.replayed ? "true" : "false")
+    return completeJsonResponse(context, result.data.responseBody, headers)
   })
 
   api.delete("/sessions/:sessionId", async (context) => {
     const userId = context.var.requestIdentity.userId
     const organizationId = context.var.requestIdentity.organizationId
-    if (options.sessionNoteConvexClient !== undefined && organizationId === undefined) return notFound(context)
-    const result =
-      options.sessionNoteConvexClient === undefined
-        ? await databaseTransactionRun(context.var.database, (transaction) =>
-            sessionDelete(transaction, userId, context.req.param("sessionId")),
-          )
-        : await options.sessionNoteConvexClient.sessionDelete(
-            userId,
-            organizationId ?? "",
-            context.req.param("sessionId"),
-          )
-    if (!result.success)
-      return result.errorMessage.includes("could not be found") ? notFound(context) : internalServerError(context)
-    return context.json({ session: result.data })
+    if (organizationId === undefined) return notFound(context)
+    const expectedEtag = apiIfMatchEtagParse(context.req.header("If-Match"))
+    if (!expectedEtag.success) return badRequest(context, "The If-Match header is invalid.")
+    const idempotencyKey = idempotencyKeyParse(context)
+    if (idempotencyKey instanceof Response) return idempotencyKey
+    const requestHash =
+      idempotencyKey === undefined ? undefined : apiIdempotencyRequestHashCreate({ ifMatch: expectedEtag.data })
+    const result = await sessionDelete(options.database, userId, context.req.param("sessionId"), {
+      expectedEtag: expectedEtag.data,
+      idempotencyKey,
+      journal: {
+        postCommitPublish: options.journalPostCommitPublish,
+        resolveRecipients: sessionJournalRecipientResolverCreate({ organizationId }),
+      },
+      organizationId,
+      requireIfMatch: true,
+      requestHash,
+    })
+    if (!result.success) {
+      if (result.code === "idempotency_conflict") return idempotencyConflict(context)
+      if (result.code === "precondition_failed")
+        return preconditionFailed(
+          context,
+          result.errorData,
+          "The session changed before it could be deleted.",
+          "sessionDelete",
+        )
+      if (result.errorMessage.includes("could not be found") || result.errorMessage.includes("could not be authorized"))
+        return notFound(context)
+      return internalServerError(context)
+    }
+    if (result.data.responseBody === undefined) return internalServerError(context)
+    const headers = new Headers({
+      "Cache-Control": "private, no-cache",
+      Vary: "Cookie, Accept-Encoding",
+    })
+    headers.set("Idempotency-Replayed", result.data.replayed ? "true" : "false")
+    return completeJsonResponse(context, result.data.responseBody, headers)
   })
 }

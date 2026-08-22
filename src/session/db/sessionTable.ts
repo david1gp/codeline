@@ -1,5 +1,5 @@
 import type { AnyPgColumn } from "drizzle-orm/pg-core"
-import { boolean, foreignKey, index, jsonb, pgTable, text, timestamp, unique } from "drizzle-orm/pg-core"
+import { boolean, foreignKey, index, integer, jsonb, pgTable, text, timestamp, unique } from "drizzle-orm/pg-core"
 import { agentTable } from "../../agents/db/agentTable.js"
 import { applicationUserTable } from "../../identity/db/applicationUserTable.js"
 import { serverTable } from "../../servers/db/serverTable.js"
@@ -25,6 +25,7 @@ export const sessionTable = pgTable(
     clientRequestId: text("client_request_id").notNull(),
     metadata: jsonb("metadata").notNull().default({}),
     pinned: boolean("pinned").notNull().default(true),
+    revision: integer("revision").notNull().default(1),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
