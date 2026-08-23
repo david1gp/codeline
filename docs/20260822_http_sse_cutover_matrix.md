@@ -1,34 +1,35 @@
 # HTTP + SSE cutover matrix
 
-This is the task 1 inventory for `docs/20260822_http_sse_migration_plan.md`. It
-describes active production paths as they exist before the cutover. Generated
-Convex output and tests are listed only where they affect runtime wiring.
+This is the task 1 inventory for `docs/20260822_http_sse_migration_plan.md`.
+SQLite/libSQL with Drizzle, typed HTTP, and the authenticated SSE feed are the
+current runtime. Legacy Zero/Convex paths remain listed only as cleanup
+references; they are not active authorities.
 
 ## Cutover matrix
 
-| Surface | Active implementation | Current authority / transport | Target | Cutover |
+| Surface | Implementation / cleanup reference | Current authority / transport | Target | Cutover |
 | --- | --- | --- | --- | --- |
-| Zero transport | `src/ui/CodelineZeroProvider.tsx`, `src/ui/codelineQueries.ts`, `src/note/noteMutators.ts`, `src/database/zeroSchema.ts`; `src/api/query/apiQueryRoutesAdd.ts` (`POST /api/query`) and `src/api/mutation/apiMutationRoutesAdd.ts` (`POST /api/mutate`) | Browser Zero sync and Zero server handlers backed by Drizzle/Convex compatibility paths | Remove Zero; typed JSON HTTP reads/mutations and one per-tab `/api/events` feed | 3, 7, 13, 18 |
-| Convex runtime | `src/server/serverStart.ts`, `src/app/appCreate.ts`, `src/api/apiRoutesAdd.ts`; `src/convex/*`; `convex/*` | Self-hosted Convex clients/functions are selected when `CONVEX_SELF_HOSTED_URL` and `CONVEX_SELF_HOSTED_ADMIN_KEY` exist | Hono owns the API and execution; PostgreSQL/Drizzle is the only durable store | 8–13, 18 |
-| PostgreSQL / Drizzle | `drizzle.config.ts`, `src/database/{databaseClient,databaseCreate,databaseTransactionRun,databaseReadyCheck}.ts`; domain `db/` modules under `identity`, `agents`, `servers`, `session`, `message`, `run`, `stream`, and `note` | Active identity persistence and selected fallback routes; domain authority is split with Convex | Sole durable authority, with transactional revisions, idempotency, journal counters, and journal rows | 2, 4–6, 8–12 |
+| Legacy Zero transport | historical `src/ui/CodelineZeroProvider.tsx`, `src/ui/codelineQueries.ts`, `src/note/noteMutators.ts`, `src/database/zeroSchema.ts`, and compatibility routes | Not active; retained only to explain the completed cleanup | Typed JSON HTTP reads/mutations and one per-tab `/api/events` feed | 3, 7, 13, 18 |
+| Legacy Convex runtime | historical `src/server/serverStart.ts`, `src/app/appCreate.ts`, `src/api/apiRoutesAdd.ts`, `src/convex/*`, and `convex/*` references | Not active; no Convex client/function is a current authority | Hono owns the API and execution; SQLite/libSQL with Drizzle is the only durable store | 8–13, 18 |
+| SQL / Drizzle persistence | `drizzle.config.ts`, `src/database/{databaseClient,databaseCreate,databaseTransactionRun,databaseReadyCheck}.ts`; domain `db/` modules under `identity`, `agents`, `servers`, `session`, `message`, `run`, `stream`, and `note` | SQLite/libSQL Drizzle persistence is authoritative for the managed API | SQLite/libSQL with Drizzle is the sole durable authority, with transactional revisions, idempotency, journal counters, and journal rows | 2, 4–6, 8–12 |
 | HTTP composition | `src/api/apiRoutesAdd.ts`, `src/app/appCreate.ts`, `src/api/apiRequestParse.ts` | Hono `/api` boundary; Valibot request parsing and `Result` error handling | Keep Hono; standardize shared contracts, conditional caching, preconditions, and typed client use | 3–4 |
-| Authentication | `src/identity/api/authenticationMiddleware.ts`, `src/identity/api/apiAuthRoutesAdd.ts`, cookie helpers, `src/identity/actions/*`, `src/identity/db/*`, `src/identity/oidc/*` | Drizzle-backed sessions plus OIDC/development identity; Convex identity glue is used when injected | Retain Drizzle auth and same-origin session cookies for HTTP and SSE; authorization remains per request identity | 8–13 |
-| Sessions | `src/session/api/apiSessionRoutesAdd.ts`, `apiSessionRenameRoutesAdd.ts`; `src/session/actions/*`; `src/session/db/*`; `src/session/convex/*` | List/load/mutations choose Convex when `sessionNoteConvexClient` is present, otherwise Drizzle | Drizzle typed HTTP; keyset list, shell/list bootstrap, complete settled snapshot, revisions and ETags | 8, 13–15 |
-| Messages | `src/api/apiRoutesAdd.ts` mounts `src/message/api/apiMessageRoutesAdd.ts`; `src/message/actions/*`, `src/message/db/*`, `src/message/convex/*` | The mounted message routes require `executionConvexClient`; without it they return `500`. Their Drizzle repositories are not an active HTTP fallback. | Drizzle typed HTTP; sequence-keyset pages and complete settled snapshots | 8, 13 |
-| Runs / execution | `src/run/api/apiRunRoutesAdd.ts`, `src/run/actions/*`, `src/run/db/*`, `src/session/actions/sessionChatPrepare.ts`, `sessionChatStreamCreate.ts`, `apiSessionRoutesAdd.ts`, `convex/runs.ts` | Convex lifecycle and request-bound provider execution; cancellation coordinator is in-process | Process-owned run registry; disconnect/reload does not cancel; active-run snapshots and startup interruption checkpoints | 9–11 |
+| Authentication | `src/identity/api/authenticationMiddleware.ts`, `src/identity/api/apiAuthRoutesAdd.ts`, cookie helpers, `src/identity/actions/*`, `src/identity/db/*`, `src/identity/oidc/*` | SQLite/libSQL Drizzle sessions plus OIDC/development identity | Retain SQLite/libSQL Drizzle auth and same-origin session cookies for HTTP and SSE; authorization remains per request identity | 8–13 |
+| Sessions | `src/session/api/apiSessionRoutesAdd.ts`, `apiSessionRenameRoutesAdd.ts`; `src/session/actions/*`; `src/session/db/*` | SQLite/libSQL Drizzle repositories behind typed HTTP | SQLite/libSQL Drizzle typed HTTP; keyset list, shell/list bootstrap, complete settled snapshot, revisions and ETags | 8, 13–15 |
+| Messages | `src/api/apiRoutesAdd.ts` mounts `src/message/api/apiMessageRoutesAdd.ts`; `src/message/actions/*`, `src/message/db/*` | SQLite/libSQL Drizzle repositories behind typed HTTP | SQLite/libSQL Drizzle typed HTTP; sequence-keyset pages and complete settled snapshots | 8, 13 |
+| Runs / execution | `src/run/api/apiRunRoutesAdd.ts`, `src/run/actions/*`, `src/run/db/*`, `src/session/actions/sessionChatPrepare.ts`, `sessionChatStreamCreate.ts`, `apiSessionRoutesAdd.ts` | SQLite/libSQL persistence with the process-owned execution lifecycle | Process-owned run registry; disconnect/reload does not cancel; active-run snapshots and startup interruption checkpoints | 9–11 |
 | Provider chat SSE | `src/session/actions/sessionChatSseStreamCreate.ts`; `POST /api/sessions/:sessionId/chat` in `src/session/api/apiSessionRoutesAdd.ts`; provider adapters in `src/providers/runtime/*` | Request-associated provider stream; browser receives response-bound SSE | Prompt command over HTTP plus detached execution and journal-backed `/api/events` | 9–10 |
-| Replay SSE | `src/stream/api/apiStreamRoutesAdd.ts`; `src/stream/actions/streamReplay*`; `src/stream/client/streamReplay*`; `GET /api/sessions/:sessionId/streams/:streamId/status` and `/events` | Per-session/per-stream replay via Convex or `streamEventTable` / `streamCheckpointTable` | One authenticated same-origin `EventSource` at `/api/events`, opaque same-user cursor, reset reconciliation | 5–7, 10–11 |
-| Stream persistence | `src/stream/db/{streamEventTable,streamCheckpointTable,streamRepositoryAppend,streamRepositoryListAfter,streamCheckpointRepositoryAdvance,streamCheckpointRepositoryLoadOrCreate}.ts`; `src/stream/convex/*` | Per-stream sequences/checkpoints, with Convex and PostgreSQL alternatives | Per-user journal and counter; persist deltas before publish; compact terminal events; bounded retention | 5–6, 10 |
-| UI reads | `src/ui/sessionListStateCreate.ts`, `selectedSessionStateCreate.ts`, `sessionStreamStateCreate.ts`, `sessionSearchStateCreate.ts`, `simulate/simulateInspectorStateCreate.ts`; note UI; project/provider/server/agent state modules | Zero queries, Convex reactive queries, and a few direct fetch reads | Fetch-backed state, revision/ETag cache, HTTP snapshots, and validated IndexedDB settled records | 3, 7, 13–15 |
-| UI mutations | `src/ui/*`, `src/note/ui/*`, `src/run/client/runCancelCommand.ts`, `makeFunctionReference`/`codelineConvexMutationCreate` consumers | Convex mutations for sessions/notes/runs/agents/servers; direct HTTP for some commands | Typed HTTP commands; only prompt submission is optimistic; idempotency and `If-Match` where required | 3–4, 8–13 |
-| Subscriptions | Zero query subscriptions from `src/ui/codelineQueries.ts`; Convex provider/query wrappers in `src/convex/*`; stream mode in `src/ui/sessionStreamStateCreate.ts` | Reactive Zero/Convex synchronization; no unified feed | One `EventSource` per tab, demultiplexed by session/run, with reconnect and reset states | 7, 13 |
-| Servers / agents | `src/api/apiRoutesAdd.ts` mounts `src/servers/api/apiServerRoutesAdd.ts` and `src/agents/api/apiAgentRoutesAdd.ts`; `src/servers/actions/*`, `src/agents/actions/*`, corresponding `db/` and `convex/` modules | The mounted routes resolve `ServerAgentConvexClient` (created from the Convex deployment in `src/server/serverStart.ts`). The server list returns an empty list without an organization and otherwise returns `500` if the client is absent; agent routes return auth/organization errors before that check and `500` for a missing client. Their Drizzle modules are not an active HTTP fallback. | Drizzle typed HTTP, then remove Convex consumers | 12–13 |
-| Notes | `src/note/noteMutators.ts`, `src/note/convex/*`, `src/note/db/noteTable.ts`, `src/note/ui/*` | Zero mutators and Convex queries/mutations; a Drizzle table exists | Drizzle typed HTTP mutation families; no dual writes | 12–13 |
+| Replay SSE | `src/events/api/apiEventsRoutesAdd.ts`; `src/journal/*`; `src/stream/actions/streamLiveSubscriptionCreate.ts` | One authenticated same-origin event feed with SQLite/libSQL journal replay | One `EventSource` at `/api/events`, opaque same-user cursor, reset reconciliation | 5–7, 10–11 |
+| Stream persistence | `src/journal/db/*`, `src/journal/actions/*`, and `src/stream/actions/streamLiveSubscriptionCreate.ts` | Per-user SQLite/libSQL journal and counter | Persist deltas before publish; compact terminal events; bounded retention | 5–6, 10 |
+| UI reads | `src/ui/*StateCreate.ts`, note UI, project/provider/server/agent state modules | Typed HTTP reads with in-memory revisions and ETags | Fetch-backed state, HTTP snapshots, and validated IndexedDB settled records | 3, 7, 13–15 |
+| UI mutations | `src/ui/*`, `src/note/ui/*`, `src/run/client/runCancelCommand.ts` | Typed HTTP commands | Only prompt submission is optimistic; idempotency and `If-Match` where required | 3–4, 8–13 |
+| Subscriptions | `src/ui/eventFeed*`, `src/events/api/apiEventsRoutesAdd.ts` | One authenticated SSE feed per tab | Demultiplexed session/run updates with reconnect and reset states | 7, 13 |
+| Servers / agents | `src/api/apiRoutesAdd.ts` mounts `src/servers/api/apiServerRoutesAdd.ts` and `src/agents/api/apiAgentRoutesAdd.ts`; `src/servers/actions/*`, `src/agents/actions/*`, corresponding `db/` modules | SQLite/libSQL Drizzle repositories behind typed HTTP | SQLite/libSQL Drizzle typed HTTP | 12–13 |
+| Notes | `src/note/api/*`, `src/note/actions/*`, `src/note/db/*`, `src/note/ui/*` | SQLite/libSQL Drizzle repositories behind typed HTTP | SQLite/libSQL Drizzle typed HTTP mutation families; no dual writes | 12–13 |
 | Retained HTTP domains | `src/project/api/*`, `src/providers/api/*`, `src/api/health/*`, `src/api/readiness/*`, `src/api/testing/*` | Hono JSON HTTP; testing stream is test-only, not the production feed | Keep HTTP; apply shared boundary conventions as appropriate | 3–4, 19 |
 
-## Active path inventory
+## Legacy path inventory
 
-### Zero
+### Zero (historical cleanup references)
 
 - Provider and schema: `src/ui/CodelineZeroProvider.tsx`,
   `src/database/zeroSchema.ts`, and `src/ui/codelineQueries.ts`.
@@ -45,7 +46,7 @@ Convex output and tests are listed only where they affect runtime wiring.
   and `reorder`); logout also deletes the Zero cache in
   `src/identity/ui/authLogoutStateCreate.ts`.
 
-### Convex
+### Convex (historical cleanup references)
 
 - Construction and injection: `src/server/serverStart.ts`, `src/app/appCreate.ts`,
   `src/api/apiRoutesAdd.ts`, and `src/api/appEnvironment.ts`.
@@ -58,18 +59,18 @@ Convex output and tests are listed only where they affect runtime wiring.
   `src/identity/convex/identityClient.ts` plus its factory.
 - Function modules: `convex/{identity,sessions,messages,runs,streams,servers,agents,notes}.ts`,
   `convex/schema.ts`, `convex/http.ts`, and bounded-context `src/*/convex/*` modules.
-- Operational selection is environment-gated, but the session and stream routes
-  explicitly prefer Convex whenever their clients are injected.
+- No current runtime path selects these clients; these references document the
+  removed migration path only.
 
-### PostgreSQL / Drizzle
+### SQL / Drizzle (current runtime)
 
 - Connection and transaction path: `src/database/databaseClient.ts`,
   `databaseCreate.ts`, `databaseTransactionRun.ts`, `databaseReadyCheck.ts`,
   `databaseSchema.ts`, and `drizzle.config.ts`.
-- Identity: all active tables/repositories in `src/identity/db/*`, including
+- Identity: all current tables/repositories in `src/identity/db/*`, including
   application users, organizations, members, external identities, login
   transactions, and identity sessions; actions in `src/identity/actions/*` use
-  these repositories when no Convex identity client is injected.
+  these repositories for the current authenticated HTTP/SSE runtime.
 - Domain persistence: `src/agents/db/*`, `src/servers/db/*`,
   `src/session/db/*`, `src/message/db/*`, `src/run/db/*`,
   `src/stream/db/*`, and `src/note/db/noteTable.ts`.
@@ -113,35 +114,29 @@ Convex output and tests are listed only where they affect runtime wiring.
 - Durable identity actions/repositories: `identitySessionLoad.ts`,
   `identitySessionCreate.ts`, `identitySessionRevoke.ts`,
   `organizationMemberLoad.ts`, and the identity `db/` modules.
-- Convex authorization glue still active through `src/identity/convex/*` when
-  `identityClient` is supplied. It is a blocker for final Convex removal, not a
-  reason to change the authentication model in task 1.
+- Authorization is handled by the SQLite/libSQL Drizzle repositories and
+  request identity; no Convex client is selected.
 
 ### UI reads, mutations, subscriptions, and streams
 
-- Session read state: `sessionListStateCreate.ts` has separate Convex and Zero
-  branches; `selectedSessionStateCreate.ts` combines Zero/Convex session,
-  message, delegation, and run queries; `sessionSearchStateCreate.ts` has
-  Convex and Zero/fetch branches.
-- Message HTTP reads and writes are mounted by `apiRoutesAdd.ts` and call only
-  `executionConvexClient` in `apiMessageRoutesAdd.ts`; an absent client is an
-  internal error, not a Drizzle fallback.
-- Server HTTP reads and agent HTTP reads/writes are mounted by `apiRoutesAdd.ts`
-  and resolve only `serverAgentConvexClient` in their route modules. The server
-  and agent `db/` modules are not selected by these active HTTP paths.
+- Session read state uses typed HTTP and event-feed reconciliation through
+  `sessionListStateCreate.ts`, `selectedSessionStateCreate.ts`, and
+  `sessionSearchStateCreate.ts`.
+- Message HTTP reads and writes use the SQLite/libSQL Drizzle repositories
+  mounted by `apiRoutesAdd.ts`.
+- Server and agent HTTP reads/writes use their SQLite/libSQL Drizzle
+  repositories mounted by `apiRoutesAdd.ts`.
 - Stream read state: `sessionStreamStateCreate.ts`,
   `streamActivityStateCreate.ts`, `simulate/simulateInspectorStateCreate.ts`,
   `src/stream/client/streamReplayClientCreate.ts`, and
   `streamReplayConnectionCreate.ts`.
-- Note read/mutation state: all `src/note/ui/*StateCreate.ts` modules, with
-  Convex list/query/mutation wrappers in `notesPageStateCreate.ts`,
-  `notePageStateCreate.ts`, `newNotePageStateCreate.ts`, and
-  `noteWorkspacePageStateCreate.ts`.
+- Note read/mutation state: all `src/note/ui/*StateCreate.ts` modules use the
+  typed HTTP note client and SQLite/libSQL repositories.
 - Session/run mutation state: `chatComposerStateCreate.ts`, session sidebar
   action state, `sessionPinToggleStateCreate.ts`, rename controls, and
   `run/client/runCancelCommand.ts`.
-- Current subscriptions are Zero `useQuery` calls and Convex query wrappers;
-  no `EventSource` or `/api/events` implementation exists.
+- Current subscriptions use one authenticated `EventSource` per tab at
+  `/api/events`, with event-feed reconciliation in the UI.
 - Current stream producers are `sessionChatStreamCreate.ts`, provider runtime
   adapters, `stream/actions/streamAppend.ts`, and replay services. Current
   stream rows are keyed by `(streamId, sequence)`, not application user.
@@ -166,12 +161,12 @@ they do not add routes, clients, persistence, or migration behavior.
 | Active-run reconciliation | `src/run/api/runActiveSnapshotResponseSchema.ts`, `runActiveSummarySchema.ts` | Terminal `succeeded`, `failed`, and `aborted` statuses are intentionally accepted in these active-run schemas because reconciliation can observe a run completing between reads. A terminal status triggers authoritative reconciliation; it does not mean the run is still active. |
 | UI reconciliation state | `src/ui/uiDataLayerStatusSchema.ts` | `connected`, `reconnecting`, `reconciling`, `offline`, and `stale` are explicit states rather than inferred booleans. |
 
-## Blockers and exclusions
+## Remaining checklist and exclusions
 
-- Convex clients are selected whenever their environment variables are present,
-  so dual-path routes are operationally active today.
-- No per-user journal, sequence counter, publication bus, `/api/events`, or
-  typed HTTP client exists yet.
+- Remaining work covers domain/UI completion and final cleanup verification;
+  Zero and Convex are not active authorities.
+- The per-user journal, sequence counter, publication path, `/api/events`, and
+  typed HTTP client are current runtime components.
 - Existing stream IDs and sequences are per stream; they cannot be reused as
   same-user journal cursors.
 - Provider execution is coupled to the request/SSE lifecycle and needs the

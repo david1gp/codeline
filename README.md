@@ -1,14 +1,14 @@
 # @adaptive-ds/codeline
 
-Codeline is an AI coding workspace built for the fastest possible UI/UX. Its foundation is [Rocicorp Zero](https://zero.rocicorp.dev/), which turns durable PostgreSQL state into reactive browser data so the interface can stay synchronized and feel immediate.
+Codeline is an AI coding workspace built for the fastest possible UI/UX. Its foundation is a server-authoritative SQLite database with typed HTTP reads and mutations plus a replayable SSE event feed, so the interface stays durable, responsive, and easy to inspect.
 
 The goal is AI coding that does not suck: instant feedback, durable application state, and a focused workspace that stays out of the way.
 
-- **Immediate reads** — Zero answers queries from client-side data first, then follows with authoritative server results
-- **Incremental live queries** — synchronized changes update existing query results instead of requiring full refetches
+- **Typed reads and mutations** — validated HTTP contracts keep server state authoritative and responses predictable
+- **Incremental live updates** — replayable SSE events invalidate or update client state without polling
 - **Fine-grained rendering** — SolidJS and `@adaptive-ds/solid-ui` update only the UI affected by those changes
-- **Durable server state** — PostgreSQL and Drizzle own application data while Zero makes it reactive in the browser
-- **Explicit boundaries** — Hono, Valibot, and TanStack AI provide typed APIs, validation, and streaming seams
+- **Durable server state** — SQLite/libSQL and Drizzle own application data in the managed API process
+- **Explicit boundaries** — Hono, Valibot, typed HTTP, SSE, and TanStack AI provide validated transport seams
 - **Simple toolchain** — Bun and TypeScript power development, testing, and production builds
 
 Quick Links
@@ -17,16 +17,14 @@ Quick Links
 - code - https://github.com/david1gp/codeline
 - issues - https://github.com/david1gp/codeline/issues
 - solid-ui - https://github.com/david1gp/solid-ui
-- zero - https://zero.rocicorp.dev/
-- zero code - https://github.com/rocicorp/mono
 
 ## Status
 
-Codeline is a runnable AI coding workspace. It provides synchronized session navigation, provider-backed chat execution, durable messages and execution events, stream replay, bounded retries and subagents, project/file browsing, Git branch controls, Markdown rendering, provider/model selection, simulation fixtures, and a responsive `/demo` showcase. It also includes provider-neutral OIDC/PKCE authentication, protected UI state, Zero cache isolation, and an installable PWA baseline.
+Codeline is a runnable AI coding workspace. It provides synchronized session navigation, provider-backed chat execution, durable messages and execution events, stream replay, bounded retries and subagents, project/file browsing, Git branch controls, Markdown rendering, provider/model selection, simulation fixtures, and a responsive `/demo` showcase. It also includes provider-neutral OIDC/PKCE authentication, protected UI state, HTTP/SSE account isolation, and an installable PWA baseline.
 
-The Hono API persists durable state in PostgreSQL through Drizzle. Zero synchronizes authorized reads into the browser; commands and chat execution continue to go through the application API. The chat runtime supports deterministic fixtures and the configured local CLIProxyAPI/Codex-LB provider targets.
+The Hono API persists durable state in SQLite through Drizzle. Typed HTTP synchronizes authorized reads and mutations with the browser, while the replayable SSE event feed carries server-to-client changes. The chat runtime supports deterministic fixtures and the configured local CLIProxyAPI/Codex-LB provider targets.
 
-Local development uses the immutable registry Zero package and a pinned git-store checkout through a Bun link. `bun run release` runs the local format, test, and build preflight; `bun run deploy` runs the local build preflight only. GitHub release artifacts, clean-clone/CI reproducibility, and deployment automation are deferred and are not current priorities.
+Local development uses a pinned git-store checkout through a Bun link. `bun run release` runs the local format, test, and build preflight; `bun run deploy` runs the local build preflight only. GitHub release artifacts, clean-clone/CI reproducibility, and deployment automation are deferred and are not current priorities.
 
 Provider OAuth, Pi ecosystem integrations, MCP, full-text web search, custom scrollbar behavior, trusted folders / project trust, editing or limiting AI capabilities, and AI permission management are out of scope.
 
@@ -62,7 +60,7 @@ src/
 - `api/` holds Hono route registration only.
 - `actions/` holds application operations such as `sessionCreate` and `serverList`.
 - `db/` holds Drizzle tables and repositories.
-- `database/` holds shared persistence infrastructure only: the client, transactions, migrations, `databaseSchema.ts`, and `zeroSchema.ts`.
+- `database/` holds shared persistence infrastructure only: the client, transactions, migrations, and `databaseSchema.ts`.
 - `api/` at the top level holds platform HTTP only: health, readiness, errors, testing, and route composition.
 - `server/` is the HTTP process. The server domain context is `servers/`.
 
@@ -144,23 +142,17 @@ bun run db:seed
 
 ## Local Development
 
-Requirements: Bun 1.3 or newer, rootless Podman, user systemd with Quadlet support, and `git`.
-
-The Codeline wrapper uses Podman's default rootless storage and does not set project-specific `--root` or `--runroot` paths. On this development host those defaults are `/home/david/.local/share/containers/storage` and `/run/user/1001/containers`; no Codeline Podman state is created under `/tmp`.
+Requirements: Bun 1.3 or newer, user systemd, and `git`.
 
 ```bash
 bun install
 cp .env.example .env
 chmod 600 .env
-# Replace the Convex admin-key placeholder in .env. Keep all real values there.
-cp ops/dev/convex/env.docker.example ops/dev/convex/.env.docker
-# Replace INSTANCE_SECRET in ops/dev/convex/.env.docker with 64 hex characters.
 ./ops/dev/git-store-link.sh setup
-./ops/dev/zero-link.sh setup
 ./ops/dev/codeline-dev.sh validate
 ```
 
-The managed development stack includes the repository-owned PostgreSQL service and the currently required Convex, API, and UI services. Use the wrapper below for lifecycle and database operations; do not start replacement services outside the managed units.
+The managed development stack includes the SQLite-backed API and UI services. Use the wrapper below for lifecycle and database operations; do not start replacement services outside the managed units.
 
 ### ZITADEL organization access
 
@@ -176,20 +168,9 @@ For example, configure multiple roots with:
 CODELINE_PROJECT_ROOTS=["./projects","../shared-projects"]
 ```
 
-The managed services use host-local listeners: PostgreSQL `127.0.0.1:6002`, UI `127.0.0.1:6000`, API `127.0.0.1:6001`, Convex backend `127.0.0.1:3210`, Convex site `127.0.0.1:3211`, and Convex dashboard `127.0.0.1:6791`. PostgreSQL persists in the repository-managed `codeline-dev-postgres` volume and Convex persists in `codeline-convex-data`; the Vite server proxies `/api` to `http://127.0.0.1:6001`.
+The managed services use host-local listeners: UI `127.0.0.1:6000` and API `127.0.0.1:6001`. The API owns the repository-local `data/db.sqlite` file; the Vite server proxies typed HTTP and `/api/events` SSE to `http://127.0.0.1:6001`.
 
-The self-hosted Convex backend persists `/convex/data` and reports readiness from `/version`; the dashboard waits for a healthy backend and reports readiness from `/`. `ops/dev/caddy/Caddyfile` contains the preview routes for the UI, Convex backend, site, and dashboard. Register those routes through the host project-registry during cutover; this repository does not reload Caddy.
-
-Install or verify the pinned registry Zero package:
-
-```bash
-./ops/dev/zero-link.sh setup
-./ops/dev/zero-link.sh verify
-```
-
-After cloning, run `./ops/dev/zero-link.sh setup` from a Codeline checkout. Setup installs the exact `@rocicorp/zero` version recorded in `package.json` and verifies its runtime API. The Zero package remains a migration input; the replacement managed operations do not build or run a Zero Cache.
-
-The application package no longer depends on generated output from the local Zero checkout. Removing the remaining Zero application path is deferred to the later migration tasks.
+`ops/dev/caddy/Caddyfile` contains the single preview route for the UI and its same-origin HTTP/SSE proxying. Register that route through the host project-registry during cutover; this repository does not reload Caddy.
 
 Set up or verify the local git-store link:
 
@@ -200,7 +181,7 @@ bun run git-store:verify
 
 The link script installs and builds the clean sibling checkout at `../git-store-clean-779c05b`, runs `bun link` in that checkout, and links `@adaptive-ds/git-store` into Codeline. Set `GIT_STORE_CHECKOUT` in the environment or ignored `.env` to use another local checkout. Configuration writes always use `autoPush: false`; this setup does not add or use remote pushes.
 
-Like the Zero link, this is a local-checkout workflow and is not reproducible from a clean Codeline clone or CI. A clean clone needs the git-store checkout, its built `dist/`, and the local Bun link before Codeline dependencies and checks can resolve.
+This is a local-checkout workflow and is not reproducible from a clean Codeline clone or CI. A clean clone needs the git-store checkout, its built `dist/`, and the local Bun link before Codeline dependencies and checks can resolve.
 
 Verify the immutable release inputs without network access:
 
@@ -210,7 +191,7 @@ bun run release:inputs:verify
 
 This checks the pinned Bun version and the linked git-store target, including its Git revision, cleanliness, package identity, exports, and required build outputs. It reports a blocker when a provisioned source directory cannot prove its Git provenance.
 
-GitHub release artifacts and clean-clone/CI dependency reproducibility are deferred. Typecheck, tests, build, database checks, and release-input verification remain local commands after the registry Zero package and git-store link are established.
+GitHub release artifacts and clean-clone/CI dependency reproducibility are deferred. Typecheck, tests, build, database checks, and release-input verification remain local commands after the git-store link is established.
 
 Service lifecycle:
 
@@ -218,15 +199,16 @@ Service lifecycle:
 ./ops/dev/codeline-dev.sh validate
 ./ops/dev/codeline-dev.sh install
 ./ops/dev/codeline-dev.sh start
-./ops/dev/codeline-dev.sh wait postgres
+./ops/dev/codeline-dev.sh wait api
+./ops/dev/codeline-dev.sh wait ui
 ./ops/dev/codeline-dev.sh status
-./ops/dev/codeline-dev.sh logs codeline-dev-postgres.service
+./ops/dev/codeline-dev.sh logs codeline-dev-api.service
 ./ops/dev/codeline-dev.sh stop
 ./ops/dev/codeline-dev.sh db-reset-seed
 ./ops/dev/codeline-dev.sh remove
 ```
 
-`install` only links the repository-managed user units and Quadlets and reloads user systemd; it does not enable or start anything. `start` starts the managed target. `stop`/`down` stop the target while retaining data. `db-reset-seed` stops and verifies the managed database consumers, resets PostgreSQL schemas, runs Drizzle migrations, and seeds deterministic fixtures. `reset` is an alias for that full PostgreSQL reset workflow.
+`install` only links the repository-managed user units and reloads user systemd; it does not enable or start anything. `start` starts the managed target. `stop`/`down` stop the target while retaining data. `db-reset-seed` stops the managed API/UI consumers, resets the SQLite file, runs Drizzle migrations, and seeds deterministic fixtures. `reset` is an alias for that full SQLite reset workflow.
 
 ```bash
 bun run db:migrate
@@ -241,14 +223,13 @@ bun run db:seed
 bun run db:seed -- --reset
 ```
 
-The target starts repository-managed PostgreSQL, the self-hosted Convex backend and dashboard, then the Convex function deployer, Bun/Hono API, and Vite UI. It waits for backend/dashboard health, API readiness at `/api/ready`, and the UI root; Vite's strict port check makes a UI port conflict fail the managed UI unit. The services load ignored environment files, run from the stable `~/codeline` checkout link, and restart on failure. It uses the user's default rootless Podman storage and does not create Codeline-specific `/tmp` or `--root`/`--runroot` paths.
+The target starts the Bun/Hono API and Vite UI. It waits for API readiness at `/api/ready` and the UI root; Vite's strict port check makes a UI port conflict fail the managed UI unit. The services load the ignored `.env` file, run from the stable `~/codeline` checkout link, and restart on failure.
 
 Troubleshooting:
 
 - If configuration validation reports a missing variable, ensure `.env` exists and contains the required names from `.env.example`. The wrapper reports names only, never values.
-- If Quadlet support is unavailable, install/configure the Podman systemd generator before the final cutover; no replacement service should be started as a workaround.
-- If a managed host port is busy, fix the conflicting service before cutover. Preview routing expects `preview.codeline.work`, `convex.preview.codeline.work`, `api.preview.codeline.work`, and `dash.preview.codeline.work` to map to the ports in `ops/dev/caddy/Caddyfile`.
-- Inspect `./ops/dev/codeline-dev.sh logs codeline-dev-postgres.service` and the corresponding Convex backend, dashboard, deployer, API, or UI unit for diagnostics.
+- If a managed host port is busy, fix the conflicting service before cutover. Preview routing expects `preview.codeline.work` to map to the UI in `ops/dev/caddy/Caddyfile`.
+- Inspect `./ops/dev/codeline-dev.sh logs codeline-dev-api.service` or `codeline-dev-ui.service` for diagnostics.
 
 Example route checks:
 
@@ -267,7 +248,7 @@ Browser verification is outside this operations-only step. Do not replace the ma
 
 The run mutates local development data. It creates two run-unique synthetic organization members, their identity sessions, and one conversation per member through the regular API, then deletes those users again in a teardown that also runs after a failed assertion; the cascading delete removes the generated memberships, identity sessions, conversations, messages, runs, notes, and stream rows. Seeded example data is untouched, and repeated runs stay independent because every run uses a fresh identifier.
 
-The setup and cleanup scripts refuse to run unless `NODE_ENV`, `PUBLIC_ORIGIN`, and `DATABASE_URL` match the repository-managed local development environment: a loopback host (`127.0.0.0/8`, `localhost`, or `::1`) with the `POSTGRES_PORT`, `POSTGRES_USER`, and `POSTGRES_DB` values from `.env`. Any other connection string aborts the run before a write happens. `ZITADEL_ISSUER` and `ZITADEL_ORGANIZATION_ID` must also be set in `.env`, as documented in `.env.example`; the synthetic members are created against exactly that issuer and organization, and a missing value aborts the run. To remove a run's data manually after an interrupted run, use its identifier:
+The setup and cleanup scripts refuse to run unless `NODE_ENV`, `PUBLIC_ORIGIN`, and `DATABASE_URL` match the repository-managed SQLite file at `data/db.sqlite`. Any other connection string aborts the run before a write happens. `ZITADEL_ISSUER` and `ZITADEL_ORGANIZATION_ID` must also be set in `.env`, as documented in `.env.example`; the synthetic members are created against exactly that issuer and organization, and a missing value aborts the run. To remove a run's data manually after an interrupted run, use its identifier:
 
 ```bash
 bun scripts/e2eOrganizationMemberSessionsPurge.ts <run-id>
@@ -291,7 +272,7 @@ Copy `.env.example` to `.env` only when configuring local application work. The 
 
 Near-term work is release-readiness verification: documentation, local package validation, and automated end-to-end checks for the managed development services and protected application flows.
 
-GitHub release artifacts, clean-clone/CI reproducibility for the local Zero and git-store links, and production deployment automation are intentionally deferred. Pi-web exclusions remain out of scope.
+GitHub release artifacts, clean-clone/CI reproducibility for the local git-store link, and production deployment automation are intentionally deferred. Pi-web exclusions remain out of scope.
 
 ## License
 

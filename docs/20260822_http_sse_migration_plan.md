@@ -8,7 +8,7 @@ This plan supersedes:
 
 ## Goal
 
-Replace Zero and the partial Convex migration with a server-authoritative data layer inside the existing Hono application. PostgreSQL/Drizzle remains the durable source of truth; typed JSON HTTP handles reads and mutations; one replayable SSE feed per tab carries server-to-client changes; and IndexedDB provides device-local, read-only access to settled sessions.
+Replace Zero and the partial Convex migration with a server-authoritative data layer inside the existing Hono application. SQLite/libSQL with Drizzle is the durable source of truth; typed JSON HTTP handles reads and mutations; one replayable SSE feed per tab carries server-to-client changes; and IndexedDB provides device-local, read-only access to settled sessions.
 
 Filesystem access, Git, shells, provider processes, credentials, path authorization, run execution, persistence, and synchronization stay in the Codeline server. The target deployment has exactly one API process.
 
@@ -16,15 +16,15 @@ Filesystem access, Git, shells, provider processes, credentials, path authorizat
 
 - Codeline requires `fs`, Git subprocesses, and agent CLI processes. Convex cannot replace the Hono server and would leave two stateful server systems.
 - Zero and the partial Convex migration move important failures into asynchronous browser synchronization paths that are difficult to diagnose.
-- Plain HTTP, conditional requests, SSE, PostgreSQL, and a small client cache provide the required behavior without a general client transaction engine or WebSocket RPC layer.
+- Plain HTTP, conditional requests, SSE, SQLite/libSQL, and a small client cache provide the required behavior without a general client transaction engine or WebSocket RPC layer.
 
 ## Architecture decisions
 
 ### Server and transport
 
-- Keep Hono as the application boundary and PostgreSQL/Drizzle as the only durable datastore. Remove Zero and Convex from the target architecture.
-- Do not migrate or retain Zero/Convex data, configuration, compatibility layers, generated code, tests, fixtures, tooling, services, volumes, or documentation. Delete all of them after their active paths have been replaced; only PostgreSQL/Drizzle domain data remains authoritative.
-- Run one API process. It owns provider execution, the active-run registry, live SSE fan-out, and all journal-producing writes. Do not add horizontal scaling, PostgreSQL `LISTEN`/`NOTIFY`, a general WebSocket RPC layer, or cross-tab connection sharing in this migration.
+- Keep Hono as the application boundary and SQLite/libSQL with Drizzle as the only durable datastore. Remove Zero and Convex from the target architecture.
+- Do not migrate or retain Zero/Convex data, configuration, compatibility layers, generated code, tests, fixtures, tooling, services, volumes, or documentation. Delete all of them after their active paths have been replaced; only SQLite/libSQL with Drizzle domain data remains authoritative.
+- Run one API process. It owns provider execution, the active-run registry, live SSE fan-out, and all journal-producing writes. Do not add horizontal scaling, a cross-process publication mechanism, a general WebSocket RPC layer, or cross-tab connection sharing in this migration.
 - Use plain JSON HTTP `GET` requests for reads and `POST`/`PATCH`/`DELETE` for mutations. Commands never travel through SSE.
 - Use keyset pagination for lists. Session lists key on `(updatedAt, id)` and message-list endpoints key on `messageTable.sequence`; do not add offset pagination.
 - Use one authenticated, same-origin `EventSource` per tab at `GET /api/events`. The session cookie is attached automatically. Parallel sessions share that multiplexed connection.
@@ -53,8 +53,8 @@ Filesystem access, Git, shells, provider processes, credentials, path authorizat
 ### Per-user journal sequencing
 
 - Maintain one durable journal and one monotonic sequence per `applicationUser.id`. The scope is the application user, not the login session, organization, device, tab, session, or run.
-- Allocate sequences through a per-user database counter row locked inside the same transaction as the domain mutation and journal insert. Do not use a global `BIGSERIAL` or rely on an in-process serialization queue for commit ordering.
-- For an organization resource shared by multiple users, append an independently sequenced event to every currently authorized user's journal in the domain transaction. Acquire user counter locks in a deterministic order.
+- Allocate sequences through atomic per-user counter updates inside the same SQLite write transaction as the domain mutation and journal insert. Use transaction-scoped read/check/write operations; do not rely on database locks, a global sequence, or an in-process serialization queue for commit ordering.
+- For an organization resource shared by multiple users, append an independently sequenced event to every currently authorized user's journal in the domain transaction. Process users in a deterministic order so counter updates have stable ordering.
 - Publish events only after their transaction commits. A rolled-back transaction publishes nothing and does not advance the per-user sequence.
 - Treat the SSE event ID as an opaque same-user cursor containing the user's journal identity and sequence. Reject a cursor belonging to another user's journal.
 
@@ -134,38 +134,38 @@ Filesystem access, Git, shells, provider processes, credentials, path authorizat
 
 ## Migration approach
 
-The Convex migration is partially applied: some domains route through Convex, the browser mounts `CodelineConvexProvider`, identity/auth remains in Drizzle, and PostgreSQL development operations were removed.
+The SQLite/libSQL migration is active: Drizzle owns the durable runtime, typed HTTP owns browser reads and mutations, and the authenticated SSE feed carries server-to-client changes.
 
-Build the HTTP/SSE foundation first against existing Drizzle-backed identity/auth. Then move each domain directly from Convex to Drizzle plus the new HTTP layer in one pass. Do not introduce dual writes. Keep the application runnable after each domain cutover, and remove Zero/Convex only after equivalent behavior is verified.
+Establish the SQLite/libSQL runtime and fresh baseline before the remaining domain cutovers. Keep each domain on SQLite/libSQL with Drizzle plus the typed HTTP/SSE layer in one pass. Do not introduce dual writes. Keep the application runnable after each domain cutover, and retain legacy migration references only as cleanup history.
 
-Current context: tasks 1 through 7 are complete; task 8 is next. Zero and Convex remain only as temporary active-path dependencies until each replacement is runnable, after which their code and artifacts are deleted rather than migrated.
+Current context: SQLite/libSQL and the typed HTTP/SSE foundation are authoritative. The remaining work is the domain and UI completion checklist; Zero and Convex are historical migration inputs, not active runtime dependencies.
 
 ## Tasks
 
 ### Phase A — inventory and foundation
 
-- [x] 1. Inventory every active Zero, Convex, PostgreSQL, HTTP, SSE, authentication, UI read, mutation, subscription, and stream path; create a cutover matrix and define the shared Valibot contracts.
-- [x] 2. Restore the repository-managed PostgreSQL development service under `ops/dev/`, verify all Drizzle migrations, and add deterministic reset/migrate/seed coverage without dual writes.
+- [x] 1. Inventory the legacy synchronization paths, SQL persistence, HTTP, SSE, authentication, UI read, mutation, subscription, and stream paths; create a cutover matrix and define the shared Valibot contracts.
+- [x] 2. Restore the repository-managed SQL development workflow, verify the Drizzle migration workflow, and add deterministic reset/migrate/seed coverage without dual writes.
 - [x] 3. Add the typed HTTP client using an injected `fetch`, shared validated contracts, canonical query keys, request coalescing, structured errors, and `Result`; remove unused `zod`.
 - [x] 4. Add explicit representation revisions, strong ETag generation, conditional request handling, `Cache-Control`, `Vary`, compression, mutation idempotency records, and revision preconditions. Verify `200`, `304`, retry deduplication, and `412` behavior against a Drizzle-backed domain.
 
 ### Phase B — durable event channel
 
-- [x] 5. Add per-user sequence-counter and event-journal tables. Implement row-locked transactional allocation, deterministic shared-resource fan-out, opaque same-user cursors, persist-before-publish behavior, delta compaction, and pruning at 12 hours, 500,000 events, or 512 MiB per user.
+- [x] 5. Add per-user sequence-counter and event-journal tables. Implement atomic counter updates and transaction-scoped read/check/write allocation inside SQLite write transactions, deterministic shared-resource fan-out, opaque same-user cursors, persist-before-publish behavior, delta compaction, and pruning at 12 hours, 500,000 events, or 512 MiB per user.
 - [x] 6. Generalize the server endpoint at `GET /api/events`: one frame per event, subscribe-before-backlog, `Last-Event-ID` before `?after=`, compact lifecycle checkpoints, 15-second heartbeat, anti-buffering headers, cursor validation, explicit reset, event-size enforcement, slow-client queue limits, blocked-write timeout, and disconnect cleanup.
 - [x] 7. Add the client feed: one `EventSource` per tab, session/run demultiplexing, ordered available-event application, revision-aware invalidation, active delta application, completion replacement through HTTP, and non-destructive reset reconciliation.
 
 ### Phase C — sessions and runs
 
-- [ ] 8. Move sessions and messages from Convex to Drizzle behind typed HTTP endpoints, including keyset-paginated lists and one complete conditional settled-session snapshot response with atomic `asOfSequence`.
+- [ ] 8. Complete sessions and messages on SQLite/libSQL with Drizzle behind typed HTTP endpoints, including keyset-paginated lists and one complete conditional settled-session snapshot response with atomic `asOfSequence`.
 - [ ] 9. Move execution to the process-owned run registry so disconnect no longer aborts providers; add explicit cancellation and startup interruption reconciliation.
 - [ ] 10. Move provider output to independently keyed 500ms producer coalescing and the per-user journal; flush first/size/lifecycle boundaries and retire `streamEventTable`, `streamCheckpointTable`, and the old replay client.
 - [ ] 11. Add the consistent active-run snapshot endpoint returning `{status, partialText, lastSequence}` and implement snapshot-then-attach reload behavior.
 
 ### Phase D — remaining domains and UI
 
-- [ ] 12. Move servers, agents, notes, and remaining run operations from Convex to Drizzle plus typed HTTP endpoints, one mutation family at a time.
-- [ ] 13. Replace `CodelineConvexProvider` and Zero/Convex UI consumers with fetch-based state modules and the in-memory revision/ETag cache. Expose explicit offline, reconnecting, reconciling, and stale states.
+- [ ] 12. Complete servers, agents, notes, and remaining run operations on SQLite/libSQL with Drizzle plus typed HTTP endpoints, one mutation family at a time.
+- [ ] 13. Remove remaining legacy synchronization consumers in favor of fetch-based state modules and the in-memory revision/ETag cache. Expose explicit offline, reconnecting, reconciling, and stale states.
 
 ### Phase E — IndexedDB and offline access
 
@@ -176,7 +176,7 @@ Current context: tasks 1 through 7 are complete; task 8 is next. Zero and Convex
 ### Phase F — cleanup and verification
 
 - [ ] 17. Add unit, integration, and browser coverage for consistent snapshot/feed bootstrap, `200`/`304`, complete session responses, mutation deduplication and conflicts, independent 500ms coalescing, first/size/lifecycle flushes, per-user sequence ordering, shared-resource fan-out, cross-user cursor rejection, finalized-delta compaction, 12-hour/count/size pruning, reconnect through completion checkpoints, cursor reset, multiple tabs and parallel runs, slow clients, active-run reload, process-restart interruption, atomic IndexedDB replacement, account isolation, retained sign-out data, and signed-out/offline reads.
-- [ ] 18. Remove all Zero and Convex runtime code, providers, routes, compatibility branches, generated files, schemas, seeds, fixtures, tests, environment variables, dependencies, build/release tooling, operations units, persistent service data/volumes, and documentation after all domains have cut over.
+- [ ] 18. Remove remaining historical Zero/Convex runtime references, compatibility branches, generated files, schemas, seeds, fixtures, tests, environment variables, build/release tooling, operations units, persistent service data/volumes, and documentation after all domains have cut over.
 - [ ] 19. Verify proxy buffering, compression, auth expiry, disconnect cleanup, metrics, deterministic seeding, managed services, build/type checks, and end-to-end behavior before declaring the migration complete.
 
 ## Main paths
