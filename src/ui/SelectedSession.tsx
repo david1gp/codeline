@@ -1,4 +1,5 @@
-import { mdiPinOffOutline, mdiPinOutline } from "@mdi/js"
+import { mdiPinOffOutline } from "@adaptive-ds/mdi/mdiPinOffOutline.js"
+import { mdiPinOutline } from "@adaptive-ds/mdi/mdiPinOutline.js"
 import { For, Match, Show, Switch } from "solid-js"
 import { ButtonIconOnly } from "#ui/interactive/button/ButtonIconOnly.jsx"
 import { FinalizedMessage } from "../message/ui/FinalizedMessage.js"

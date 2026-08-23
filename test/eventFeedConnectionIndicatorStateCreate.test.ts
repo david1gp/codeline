@@ -6,20 +6,6 @@ import { eventFeedConnectionIndicatorStateCreate } from "../src/ui/eventFeedConn
 import type { PwaStatusView } from "../src/ui/pwa/pwaStatusView.js"
 import type { UiDataLayerStatus } from "../src/ui/uiDataLayerStatusSchema.js"
 
-mock.module("@mdi/js", () => ({
-  mdiAlertCircleOutline: "alert-circle",
-  mdiApi: "api",
-  mdiApplicationOutline: "application",
-  mdiCheckCircleOutline: "check-circle",
-  mdiCloudOffOutline: "cloud-off",
-  mdiDatabaseSyncOutline: "database-sync",
-  mdiDotsHorizontalCircleOutline: "dots-horizontal",
-  mdiLanDisconnect: "lan-disconnect",
-  mdiServerOff: "server-off",
-  mdiSync: "sync",
-  mdiUpdate: "update",
-}))
-
 const { appConnectionDetailsResolve } = await import("../src/ui/appConnectionDetailsResolve.js")
 
 const pwaHealthy: PwaStatusView = {

@@ -1,4 +1,5 @@
-import { mdiFormatListBulleted, mdiMessageTextOutline } from "@mdi/js"
+import { mdiFormatListBulleted } from "@adaptive-ds/mdi/mdiFormatListBulleted.js"
+import { mdiMessageTextOutline } from "@adaptive-ds/mdi/mdiMessageTextOutline.js"
 import { ButtonIconOnly } from "#ui/interactive/button/ButtonIconOnly.jsx"
 import type { sessionDisplayModeStateCreate } from "./sessionDisplayModeStateCreate.js"
 

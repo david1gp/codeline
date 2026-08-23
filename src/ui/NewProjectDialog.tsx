@@ -1,4 +1,4 @@
-import { mdiFolderPlusOutline } from "@mdi/js"
+import { mdiFolderPlusOutline } from "@adaptive-ds/mdi/mdiFolderPlusOutline.js"
 import { type JSX } from "solid-js"
 import { buttonVariant } from "#ui/interactive/button/buttonCva.js"
 import { CorvuDialog } from "#ui/interactive/dialog/CorvuDialog.jsx"

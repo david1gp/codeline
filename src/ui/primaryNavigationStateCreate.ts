@@ -1,4 +1,6 @@
-import { mdiFolderOutline, mdiHistory, mdiNoteTextOutline } from "@mdi/js"
+import { mdiFolderOutline } from "@adaptive-ds/mdi/mdiFolderOutline.js"
+import { mdiHistory } from "@adaptive-ds/mdi/mdiHistory.js"
+import { mdiNoteTextOutline } from "@adaptive-ds/mdi/mdiNoteTextOutline.js"
 import { useLocation } from "@solidjs/router"
 import { useContext } from "solid-js"
 import { primaryNavigationPathIsActive } from "./primaryNavigationPathIsActive.js"

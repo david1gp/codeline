@@ -1,12 +1,10 @@
-import {
-  mdiFolderMultipleOutline,
-  mdiHistory,
-  mdiLoading,
-  mdiMagnify,
-  mdiPinOutline,
-  mdiPlus,
-  mdiTrashCanOutline,
-} from "@mdi/js"
+import { mdiFolderMultipleOutline } from "@adaptive-ds/mdi/mdiFolderMultipleOutline.js"
+import { mdiHistory } from "@adaptive-ds/mdi/mdiHistory.js"
+import { mdiLoading } from "@adaptive-ds/mdi/mdiLoading.js"
+import { mdiMagnify } from "@adaptive-ds/mdi/mdiMagnify.js"
+import { mdiPinOutline } from "@adaptive-ds/mdi/mdiPinOutline.js"
+import { mdiPlus } from "@adaptive-ds/mdi/mdiPlus.js"
+import { mdiTrashCanOutline } from "@adaptive-ds/mdi/mdiTrashCanOutline.js"
 import { For, Match, Show, Switch } from "solid-js"
 import { Input } from "#ui/input/input/Input.jsx"
 import { Button } from "#ui/interactive/button/Button.jsx"

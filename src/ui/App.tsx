@@ -1,4 +1,5 @@
-import { mdiCogOutline, mdiDockRight } from "@mdi/js"
+import { mdiCogOutline } from "@adaptive-ds/mdi/mdiCogOutline.js"
+import { mdiDockRight } from "@adaptive-ds/mdi/mdiDockRight.js"
 import { A } from "@solidjs/router"
 import type { JSX } from "solid-js"
 import { For, Show } from "solid-js"

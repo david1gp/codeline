@@ -1,4 +1,4 @@
-import { mdiClose } from "@mdi/js"
+import { mdiClose } from "@adaptive-ds/mdi/mdiClose.js"
 import { For, Match, Show, Switch } from "solid-js"
 import { Button } from "#ui/interactive/button/Button.jsx"
 import { ButtonIconOnly } from "#ui/interactive/button/ButtonIconOnly.jsx"

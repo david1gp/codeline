@@ -1,4 +1,5 @@
-import { mdiAccountCircleOutline, mdiLogout } from "@mdi/js"
+import { mdiAccountCircleOutline } from "@adaptive-ds/mdi/mdiAccountCircleOutline.js"
+import { mdiLogout } from "@adaptive-ds/mdi/mdiLogout.js"
 import { Button } from "#ui/interactive/button/Button.jsx"
 import { buttonSize, buttonVariant } from "#ui/interactive/button/buttonCva.js"
 import { CorvuPopoverIcon } from "#ui/interactive/popover/CorvuPopoverIcon.jsx"

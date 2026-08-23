@@ -1,4 +1,5 @@
-import { mdiDownloadOutline, mdiUpdate } from "@mdi/js"
+import { mdiDownloadOutline } from "@adaptive-ds/mdi/mdiDownloadOutline.js"
+import { mdiUpdate } from "@adaptive-ds/mdi/mdiUpdate.js"
 import { Show } from "solid-js"
 import { ButtonIcon1 } from "#ui/interactive/button/ButtonIcon1.jsx"
 import { buttonVariant } from "#ui/interactive/button/buttonCva.js"

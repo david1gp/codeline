@@ -1,5 +1,7 @@
 import { createSignalObject } from "@adaptive-ds/solid-ui/utils/createSignalObject"
-import { mdiBrightnessAuto, mdiWeatherNight, mdiWhiteBalanceSunny } from "@mdi/js"
+import { mdiBrightnessAuto } from "@adaptive-ds/mdi/mdiBrightnessAuto.js"
+import { mdiWeatherNight } from "@adaptive-ds/mdi/mdiWeatherNight.js"
+import { mdiWhiteBalanceSunny } from "@adaptive-ds/mdi/mdiWhiteBalanceSunny.js"
 import { onCleanup, onMount } from "solid-js"
 import * as v from "valibot"
 

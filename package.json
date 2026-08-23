@@ -61,11 +61,11 @@
   },
   "dependencies": {
     "@adaptive-ds/git-store": "link:@adaptive-ds/git-store",
+    "@adaptive-ds/mdi": "^0.1.2",
     "@adaptive-ds/result": "^0.6.0",
     "@adaptive-ds/solid-ui": "^0.18.0",
     "@corvu/popover": "^0.2.0",
     "@libsql/client": "^0.17.3",
-    "@mdi/js": "^7.4.47",
     "@solidjs/router": "^1.0.0",
     "@tanstack/ai": "0.45.1",
     "@tanstack/ai-client": "0.23.2",

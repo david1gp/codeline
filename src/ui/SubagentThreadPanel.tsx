@@ -1,4 +1,4 @@
-import { mdiDockRight } from "@mdi/js"
+import { mdiDockRight } from "@adaptive-ds/mdi/mdiDockRight.js"
 import { Show } from "solid-js"
 import { ButtonIconOnly } from "#ui/interactive/button/ButtonIconOnly.jsx"
 import { SessionStreamEntryList } from "./SessionStreamEntryList.js"

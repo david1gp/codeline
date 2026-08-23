@@ -1,4 +1,4 @@
-import { mdiDotsHorizontal } from "@mdi/js"
+import { mdiDotsHorizontal } from "@adaptive-ds/mdi/mdiDotsHorizontal.js"
 import { Button } from "#ui/interactive/button/Button.jsx"
 import { buttonVariant } from "#ui/interactive/button/buttonCva.js"
 import { CorvuPopoverIcon } from "#ui/interactive/popover/CorvuPopoverIcon.jsx"

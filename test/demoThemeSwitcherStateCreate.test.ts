@@ -7,12 +7,6 @@ mock.module("@adaptive-ds/solid-ui/utils/createSignalObject", () => ({
   },
 }))
 mock.module("solid-js", () => ({ onCleanup: () => undefined, onMount: () => undefined }))
-mock.module("@mdi/js", () => ({
-  mdiBrightnessAuto: "system",
-  mdiWeatherNight: "dark",
-  mdiWhiteBalanceSunny: "light",
-}))
-
 const { demoThemeSwitcherStateCreate } = await import("../src/ui/demo/demoThemeSwitcherStateCreate.js")
 
 test("demo theme switcher applies its non-persistent theme to the browser root", () => {

@@ -1,4 +1,4 @@
-import { mdiPlus } from "@mdi/js"
+import { mdiPlus } from "@adaptive-ds/mdi/mdiPlus.js"
 import { For, Show } from "solid-js"
 import { Button } from "#ui/interactive/button/Button.jsx"
 import { buttonVariant } from "#ui/interactive/button/buttonCva.js"
