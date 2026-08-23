@@ -316,6 +316,30 @@ test("disconnects a write that remains blocked for fifteen seconds", async () =>
   expect(writer.abortReasons).toEqual(["blocked-or-failed-write"])
 })
 
+test("disconnects and clears a heartbeat write that remains blocked for fifteen seconds", async () => {
+  const subscription = streamLiveSubscriptionCreate()
+  const scheduler = new TestScheduler()
+  const writer = new TestWriter()
+  writer.blocked = true
+  const connection = connectionCreate(subscription, scheduler, writer)
+
+  expect(connection.connect().success).toBe(true)
+  expect(connection.completeBacklog().success).toBe(true)
+  scheduler.advance(15_000)
+  await drainMicrotasks()
+  expect(connection.isDisconnected()).toBe(false)
+  expect(connection.queuedByteCount()).toBeGreaterThan(0)
+
+  scheduler.advance(15_000)
+  await connection.waitForIdle()
+
+  expect(connection.isDisconnected()).toBe(true)
+  expect(connection.queuedByteCount()).toBe(0)
+  expect(subscription.subscriberCount("user-1")).toBe(0)
+  expect(scheduler.timerCount()).toBe(0)
+  expect(writer.abortReasons).toEqual(["blocked-or-failed-write"])
+})
+
 test("preserves available events across intentional sequence gaps", async () => {
   const subscription = streamLiveSubscriptionCreate()
   const scheduler = new TestScheduler()

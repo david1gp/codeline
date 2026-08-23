@@ -71,7 +71,7 @@ const cursorCodec: JournalCursorCodec = {
   },
 }
 
-function event(sequence: number, id = `event-${sequence}`): JournalEvent {
+function event(sequence: number, id = `event-${sequence}`): Extract<JournalEvent, { eventType: "delta" }> {
   return {
     delta: `delta-${sequence}`,
     deltaKind: "text",
@@ -84,8 +84,8 @@ function event(sequence: number, id = `event-${sequence}`): JournalEvent {
   }
 }
 
-function frame(sequence: number, id = `cursor-${userId}-${sequence}`): StreamSseFrame {
-  return { data: { ...event(sequence), id }, event: "delta", id }
+function frame(sequence: number, id = `cursor-${userId}-${sequence}`, delta = `delta-${sequence}`): StreamSseFrame {
+  return { data: { ...event(sequence), delta, id }, event: "delta", id }
 }
 
 function backlogPages(...pages: readonly StreamSseFrame[][]): AsyncIterable<Result<readonly StreamSseFrame[]>> {
@@ -413,6 +413,114 @@ test("disconnects a slow client through the injected connection writer", async (
   scheduler.advance(15_000)
   await flush()
   expect(liveSubscription.subscriberCount(userId)).toBe(0)
+})
+
+test("disconnects and cleans up when a backlog event exceeds the serialized SSE limit", async () => {
+  const liveSubscription = streamLiveSubscriptionCreate()
+  let abortReason: unknown
+  const app = appForEvents({
+    backlogRead: async () =>
+      createResult({
+        afterSequence: 0,
+        mode: "replay",
+        pages: backlogPages([frame(1, `cursor-${userId}-1`, "x".repeat(200_000))]),
+        replayUpperBound: 1,
+        selectedCursor: undefined,
+      }),
+    connectionWriterCreate: (dependencies) =>
+      streamSseConnectionWriterCreate({
+        ...dependencies,
+        writer: {
+          ...dependencies.writer,
+          abort: (reason) => {
+            abortReason = reason
+            return dependencies.writer.abort(reason)
+          },
+        },
+      }),
+    liveSubscription,
+  })
+
+  const response = await app.request("https://events.test/api/events", {
+    headers: { Cookie: "__Host-codeline-session=session-token" },
+  })
+  expect(response.status).toBe(200)
+  await flush()
+
+  expect(liveSubscription.subscriberCount(userId)).toBe(0)
+  expect(abortReason).toBe("connection-frame-invalid")
+  await response.body?.cancel().catch(() => undefined)
+})
+
+test("disconnects and cleans up when the endpoint event queue exceeds its event limit", async () => {
+  const scheduler = schedulerCreate()
+  const liveSubscription = streamLiveSubscriptionCreate()
+  let abortReason: unknown
+  const blockedWriterCreate: typeof streamSseConnectionWriterCreate = (dependencies) =>
+    streamSseConnectionWriterCreate({
+      ...dependencies,
+      writer: {
+        ...dependencies.writer,
+        abort: (reason) => {
+          abortReason = reason
+          return dependencies.writer.abort(reason)
+        },
+        write: () => new Promise<void>(() => undefined),
+      },
+    })
+  const app = appForEvents({
+    backlogRead: async () => emptyBacklog(),
+    connectionWriterCreate: blockedWriterCreate,
+    liveSubscription,
+    scheduler,
+  })
+
+  const response = await app.request("https://events.test/api/events", {
+    headers: { Cookie: "__Host-codeline-session=session-token" },
+  })
+  expect(response.status).toBe(200)
+  for (let sequence = 1; sequence <= 1_025; sequence += 1) liveSubscription.publish(userId, frame(sequence))
+  await flush()
+
+  expect(liveSubscription.subscriberCount(userId)).toBe(0)
+  expect(abortReason).toBe("connection-queue-event-overflow")
+  await response.body?.cancel().catch(() => undefined)
+})
+
+test("disconnects and cleans up when the endpoint event queue exceeds its byte limit", async () => {
+  const scheduler = schedulerCreate()
+  const liveSubscription = streamLiveSubscriptionCreate()
+  let abortReason: unknown
+  const blockedWriterCreate: typeof streamSseConnectionWriterCreate = (dependencies) =>
+    streamSseConnectionWriterCreate({
+      ...dependencies,
+      writer: {
+        ...dependencies.writer,
+        abort: (reason) => {
+          abortReason = reason
+          return dependencies.writer.abort(reason)
+        },
+        write: () => new Promise<void>(() => undefined),
+      },
+    })
+  const app = appForEvents({
+    backlogRead: async () => emptyBacklog(),
+    connectionWriterCreate: blockedWriterCreate,
+    liveSubscription,
+    scheduler,
+  })
+
+  const response = await app.request("https://events.test/api/events", {
+    headers: { Cookie: "__Host-codeline-session=session-token" },
+  })
+  expect(response.status).toBe(200)
+  for (let sequence = 1; sequence <= 12; sequence += 1)
+    liveSubscription.publish(userId, frame(sequence, `cursor-${userId}-${sequence}`, "x".repeat(100_000)))
+  await flush()
+
+  expect(liveSubscription.subscriberCount(userId)).toBe(0)
+  expect(abortReason).toBe("connection-queue-byte-overflow")
+  await response.body?.cancel().catch(() => undefined)
 })
 
 test("replays more than 1,024 events through a delayed Response reader with bounded pages and staging", async () => {
