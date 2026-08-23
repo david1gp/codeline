@@ -21,6 +21,10 @@ Replace PostgreSQL with a single embedded SQLite database while continuing the H
 
 Establish the SQLite runtime and baseline first, port persistence and transaction semantics domain by domain, switch the managed application and deterministic seed workflow to the SQLite file, then remove Zero and all PostgreSQL code and operations. Continue the remaining tasks in `docs/20260822_http_sse_migration_plan.md` against SQLite.
 
+## Current status
+
+SQLite/libSQL with Drizzle, typed HTTP, and authenticated SSE are the current runtime and managed operations architecture. PostgreSQL, Zero, and Convex references in this document and the dated feature plans are historical migration records, not active services, clients, or data authorities.
+
 ## Tasks
 
 - [x] **1. Align the current architecture plan with SQLite**
@@ -62,12 +66,12 @@ Establish the SQLite runtime and baseline first, port persistence and transactio
   - Continue the domain cutover order in the current HTTP/SSE plan, deleting each replaced Convex path after its HTTP/SQLite replacement passes.
   - Verify authentication persistence, organization isolation, CRUD, snapshots, ETags, conflicts, idempotency, journal fan-out, replay/reset, and process restart behavior.
 
-- [ ] **7. Remove Zero before removing PostgreSQL runtime support** *(in progress: active UI/runtime usage is removed; focused managed-browser verification remains for notes, delegations, streams, reconnect/reset, authentication expiry, and absence of Zero traffic)*
+- [x] **7. Remove Zero before removing PostgreSQL runtime support**
   - Replace remaining Zero UI queries/mutations with the existing typed HTTP client and event feed.
   - Remove the Zero provider, schema, query/mutate routes, sync proxying, cache service, environment variables, scripts, dependencies, and tests.
   - Verify browser flows through the managed preview: sessions, search, messages, notes, parallel runs, reconnect/reset, authentication expiry, and no Zero WebSocket/query/mutate traffic.
 
-- [ ] **8. Remove PostgreSQL operations and finish the cutover**
+- [x] **8. Remove PostgreSQL operations and finish the cutover**
   - Remove PostgreSQL client dependencies, migrations, reset helpers, target checks, container/volume definitions, systemd dependencies, environment variables, ports, and documentation references.
   - Make the managed API service own the SQLite file and ensure the repository ignores `data/db.sqlite*`.
   - Remove superseded PostgreSQL and Convex persistence code once no active import or runtime branch references it.
@@ -80,7 +84,8 @@ Establish the SQLite runtime and baseline first, port persistence and transactio
 - Database: `drizzle.config.ts`, `src/database/`, `src/**/db/`
 - Runtime: `src/server/serverStart.ts`, `src/app/`, `.env.example`, `package.json`
 - Workflows: `scripts/dbReset.ts`, `scripts/dbSeed.ts`, `scripts/managedDatabase*`, `scripts/e2e*`
-- Operations: `ops/dev/`, `ops/dev/systemd/`, `ops/dev/postgres/`
+- Operations: `ops/dev/codeline-dev.sh`, `ops/dev/systemd/`, `ops/dev/caddy/`
 - HTTP/SSE: `src/api/`, `src/events/`, `src/journal/`, `src/stream/`
-- Transitional clients: `src/ui/`, `src/convex/`, `src/**/convex/`, `convex/`
-- Tests: `test/database*`, `test/exampleData*`, `test/identity*`, `test/*Postgres*`, `test/*Http*`, `test/journal*`, `test/events*`
+- Current clients: `src/ui/`, `src/api/`, `src/events/`
+- Historical cleanup references: dated migration and feature-plan records under `docs/`; no active PostgreSQL, Zero, or Convex client paths remain. Empty legacy directories are non-operational.
+- Tests and workflows: `test/`, `e2e/`, and the `test`, `test:integration`, `test:e2e`, `typecheck`, `build`, `db:check`, and `db:reset-seed` scripts in `package.json`

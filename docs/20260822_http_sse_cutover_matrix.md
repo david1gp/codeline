@@ -29,6 +29,8 @@ references; they are not active authorities.
 
 ## Legacy path inventory
 
+The paths in this section are historical implementation names from the migration inventory. They are not current implementation paths, services, clients, or data authorities; current operations are limited to the SQLite/libSQL API/UI stack documented above. Empty legacy directories are not runtime dependencies.
+
 ### Zero (historical cleanup references)
 
 - Provider and schema: `src/ui/CodelineZeroProvider.tsx`,
@@ -99,7 +101,7 @@ references; they are not active authorities.
   contexts.
 - Projects and providers: `/api/projects*` / project file routes and
   `/api/providers/*` in `src/project/api/*` and `src/providers/api/*`.
-- Compatibility/testing: `/api/query`, `/api/mutate`, and `/api/testing/*`.
+- Testing: `/api/testing/*`. The former `/api/query` and `/api/mutate` compatibility routes were removed.
 
 `src/session/api/apiSessionBranchRoutesAdd.ts` exists but is not mounted by
 `apiRoutesAdd.ts`; it is not an active HTTP path in this inventory.
@@ -164,7 +166,7 @@ they do not add routes, clients, persistence, or migration behavior.
 ## Remaining checklist and exclusions
 
 - Remaining work covers domain/UI completion and final cleanup verification;
-  Zero and Convex are not active authorities.
+  Zero and Convex are historical migration inputs, not active authorities.
 - The per-user journal, sequence counter, publication path, `/api/events`, and
   typed HTTP client are current runtime components.
 - Existing stream IDs and sequences are per stream; they cannot be reused as
@@ -173,6 +175,6 @@ they do not add routes, clients, persistence, or migration behavior.
   process-owned run registry before the target feed can be correct.
 - Existing API responses are mostly unversioned and do not consistently expose
   revisions or ETags.
-- Task 1 deliberately does **not** implement Hono route infrastructure, the
-  typed HTTP client, journal tables, SSE endpoints, domain migrations, cleanup,
-  or dependency removal.
+- This matrix is a current-runtime inventory plus historical cleanup record;
+  remaining implementation and verification work is tracked in the migration
+  plan rather than by treating legacy systems as active operations.

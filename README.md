@@ -24,7 +24,9 @@ Codeline is a runnable AI coding workspace. It provides synchronized session nav
 
 The Hono API persists durable state in SQLite through Drizzle. Typed HTTP synchronizes authorized reads and mutations with the browser, while the replayable SSE event feed carries server-to-client changes. The chat runtime supports deterministic fixtures and the configured local CLIProxyAPI/Codex-LB provider targets.
 
-Local development uses a pinned git-store checkout through a Bun link. `bun run release` runs the local format, test, and build preflight; `bun run deploy` runs the local build preflight only. GitHub release artifacts, clean-clone/CI reproducibility, and deployment automation are deferred and are not current priorities.
+SQLite/libSQL with Drizzle, typed HTTP, and authenticated SSE are the sole current data and operations architecture. PostgreSQL, Zero, and Convex appear only in dated migration or feature-plan records and are not active services or data authorities.
+
+Local development uses a pinned git-store checkout through a Bun link. `bun run release` runs the local format, test, and build preflight; `bun run build` runs the build directly. GitHub release artifacts, clean-clone/CI reproducibility, and deployment automation are deferred and are not current priorities.
 
 Provider OAuth, Pi ecosystem integrations, MCP, full-text web search, custom scrollbar behavior, trusted folders / project trust, editing or limiting AI capabilities, and AI permission management are out of scope.
 

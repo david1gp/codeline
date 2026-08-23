@@ -1,6 +1,8 @@
-# Migrate Zero/Convex to the HTTP + SSE data layer
+# HTTP + SSE data layer migration
 
-This plan supersedes:
+This document records the completed replacement of the legacy Zero/Convex paths and the remaining HTTP/SSE hardening work. SQLite/libSQL with Drizzle, typed HTTP, and authenticated SSE are the current architecture; legacy names below are historical cleanup context only.
+
+Historical predecessor plans:
 
 - `docs/20260822_migrate_zero_to_http_sse.md`
 - `docs/20260822_http_sse_data_layer.md`
@@ -23,7 +25,7 @@ Filesystem access, Git, shells, provider processes, credentials, path authorizat
 ### Server and transport
 
 - Keep Hono as the application boundary and SQLite/libSQL with Drizzle as the only durable datastore. Remove Zero and Convex from the target architecture.
-- Do not migrate or retain Zero/Convex data, configuration, compatibility layers, generated code, tests, fixtures, tooling, services, volumes, or documentation. Delete all of them after their active paths have been replaced; only SQLite/libSQL with Drizzle domain data remains authoritative.
+- Do not operate Zero/Convex data, configuration, compatibility layers, generated code, tests, fixtures, tooling, services, or volumes. Their former paths are retained below only as cleanup history; SQLite/libSQL with Drizzle domain data remains authoritative.
 - Run one API process. It owns provider execution, the active-run registry, live SSE fan-out, and all journal-producing writes. Do not add horizontal scaling, a cross-process publication mechanism, a general WebSocket RPC layer, or cross-tab connection sharing in this migration.
 - Use plain JSON HTTP `GET` requests for reads and `POST`/`PATCH`/`DELETE` for mutations. Commands never travel through SSE.
 - Use keyset pagination for lists. Session lists key on `(updatedAt, id)` and message-list endpoints key on `messageTable.sequence`; do not add offset pagination.
@@ -176,7 +178,7 @@ Current context: SQLite/libSQL and the typed HTTP/SSE foundation are authoritati
 ### Phase F — cleanup and verification
 
 - [ ] 17. Add unit, integration, and browser coverage for consistent snapshot/feed bootstrap, `200`/`304`, complete session responses, mutation deduplication and conflicts, independent 500ms coalescing, first/size/lifecycle flushes, per-user sequence ordering, shared-resource fan-out, cross-user cursor rejection, finalized-delta compaction, 12-hour/count/size pruning, reconnect through completion checkpoints, cursor reset, multiple tabs and parallel runs, slow clients, active-run reload, process-restart interruption, atomic IndexedDB replacement, account isolation, retained sign-out data, and signed-out/offline reads.
-- [ ] 18. Remove remaining historical Zero/Convex runtime references, compatibility branches, generated files, schemas, seeds, fixtures, tests, environment variables, build/release tooling, operations units, persistent service data/volumes, and documentation after all domains have cut over.
+- [ ] 18. Remove remaining historical Zero/Convex runtime references, compatibility branches, generated files, schemas, seeds, fixtures, tests, environment variables, build/release tooling, operations units, persistent service data/volumes, and obsolete active operational documentation after all domains have cut over; preserve dated feature-plan records as historical records.
 - [ ] 19. Verify proxy buffering, compression, auth expiry, disconnect cleanup, metrics, deterministic seeding, managed services, build/type checks, and end-to-end behavior before declaring the migration complete.
 
 ## Main paths
@@ -189,4 +191,4 @@ Current context: SQLite/libSQL and the typed HTTP/SSE foundation are authoritati
 - Projects and providers: `src/project/`, `src/providers/`
 - Tests: `e2e/`, bounded-context test directories
 - Operations and scripts: `ops/dev/`, `scripts/`
-- Cleanup: `convex/`, `src/convex/`, `src/*/convex/`, `src/database/zeroSchema.ts`, `scripts/zeroHeadUpdate.ts`, `ops/dev/zero-link.sh`, `ops/dev/convex/`
+- Historical cleanup inventory: former Zero/Convex implementation paths contain no active code; their names remain only in this plan, the cutover matrix, and dated feature-plan records. Empty legacy directories may remain in the working tree.
