@@ -1,5 +1,5 @@
 /// <reference lib="webworker" />
-import { pwaShellRequestCacheable } from "./pwaShellRequestCacheable.js"
+import { pwaServiceWorkerFetchHandle } from "./pwaServiceWorkerFetchHandle.js"
 
 const worker = self as unknown as ServiceWorkerGlobalScope
 
@@ -34,36 +34,14 @@ worker.addEventListener("activate", (event) => {
 })
 
 worker.addEventListener("fetch", (event) => {
-  const request = event.request
-
-  if (request.mode === "navigate") {
-    event.respondWith(
-      (async () => {
-        try {
-          return await fetch(request)
-        } catch {
-          const cached = await caches.match("/", { cacheName: shellCacheName })
-          if (cached) return cached
-          return new Response("Codeline is offline.", { status: 503, headers: { "content-type": "text/plain" } })
-        }
-      })(),
-    )
-    return
-  }
-
-  if (!pwaShellRequestCacheable(request, worker.location.origin)) return
-
-  event.respondWith(
-    (async () => {
-      const cached = await caches.match(request, { cacheName: shellCacheName })
-      if (cached) return cached
-
-      const response = await fetch(request)
-      if (response.ok && response.type === "basic") {
-        const cache = await caches.open(shellCacheName)
-        await cache.put(request, response.clone())
-      }
-      return response
-    })(),
-  )
+  const response = pwaServiceWorkerFetchHandle(event.request, {
+    caches: {
+      match: (request, options) => caches.match(request, options as CacheQueryOptions),
+      open: (cacheName) => caches.open(cacheName),
+    },
+    fetch,
+    scopeOrigin: worker.location.origin,
+    shellCacheName,
+  })
+  if (response) event.respondWith(response)
 })
