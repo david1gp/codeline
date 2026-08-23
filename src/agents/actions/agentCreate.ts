@@ -1,10 +1,11 @@
-import type { ServerAgentConvexClient } from "../../convex/serverAgentConvexClient.js"
+import type { DatabaseExecutor } from "../../database/databaseClient.js"
+import { agentRepositoryCreate } from "../db/agentRepositoryCreate.js"
 
 export function agentCreate(
-  client: ServerAgentConvexClient,
+  database: DatabaseExecutor,
   organizationId: string,
   serverId: string,
   input: unknown,
-): ReturnType<ServerAgentConvexClient["agentCreate"]> {
-  return client.agentCreate(organizationId, serverId, input as { configuration: unknown; name: string; role: string })
+): ReturnType<typeof agentRepositoryCreate> {
+  return agentRepositoryCreate(database, organizationId, serverId, input)
 }

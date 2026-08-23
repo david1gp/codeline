@@ -1,13 +1,17 @@
-import { Hono } from "hono"
 import type { Context } from "hono"
-import type { AppEnvironment } from "../../api/appEnvironment.js"
+import { Hono } from "hono"
+import * as v from "valibot"
 import { apiRequestParse } from "../../api/apiRequestParse.js"
+import type { AppEnvironment } from "../../api/appEnvironment.js"
 import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.js"
-import type { ExecutionConvexClient } from "../../convex/executionConvexClient.js"
 import { runCancel } from "../actions/runCancel.js"
 import { runCancellationCoordinatorCreate } from "../actions/runCancellationCoordinatorCreate.js"
+import { runDelegationsLoad } from "../actions/runDelegationsLoad.js"
 import { runLoad } from "../actions/runLoad.js"
+import { runSessionStreamSnapshotLoad } from "../actions/runSessionStreamSnapshotLoad.js"
 import { runCancelInputSchema } from "../schema/runCancelInputSchema.js"
+import { runDelegationsResponseSchema } from "./runDelegationsResponseSchema.js"
+import { runSessionStreamSnapshotResponseSchema } from "./runSessionStreamSnapshotResponseSchema.js"
 
 type ApiContext = Context<AppEnvironment>
 type RunCancellationCoordinator = ReturnType<typeof runCancellationCoordinatorCreate>
@@ -15,8 +19,9 @@ type RunCancellationCoordinator = ReturnType<typeof runCancellationCoordinatorCr
 type ApiRunRoutesOptions = {
   runCancel?: typeof runCancel
   runCancellationCoordinator?: RunCancellationCoordinator
+  runDelegationsLoad?: typeof runDelegationsLoad
   runLoad?: typeof runLoad
-  executionConvexClient?: ExecutionConvexClient
+  runSessionStreamSnapshotLoad?: typeof runSessionStreamSnapshotLoad
 }
 
 function badRequest(context: ApiContext, message: string) {
@@ -39,54 +44,70 @@ function internalServerError(context: ApiContext) {
 }
 
 export function apiRunRoutesAdd(api: Hono<AppEnvironment>, options: ApiRunRoutesOptions = {}): void {
+  api.get("/sessions/:sessionId/stream-snapshot", async (context) => {
+    const organizationId = context.var.requestIdentity.organizationId
+    if (organizationId === undefined) return notFound(context)
+
+    const result = await (options.runSessionStreamSnapshotLoad ?? runSessionStreamSnapshotLoad)(
+      context.var.database,
+      context.var.requestIdentity.userId,
+      organizationId,
+      context.req.param("sessionId"),
+    )
+    if (!result.success) {
+      if (result.errorMessage.includes("could not be found")) return notFound(context)
+      return internalServerError(context)
+    }
+
+    const response = v.safeParse(runSessionStreamSnapshotResponseSchema, result.data)
+    if (!response.success) return internalServerError(context)
+    return context.json(response.output)
+  })
+
+  api.get("/sessions/:sessionId/delegations", async (context) => {
+    const organizationId = context.var.requestIdentity.organizationId
+    if (organizationId === undefined) return notFound(context)
+
+    const result = await (options.runDelegationsLoad ?? runDelegationsLoad)(
+      context.var.database,
+      context.var.requestIdentity.userId,
+      organizationId,
+      context.req.param("sessionId"),
+    )
+    if (!result.success) {
+      if (result.errorMessage.includes("could not be found")) return notFound(context)
+      return internalServerError(context)
+    }
+
+    const response = v.safeParse(runDelegationsResponseSchema, result.data)
+    if (!response.success) return internalServerError(context)
+    return context.json(response.output)
+  })
+
   api.post("/sessions/:sessionId/runs/:runId/cancel", async (context) => {
     const body = await context.req.json<unknown>().catch(() => undefined)
     const parsed = apiRequestParse("runCancelInputParse", runCancelInputSchema, body ?? {})
     if (!parsed.success) return badRequest(context, "The run cancellation request is invalid.")
 
     const sessionId = context.req.param("sessionId")
-    const executionConvexClient = options.executionConvexClient
-    const legacyRunLoad = options.runLoad
-    let loaded
-    if (executionConvexClient !== undefined) {
-      loaded = await executionConvexClient.runLoad(
-        context.var.requestIdentity.userId,
-        sessionId,
-        context.req.param("runId"),
-      )
-    } else {
-      if (legacyRunLoad === undefined) return internalServerError(context)
-      loaded = await legacyRunLoad(
-        context.var.database,
-        context.var.requestIdentity.userId,
-        sessionId,
-        context.req.param("runId"),
-      )
-    }
+    const loaded = await (options.runLoad ?? runLoad)(
+      context.var.database,
+      context.var.requestIdentity.userId,
+      sessionId,
+      context.req.param("runId"),
+    )
     if (!loaded.success) {
       if (loaded.errorMessage.includes("could not be found")) return notFound(context)
       return internalServerError(context)
     }
 
-    const legacyRunCancel = options.runCancel
-    let result
-    if (executionConvexClient !== undefined) {
-      result = await executionConvexClient.runCancel(
-        context.var.requestIdentity.userId,
-        sessionId,
-        loaded.data.run.id,
-        parsed.data,
-      )
-    } else {
-      if (legacyRunCancel === undefined) return internalServerError(context)
-      result = await legacyRunCancel(
-        context.var.database,
-        context.var.requestIdentity.userId,
-        sessionId,
-        loaded.data.run.id,
-        parsed.data,
-      )
-    }
+    const result = await (options.runCancel ?? runCancel)(
+      context.var.database,
+      context.var.requestIdentity.userId,
+      sessionId,
+      loaded.data.run.id,
+      parsed.data,
+    )
     if (!result.success) {
       if (result.errorMessage.includes("could not be found")) return notFound(context)
       if (result.errorMessage.includes("input") || result.errorMessage.includes("kind"))

@@ -1,9 +1,9 @@
 import { sql } from "drizzle-orm"
-import { check, index, integer, jsonb, pgTable, text, timestamp, unique } from "drizzle-orm/pg-core"
+import { check, index, integer, sqliteTable, text, unique } from "drizzle-orm/sqlite-core"
 import { agentTable } from "../../agents/db/agentTable.js"
 import { sessionTable } from "../../session/db/sessionTable.js"
 
-export const messageTable = pgTable(
+export const messageTable = sqliteTable(
   "message",
   {
     id: text("id").primaryKey(),
@@ -17,9 +17,9 @@ export const messageTable = pgTable(
     sequence: integer("sequence").notNull(),
     content: text("content").notNull(),
     clientRequestId: text("client_request_id").notNull(),
-    metadata: jsonb("metadata").notNull().default({}),
-    finalizedAt: timestamp("finalized_at", { withTimezone: true }).defaultNow().notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    metadata: text("metadata", { mode: "json" }).notNull().default({}),
+    finalizedAt: integer("finalized_at", { mode: "timestamp_ms" }).defaultNow().notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).defaultNow().notNull(),
   },
   (table) => [
     unique("message_session_sequence_unique").on(table.sessionId, table.sequence),

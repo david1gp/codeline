@@ -42,7 +42,6 @@ export async function sessionRepositoryRename(
             .select()
             .from(sessionTable)
             .where(and(eq(sessionTable.id, sessionId), eq(sessionTable.userId, userId)))
-            .for("update")
             .limit(1)
         : await database
             .select({ session: sessionTable })
@@ -52,7 +51,6 @@ export async function sessionRepositoryRename(
               and(eq(sessionTable.serverId, serverTable.id), eq(serverTable.organizationId, options.organizationId)),
             )
             .where(and(eq(sessionTable.id, sessionId), eq(sessionTable.userId, userId)))
-            .for("update")
             .limit(1)
             .then((rows) => (rows[0] === undefined ? [] : [rows[0].session]))
     if (lockedSession === undefined) return createResultError(op, "The session could not be found.")
@@ -69,7 +67,6 @@ export async function sessionRepositoryRename(
             eq(mutationIdempotencyTable.idempotencyKey, options.idempotencyKey),
           ),
         )
-        .for("update")
         .limit(1)
       if (idempotent !== undefined) {
         if (idempotent.resourceId !== sessionId || idempotent.requestHash !== options.requestHash)

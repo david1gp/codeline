@@ -1,5 +1,5 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
-import { eq } from "drizzle-orm"
+import { and, eq, gt, lt, sql } from "drizzle-orm"
 import * as v from "valibot"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { journalSequenceCounterTable } from "../db/journalSequenceCounterTable.js"
@@ -36,27 +36,33 @@ export async function journalSequenceAllocate(
   try {
     const sequenceByUserId: Record<string, number> = {}
     for (const userId of userIds) {
-      const counterQuery = database
-        .select()
-        .from(journalSequenceCounterTable)
-        .where(eq(journalSequenceCounterTable.userId, userId))
-      const [counter] =
-        options.locksAlreadyHeld === true ? await counterQuery.limit(1) : await counterQuery.for("update").limit(1)
-      if (counter === undefined) return createResultError(op, "The journal sequence counter could not be locked.")
-      if (!Number.isSafeInteger(counter.nextSequence) || counter.nextSequence <= 0) {
-        return createResultError(op, "The journal sequence counter is invalid.")
-      }
-
-      const nextSequence = counter.nextSequence + 1
-      if (!Number.isSafeInteger(nextSequence))
-        return createResultError(op, "The journal sequence counter is exhausted.")
       const [updated] = await database
         .update(journalSequenceCounterTable)
-        .set({ nextSequence, updatedAt: new Date() })
-        .where(eq(journalSequenceCounterTable.userId, userId))
-        .returning({ userId: journalSequenceCounterTable.userId })
-      if (updated === undefined) return createResultError(op, "The journal sequence counter could not be advanced.")
-      sequenceByUserId[userId] = counter.nextSequence
+        .set({ nextSequence: sql`${journalSequenceCounterTable.nextSequence} + 1`, updatedAt: new Date() })
+        .where(
+          and(
+            eq(journalSequenceCounterTable.userId, userId),
+            gt(journalSequenceCounterTable.nextSequence, 0),
+            lt(journalSequenceCounterTable.nextSequence, Number.MAX_SAFE_INTEGER),
+          ),
+        )
+        .returning({ nextSequence: journalSequenceCounterTable.nextSequence })
+      if (updated === undefined) {
+        const [counter] = await database
+          .select({ nextSequence: journalSequenceCounterTable.nextSequence })
+          .from(journalSequenceCounterTable)
+          .where(eq(journalSequenceCounterTable.userId, userId))
+          .limit(1)
+        if (counter === undefined) return createResultError(op, "The journal sequence counter could not be advanced.")
+        if (!Number.isSafeInteger(counter.nextSequence) || counter.nextSequence <= 0)
+          return createResultError(op, "The journal sequence counter is invalid.")
+        return createResultError(op, "The journal sequence counter is exhausted.")
+      }
+
+      const sequence = updated.nextSequence - 1
+      if (!Number.isSafeInteger(sequence) || sequence <= 0)
+        return createResultError(op, "The journal sequence counter is invalid.")
+      sequenceByUserId[userId] = sequence
     }
 
     return createResult({ sequenceByUserId, userIds })

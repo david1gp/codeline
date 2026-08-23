@@ -1,5 +1,5 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
-import { and, asc, eq, ilike, sql } from "drizzle-orm"
+import { and, asc, eq, sql } from "drizzle-orm"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { metadataSearchPatternCreate } from "../../database/metadataSearchPatternCreate.js"
 import { serverTable } from "../../servers/db/serverTable.js"
@@ -24,9 +24,9 @@ export async function agentRepositoryList(
     const conditions = [eq(serverTable.organizationId, organizationId), eq(agentTable.serverId, serverId)]
     if (search !== undefined) {
       const pattern = metadataSearchPatternCreate(search)
-      conditions.push(ilike(agentTable.name, pattern))
-      conditions.push(ilike(agentTable.role, pattern))
-      conditions.push(ilike(sql<string>`${agentTable.configuration}::text`, pattern))
+      conditions.push(sql`lower(${agentTable.name}) like lower(${pattern}) escape ${"\\"}`)
+      conditions.push(sql`lower(${agentTable.role}) like lower(${pattern}) escape ${"\\"}`)
+      conditions.push(sql`lower(${agentTable.configuration}) like lower(${pattern}) escape ${"\\"}`)
     }
 
     const agents = await database

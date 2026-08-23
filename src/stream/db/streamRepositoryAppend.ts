@@ -1,11 +1,17 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import { and, eq } from "drizzle-orm"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
+import { databaseExecutorTransactionRun } from "../../database/databaseExecutorTransactionRun.js"
 import { sessionTable } from "../../session/db/sessionTable.js"
 import { uuidv7 } from "../../uuid/uuidv7.js"
 import { streamEventTable } from "./streamEventTable.js"
 
 type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
+
+type StreamRepositoryAppendResult = {
+  created: boolean
+  event: typeof streamEventTable.$inferSelect
+}
 
 function jsonCanonicalize(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value)
@@ -77,100 +83,101 @@ export async function streamRepositoryAppend(
   const payload = jsonValueParse(input.payload)
   if (!payload.success) return payload
 
-  try {
-    const [session] = await database
-      .select({ archivedAt: sessionTable.archivedAt })
-      .from(sessionTable)
-      .where(and(eq(sessionTable.id, sessionId), eq(sessionTable.userId, userId)))
-      .for("update")
-      .limit(1)
-    if (session === undefined) return createResultError(op, "The session could not be found.")
+  return databaseExecutorTransactionRun<StreamRepositoryAppendResult>(database, async (executor) => {
+    try {
+      const [session] = await executor
+        .select({ archivedAt: sessionTable.archivedAt })
+        .from(sessionTable)
+        .where(and(eq(sessionTable.id, sessionId), eq(sessionTable.userId, userId)))
+        .limit(1)
+      if (session === undefined) return createResultError(op, "The session could not be found.")
 
-    const [idempotent] = await database
-      .select()
-      .from(streamEventTable)
-      .where(
-        and(
-          eq(streamEventTable.sessionId, sessionId),
-          eq(streamEventTable.streamId, input.streamId),
-          eq(streamEventTable.idempotencyKey, input.idempotencyKey),
-        ),
-      )
-      .limit(1)
-    if (idempotent !== undefined) {
-      if (idempotent.sessionId === sessionId && streamEventMatches(idempotent, { ...input, payload: payload.data })) {
-        return createResult({ created: false, event: idempotent })
+      const [idempotent] = await executor
+        .select()
+        .from(streamEventTable)
+        .where(
+          and(
+            eq(streamEventTable.sessionId, sessionId),
+            eq(streamEventTable.streamId, input.streamId),
+            eq(streamEventTable.idempotencyKey, input.idempotencyKey),
+          ),
+        )
+        .limit(1)
+      if (idempotent !== undefined) {
+        if (idempotent.sessionId === sessionId && streamEventMatches(idempotent, { ...input, payload: payload.data })) {
+          return createResult({ created: false, event: idempotent })
+        }
+        return createResultError(op, "The stream event idempotency key conflicts with an existing event.")
       }
-      return createResultError(op, "The stream event idempotency key conflicts with an existing event.")
-    }
-    if (session.archivedAt !== null) return createResultError(op, "The session is archived.")
+      if (session.archivedAt !== null) return createResultError(op, "The session is archived.")
 
-    const [sequenced] = await database
-      .select()
-      .from(streamEventTable)
-      .where(
-        and(
-          eq(streamEventTable.sessionId, sessionId),
-          eq(streamEventTable.streamId, input.streamId),
-          eq(streamEventTable.sequence, input.sequence),
-        ),
-      )
-      .limit(1)
-    if (sequenced !== undefined)
-      return createResultError(op, "The stream event sequence conflicts with an existing event.")
+      const [sequenced] = await executor
+        .select()
+        .from(streamEventTable)
+        .where(
+          and(
+            eq(streamEventTable.sessionId, sessionId),
+            eq(streamEventTable.streamId, input.streamId),
+            eq(streamEventTable.sequence, input.sequence),
+          ),
+        )
+        .limit(1)
+      if (sequenced !== undefined)
+        return createResultError(op, "The stream event sequence conflicts with an existing event.")
 
-    const [created] = await database
-      .insert(streamEventTable)
-      .values({
-        eventType: input.eventType,
-        id: uuidv7(),
-        idempotencyKey: input.idempotencyKey,
-        payload: payload.data,
-        sequence: input.sequence,
-        sessionId,
-        streamId: input.streamId,
-      })
-      .onConflictDoNothing()
-      .returning()
-    if (created !== undefined) return createResult({ created: true, event: created })
+      const [created] = await executor
+        .insert(streamEventTable)
+        .values({
+          eventType: input.eventType,
+          id: uuidv7(),
+          idempotencyKey: input.idempotencyKey,
+          payload: payload.data,
+          sequence: input.sequence,
+          sessionId,
+          streamId: input.streamId,
+        })
+        .onConflictDoNothing()
+        .returning()
+      if (created !== undefined) return createResult({ created: true, event: created })
 
-    const [idempotentRetry] = await database
-      .select()
-      .from(streamEventTable)
-      .where(
-        and(
-          eq(streamEventTable.sessionId, sessionId),
-          eq(streamEventTable.streamId, input.streamId),
-          eq(streamEventTable.idempotencyKey, input.idempotencyKey),
-        ),
-      )
-      .limit(1)
-    if (idempotentRetry !== undefined) {
-      if (
-        idempotentRetry.sessionId === sessionId &&
-        streamEventMatches(idempotentRetry, { ...input, payload: payload.data })
-      ) {
-        return createResult({ created: false, event: idempotentRetry })
+      const [idempotentRetry] = await executor
+        .select()
+        .from(streamEventTable)
+        .where(
+          and(
+            eq(streamEventTable.sessionId, sessionId),
+            eq(streamEventTable.streamId, input.streamId),
+            eq(streamEventTable.idempotencyKey, input.idempotencyKey),
+          ),
+        )
+        .limit(1)
+      if (idempotentRetry !== undefined) {
+        if (
+          idempotentRetry.sessionId === sessionId &&
+          streamEventMatches(idempotentRetry, { ...input, payload: payload.data })
+        ) {
+          return createResult({ created: false, event: idempotentRetry })
+        }
+        return createResultError(op, "The stream event idempotency key conflicts with an existing event.")
       }
-      return createResultError(op, "The stream event idempotency key conflicts with an existing event.")
+
+      const [sequencedRetry] = await executor
+        .select()
+        .from(streamEventTable)
+        .where(
+          and(
+            eq(streamEventTable.sessionId, sessionId),
+            eq(streamEventTable.streamId, input.streamId),
+            eq(streamEventTable.sequence, input.sequence),
+          ),
+        )
+        .limit(1)
+      if (sequencedRetry !== undefined)
+        return createResultError(op, "The stream event sequence conflicts with an existing event.")
+
+      return createResultError(op, "The stream event could not be appended.")
+    } catch (_error) {
+      return createResultError(op, "The stream event could not be appended.")
     }
-
-    const [sequencedRetry] = await database
-      .select()
-      .from(streamEventTable)
-      .where(
-        and(
-          eq(streamEventTable.sessionId, sessionId),
-          eq(streamEventTable.streamId, input.streamId),
-          eq(streamEventTable.sequence, input.sequence),
-        ),
-      )
-      .limit(1)
-    if (sequencedRetry !== undefined)
-      return createResultError(op, "The stream event sequence conflicts with an existing event.")
-
-    return createResultError(op, "The stream event could not be appended.")
-  } catch (_error) {
-    return createResultError(op, "The stream event could not be appended.")
-  }
+  })
 }

@@ -1,5 +1,5 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm"
+import { and, asc, desc, eq, inArray, lte, sql } from "drizzle-orm"
 import * as v from "valibot"
 import type { DatabaseClient, DatabaseExecutor } from "../../database/databaseClient.js"
 import { databaseTransactionRun } from "../../database/databaseTransactionRun.js"
@@ -93,9 +93,9 @@ async function journalEventsPruneSummary(
   try {
     const [summary] = await database
       .select({
-        compactEventCount: sql<string>`count(*)::text`,
-        compactSerializedBytes: sql<string>`coalesce(sum(${journalEventTable.serializedBytes}), 0)::text`,
-        expiredCompactEventCount: sql<string>`count(*) filter (where ${journalEventTable.createdAt} <= ${oldestAllowedTime.toISOString()}::timestamptz)::text`,
+        compactEventCount: sql<number>`count(*)`,
+        compactSerializedBytes: sql<number>`coalesce(sum(${journalEventTable.serializedBytes}), 0)`,
+        expiredCompactEventCount: sql<number>`coalesce(sum(case when ${journalEventTable.createdAt} <= ${oldestAllowedTime.getTime()} then 1 else 0 end), 0)`,
       })
       .from(journalEventTable)
       .where(
@@ -126,8 +126,8 @@ async function journalEventsPruneSizeCount(
   const op = "journalEventsPruneSizeCount"
   if (bytesToRemove <= 0) return createResult(0)
   try {
-    const rows = await database.execute(sql`
-      select count(*)::text as prefix_count
+    const rows = await database.all<{ prefix_count?: unknown }>(sql`
+      select count(*) as prefix_count
       from (
         select sum(${journalEventTable.serializedBytes}) over (
           order by ${journalEventTable.createdAt} asc, ${journalEventTable.sequence} asc, ${journalEventTable.id} asc
@@ -139,9 +139,9 @@ async function journalEventsPruneSizeCount(
           inArray(journalEventTable.eventType, [...compactJournalEventTypes]),
         )}
       ) ordered_events
-      where cumulative_bytes < ${bytesToRemove}::bigint
+      where cumulative_bytes < ${bytesToRemove}
     `)
-    const [row] = rows as Array<{ prefix_count?: unknown }>
+    const [row] = rows
     const prefixCount = journalEventsPruneInteger(row?.prefix_count)
     if (prefixCount === undefined || !Number.isSafeInteger(prefixCount + 1))
       return createResultError(op, "The journal event size boundary is outside the safe integer range.")
@@ -151,11 +151,11 @@ async function journalEventsPruneSizeCount(
   }
 }
 
-async function journalEventsPruneBoundaryLock(
+async function journalEventsPruneBoundaryRead(
   database: DatabaseExecutor,
   userId: string,
 ): Promise<Result<JournalEventsPruneBoundary>> {
-  const op = "journalEventsPruneBoundaryLock"
+  const op = "journalEventsPruneBoundaryRead"
   try {
     await database
       .insert(journalReplayBoundaryTable)
@@ -165,17 +165,16 @@ async function journalEventsPruneBoundaryLock(
       .select({ prunedThroughSequence: journalReplayBoundaryTable.prunedThroughSequence })
       .from(journalReplayBoundaryTable)
       .where(eq(journalReplayBoundaryTable.userId, userId))
-      .for("update")
       .limit(1)
     if (
       boundary === undefined ||
       !Number.isSafeInteger(boundary.prunedThroughSequence) ||
       boundary.prunedThroughSequence < 0
     )
-      return createResultError(op, "The journal replay boundary could not be locked.")
+      return createResultError(op, "The journal replay boundary could not be read.")
     return createResult(boundary)
   } catch (_error) {
-    return createResultError(op, "The journal replay boundary could not be locked.")
+    return createResultError(op, "The journal replay boundary could not be read.")
   }
 }
 
@@ -223,7 +222,6 @@ async function journalEventsPruneInTransaction(
       .select()
       .from(journalSequenceCounterTable)
       .where(eq(journalSequenceCounterTable.userId, input.userId))
-      .for("update")
       .limit(1)
     if (
       counter === undefined ||
@@ -234,7 +232,7 @@ async function journalEventsPruneInTransaction(
       return createResultError(op, "The journal sequence counter is outside the safe integer range.")
     const highestAllocatedSequence = counter.nextSequence - 1
 
-    const boundary = await journalEventsPruneBoundaryLock(database, input.userId)
+    const boundary = await journalEventsPruneBoundaryRead(database, input.userId)
     if (!boundary.success) return boundary
     const summaryBefore = await journalEventsPruneSummary(database, input.userId, oldestAllowedTime)
     if (!summaryBefore.success) return summaryBefore
@@ -263,7 +261,7 @@ async function journalEventsPruneInTransaction(
         inArray(journalEventTable.eventType, [...compactJournalEventTypes]),
       )
       const deletionCandidates = pruneOnlyExpired
-        ? and(compactEventScope, sql`${journalEventTable.createdAt} <= ${oldestAllowedTime.toISOString()}::timestamptz`)
+        ? and(compactEventScope, lte(journalEventTable.createdAt, oldestAllowedTime))
         : compactEventScope
       const deletionBatchSize = Math.min(journalEventsPruneBatchSize, pruneCount - prunedEventCount)
       const deletionScope = sql`${journalEventTable.id} in (

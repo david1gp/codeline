@@ -1,24 +1,24 @@
 import { sql } from "drizzle-orm"
-import { check, index, integer, jsonb, pgTable, text, timestamp, unique } from "drizzle-orm/pg-core"
-import type { AnyPgColumn } from "drizzle-orm/pg-core"
+import { check, index, integer, sqliteTable, text, unique } from "drizzle-orm/sqlite-core"
+import { type AnySQLiteColumn } from "drizzle-orm/sqlite-core"
 import { serverTable } from "../../servers/db/serverTable.js"
 
-export const agentTable = pgTable(
+export const agentTable = sqliteTable(
   "agent",
   {
     id: text("id").primaryKey(),
     serverId: text("server_id")
       .notNull()
       .references(() => serverTable.id, { onDelete: "cascade" }),
-    parentAgentId: text("parent_agent_id").references((): AnyPgColumn => agentTable.id, {
+    parentAgentId: text("parent_agent_id").references((): AnySQLiteColumn => agentTable.id, {
       onDelete: "cascade",
     }),
     name: text("name").notNull(),
     role: text("role").notNull(),
-    configuration: jsonb("configuration").notNull().default({}),
+    configuration: text("configuration", { mode: "json" }).notNull().default({}),
     sortOrder: integer("sort_order").notNull().default(0),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).defaultNow().notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).defaultNow().notNull(),
   },
   (table) => [
     unique("agent_server_name_unique").on(table.serverId, table.name),

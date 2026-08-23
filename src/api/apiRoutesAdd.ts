@@ -4,13 +4,10 @@ import { apiAgentRoutesAdd } from "../agents/api/apiAgentRoutesAdd.js"
 import { appKnownRouteResolve } from "../app/appKnownRouteResolve.js"
 import type { ConfigurationStore } from "../configuration/configurationStore.js"
 import type { RuntimeConfiguration } from "../configuration/runtimeConfigurationSchema.js"
-import type { ExecutionConvexClient } from "../convex/executionConvexClient.js"
-import type { ServerAgentConvexClient } from "../convex/serverAgentConvexClient.js"
 import type { DatabaseClient } from "../database/databaseClient.js"
 import { apiEventsRoutesAdd } from "../events/api/apiEventsRoutesAdd.js"
 import { identitySessionRevoke } from "../identity/actions/identitySessionRevoke.js"
 import { apiAuthRoutesAdd } from "../identity/api/apiAuthRoutesAdd.js"
-import type { IdentityClient } from "../identity/convex/identityClient.js"
 import { oidcLoginTransactionCreate } from "../identity/db/oidcLoginTransactionCreate.js"
 import { oidcProviderDiscoveryCreate } from "../identity/oidc/oidcProviderDiscoveryCreate.js"
 import type { OidcProviderFetch } from "../identity/oidc/oidcProviderFetch.js"
@@ -18,6 +15,7 @@ import { journalBacklogRead } from "../journal/actions/journalBacklogRead.js"
 import type { JournalCursorCodec } from "../journal/actions/journalCursorCodecCreate.js"
 import { journalPostCommitPublishCreate } from "../journal/actions/journalPostCommitPublishCreate.js"
 import { apiMessageRoutesAdd } from "../message/api/apiMessageRoutesAdd.js"
+import { apiNoteRoutesAdd } from "../note/api/apiNoteRoutesAdd.js"
 import { apiProjectRoutesAdd } from "../project/api/apiProjectRoutesAdd.js"
 import type { ProjectLimits } from "../project/projectLimitsSchema.js"
 import { apiProviderRoutesAdd } from "../providers/api/apiProviderRoutesAdd.js"
@@ -27,12 +25,15 @@ import { providerRuntimeAdapterCreate } from "../providers/runtime/providerRunti
 import type { ProviderCatalog } from "../providers/schema/providerCatalogSchema.js"
 import { runCancel } from "../run/actions/runCancel.js"
 import { runCancellationCoordinatorCreate } from "../run/actions/runCancellationCoordinatorCreate.js"
+import { runChildCreate } from "../run/actions/runChildCreate.js"
 import { runChildStreamResolve } from "../run/actions/runChildStreamResolve.js"
 import { runCreate } from "../run/actions/runCreate.js"
 import { runDelegationExecute } from "../run/actions/runDelegationExecute.js"
+import { runDelegationFinalize } from "../run/actions/runDelegationFinalize.js"
 import { runExecutionSnapshotResolve } from "../run/actions/runExecutionSnapshotResolve.js"
 import { runLoad } from "../run/actions/runLoad.js"
 import { runRetryAttemptCreate } from "../run/actions/runRetryAttemptCreate.js"
+import { runSessionStreamSnapshotLoad } from "../run/actions/runSessionStreamSnapshotLoad.js"
 import { runTransition } from "../run/actions/runTransition.js"
 import { apiRunRoutesAdd } from "../run/api/apiRunRoutesAdd.js"
 import { apiServerRoutesAdd } from "../servers/api/apiServerRoutesAdd.js"
@@ -46,8 +47,6 @@ import { streamSseConnectionWriterCreate } from "../stream/actions/streamSseConn
 import { apiStreamRoutesAdd } from "../stream/api/apiStreamRoutesAdd.js"
 import type { AppEnvironment } from "./appEnvironment.js"
 import type { HealthResponse } from "./health/healthResponseSchema.js"
-import { apiMutationRoutesAdd } from "./mutation/apiMutationRoutesAdd.js"
-import { apiQueryRoutesAdd } from "./query/apiQueryRoutesAdd.js"
 import { apiReadinessRoutesAdd } from "./readiness/apiReadinessRoutesAdd.js"
 import { apiTestingRoutesAdd } from "./testing/apiTestingRoutesAdd.js"
 
@@ -55,9 +54,6 @@ type ApiRoutesAddOptions = {
   configuration?: RuntimeConfiguration
   configurationStore?: ConfigurationStore
   database?: DatabaseClient
-  identityClient?: IdentityClient
-  serverAgentConvexClient?: ServerAgentConvexClient
-  executionConvexClient?: ExecutionConvexClient
   projectLimits?: ProjectLimits
   projectRootDirs?: readonly string[]
   projectRootDir?: string
@@ -70,11 +66,14 @@ type ApiRoutesAddOptions = {
   runCreate?: typeof runCreate
   runCancel?: typeof runCancel
   runCancellationCoordinator?: ReturnType<typeof runCancellationCoordinatorCreate>
+  runChildCreate?: typeof runChildCreate
   runChildStreamResolve?: typeof runChildStreamResolve
   runDelegationExecute?: typeof runDelegationExecute
+  runDelegationFinalize?: typeof runDelegationFinalize
   runExecutionSnapshotResolve?: typeof runExecutionSnapshotResolve
   runLoad?: typeof runLoad
   runRetryAttemptCreate?: typeof runRetryAttemptCreate
+  runSessionStreamSnapshotLoad?: typeof runSessionStreamSnapshotLoad
   runTransition?: typeof runTransition
   identitySessionRevoke?: typeof identitySessionRevoke
   identitySessionCreate?: typeof import("../identity/actions/identitySessionCreate.js").identitySessionCreate
@@ -137,7 +136,6 @@ export function apiRoutesAdd(
   apiAuthRoutesAdd(api, {
     configuration: options.configuration,
     database: options.database,
-    identityClient: options.identityClient,
     idCreate: options.oidcIdCreate,
     identitySessionRevoke: options.identitySessionRevoke,
     identitySessionCreate: options.identitySessionCreate,
@@ -154,11 +152,11 @@ export function apiRoutesAdd(
     oidcSessionIdCreate: options.oidcSessionIdCreate,
     callbackRoute: options.authCallbackRoute ?? app,
   })
-  apiServerRoutesAdd(api, { serverAgentConvexClient: options.serverAgentConvexClient })
+  apiServerRoutesAdd(api, { database: options.database })
   apiAgentRoutesAdd(api, {
+    database: options.database,
     environment: options.providerEnvironment,
     fetch: options.providerFetch,
-    serverAgentConvexClient: options.serverAgentConvexClient,
   })
   if (
     options.configuration !== undefined &&
@@ -177,7 +175,7 @@ export function apiRoutesAdd(
     runCancel: options.runCancel,
     runCancellationCoordinator: options.runCancellationCoordinator,
     runLoad: options.runLoad,
-    executionConvexClient: options.executionConvexClient,
+    runSessionStreamSnapshotLoad: options.runSessionStreamSnapshotLoad,
   })
   if (
     options.configuration !== undefined &&
@@ -186,9 +184,17 @@ export function apiRoutesAdd(
     journalPostCommitPublish !== undefined
   ) {
     apiSessionBranchRoutesAdd(api, { database: options.database, journalPostCommitPublish })
-    apiSessionRenameRoutesAdd(api, { database: options.database, journalPostCommitPublish })
+    apiSessionRenameRoutesAdd(api, {
+      database: options.database,
+      journalCursorCodec: options.journalCursorCodec,
+      journalPostCommitPublish,
+    })
     apiMessageRoutesAdd(api, {
       journalCursorCodec: options.journalCursorCodec,
+      journalPostCommitPublish,
+    })
+    apiNoteRoutesAdd(api, {
+      database: options.database,
       journalPostCommitPublish,
     })
   }
@@ -209,7 +215,6 @@ export function apiRoutesAdd(
     childStreamResolve: options.runChildStreamResolve,
     inactivityTimeoutMs: options.streamInactivityTimeoutMs,
     replayServiceCreate: options.streamReplayServiceCreate,
-    executionConvexClient: options.executionConvexClient,
   })
   // The authenticated feed is only constructed when both its auth middleware and
   // opaque cursor codec are present. It must not be exposed as a route that can
@@ -228,8 +233,6 @@ export function apiRoutesAdd(
       scheduler: options.streamSseScheduler,
     })
   }
-  apiMutationRoutesAdd(api)
-  apiQueryRoutesAdd(api)
   apiTestingRoutesAdd(api)
   app.route("/api", api)
 }

@@ -1,9 +1,9 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import { and, eq, inArray, isNull } from "drizzle-orm"
 import * as v from "valibot"
-import type { DatabaseClient, DatabaseExecutor } from "../../database/databaseClient.js"
-import { databaseTransactionRun } from "../../database/databaseTransactionRun.js"
-import { runCancelInputSchema, type RunCancelInput } from "../schema/runCancelInputSchema.js"
+import type { DatabaseExecutor } from "../../database/databaseClient.js"
+import { databaseExecutorTransactionRun } from "../../database/databaseExecutorTransactionRun.js"
+import { type RunCancelInput, runCancelInputSchema } from "../schema/runCancelInputSchema.js"
 import { runCancellationKindSchema } from "../schema/runCancellationKindSchema.js"
 import { runDelegationTable } from "./runDelegationTable.js"
 import { runTable } from "./runTable.js"
@@ -32,7 +32,7 @@ export async function runRepositoryCancel(
     return createResultError(op, "The run cancellation kind is invalid.")
   }
 
-  return databaseTransactionRun<RunCancelResult>(database as DatabaseClient, async (transaction) => {
+  return databaseExecutorTransactionRun<RunCancelResult>(database, async (transaction) => {
     try {
       const [targetDelegation] = await transaction
         .select({ rootRunId: runDelegationTable.rootRunId })
@@ -51,7 +51,6 @@ export async function runRepositoryCancel(
         .select()
         .from(runTable)
         .where(and(eq(runTable.id, rootRunId), eq(runTable.sessionId, sessionId), eq(runTable.userId, userId)))
-        .for("update")
         .limit(1)
       if (root === undefined) return createResultError(op, "The run could not be found.")
 
@@ -61,7 +60,6 @@ export async function runRepositoryCancel(
           .select()
           .from(runTable)
           .where(and(eq(runTable.id, runId), eq(runTable.sessionId, sessionId), eq(runTable.userId, userId)))
-          .for("update")
           .limit(1)
         if (lockedTarget === undefined) return createResultError(op, "The run could not be found.")
         target = lockedTarget
@@ -84,7 +82,6 @@ export async function runRepositoryCancel(
             eq(runDelegationTable.userId, userId),
           ),
         )
-        .for("update")
       const childRunIdsByParent = new Map<string, string[]>()
       for (const delegation of delegations) {
         const childRunIds = childRunIdsByParent.get(delegation.parentRunId) ?? []

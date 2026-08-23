@@ -46,7 +46,6 @@ export async function sessionRepositoryBranch(
         and(eq(sessionTable.serverId, serverTable.id), eq(serverTable.organizationId, organizationId)),
       )
       .where(and(eq(sessionTable.id, sourceSessionId), eq(sessionTable.userId, userId)))
-      .for("update")
       .limit(1)
     if (source === undefined) return createResultError(op, "The session could not be found.")
     if (input.idempotencyKey !== undefined && input.requestHash === undefined)
@@ -67,7 +66,6 @@ export async function sessionRepositoryBranch(
         and(eq(sessionTable.serverId, serverTable.id), eq(serverTable.organizationId, organizationId)),
       )
       .where(and(eq(sessionTable.userId, userId), eq(sessionTable.clientRequestId, input.clientRequestId)))
-      .for("update")
       .limit(1)
     if (existing !== undefined) {
       const response = sessionCreateMutationResponseCreate({ created: false, session: existing.session })
@@ -101,7 +99,6 @@ export async function sessionRepositoryBranch(
           and(eq(sessionTable.serverId, serverTable.id), eq(serverTable.organizationId, organizationId)),
         )
         .where(and(eq(sessionTable.userId, userId), eq(sessionTable.clientRequestId, input.clientRequestId)))
-        .for("update")
         .limit(1)
       if (idempotent === undefined) return createResultError(op, "The branched session could not be created.")
       const response = sessionCreateMutationResponseCreate({ created: false, session: idempotent.session })
@@ -144,7 +141,6 @@ async function sessionBranchIdempotencyLoad(
         eq(mutationIdempotencyTable.idempotencyKey, input.idempotencyKey),
       ),
     )
-    .for("update")
     .limit(1)
   if (idempotent === undefined) return createResult(undefined)
   if (idempotent.requestHash !== input.requestHash) return idempotencyConflict(op)

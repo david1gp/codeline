@@ -1,7 +1,7 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
-import type { DatabaseClient } from "../../database/databaseClient.js"
-import { applicationUserUpsert } from "./applicationUserUpsert.js"
+import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import type { ApplicationUser } from "./applicationUserTable.js"
+import { applicationUserUpsert } from "./applicationUserUpsert.js"
 import { externalIdentityUpsert } from "./externalIdentityUpsert.js"
 
 type DevelopmentIdentity = {
@@ -11,7 +11,7 @@ type DevelopmentIdentity = {
 }
 
 export async function developmentIdentityUpsert(
-  database: Pick<DatabaseClient, "insert" | "query">,
+  database: DatabaseExecutor,
   identity: DevelopmentIdentity,
 ): Promise<Result<ApplicationUser>> {
   const op = "developmentIdentityUpsert"

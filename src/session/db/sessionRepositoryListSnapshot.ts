@@ -1,5 +1,5 @@
 import { createResult, createResultError, createResultErrorCode, type Result } from "@adaptive-ds/result"
-import { and, desc, eq, ilike, isNull, lt, or, sql } from "drizzle-orm"
+import { and, desc, eq, isNull, lt, or, sql } from "drizzle-orm"
 import * as v from "valibot"
 import { agentTable } from "../../agents/db/agentTable.js"
 import type { DatabaseClient } from "../../database/databaseClient.js"
@@ -117,24 +117,22 @@ export async function sessionRepositoryListSnapshot(
         ]
         if (!parsedOptions.output.includeArchived) conditions.push(isNull(sessionTable.archivedAt))
         if (decodedCursor.data !== undefined) {
+          const cursorTimestamp = new Date(decodedCursor.data.updatedAt)
           const cursorCondition = or(
-            lt(sessionTable.updatedAt, sql`${decodedCursor.data.updatedAt}::timestamptz`),
-            and(
-              eq(sessionTable.updatedAt, sql`${decodedCursor.data.updatedAt}::timestamptz`),
-              lt(sessionTable.id, decodedCursor.data.id),
-            ),
+            lt(sessionTable.updatedAt, cursorTimestamp),
+            and(eq(sessionTable.updatedAt, cursorTimestamp), lt(sessionTable.id, decodedCursor.data.id)),
           )
           if (cursorCondition !== undefined) conditions.push(cursorCondition)
         }
         if (parsedOptions.output.search !== undefined) {
           const pattern = metadataSearchPatternCreate(parsedOptions.output.search)
           const searchCondition = or(
-            ilike(sessionTable.title, pattern),
-            ilike(sql<string>`${sessionTable.metadata}::text`, pattern),
-            ilike(serverTable.name, pattern),
-            ilike(agentTable.name, pattern),
-            ilike(sql<string>`${serverTable.metadata}::text`, pattern),
-            ilike(sql<string>`${agentTable.configuration}::text`, pattern),
+            sql`lower(${sessionTable.title}) like lower(${pattern}) escape ${"\\"}`,
+            sql`lower(${sessionTable.metadata}) like lower(${pattern}) escape ${"\\"}`,
+            sql`lower(${serverTable.name}) like lower(${pattern}) escape ${"\\"}`,
+            sql`lower(${agentTable.name}) like lower(${pattern}) escape ${"\\"}`,
+            sql`lower(${serverTable.metadata}) like lower(${pattern}) escape ${"\\"}`,
+            sql`lower(${agentTable.configuration}) like lower(${pattern}) escape ${"\\"}`,
           )
           if (searchCondition !== undefined) conditions.push(searchCondition)
         }
@@ -172,7 +170,7 @@ export async function sessionRepositoryListSnapshot(
           rows: page,
         })
       },
-      { accessMode: "read only", isolationLevel: "repeatable read" },
+      { behavior: "deferred" },
     )
   } catch (_error) {
     return createResultError(op, "The session list snapshot could not be loaded.")

@@ -1,9 +1,9 @@
-import { index, pgTable, primaryKey, text, timestamp, unique } from "drizzle-orm/pg-core"
+import { index, integer, primaryKey, sqliteTable, text, unique } from "drizzle-orm/sqlite-core"
 import { applicationUserTable } from "./applicationUserTable.js"
 import { organizationTable } from "./organizationTable.js"
 
-export const organizationMemberTable = pgTable(
-  "organization_member",
+export const organizationMemberTable = sqliteTable(
+  "identity_organization_member",
   {
     organizationId: text("organization_id")
       .notNull()
@@ -13,8 +13,8 @@ export const organizationMemberTable = pgTable(
       .references(() => applicationUserTable.id, { onDelete: "cascade" }),
     issuer: text("issuer").notNull(),
     subject: text("subject").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).defaultNow().notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).defaultNow().notNull(),
   },
   (table) => [
     primaryKey({ columns: [table.organizationId, table.userId], name: "organization_member_pkey" }),

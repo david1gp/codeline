@@ -9,11 +9,13 @@ import { apiIdempotencyRequestHashCreate } from "../../api/idempotency/apiIdempo
 import { apiRepresentationHeadersCreate } from "../../api/representation/apiRepresentationHeadersCreate.js"
 import { apiIdempotencyKeySchema } from "../../api/schema/apiIdempotencyKeySchema.js"
 import type { DatabaseClient } from "../../database/databaseClient.js"
+import type { JournalCursorCodec } from "../../journal/actions/journalCursorCodecCreate.js"
 import type { journalPostCommitPublishCreate } from "../../journal/actions/journalPostCommitPublishCreate.js"
 import { sessionRename } from "../actions/sessionRename.js"
 import { sessionJournalRecipientResolverCreate } from "../db/sessionJournalRecipientResolverCreate.js"
 import { sessionRenameRequestSchema } from "../schema/sessionRenameRequestSchema.js"
 import { sessionPreconditionFailedResponseCreate } from "./sessionPreconditionFailedResponseCreate.js"
+import { sessionMutationEtagResolve } from "./sessionMutationEtagResolve.js"
 
 type ApiContext = Context<AppEnvironment>
 
@@ -69,6 +71,7 @@ export function apiSessionRenameRoutesAdd(
   api: Hono<AppEnvironment>,
   options: {
     database: DatabaseClient
+    journalCursorCodec: JournalCursorCodec
     journalPostCommitPublish: ReturnType<typeof journalPostCommitPublishCreate>
   },
 ): void {
@@ -85,6 +88,18 @@ export function apiSessionRenameRoutesAdd(
 
     const expectedEtag = apiIfMatchEtagParse(context.req.header("If-Match"))
     if (!expectedEtag.success) return badRequest(context)
+    const resolvedEtag = await sessionMutationEtagResolve(
+      options.database,
+      context.var.requestIdentity.userId,
+      organizationId,
+      context.req.param("sessionId"),
+      expectedEtag.data,
+      options.journalCursorCodec,
+    )
+    if (!resolvedEtag.success) {
+      if (resolvedEtag.errorMessage.includes("could not be found")) return notFound(context)
+      return internalServerError(context)
+    }
 
     const headerIdempotencyKey = context.req.header("Idempotency-Key")
     if (
@@ -108,7 +123,7 @@ export function apiSessionRenameRoutesAdd(
       context.req.param("sessionId"),
       parsed.data.title,
       {
-        expectedEtag: expectedEtag.data,
+        expectedEtag: resolvedEtag.data,
         idempotencyKey,
         journal: {
           postCommitPublish: options.journalPostCommitPublish,

@@ -1,8 +1,8 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import { and, count, desc, eq, max } from "drizzle-orm"
 import * as v from "valibot"
-import type { DatabaseClient, DatabaseExecutor } from "../../database/databaseClient.js"
-import { databaseTransactionRun } from "../../database/databaseTransactionRun.js"
+import type { DatabaseExecutor } from "../../database/databaseClient.js"
+import { databaseExecutorTransactionRun } from "../../database/databaseExecutorTransactionRun.js"
 import { uuidv7 } from "../../uuid/uuidv7.js"
 import { runChildAdmissionResolve } from "../actions/runChildAdmissionResolve.js"
 import { runBudgetSchema } from "../schema/runBudgetSchema.js"
@@ -51,7 +51,6 @@ async function runRepositoryChildExistingLoad(
     .select()
     .from(runTable)
     .where(and(eq(runTable.id, delegation.childRunId), eq(runTable.sessionId, sessionId), eq(runTable.userId, userId)))
-    .for("update")
     .limit(1)
   if (existingRun === undefined) return createResultError(op, "The existing child run could not be found.")
   if (expectedTarget !== undefined) {
@@ -76,7 +75,6 @@ async function runRepositoryChildExistingLoad(
       ),
     )
     .orderBy(desc(attemptTable.ordinal))
-    .for("update")
     .limit(1)
   if (existingAttempt === undefined) return createResultError(op, "The existing child attempt could not be found.")
 
@@ -99,7 +97,7 @@ export async function runRepositoryChildCreate(
   const parsedInput = v.safeParse(runChildCreateInputSchema, input)
   if (!parsedInput.success) return createResultError(op, "The child run creation input is invalid.")
 
-  return databaseTransactionRun<RunChildCreateResult>(database as DatabaseClient, async (transaction) => {
+  return databaseExecutorTransactionRun<RunChildCreateResult>(database, async (transaction) => {
     try {
       const [parentDelegation] = await transaction
         .select({ depth: runDelegationTable.depth, rootRunId: runDelegationTable.rootRunId })
@@ -118,7 +116,6 @@ export async function runRepositoryChildCreate(
         .select()
         .from(runTable)
         .where(and(eq(runTable.id, rootRunId), eq(runTable.sessionId, sessionId), eq(runTable.userId, userId)))
-        .for("update")
         .limit(1)
       if (root === undefined) return createResultError(op, "The root run could not be found.")
 
@@ -132,7 +129,6 @@ export async function runRepositoryChildCreate(
             eq(runTable.userId, userId),
           ),
         )
-        .for("update")
         .limit(1)
       if (parent === undefined) return createResultError(op, "The parent run could not be found.")
 
@@ -148,7 +144,6 @@ export async function runRepositoryChildCreate(
             eq(runDelegationTable.userId, userId),
           ),
         )
-        .for("update")
         .limit(1)
       if (existingDelegation !== undefined) {
         if (runRepositoryChildTaskCanonicalize(existingDelegation.task) !== parsedInput.output.task) {
@@ -179,7 +174,6 @@ export async function runRepositoryChildCreate(
           ),
         )
         .orderBy(desc(attemptTable.ordinal))
-        .for("update")
         .limit(1)
       if (currentAttempt === undefined) return createResultError(op, "The parent attempt could not be found.")
       if (currentAttempt.id !== parsedInput.output.parentAttemptId) {
@@ -218,7 +212,6 @@ export async function runRepositoryChildCreate(
             eq(runDelegationTable.userId, userId),
           ),
         )
-        .for("update")
 
       const matchingDelegation = matchingDelegations.find((candidate) => {
         if (runRepositoryChildTaskCanonicalize(candidate.delegation.task) !== parsedInput.output.task) return false

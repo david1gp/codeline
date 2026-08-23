@@ -1,7 +1,7 @@
-import { index, integer, pgTable, text, timestamp } from "drizzle-orm/pg-core"
+import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { applicationUserTable } from "../../identity/db/applicationUserTable.js"
 
-export const noteTable = pgTable(
+export const noteTable = sqliteTable(
   "note",
   {
     id: text("id").primaryKey(),
@@ -11,8 +11,9 @@ export const noteTable = pgTable(
     content: text("content").notNull(),
     projectPath: text("project_path"),
     sortOrder: integer("sort_order"),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    revision: integer("revision").default(1).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).defaultNow().notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).defaultNow().notNull(),
   },
   (table) => [
     index("note_user_updated_idx").on(table.userId, table.updatedAt, table.id),

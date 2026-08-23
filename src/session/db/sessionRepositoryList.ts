@@ -1,5 +1,5 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
-import { and, desc, eq, ilike, isNull, lt, or, sql } from "drizzle-orm"
+import { and, desc, eq, isNull, lt, or, sql } from "drizzle-orm"
 import * as v from "valibot"
 import { agentTable } from "../../agents/db/agentTable.js"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
@@ -60,7 +60,8 @@ export async function sessionRepositoryList(
     ]
     if (!options.includeArchived) conditions.push(isNull(sessionTable.archivedAt))
     if (decodedCursor.data !== undefined) {
-      const cursorTimestamp = sql`${decodedCursor.data.updatedAt}::timestamptz`
+      const cursorTimestamp = new Date(decodedCursor.data.updatedAt)
+      if (Number.isNaN(cursorTimestamp.getTime())) return createResultError(op, "The sessions could not be loaded.")
       const cursorCondition = or(
         lt(sessionTable.updatedAt, cursorTimestamp),
         and(eq(sessionTable.updatedAt, cursorTimestamp), lt(sessionTable.id, decodedCursor.data.id)),
@@ -70,12 +71,12 @@ export async function sessionRepositoryList(
     if (options.search !== undefined) {
       const pattern = metadataSearchPatternCreate(options.search)
       const searchCondition = or(
-        ilike(sessionTable.title, pattern),
-        ilike(sql<string>`${sessionTable.metadata}::text`, pattern),
-        ilike(serverTable.name, pattern),
-        ilike(agentTable.name, pattern),
-        ilike(sql<string>`${serverTable.metadata}::text`, pattern),
-        ilike(sql<string>`${agentTable.configuration}::text`, pattern),
+        sql`lower(${sessionTable.title}) like lower(${pattern}) escape ${"\\"}`,
+        sql`lower(${sessionTable.metadata}) like lower(${pattern}) escape ${"\\"}`,
+        sql`lower(${serverTable.name}) like lower(${pattern}) escape ${"\\"}`,
+        sql`lower(${agentTable.name}) like lower(${pattern}) escape ${"\\"}`,
+        sql`lower(${serverTable.metadata}) like lower(${pattern}) escape ${"\\"}`,
+        sql`lower(${agentTable.configuration}) like lower(${pattern}) escape ${"\\"}`,
       )
       if (searchCondition !== undefined) conditions.push(searchCondition)
     }
@@ -83,7 +84,7 @@ export async function sessionRepositoryList(
     const rows = await database
       .select({
         agent: agentTable,
-        cursorUpdatedAt: sql<string>`${sessionTable.updatedAt}::text`,
+        cursorUpdatedAt: sql<string>`strftime('%Y-%m-%dT%H:%M:%fZ', ${sessionTable.updatedAt} / 1000.0, 'unixepoch')`,
         server: serverTable,
         session: sessionTable,
       })

@@ -1,8 +1,7 @@
-import { index, text, timestamp, unique } from "drizzle-orm/pg-core"
-import { identitySchema } from "./identitySchema.js"
+import { index, integer, sqliteTable, text, unique } from "drizzle-orm/sqlite-core"
 
-export const oidcLoginTransactionTable = identitySchema.table(
-  "oidc_login_transaction",
+export const oidcLoginTransactionTable = sqliteTable(
+  "identity_oidc_login_transaction",
   {
     id: text("id").primaryKey(),
     issuer: text("issuer").notNull(),
@@ -12,9 +11,9 @@ export const oidcLoginTransactionTable = identitySchema.table(
     codeVerifier: text("code_verifier").notNull(),
     redirectUri: text("redirect_uri").notNull(),
     returnTo: text("return_to").notNull().default("/"),
-    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-    consumedAt: timestamp("consumed_at", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+    consumedAt: integer("consumed_at", { mode: "timestamp_ms" }),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).defaultNow().notNull(),
   },
   (table) => [
     unique("oidc_login_transaction_state_hash_unique").on(table.stateHash),

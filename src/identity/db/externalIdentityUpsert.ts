@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
-import { and, eq } from "drizzle-orm"
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
-import type { DatabaseClient } from "../../database/databaseClient.js"
+import { and, eq } from "drizzle-orm"
+import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { externalIdentityTable } from "./externalIdentityTable.js"
 
 type ExternalIdentityInput = {
@@ -13,7 +13,7 @@ type ExternalIdentityInput = {
 type ExternalIdentity = typeof externalIdentityTable.$inferSelect
 
 export async function externalIdentityUpsert(
-  database: Pick<DatabaseClient, "insert" | "query">,
+  database: Pick<DatabaseExecutor, "insert" | "query">,
   identity: ExternalIdentityInput,
 ): Promise<Result<ExternalIdentity>> {
   const op = "externalIdentityUpsert"

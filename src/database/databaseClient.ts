@@ -1,18 +1,15 @@
+import type { Client } from "@libsql/client"
 import type { ExtractTablesWithRelations } from "drizzle-orm"
-import type { PgTransaction } from "drizzle-orm/pg-core"
-import type { PostgresJsQueryResultHKT } from "drizzle-orm/postgres-js"
-import type { drizzle } from "drizzle-orm/postgres-js"
-import type postgres from "postgres"
+import type { drizzle, LibSQLTransaction } from "drizzle-orm/libsql"
 import type { databaseSchema } from "./databaseSchema.js"
 
 export type DatabaseClient = ReturnType<typeof drizzle<typeof databaseSchema>>
-export type DatabaseTransaction = PgTransaction<
-  PostgresJsQueryResultHKT,
+export type DatabaseTransaction = LibSQLTransaction<
   typeof databaseSchema,
   ExtractTablesWithRelations<typeof databaseSchema>
 >
 export type DatabaseExecutor = DatabaseClient | DatabaseTransaction
 export type DatabaseConnection = {
-  client: ReturnType<typeof postgres>
+  client: Client
   db: DatabaseClient
 }

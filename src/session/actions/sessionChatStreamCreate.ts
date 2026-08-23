@@ -1,6 +1,5 @@
 import { createResultError } from "@adaptive-ds/result"
 import { EventType, type StreamChunk } from "@tanstack/ai"
-import type { ExecutionConvexClient } from "../../convex/executionConvexClient.js"
 import type { DatabaseClient } from "../../database/databaseClient.js"
 import { databaseTransactionRun } from "../../database/databaseTransactionRun.js"
 import { messageAppend } from "../../message/actions/messageAppend.js"
@@ -12,8 +11,7 @@ type SessionChatStreamCreateOptions = {
   adapter: typeof sessionChatAdapterCreate
   attemptOrdinal?: number
   cleanup?: () => void
-  database?: DatabaseClient
-  executionConvexClient?: ExecutionConvexClient
+  database: DatabaseClient
   history: Array<typeof messageTable.$inferSelect>
   prompt: string
   replayService?: ReturnType<typeof streamReplayServiceCreate>
@@ -162,29 +160,18 @@ async function* sessionChatStreamGenerate(options: SessionChatStreamCreateOption
       return
     }
 
-    const persisted =
-      options.executionConvexClient === undefined
-        ? options.database === undefined
-          ? createResultError("sessionChatAssistantPersist", "The message database is unavailable.")
-          : await databaseTransactionRun(options.database, (transaction) =>
-              (async () => {
-                if (options.signal.aborted)
-                  return createResultError("sessionChatAssistantPersist", "The chat run was aborted.")
-                const result = await messageAppend(transaction, options.userId, options.sessionId, {
-                  clientRequestId: `${options.requestId}:assistant`,
-                  content: assistantText,
-                  role: "assistant",
-                })
-                if (options.signal.aborted)
-                  return createResultError("sessionChatAssistantPersist", "The chat run was aborted.")
-                return result
-              })(),
-            )
-        : await options.executionConvexClient.messageAppend(options.userId, options.sessionId, {
-            clientRequestId: `${options.requestId}:assistant`,
-            content: assistantText,
-            role: "assistant",
-          })
+    const persisted = await databaseTransactionRun(options.database, (transaction) =>
+      (async () => {
+        if (options.signal.aborted) return createResultError("sessionChatAssistantPersist", "The chat run was aborted.")
+        const result = await messageAppend(transaction, options.userId, options.sessionId, {
+          clientRequestId: `${options.requestId}:assistant`,
+          content: assistantText,
+          role: "assistant",
+        })
+        if (options.signal.aborted) return createResultError("sessionChatAssistantPersist", "The chat run was aborted.")
+        return result
+      })(),
+    )
     if (options.signal.aborted) return
     if (!persisted.success) {
       const errorChunk = sessionChatRunErrorCreate(persisted.errorMessage, "assistant_persistence_error")

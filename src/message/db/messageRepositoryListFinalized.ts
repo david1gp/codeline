@@ -111,7 +111,7 @@ export async function messageRepositoryListFinalized(
           revision: session.revision,
         })
       },
-      { accessMode: "read only", isolationLevel: "repeatable read" },
+      { behavior: "deferred" },
     )
   } catch (_error) {
     return createResultError(op, "The finalized messages could not be loaded.")

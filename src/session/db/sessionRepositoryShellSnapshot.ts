@@ -79,7 +79,7 @@ export async function sessionRepositoryShellSnapshot(
 
         return createResult({ ...row, asOfCursor: asOfCursor.data })
       },
-      { accessMode: "read only", isolationLevel: "repeatable read" },
+      { behavior: "deferred" },
     )
   } catch (_error) {
     return createResultError(op, "The session shell snapshot could not be loaded.")

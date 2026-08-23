@@ -1,12 +1,12 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import { and, desc, eq } from "drizzle-orm"
 import * as v from "valibot"
-import type { DatabaseClient, DatabaseExecutor } from "../../database/databaseClient.js"
-import { databaseTransactionRun } from "../../database/databaseTransactionRun.js"
+import type { DatabaseExecutor } from "../../database/databaseClient.js"
+import { databaseExecutorTransactionRun } from "../../database/databaseExecutorTransactionRun.js"
 import { sessionTable } from "../../session/db/sessionTable.js"
 import { uuidv7 } from "../../uuid/uuidv7.js"
 import { runBudgetSchema } from "../schema/runBudgetSchema.js"
-import { runCreateInputSchema, type RunCreateInput } from "../schema/runCreateInputSchema.js"
+import { type RunCreateInput, runCreateInputSchema } from "../schema/runCreateInputSchema.js"
 import { attemptTable } from "./attemptTable.js"
 import { runTable } from "./runTable.js"
 
@@ -50,13 +50,12 @@ export async function runRepositoryCreate(
   const createdAt = new Date()
   const deadlineAt = new Date(createdAt.getTime() + parsedBudget.output.maxDurationMs)
 
-  return databaseTransactionRun<RunCreateResult>(database as DatabaseClient, async (transaction) => {
+  return databaseExecutorTransactionRun<RunCreateResult>(database, async (transaction) => {
     try {
       const [session] = await transaction
         .select({ id: sessionTable.id, primaryAgentId: sessionTable.primaryAgentId, serverId: sessionTable.serverId })
         .from(sessionTable)
         .where(and(eq(sessionTable.id, sessionId), eq(sessionTable.userId, userId)))
-        .for("update")
         .limit(1)
       if (session === undefined) return createResultError(op, "The session could not be found.")
       if (
@@ -70,7 +69,6 @@ export async function runRepositoryCreate(
         .select()
         .from(runTable)
         .where(and(eq(runTable.sessionId, sessionId), eq(runTable.clientRunId, parsedInput.output.clientRunId)))
-        .for("update")
         .limit(1)
       if (existing !== undefined) {
         if (!runImmutableInputMatches(existing, { ...parsedInput.output, budget: parsedBudget.output })) {
@@ -87,7 +85,6 @@ export async function runRepositoryCreate(
             ),
           )
           .orderBy(desc(attemptTable.ordinal))
-          .for("update")
           .limit(1)
         if (attempt === undefined) return createResultError(op, "The run attempt could not be loaded.")
         return createResult<RunCreateResult>({ created: false, run: existing, attempt })

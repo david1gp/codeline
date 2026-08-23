@@ -8,7 +8,7 @@ export function databaseConnectionClose(connection: DatabaseConnection): Promise
   if (existing !== undefined) return existing
 
   const closePromise = Promise.resolve()
-    .then(() => connection.client.end())
+    .then(() => connection.client.close())
     .then(() => createResult(undefined))
     .catch(() => createResultError("databaseConnectionClose", "The database client could not be closed."))
   closePromises.set(connection, closePromise)

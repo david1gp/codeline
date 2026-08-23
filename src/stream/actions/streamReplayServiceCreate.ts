@@ -1,5 +1,4 @@
 import { createResult, createResultError, createResultErrorCode, type Result } from "@adaptive-ds/result"
-import type { ExecutionConvexClient } from "../../convex/executionConvexClient.js"
 import type { DatabaseClient } from "../../database/databaseClient.js"
 import { databaseTransactionRun } from "../../database/databaseTransactionRun.js"
 import type { streamCheckpointTable } from "../db/streamCheckpointTable.js"
@@ -10,8 +9,7 @@ import { streamCheckpointLoadOrCreate } from "./streamCheckpointLoadOrCreate.js"
 import { streamListAfter } from "./streamListAfter.js"
 
 type StreamReplayServiceOptions = {
-  database?: DatabaseClient
-  executionConvexClient?: ExecutionConvexClient
+  database: DatabaseClient
   inactivityTimeoutMs: number
   now?: () => Date
   sessionId: string
@@ -69,9 +67,6 @@ export function streamReplayServiceCreate(options: StreamReplayServiceOptions) {
     const valid = streamReplayServiceOptionsValidate(options, op)
     if (!valid.success) return valid
 
-    if (options.executionConvexClient !== undefined)
-      return options.executionConvexClient.streamReplayStart(options.userId, options.sessionId, options.streamId)
-    if (options.database === undefined) return createResultError(op, "The stream database is unavailable.")
     return databaseTransactionRun(options.database, async (transaction) => {
       const checkpoint = await streamCheckpointLoadOrCreate(
         transaction,
@@ -89,14 +84,6 @@ export function streamReplayServiceCreate(options: StreamReplayServiceOptions) {
     const valid = streamReplayServiceOptionsValidate(options, op)
     if (!valid.success) return valid
 
-    if (options.executionConvexClient !== undefined)
-      return options.executionConvexClient.streamReplayAppend(
-        options.userId,
-        options.sessionId,
-        { ...input, streamId: options.streamId },
-        options.inactivityTimeoutMs,
-      )
-    if (options.database === undefined) return createResultError(op, "The stream database is unavailable.")
     return databaseTransactionRun(options.database, async (transaction): Promise<Result<StreamReplayAppendResult>> => {
       const checkpoint = await streamCheckpointLoadOrCreate(
         transaction,
@@ -158,13 +145,6 @@ export function streamReplayServiceCreate(options: StreamReplayServiceOptions) {
     const valid = streamReplayServiceOptionsValidate(options, op)
     if (!valid.success) return valid
 
-    if (options.executionConvexClient !== undefined)
-      return options.executionConvexClient.streamReplay(options.userId, options.sessionId, options.streamId, {
-        afterSequence: input.afterSequence,
-        inactivityTimeoutMs: options.inactivityTimeoutMs,
-        limit: input.limit,
-      })
-    if (options.database === undefined) return createResultError(op, "The stream database is unavailable.")
     return databaseTransactionRun(options.database, async (transaction) => {
       const checkpoint = await streamCheckpointLoadOrCreate(
         transaction,

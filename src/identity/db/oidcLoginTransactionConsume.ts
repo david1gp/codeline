@@ -1,13 +1,13 @@
 import { createHash } from "node:crypto"
-import { and, eq, gt, isNull } from "drizzle-orm"
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
-import type { DatabaseClient } from "../../database/databaseClient.js"
+import { and, eq, gt, isNull } from "drizzle-orm"
+import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { oidcLoginTransactionTable } from "./oidcLoginTransactionTable.js"
 
 type OidcLoginTransaction = typeof oidcLoginTransactionTable.$inferSelect
 
 export async function oidcLoginTransactionConsume(
-  database: Pick<DatabaseClient, "update">,
+  database: DatabaseExecutor,
   state: string,
   now: Date = new Date(),
   browserBinding?: string,

@@ -2,13 +2,13 @@ import { Hono } from "hono"
 import { apiRequestParse } from "../../api/apiRequestParse.js"
 import type { AppEnvironment } from "../../api/appEnvironment.js"
 import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.js"
-import type { ServerAgentConvexClient } from "../../convex/serverAgentConvexClient.js"
+import type { DatabaseClient } from "../../database/databaseClient.js"
 import { serverList } from "../actions/serverList.js"
 import { serverQuerySchema } from "../schema/serverQuerySchema.js"
 import type { ServerListResponse } from "./serverListResponseSchema.js"
 
 type ApiServerRoutesOptions = {
-  serverAgentConvexClient?: ServerAgentConvexClient
+  database?: DatabaseClient
 }
 
 export function apiServerRoutesAdd(api: Hono<AppEnvironment>, options: ApiServerRoutesOptions = {}): void {
@@ -24,15 +24,7 @@ export function apiServerRoutesAdd(api: Hono<AppEnvironment>, options: ApiServer
     const organizationId = context.var.requestIdentity.organizationId
     if (organizationId === undefined) return context.json({ servers: [] } satisfies ServerListResponse)
 
-    const client = options.serverAgentConvexClient ?? context.var.serverAgentConvexClient
-    if (client === undefined) {
-      const response = {
-        error: { code: "internal_server_error", message: "The servers could not be loaded." },
-      } satisfies ApiErrorResponse
-      return context.json(response, 500)
-    }
-
-    const result = await serverList(client, organizationId, parsed.data.search)
+    const result = await serverList(options.database ?? context.var.database, organizationId, parsed.data.search)
     if (!result.success) {
       const response = {
         error: { code: "internal_server_error", message: "The servers could not be loaded." },

@@ -5,7 +5,6 @@ import { Hono } from "hono"
 import { apiRequestParse } from "../../api/apiRequestParse.js"
 import type { AppEnvironment } from "../../api/appEnvironment.js"
 import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.js"
-import type { ExecutionConvexClient } from "../../convex/executionConvexClient.js"
 import type { DatabaseClient } from "../../database/databaseClient.js"
 import { runChildStreamResolve } from "../../run/actions/runChildStreamResolve.js"
 import { sessionTable } from "../../session/db/sessionTable.js"
@@ -22,7 +21,6 @@ type ApiStreamRoutesOptions = {
   childStreamResolve?: typeof runChildStreamResolve
   inactivityTimeoutMs?: number
   replayServiceCreate?: typeof streamReplayServiceCreate
-  executionConvexClient?: ExecutionConvexClient
 }
 
 const streamApiDefaultInactivityTimeoutMs = 120_000
@@ -70,19 +68,11 @@ async function streamApiCursorSequenceLoad(
   sessionId: string,
   streamId: string,
   eventId: string | undefined,
-  executionConvexClient?: ExecutionConvexClient,
 ): Promise<Result<number>> {
   const op = "streamApiCursorSequenceLoad"
   if (eventId === undefined || eventId === "") return createResult(0)
   if (eventId.length > 2048 || /[\r\n]/.test(eventId))
     return createResultError(op, "The stream event cursor is invalid.")
-
-  if (executionConvexClient !== undefined) {
-    const event = await executionConvexClient.streamEventLoad(userId, sessionId, streamId, eventId)
-    if (!event.success) return createResultError(op, event.errorMessage)
-    if (event.data === undefined) return createResultError(op, "The stream event cursor is invalid.")
-    return createResult(event.data.sequence)
-  }
 
   try {
     const [event] = await database
@@ -111,12 +101,8 @@ async function streamApiLatestEventLoad(
   sessionId: string,
   streamId: string,
   lastSequence: number,
-  executionConvexClient?: ExecutionConvexClient,
 ): Promise<Result<{ id: string } | undefined>> {
   const op = "streamApiLatestEventLoad"
-
-  if (executionConvexClient !== undefined)
-    return executionConvexClient.streamLatestEvent(userId, sessionId, streamId, lastSequence)
 
   try {
     const [event] = await database
@@ -153,14 +139,15 @@ function streamApiSseEncode(events: Array<typeof streamEventTable.$inferSelect>)
 async function streamApiChildAccessReject(
   context: ApiContext,
   childStreamResolve: typeof runChildStreamResolve,
-  executionConvexClient: ExecutionConvexClient | undefined,
   sessionId: string,
   streamId: string,
 ): Promise<Response | undefined> {
-  const resolved =
-    executionConvexClient === undefined
-      ? await childStreamResolve(context.var.database, context.var.requestIdentity.userId, sessionId, streamId)
-      : await executionConvexClient.runChildStreamResolve(context.var.requestIdentity.userId, sessionId, streamId)
+  const resolved = await childStreamResolve(
+    context.var.database,
+    context.var.requestIdentity.userId,
+    sessionId,
+    streamId,
+  )
   if (!resolved.success) return internalServerError(context)
   return resolved.data ? notFound(context) : undefined
 }
@@ -173,18 +160,12 @@ export function apiStreamRoutesAdd(api: Hono<AppEnvironment>, options: ApiStream
   api.get("/sessions/:sessionId/streams/:streamId/status", async (context) => {
     const sessionId = context.req.param("sessionId")
     const streamId = context.req.param("streamId")
-    const denied = await streamApiChildAccessReject(
-      context,
-      childStreamResolve,
-      options.executionConvexClient,
-      sessionId,
-      streamId,
-    )
+    const denied = await streamApiChildAccessReject(context, childStreamResolve, sessionId, streamId)
     if (denied !== undefined) return denied
 
-    if (options.executionConvexClient !== undefined && options.replayServiceCreate === undefined) {
+    if (options.replayServiceCreate === undefined) {
       const replayService = streamReplayRunServiceCreate({
-        executionConvexClient: options.executionConvexClient,
+        database: context.var.database,
         inactivityTimeoutMs,
         sessionId,
         streamId,
@@ -198,7 +179,6 @@ export function apiStreamRoutesAdd(api: Hono<AppEnvironment>, options: ApiStream
 
     const result = await replayServiceFactory({
       database: context.var.database,
-      executionConvexClient: options.executionConvexClient,
       inactivityTimeoutMs,
       sessionId,
       streamId,
@@ -212,7 +192,6 @@ export function apiStreamRoutesAdd(api: Hono<AppEnvironment>, options: ApiStream
       sessionId,
       streamId,
       result.data.checkpoint.lastSequence,
-      options.executionConvexClient,
     )
     if (!latest.success) return internalServerError(context)
 
@@ -231,18 +210,12 @@ export function apiStreamRoutesAdd(api: Hono<AppEnvironment>, options: ApiStream
 
     const sessionId = context.req.param("sessionId")
     const streamId = context.req.param("streamId")
-    const denied = await streamApiChildAccessReject(
-      context,
-      childStreamResolve,
-      options.executionConvexClient,
-      sessionId,
-      streamId,
-    )
+    const denied = await streamApiChildAccessReject(context, childStreamResolve, sessionId, streamId)
     if (denied !== undefined) return denied
 
-    if (options.executionConvexClient !== undefined && options.replayServiceCreate === undefined) {
+    if (options.replayServiceCreate === undefined) {
       const replayService = streamReplayRunServiceCreate({
-        executionConvexClient: options.executionConvexClient,
+        database: context.var.database,
         inactivityTimeoutMs,
         sessionId,
         streamId,
@@ -272,7 +245,6 @@ export function apiStreamRoutesAdd(api: Hono<AppEnvironment>, options: ApiStream
       sessionId,
       streamId,
       context.req.header("Last-Event-ID") ?? parsed.data.afterEventId,
-      options.executionConvexClient,
     )
     if (!cursor.success) {
       return cursor.errorMessage.includes("is invalid")
@@ -282,7 +254,6 @@ export function apiStreamRoutesAdd(api: Hono<AppEnvironment>, options: ApiStream
 
     const result = await replayServiceFactory({
       database: context.var.database,
-      executionConvexClient: options.executionConvexClient,
       inactivityTimeoutMs,
       sessionId,
       streamId,

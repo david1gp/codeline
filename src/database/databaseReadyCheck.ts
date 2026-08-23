@@ -6,7 +6,7 @@ export async function databaseReadyCheck(database: DatabaseClient): Promise<Resu
   const op = "databaseReadyCheck"
 
   try {
-    await database.execute(sql`select 1`)
+    await database.get(sql`select 1`)
     return createResult(undefined)
   } catch (_error) {
     return createResultError(op, "The database is not ready.")

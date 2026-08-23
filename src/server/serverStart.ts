@@ -8,15 +8,10 @@ import { configurationStoreCreate } from "../configuration/configurationStoreCre
 import { projectRootConfigurationParse } from "../configuration/projectRootConfigurationParse.js"
 import { runtimeConfigurationParse } from "../configuration/runtimeConfigurationParse.js"
 import type { RuntimeConfiguration } from "../configuration/runtimeConfigurationSchema.js"
-import type { ExecutionConvexClient } from "../convex/executionConvexClient.js"
-import { executionConvexClientCreate } from "../convex/executionConvexClient.js"
-import type { ServerAgentConvexClient } from "../convex/serverAgentConvexClient.js"
-import { serverAgentConvexClientCreate } from "../convex/serverAgentConvexClientCreate.js"
 import type { DatabaseConnection } from "../database/databaseClient.js"
 import { databaseConnectionClose } from "../database/databaseConnectionClose.js"
 import { databaseCreate } from "../database/databaseCreate.js"
-import type { IdentityClient } from "../identity/convex/identityClient.js"
-import { identityClientCreate } from "../identity/convex/identityClientCreate.js"
+import { databaseUrl } from "../database/databaseUrl.js"
 import type { JournalCursorCodec } from "../journal/actions/journalCursorCodecCreate.js"
 import { journalCursorCodecCreate } from "../journal/actions/journalCursorCodecCreate.js"
 import { providerAgentCatalogLoad } from "../providers/catalog/providerAgentCatalogLoad.js"
@@ -43,9 +38,6 @@ type ServerStartOptions = {
     configuration: RuntimeConfiguration
     configurationStore?: ConfigurationStore
     database: DatabaseConnection["db"]
-    identityClient?: IdentityClient
-    serverAgentConvexClient?: ServerAgentConvexClient
-    executionConvexClient?: ExecutionConvexClient
     projectRootDirs: readonly string[]
     projectRootDir?: string
     providerAgentCatalog?: ProviderCatalog
@@ -54,9 +46,6 @@ type ServerStartOptions = {
   configuration?: RuntimeConfiguration
   configurationStore?: ConfigurationStore
   database?: DatabaseConnection
-  identityClient?: IdentityClient
-  serverAgentConvexClient?: ServerAgentConvexClient
-  executionConvexClient?: ExecutionConvexClient
   projectRootDirs?: readonly string[]
   projectRootDir?: string
   providerAgentCatalog?: ProviderCatalog
@@ -76,7 +65,7 @@ export async function serverStart(options: ServerStartOptions = {}): Promise<Ser
   const configuration =
     options.configuration === undefined
       ? runtimeConfigurationParse({
-          databaseUrl: Bun.env.DATABASE_URL,
+          databaseUrl,
           ...(Object.keys(developmentIdentity).length === 0 ? {} : { developmentIdentity }),
           nodeEnv: Bun.env.NODE_ENV ?? "development",
           AUTH_MODE: Bun.env.AUTH_MODE,
@@ -121,37 +110,11 @@ export async function serverStart(options: ServerStartOptions = {}): Promise<Ser
   const hostname = Bun.env.HOST ?? "127.0.0.1"
   const createApp = options.appCreate ?? appCreate
   const journalCursorCodec = options.journalCursorCodec ?? serverJournalCursorCodecCreate()
-  const identityClient =
-    options.identityClient ??
-    (Bun.env.CONVEX_SELF_HOSTED_URL === undefined ? undefined : identityClientCreate(Bun.env.CONVEX_SELF_HOSTED_URL))
-  let serverAgentConvexClient = options.serverAgentConvexClient
-  if (
-    serverAgentConvexClient === undefined &&
-    Bun.env.CONVEX_SELF_HOSTED_URL !== undefined &&
-    Bun.env.CONVEX_SELF_HOSTED_ADMIN_KEY !== undefined
-  ) {
-    const created = serverAgentConvexClientCreate(Bun.env.CONVEX_SELF_HOSTED_URL, Bun.env.CONVEX_SELF_HOSTED_ADMIN_KEY)
-    if (!created.success) throw new Error(created.errorMessage)
-    serverAgentConvexClient = created.data
-  }
-  let executionConvexClient = options.executionConvexClient
-  if (
-    executionConvexClient === undefined &&
-    Bun.env.CONVEX_SELF_HOSTED_URL !== undefined &&
-    Bun.env.CONVEX_SELF_HOSTED_ADMIN_KEY !== undefined
-  ) {
-    const created = executionConvexClientCreate(Bun.env.CONVEX_SELF_HOSTED_URL, Bun.env.CONVEX_SELF_HOSTED_ADMIN_KEY)
-    if (!created.success) throw new Error(created.errorMessage)
-    executionConvexClient = created.data
-  }
   const server = (options.serve ?? (Bun.serve as Serve))({
     fetch: createApp({
       configuration: configuration.data,
       configurationStore,
       database: database.data.db,
-      identityClient,
-      ...(serverAgentConvexClient === undefined ? {} : { serverAgentConvexClient }),
-      ...(executionConvexClient === undefined ? {} : { executionConvexClient }),
       ...(options.projectRootDir === undefined ? {} : { projectRootDir: options.projectRootDir }),
       projectRootDirs,
       providerAgentCatalog: providerAgentCatalogResult.data,

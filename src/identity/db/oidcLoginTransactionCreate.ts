@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto"
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
-import type { DatabaseClient } from "../../database/databaseClient.js"
+import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { oidcLoginTransactionTable } from "./oidcLoginTransactionTable.js"
 
 type OidcLoginTransactionInput = {
@@ -18,7 +18,7 @@ type OidcLoginTransactionInput = {
 type OidcLoginTransaction = typeof oidcLoginTransactionTable.$inferSelect
 
 export async function oidcLoginTransactionCreate(
-  database: Pick<DatabaseClient, "insert">,
+  database: DatabaseExecutor,
   transaction: OidcLoginTransactionInput,
 ): Promise<Result<OidcLoginTransaction>> {
   const op = "oidcLoginTransactionCreate"

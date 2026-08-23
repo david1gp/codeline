@@ -1,10 +1,10 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import { and, desc, eq } from "drizzle-orm"
 import * as v from "valibot"
-import type { DatabaseClient, DatabaseExecutor } from "../../database/databaseClient.js"
-import { databaseTransactionRun } from "../../database/databaseTransactionRun.js"
+import type { DatabaseExecutor } from "../../database/databaseClient.js"
+import { databaseExecutorTransactionRun } from "../../database/databaseExecutorTransactionRun.js"
 import { sessionTable } from "../../session/db/sessionTable.js"
-import { runTransitionInputSchema, type RunTransitionInput } from "../schema/runTransitionInputSchema.js"
+import { type RunTransitionInput, runTransitionInputSchema } from "../schema/runTransitionInputSchema.js"
 import { attemptTable } from "./attemptTable.js"
 import { runTable } from "./runTable.js"
 
@@ -54,13 +54,12 @@ export async function runRepositoryTransition(
     return createResultError(op, "Failed runs require failure metadata.")
   }
 
-  return databaseTransactionRun<RunTransitionResult>(database as DatabaseClient, async (transaction) => {
+  return databaseExecutorTransactionRun<RunTransitionResult>(database, async (transaction) => {
     try {
       const [session] = await transaction
         .select({ id: sessionTable.id })
         .from(sessionTable)
         .where(and(eq(sessionTable.id, sessionId), eq(sessionTable.userId, userId)))
-        .for("update")
         .limit(1)
       if (session === undefined) return createResultError(op, "The session could not be found.")
 
@@ -68,7 +67,6 @@ export async function runRepositoryTransition(
         .select()
         .from(runTable)
         .where(and(eq(runTable.id, runId), eq(runTable.sessionId, sessionId), eq(runTable.userId, userId)))
-        .for("update")
         .limit(1)
       if (run === undefined) return createResultError(op, "The run could not be found.")
 
@@ -79,7 +77,6 @@ export async function runRepositoryTransition(
           and(eq(attemptTable.runId, run.id), eq(attemptTable.sessionId, sessionId), eq(attemptTable.userId, userId)),
         )
         .orderBy(desc(attemptTable.ordinal))
-        .for("update")
         .limit(1)
       if (attempt === undefined) return createResultError(op, "The run attempt could not be found.")
       if (attempt.sessionId !== sessionId || attempt.userId !== userId) {

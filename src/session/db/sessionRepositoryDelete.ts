@@ -40,7 +40,6 @@ export async function sessionRepositoryDelete(
             .select()
             .from(sessionTable)
             .where(and(eq(sessionTable.id, sessionId), eq(sessionTable.userId, userId)))
-            .for("update")
             .limit(1)
         : await database
             .select({ session: sessionTable })
@@ -50,7 +49,6 @@ export async function sessionRepositoryDelete(
               and(eq(sessionTable.serverId, serverTable.id), eq(serverTable.organizationId, options.organizationId)),
             )
             .where(and(eq(sessionTable.id, sessionId), eq(sessionTable.userId, userId)))
-            .for("update")
             .limit(1)
             .then((rows) => (rows[0] === undefined ? [] : [rows[0].session]))
 
@@ -157,7 +155,6 @@ async function sessionDeleteIdempotencyLoad(
         eq(mutationIdempotencyTable.idempotencyKey, options.idempotencyKey),
       ),
     )
-    .for("update")
     .limit(1)
   if (idempotent === undefined) return createResult(undefined)
   if (idempotent.resourceId !== sessionId || idempotent.requestHash !== options.requestHash)

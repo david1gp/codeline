@@ -1,6 +1,6 @@
 import { createResultError, type Result } from "@adaptive-ds/result"
 import { is } from "drizzle-orm"
-import { PgTransaction } from "drizzle-orm/pg-core"
+import { LibSQLTransaction } from "drizzle-orm/libsql"
 import type { DatabaseClient, DatabaseExecutor } from "./databaseClient.js"
 import { databaseTransactionRun } from "./databaseTransactionRun.js"
 
@@ -8,10 +8,10 @@ export async function databaseExecutorTransactionRun<T>(
   database: DatabaseExecutor,
   operation: (executor: DatabaseExecutor) => Promise<Result<T>>,
 ): Promise<Result<T>> {
-  if (is(database, PgTransaction)) return operation(database)
+  if (is(database, LibSQLTransaction)) return await operation(database)
 
   const candidate = database as DatabaseClient
-  if (typeof candidate.transaction !== "function") return operation(database)
+  if (typeof candidate.transaction !== "function") return await operation(database)
 
   try {
     return await databaseTransactionRun(candidate, operation)

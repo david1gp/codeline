@@ -1,6 +1,6 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
-import type { DatabaseClient } from "../../database/databaseClient.js"
-import { applicationUserTable, type ApplicationUser } from "./applicationUserTable.js"
+import type { DatabaseExecutor } from "../../database/databaseClient.js"
+import { type ApplicationUser, applicationUserTable } from "./applicationUserTable.js"
 
 type ApplicationUserInput = {
   id: string
@@ -9,7 +9,7 @@ type ApplicationUserInput = {
 }
 
 export async function applicationUserUpsert(
-  database: Pick<DatabaseClient, "insert">,
+  database: Pick<DatabaseExecutor, "insert" | "query">,
   user: ApplicationUserInput,
 ): Promise<Result<ApplicationUser>> {
   const op = "applicationUserUpsert"

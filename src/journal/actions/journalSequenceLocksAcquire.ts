@@ -33,7 +33,6 @@ export async function journalSequenceLocksAcquire(
         .select({ userId: journalSequenceCounterTable.userId })
         .from(journalSequenceCounterTable)
         .where(eq(journalSequenceCounterTable.userId, userId))
-        .for("update")
         .limit(1)
       if (counter === undefined) return createResultError(op, "The journal sequence counter could not be locked.")
     }

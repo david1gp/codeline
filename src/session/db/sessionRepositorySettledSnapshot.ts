@@ -2,6 +2,7 @@ import { createResult, createResultError, createResultErrorCode, type Result } f
 import { and, asc, eq, inArray } from "drizzle-orm"
 import * as v from "valibot"
 import { agentTable } from "../../agents/db/agentTable.js"
+import { databaseReadTransactionRun } from "../../database/databaseReadTransactionRun.js"
 import type { DatabaseClient } from "../../database/databaseClient.js"
 import { applicationUserTable } from "../../identity/db/applicationUserTable.js"
 import { journalSequenceCounterTable } from "../../journal/db/journalSequenceCounterTable.js"
@@ -17,7 +18,7 @@ type SessionSettledSnapshotDependencies = {
   cursorCodec: {
     encodeDeterministic: (journalId: unknown, sequence: unknown) => Result<string>
   }
-  etagCreate: (sessionId: string, revision: number, asOfCursor: string) => string
+  etagCreate: (sessionId: string, revision: number, asOfCursor?: string) => string
   schemaVersion: string
 }
 
@@ -41,81 +42,78 @@ export async function sessionRepositorySettledSnapshot(
   if (!parsedRequest.success) return createResultError(op, "The settled session snapshot request is invalid.")
 
   try {
-    return await database.transaction(
-      async (transaction) => {
-        const [user] = await transaction
-          .select({ id: applicationUserTable.id })
-          .from(applicationUserTable)
-          .where(eq(applicationUserTable.id, userId))
-          .limit(1)
-        if (user === undefined)
-          return createResultErrorCode(
-            op,
-            "The authenticated application user was not found.",
-            "authenticated_user_invalid",
-          )
+    return await databaseReadTransactionRun(database, async (transaction) => {
+      const [user] = await transaction
+        .select({ id: applicationUserTable.id })
+        .from(applicationUserTable)
+        .where(eq(applicationUserTable.id, userId))
+        .limit(1)
+      if (user === undefined)
+        return createResultErrorCode(
+          op,
+          "The authenticated application user was not found.",
+          "authenticated_user_invalid",
+        )
 
-        const [sessionRow] = await transaction
-          .select({ agent: agentTable, server: serverTable, session: sessionTable })
-          .from(sessionTable)
-          .innerJoin(
-            serverTable,
-            and(eq(sessionTable.serverId, serverTable.id), eq(serverTable.organizationId, organizationId)),
-          )
-          .innerJoin(
-            agentTable,
-            and(eq(sessionTable.primaryAgentId, agentTable.id), eq(agentTable.serverId, sessionTable.serverId)),
-          )
-          .where(and(eq(sessionTable.id, parsedRequest.output.sessionId), eq(sessionTable.userId, user.id)))
-          .limit(1)
-        if (sessionRow === undefined)
-          return createResultErrorCode(op, "The session could not be found.", "session_not_found")
+      const [sessionRow] = await transaction
+        .select({ agent: agentTable, server: serverTable, session: sessionTable })
+        .from(sessionTable)
+        .innerJoin(
+          serverTable,
+          and(eq(sessionTable.serverId, serverTable.id), eq(serverTable.organizationId, organizationId)),
+        )
+        .innerJoin(
+          agentTable,
+          and(eq(sessionTable.primaryAgentId, agentTable.id), eq(agentTable.serverId, sessionTable.serverId)),
+        )
+        .where(and(eq(sessionTable.id, parsedRequest.output.sessionId), eq(sessionTable.userId, user.id)))
+        .limit(1)
+      if (sessionRow === undefined)
+        return createResultErrorCode(op, "The session could not be found.", "session_not_found")
 
-        const [activeRun] = await transaction
-          .select({ id: runTable.id })
-          .from(runTable)
-          .where(
-            and(
-              eq(runTable.userId, user.id),
-              eq(runTable.sessionId, sessionRow.session.id),
-              inArray(runTable.status, ["accepted", "running"]),
-            ),
-          )
-          .limit(1)
-        if (activeRun !== undefined)
-          return createResultErrorCode(
-            op,
-            "The active session cannot be returned as a settled snapshot.",
-            "session_active",
-          )
+      const [activeRun] = await transaction
+        .select({ id: runTable.id })
+        .from(runTable)
+        .where(
+          and(
+            eq(runTable.userId, user.id),
+            eq(runTable.sessionId, sessionRow.session.id),
+            inArray(runTable.status, ["accepted", "running"]),
+          ),
+        )
+        .limit(1)
+      if (activeRun !== undefined)
+        return createResultErrorCode(
+          op,
+          "The active session cannot be returned as a settled snapshot.",
+          "session_active",
+        )
 
-        const messages = await transaction
-          .select()
-          .from(messageTable)
-          .where(eq(messageTable.sessionId, sessionRow.session.id))
-          .orderBy(asc(messageTable.sequence), asc(messageTable.id))
+      const messages = await transaction
+        .select()
+        .from(messageTable)
+        .where(eq(messageTable.sessionId, sessionRow.session.id))
+        .orderBy(asc(messageTable.sequence), asc(messageTable.id))
 
-        const [counter] = await transaction
-          .select({ nextSequence: journalSequenceCounterTable.nextSequence })
-          .from(journalSequenceCounterTable)
-          .where(eq(journalSequenceCounterTable.userId, user.id))
-          .limit(1)
-        const highestSequence = sessionSnapshotHighestSequence(counter?.nextSequence)
-        if (!highestSequence.success) return highestSequence
-        const asOfCursor = dependencies.cursorCodec.encodeDeterministic(user.id, highestSequence.data)
-        if (!asOfCursor.success) return createResultError(op, asOfCursor.errorMessage)
+      const [counter] = await transaction
+        .select({ nextSequence: journalSequenceCounterTable.nextSequence })
+        .from(journalSequenceCounterTable)
+        .where(eq(journalSequenceCounterTable.userId, user.id))
+        .limit(1)
+      const highestSequence = sessionSnapshotHighestSequence(counter?.nextSequence)
+      if (!highestSequence.success) return highestSequence
+      const asOfCursor = dependencies.cursorCodec.encodeDeterministic(user.id, highestSequence.data)
+      if (!asOfCursor.success) return createResultError(op, asOfCursor.errorMessage)
 
-        return sessionSettledSnapshotResponseCreate({
-          asOfCursor: asOfCursor.data,
-          etag: dependencies.etagCreate(sessionRow.session.id, sessionRow.session.revision, asOfCursor.data),
-          messages,
-          revision: sessionRow.session.revision,
-          schemaVersion: dependencies.schemaVersion,
-          session: sessionRow.session,
-        })
-      },
-      { accessMode: "read only", isolationLevel: "repeatable read" },
-    )
+      return sessionSettledSnapshotResponseCreate({
+        asOfCursor: asOfCursor.data,
+        etag: dependencies.etagCreate(sessionRow.session.id, sessionRow.session.revision),
+        messages,
+        revision: sessionRow.session.revision,
+        schemaVersion: dependencies.schemaVersion,
+        session: sessionRow.session,
+      })
+    })
   } catch (_error) {
     return createResultError(op, "The settled session snapshot could not be loaded.")
   }

@@ -9,7 +9,6 @@
       "@adaptive-ds/solid-ui/utils/createSignalObject": ["./ui/utils/createSignalObject.ts"],
       "@corvu/popover": ["./node_modules/@corvu/popover/dist/index.d.ts"],
       "@mdi/js": ["./node_modules/@mdi/js/mdi.d.ts"],
-      "#convex/*": ["./convex/*"],
       "#ui/*": ["./ui/*"],
       "clsx": ["./node_modules/clsx/clsx.d.mts"],
       "solid-js": ["./node_modules/solid-js/types/index.d.ts"],

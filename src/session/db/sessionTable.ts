@@ -1,10 +1,9 @@
-import type { AnyPgColumn } from "drizzle-orm/pg-core"
-import { boolean, foreignKey, index, integer, jsonb, pgTable, text, timestamp, unique } from "drizzle-orm/pg-core"
+import { type AnySQLiteColumn, foreignKey, index, integer, sqliteTable, text, unique } from "drizzle-orm/sqlite-core"
 import { agentTable } from "../../agents/db/agentTable.js"
 import { applicationUserTable } from "../../identity/db/applicationUserTable.js"
 import { serverTable } from "../../servers/db/serverTable.js"
 
-export const sessionTable = pgTable(
+export const sessionTable = sqliteTable(
   "session",
   {
     id: text("id").primaryKey(),
@@ -18,17 +17,17 @@ export const sessionTable = pgTable(
       .notNull()
       .references(() => agentTable.id, { onDelete: "restrict" }),
     projectPath: text("project_path").notNull().default("~"),
-    parentSessionId: text("parent_session_id").references((): AnyPgColumn => sessionTable.id, {
+    parentSessionId: text("parent_session_id").references((): AnySQLiteColumn => sessionTable.id, {
       onDelete: "set null",
     }),
     title: text("title").notNull(),
     clientRequestId: text("client_request_id").notNull(),
-    metadata: jsonb("metadata").notNull().default({}),
-    pinned: boolean("pinned").notNull().default(true),
+    metadata: text("metadata", { mode: "json" }).notNull().default({}),
+    pinned: integer("pinned", { mode: "boolean" }).notNull().default(true),
     revision: integer("revision").notNull().default(1),
-    archivedAt: timestamp("archived_at", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    archivedAt: integer("archived_at", { mode: "timestamp_ms" }),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).defaultNow().notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).defaultNow().notNull(),
   },
   (table) => [
     unique("session_user_client_request_unique").on(table.userId, table.clientRequestId),

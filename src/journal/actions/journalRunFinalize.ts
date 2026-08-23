@@ -1,5 +1,5 @@
 import { createResult, createResultError, createResultErrorCode, type Result } from "@adaptive-ds/result"
-import { and, eq, inArray, sql } from "drizzle-orm"
+import { and, eq, inArray } from "drizzle-orm"
 import * as v from "valibot"
 import { apiPublicIdSchema } from "../../api/schema/apiPublicIdSchema.js"
 import { apiRevisionSchema } from "../../api/schema/apiRevisionSchema.js"
@@ -79,7 +79,7 @@ async function journalRunPriorDeltaRecipients(
     const rows = await transaction
       .select({ userId: journalEventTable.userId })
       .from(journalEventTable)
-      .where(and(eq(journalEventTable.eventType, "delta"), sql`${journalEventTable.payload}->>'runId' = ${runId}`))
+      .where(and(eq(journalEventTable.eventType, "delta"), eq(journalEventTable.runId, runId)))
     return createResult([...new Set(rows.map((row) => row.userId))])
   } catch (_error) {
     return createResultError(op, "The prior journal delta recipients could not be resolved.")
@@ -92,12 +92,7 @@ async function journalRunDuplicateCheck(transaction: DatabaseTransaction, runId:
     const [terminal] = await transaction
       .select({ id: journalEventTable.id })
       .from(journalEventTable)
-      .where(
-        and(
-          inArray(journalEventTable.eventType, journalTerminalEventTypes),
-          sql`${journalEventTable.payload}->>'runId' = ${runId}`,
-        ),
-      )
+      .where(and(inArray(journalEventTable.eventType, journalTerminalEventTypes), eq(journalEventTable.runId, runId)))
       .limit(1)
     if (terminal !== undefined) {
       const result = createResultErrorCode(
@@ -111,15 +106,6 @@ async function journalRunDuplicateCheck(transaction: DatabaseTransaction, runId:
     return createResult(undefined)
   } catch (_error) {
     return createResultError(op, "The journal run finalization state could not be checked.")
-  }
-}
-
-async function journalRunFinalizationLock(transaction: DatabaseTransaction, runId: string): Promise<Result<void>> {
-  try {
-    await transaction.execute(sql`select pg_advisory_xact_lock(hashtextextended(${runId}, 0))`)
-    return createResult(undefined)
-  } catch (_error) {
-    return createResultError("journalRunFinalize", "The journal run finalization lock could not be acquired.")
   }
 }
 
@@ -144,8 +130,6 @@ export function journalRunFinalize(dependencies: JournalRunFinalizeDependencies)
         return prior
       },
       beforeMutation: async (transaction) => {
-        const locked = await journalRunFinalizationLock(transaction, parsedInput.output.runId)
-        if (!locked.success) return locked
         const latestPriorRecipients = await journalRunPriorDeltaRecipients(transaction, parsedInput.output.runId)
         if (!latestPriorRecipients.success) return latestPriorRecipients
         priorRecipientIds = latestPriorRecipients.data
@@ -166,7 +150,7 @@ export function journalRunFinalize(dependencies: JournalRunFinalizeDependencies)
                 and(
                   inArray(journalEventTable.userId, priorRecipientIds),
                   eq(journalEventTable.eventType, "delta"),
-                  sql`${journalEventTable.payload}->>'runId' = ${parsedInput.output.runId}`,
+                  eq(journalEventTable.runId, parsedInput.output.runId),
                 ),
               )
           } catch (_error) {

@@ -1,8 +1,8 @@
 import { sql } from "drizzle-orm"
-import { bigint, check, pgTable, text, timestamp, unique } from "drizzle-orm/pg-core"
+import { check, integer, sqliteTable, text, unique } from "drizzle-orm/sqlite-core"
 import { sessionTable } from "../../session/db/sessionTable.js"
 
-export const streamCheckpointTable = pgTable(
+export const streamCheckpointTable = sqliteTable(
   "stream_checkpoint",
   {
     id: text("id").primaryKey(),
@@ -10,8 +10,8 @@ export const streamCheckpointTable = pgTable(
       .notNull()
       .references(() => sessionTable.id, { onDelete: "cascade" }),
     streamId: text("stream_id").notNull(),
-    lastSequence: bigint("last_sequence", { mode: "number" }).notNull().default(0),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    lastSequence: integer("last_sequence", { mode: "number" }).notNull().default(0),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).defaultNow().notNull(),
   },
   (table) => [
     unique("stream_checkpoint_session_stream_unique").on(table.sessionId, table.streamId),

@@ -1,7 +1,7 @@
-import { index, jsonb, pgTable, text, timestamp, unique } from "drizzle-orm/pg-core"
+import { index, integer, sqliteTable, text, unique } from "drizzle-orm/sqlite-core"
 import { organizationTable } from "../../identity/db/organizationTable.js"
 
-export const serverTable = pgTable(
+export const serverTable = sqliteTable(
   "server",
   {
     id: text("id").primaryKey(),
@@ -10,14 +10,14 @@ export const serverTable = pgTable(
       .references(() => organizationTable.id, { onDelete: "restrict" }),
     name: text("name").notNull(),
     endpoint: text("endpoint").notNull(),
-    metadata: jsonb("metadata").notNull().default({}),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    metadata: text("metadata", { mode: "json" }).notNull().default({}),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).defaultNow().notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).defaultNow().notNull(),
   },
   (table) => [
     unique("server_organization_name_unique").on(table.organizationId, table.name),
     index("server_organization_idx").on(table.organizationId),
     index("server_name_idx").on(table.name),
-    index("server_metadata_gin_idx").using("gin", table.metadata),
+    index("server_metadata_gin_idx").on(table.metadata),
   ],
 )

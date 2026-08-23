@@ -1,131 +1,19 @@
 {
   "version": "7",
-  "dialect": "postgresql",
+  "dialect": "sqlite",
   "entries": [
     {
       "idx": 0,
-      "version": "7",
-      "when": 1786545262224,
-      "tag": "0000_tan_wendell_rand",
+      "version": "6",
+      "when": 1787446784643,
+      "tag": "0000_condemned_maximus",
       "breakpoints": true
     },
     {
       "idx": 1,
-      "version": "7",
-      "when": 1786580205219,
-      "tag": "0001_early_patriot",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1786630000000,
-      "tag": "0002_friendly_lady",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1786631000000,
-      "tag": "0003_notes",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1786740000000,
-      "tag": "0004_parent_session_hierarchy",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "7",
-      "when": 1786740000001,
-      "tag": "0005_durable_runs",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "7",
-      "when": 1786740000002,
-      "tag": "0006_note_ordering",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "7",
-      "when": 1786740000003,
-      "tag": "0007_bounded_subagents",
-      "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "7",
-      "when": 1786740000004,
-      "tag": "0008_durable_cancellation",
-      "breakpoints": true
-    },
-    {
-      "idx": 9,
-      "version": "7",
-      "when": 1786740000005,
-      "tag": "0009_durable_identity_storage",
-      "breakpoints": true
-    },
-    {
-      "idx": 10,
-      "version": "7",
-      "when": 1786740000006,
-      "tag": "0010_oidc_login_binding",
-      "breakpoints": true
-    },
-    {
-      "idx": 11,
-      "version": "7",
-      "when": 1786740000007,
-      "tag": "0011_session_projects_watched",
-      "breakpoints": true
-    },
-    {
-      "idx": 12,
-      "version": "7",
-      "when": 1786740000008,
-      "tag": "0012_session_pinned_column_rename",
-      "breakpoints": true
-    },
-    {
-      "idx": 13,
-      "version": "7",
-      "when": 1787040000000,
-      "tag": "0013_organization_server_ownership",
-      "breakpoints": true
-    },
-    {
-      "idx": 14,
-      "version": "7",
-      "when": 1787408523939,
-      "tag": "0014_task4_representation_revisions",
-      "breakpoints": true
-    },
-    {
-      "idx": 15,
-      "version": "7",
-      "when": 1787414593923,
-      "tag": "0015_task5_journal_foundation",
-      "breakpoints": true
-    },
-    {
-      "idx": 16,
-      "version": "7",
-      "when": 1787417001015,
-      "tag": "0016_pink_silver_samurai",
-      "breakpoints": true
-    },
-    {
-      "idx": 17,
-      "version": "7",
-      "when": 1787417027149,
-      "tag": "0017_stale_colossus",
+      "version": "6",
+      "when": 1787462021143,
+      "tag": "0001_fixed_red_shift",
       "breakpoints": true
     }
   ]

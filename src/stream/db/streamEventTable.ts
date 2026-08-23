@@ -1,8 +1,8 @@
 import { sql } from "drizzle-orm"
-import { bigint, check, index, jsonb, pgTable, text, timestamp, unique } from "drizzle-orm/pg-core"
+import { check, index, integer, sqliteTable, text, unique } from "drizzle-orm/sqlite-core"
 import { sessionTable } from "../../session/db/sessionTable.js"
 
-export const streamEventTable = pgTable(
+export const streamEventTable = sqliteTable(
   "stream_event",
   {
     id: text("id").primaryKey(),
@@ -10,11 +10,11 @@ export const streamEventTable = pgTable(
       .notNull()
       .references(() => sessionTable.id, { onDelete: "cascade" }),
     streamId: text("stream_id").notNull(),
-    sequence: bigint("sequence", { mode: "number" }).notNull(),
+    sequence: integer("sequence", { mode: "number" }).notNull(),
     eventType: text("event_type").notNull(),
-    payload: jsonb("payload").notNull(),
+    payload: text("payload", { mode: "json" }).notNull(),
     idempotencyKey: text("idempotency_key").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).defaultNow().notNull(),
   },
   (table) => [
     unique("stream_event_stream_sequence_unique").on(table.streamId, table.sequence),

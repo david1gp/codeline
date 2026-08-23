@@ -1,9 +1,8 @@
-import { index, text, timestamp, unique } from "drizzle-orm/pg-core"
+import { index, integer, sqliteTable, text, unique } from "drizzle-orm/sqlite-core"
 import { applicationUserTable } from "./applicationUserTable.js"
-import { identitySchema } from "./identitySchema.js"
 
-export const externalIdentityTable = identitySchema.table(
-  "external_identity",
+export const externalIdentityTable = sqliteTable(
+  "identity_external_identity",
   {
     id: text("id").primaryKey(),
     userId: text("user_id")
@@ -11,8 +10,8 @@ export const externalIdentityTable = identitySchema.table(
       .references(() => applicationUserTable.id, { onDelete: "cascade" }),
     issuer: text("issuer").notNull(),
     subject: text("subject").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).defaultNow().notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).defaultNow().notNull(),
   },
   (table) => [
     unique("external_identity_issuer_subject_unique").on(table.issuer, table.subject),

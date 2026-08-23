@@ -1,7 +1,7 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import { and, desc, eq } from "drizzle-orm"
-import type { DatabaseClient, DatabaseExecutor } from "../../database/databaseClient.js"
-import { databaseTransactionRun } from "../../database/databaseTransactionRun.js"
+import type { DatabaseExecutor } from "../../database/databaseClient.js"
+import { databaseExecutorTransactionRun } from "../../database/databaseExecutorTransactionRun.js"
 import { sessionTable } from "../../session/db/sessionTable.js"
 import { uuidv7 } from "../../uuid/uuidv7.js"
 import { runRetryAdmissionResolve } from "../actions/runRetryAdmissionResolve.js"
@@ -42,13 +42,12 @@ export async function runRepositoryRetryAttemptCreate(
 ): Promise<Result<RunRetryAttemptCreateResult>> {
   const op = "runRepositoryRetryAttemptCreate"
 
-  return databaseTransactionRun<RunRetryAttemptCreateResult>(database as DatabaseClient, async (transaction) => {
+  return databaseExecutorTransactionRun<RunRetryAttemptCreateResult>(database, async (transaction) => {
     try {
       const [session] = await transaction
         .select({ id: sessionTable.id })
         .from(sessionTable)
         .where(and(eq(sessionTable.id, sessionId), eq(sessionTable.userId, userId)))
-        .for("update")
         .limit(1)
       if (session === undefined) return createResultError(op, "The session could not be found.")
 
@@ -56,7 +55,6 @@ export async function runRepositoryRetryAttemptCreate(
         .select()
         .from(runTable)
         .where(and(eq(runTable.id, runId), eq(runTable.sessionId, sessionId), eq(runTable.userId, userId)))
-        .for("update")
         .limit(1)
       if (run === undefined) return createResultError(op, "The run could not be found.")
 
@@ -67,7 +65,6 @@ export async function runRepositoryRetryAttemptCreate(
           and(eq(attemptTable.runId, run.id), eq(attemptTable.sessionId, sessionId), eq(attemptTable.userId, userId)),
         )
         .orderBy(desc(attemptTable.ordinal))
-        .for("update")
         .limit(1)
       if (latestAttempt === undefined) return createResultError(op, "The latest run attempt could not be loaded.")
       if (latestAttempt.sessionId !== sessionId || latestAttempt.userId !== userId) {

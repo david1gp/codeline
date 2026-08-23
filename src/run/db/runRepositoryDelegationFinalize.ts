@@ -1,10 +1,10 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import { and, desc, eq, isNull } from "drizzle-orm"
 import * as v from "valibot"
-import type { DatabaseClient, DatabaseExecutor } from "../../database/databaseClient.js"
-import { databaseTransactionRun } from "../../database/databaseTransactionRun.js"
+import type { DatabaseExecutor } from "../../database/databaseClient.js"
+import { databaseExecutorTransactionRun } from "../../database/databaseExecutorTransactionRun.js"
 import { sessionTable } from "../../session/db/sessionTable.js"
-import { runDelegationResultSchema, type RunDelegationResult } from "../schema/runDelegationResultSchema.js"
+import { type RunDelegationResult, runDelegationResultSchema } from "../schema/runDelegationResultSchema.js"
 import { attemptTable } from "./attemptTable.js"
 import { runDelegationTable } from "./runDelegationTable.js"
 import { runTable } from "./runTable.js"
@@ -50,13 +50,12 @@ export async function runRepositoryDelegationFinalize(
   const parsedInput = v.safeParse(runDelegationResultSchema, input)
   if (!parsedInput.success) return createResultError(op, "The delegation result is invalid.")
 
-  return databaseTransactionRun<RunDelegationFinalizeResult>(database as DatabaseClient, async (transaction) => {
+  return databaseExecutorTransactionRun<RunDelegationFinalizeResult>(database, async (transaction) => {
     try {
       const [session] = await transaction
         .select({ id: sessionTable.id })
         .from(sessionTable)
         .where(and(eq(sessionTable.id, sessionId), eq(sessionTable.userId, userId)))
-        .for("update")
         .limit(1)
       if (session === undefined) return createResultError(op, "The session could not be found.")
 
@@ -70,7 +69,6 @@ export async function runRepositoryDelegationFinalize(
             eq(runDelegationTable.userId, userId),
           ),
         )
-        .for("update")
         .limit(1)
       if (delegation === undefined) return createResultError(op, "The delegation could not be found.")
 
@@ -80,7 +78,6 @@ export async function runRepositoryDelegationFinalize(
         .where(
           and(eq(runTable.id, delegation.childRunId), eq(runTable.sessionId, sessionId), eq(runTable.userId, userId)),
         )
-        .for("update")
         .limit(1)
       if (run === undefined) return createResultError(op, "The delegated child run could not be found.")
 
@@ -91,7 +88,6 @@ export async function runRepositoryDelegationFinalize(
           and(eq(attemptTable.runId, run.id), eq(attemptTable.sessionId, sessionId), eq(attemptTable.userId, userId)),
         )
         .orderBy(desc(attemptTable.ordinal))
-        .for("update")
         .limit(1)
       if (attempt === undefined) return createResultError(op, "The delegated child attempt could not be found.")
       if (delegation.childRunId !== run.id || attempt.runId !== run.id) {

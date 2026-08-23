@@ -1,5 +1,6 @@
 import { createResult, createResultError } from "@adaptive-ds/result"
 import { and, eq } from "drizzle-orm"
+import { mutationIdempotencyTable } from "../../api/db/mutationIdempotencyTable.js"
 import type { DatabaseClient, DatabaseTransaction } from "../../database/databaseClient.js"
 import { databaseExecutorTransactionRun } from "../../database/databaseExecutorTransactionRun.js"
 import type { JournalEventRecipientResolver } from "../../journal/actions/journalEventRecipientResolver.js"
@@ -9,7 +10,7 @@ import { sessionRepositoryDelete } from "../db/sessionRepositoryDelete.js"
 import { sessionTable } from "../db/sessionTable.js"
 import { sessionJournalMutationRun } from "./sessionJournalMutationRun.js"
 
-export function sessionDelete(
+export async function sessionDelete(
   database: DatabaseClient,
   userId: string,
   sessionId: string,
@@ -22,6 +23,20 @@ export function sessionDelete(
 ): ReturnType<typeof sessionRepositoryDelete> {
   const mutation = (transaction: Parameters<typeof sessionRepositoryDelete>[0]) =>
     sessionRepositoryDelete(transaction, userId, sessionId, options)
+  if (options?.journal !== undefined && options.idempotencyKey !== undefined) {
+    const [existing] = await database
+      .select({ id: mutationIdempotencyTable.id })
+      .from(mutationIdempotencyTable)
+      .where(
+        and(
+          eq(mutationIdempotencyTable.userId, userId),
+          eq(mutationIdempotencyTable.operation, "session.delete"),
+          eq(mutationIdempotencyTable.idempotencyKey, options.idempotencyKey),
+        ),
+      )
+      .limit(1)
+    if (existing !== undefined) return databaseExecutorTransactionRun(database, mutation)
+  }
   if (options?.journal !== undefined)
     return sessionJournalMutationRun({
       database,

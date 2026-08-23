@@ -15,7 +15,6 @@ import { identitySessionCreate } from "../actions/identitySessionCreate.js"
 import { identitySessionLoad } from "../actions/identitySessionLoad.js"
 import { identitySessionRevoke } from "../actions/identitySessionRevoke.js"
 import { oidcIdentityUpsert } from "../actions/oidcIdentityUpsert.js"
-import type { IdentityClient } from "../convex/identityClient.js"
 import { applicationUserRepositoryLoad } from "../db/applicationUserRepositoryLoad.js"
 import { oidcLoginTransactionConsume } from "../db/oidcLoginTransactionConsume.js"
 import { oidcLoginTransactionCreate } from "../db/oidcLoginTransactionCreate.js"
@@ -36,7 +35,6 @@ import { oidcLoginBrowserBindingCookieSet } from "./oidcLoginBrowserBindingCooki
 type ApiAuthRoutesOptions = {
   configuration?: RuntimeConfiguration
   database?: DatabaseClient
-  identityClient?: IdentityClient
   idCreate?: () => string
   identitySessionRevoke?: typeof identitySessionRevoke
   identitySessionCreate?: typeof identitySessionCreate
@@ -55,18 +53,9 @@ type ApiAuthRoutesOptions = {
 }
 
 export function apiAuthRoutesAdd(api: Hono<AppEnvironment>, options: ApiAuthRoutesOptions = {}): void {
-  const identityClient = options.identityClient
   const revoke = options.identitySessionRevoke ?? identitySessionRevoke
-  const transactionCreate =
-    options.oidcLoginTransactionCreate ??
-    (identityClient === undefined
-      ? oidcLoginTransactionCreate
-      : (_, transaction) => identityClient.oidcLoginTransactionCreate(transaction))
-  const transactionConsume =
-    options.oidcLoginTransactionConsume ??
-    (identityClient === undefined
-      ? oidcLoginTransactionConsume
-      : (_, state, now, browserBinding) => identityClient.oidcLoginTransactionConsume(state, now, browserBinding))
+  const transactionCreate = options.oidcLoginTransactionCreate ?? oidcLoginTransactionCreate
+  const transactionConsume = options.oidcLoginTransactionConsume ?? oidcLoginTransactionConsume
   const providerDiscovery =
     options.oidcProviderDiscovery ??
     oidcProviderDiscoveryCreate({
@@ -155,7 +144,6 @@ export function apiAuthRoutesAdd(api: Hono<AppEnvironment>, options: ApiAuthRout
         identitySessionCreate: options.identitySessionCreate,
         identitySessionLoad: options.identitySessionLoad,
         identitySessionRevoke: options.identitySessionRevoke,
-        identityClient,
         idCreate,
         identityUpsert: options.oidcIdentityUpsert,
         now: options.now,
@@ -176,9 +164,7 @@ export function apiAuthRoutesAdd(api: Hono<AppEnvironment>, options: ApiAuthRout
     if (identity === undefined) return authenticationUnauthorized(context)
     const storedUser =
       identity.displayName === undefined
-        ? identityClient === undefined
-          ? await applicationUserRepositoryLoad(context.var.database, identity.userId)
-          : await identityClient.applicationUserLoad(identitySessionCookieRead(context) ?? "")
+        ? await applicationUserRepositoryLoad(context.var.database, identity.userId)
         : undefined
     const displayName = identity.displayName ?? (storedUser?.success ? storedUser.data?.displayName : undefined)
     if (displayName === undefined) return authenticationUnauthorized(context)
@@ -199,14 +185,8 @@ export function apiAuthRoutesAdd(api: Hono<AppEnvironment>, options: ApiAuthRout
     const identity = context.var.requestIdentity
     if (identity === undefined) return authenticationUnauthorized(context)
     const sessionId = identity.sessionId
-    if (sessionId !== undefined || identityClient !== undefined) {
-      const result =
-        identityClient === undefined
-          ? await revoke(context.var.database, sessionId ?? "", options.now?.() ?? new Date())
-          : await identityClient.identitySessionRevokeForToken(
-              identitySessionCookieRead(context) ?? "",
-              options.now?.() ?? new Date(),
-            )
+    if (sessionId !== undefined) {
+      const result = await revoke(context.var.database, sessionId, options.now?.() ?? new Date())
       if (!result.success) {
         const response = {
           error: { code: "internal_server_error", message: "The session could not be revoked." },
@@ -234,18 +214,18 @@ async function authSessionTokenResolve(
 
   const database = options.database ?? context.var.database
   if (existing !== undefined) {
-    const loaded =
-      options.identityClient === undefined
-        ? await (options.identitySessionLoad ?? identitySessionLoad)(database ?? ({} as DatabaseClient), existing)
-        : await options.identityClient.identitySessionLoad(existing)
+    const loaded = await (options.identitySessionLoad ?? identitySessionLoad)(
+      database ?? ({} as DatabaseClient),
+      existing,
+    )
     if (!loaded.success) return createResultError("authSessionTokenResolve", loaded.errorMessage)
     if (loaded.data?.userId === userId) return createResult(existing)
   }
 
-  const created =
-    options.identityClient === undefined
-      ? await (options.identitySessionCreate ?? identitySessionCreate)(database ?? ({} as DatabaseClient), userId)
-      : await options.identityClient.identitySessionCreate(userId)
+  const created = await (options.identitySessionCreate ?? identitySessionCreate)(
+    database ?? ({} as DatabaseClient),
+    userId,
+  )
   if (!created.success) return created
   identitySessionCookieSet(context, created.data.token, created.data.session.expiresAt, options.now?.() ?? new Date())
   return createResult(created.data.token)
@@ -277,7 +257,6 @@ function authenticationUnauthorized(context: Context<AppEnvironment>) {
 type OidcCallbackHandleOptions = {
   configuration?: RuntimeConfiguration
   database?: DatabaseClient
-  identityClient?: IdentityClient
   identitySessionCreate?: typeof identitySessionCreate
   identitySessionLoad?: typeof identitySessionLoad
   identitySessionRevoke?: typeof identitySessionRevoke
@@ -418,29 +397,6 @@ async function oidcCallbackHandle(
   const identitySessionRevokeResolve = options.identitySessionRevoke ?? identitySessionRevoke
   const identitySessionCreateResolve = options.identitySessionCreate ?? identitySessionCreate
   const presentedSessionToken = identitySessionCookieRead(context)
-  if (options.identityClient !== undefined && options.identityUpsert === undefined) {
-    const persisted = await options.identityClient.oidcLoginComplete(
-      {
-        displayName: oidcProfileStringResolve(claims.name) ?? oidcProfileStringResolve(claims.preferred_username),
-        issuer: provider.data.issuer,
-        organizationExternalId: resourceOwnerId.data,
-        subject: claims.sub,
-        ...(claims.email_verified === true && oidcProfileStringResolve(claims.email) !== undefined
-          ? { verifiedEmail: oidcProfileStringResolve(claims.email) }
-          : {}),
-      },
-      {
-        ...(options.sessionCredentialCreate === undefined ? {} : { credentialCreate: options.sessionCredentialCreate }),
-        ...(options.sessionIdCreate === undefined ? {} : { idCreate: options.sessionIdCreate }),
-        now,
-        ...(presentedSessionToken === undefined ? {} : { presentedToken: presentedSessionToken }),
-      },
-    )
-    if (!persisted.success) return oidcCallbackError(context, 500)
-    oidcLoginBrowserBindingCookieClear(context)
-    identitySessionCookieSet(context, persisted.data.token, persisted.data.session.expiresAt, now)
-    return context.redirect(returnTo.data, 302)
-  }
   const persisted = await oidcDatabaseTransactionRun(database, async (executor) => {
     const user = await identityUpsert(executor, {
       displayName: oidcProfileStringResolve(claims.name) ?? oidcProfileStringResolve(claims.preferred_username),

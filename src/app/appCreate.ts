@@ -6,8 +6,6 @@ import type { ApiErrorResponse } from "../api/errors/apiErrorResponseSchema.js"
 import type { HealthResponse } from "../api/health/healthResponseSchema.js"
 import type { ConfigurationStore } from "../configuration/configurationStore.js"
 import type { RuntimeConfiguration } from "../configuration/runtimeConfigurationSchema.js"
-import type { ExecutionConvexClient } from "../convex/executionConvexClient.js"
-import type { ServerAgentConvexClient } from "../convex/serverAgentConvexClient.js"
 import type { DatabaseClient } from "../database/databaseClient.js"
 import { databaseReadyCheck } from "../database/databaseReadyCheck.js"
 import { identitySessionCreate } from "../identity/actions/identitySessionCreate.js"
@@ -16,7 +14,6 @@ import { identitySessionRevoke } from "../identity/actions/identitySessionRevoke
 import { oidcIdentityUpsert } from "../identity/actions/oidcIdentityUpsert.js"
 import { organizationMemberLoad } from "../identity/actions/organizationMemberLoad.js"
 import { authenticationMiddleware } from "../identity/api/authenticationMiddleware.js"
-import type { IdentityClient } from "../identity/convex/identityClient.js"
 import { developmentIdentityUpsert } from "../identity/db/developmentIdentityUpsert.js"
 import { oidcLoginTransactionConsume } from "../identity/db/oidcLoginTransactionConsume.js"
 import { oidcLoginTransactionCreate } from "../identity/db/oidcLoginTransactionCreate.js"
@@ -32,11 +29,14 @@ import { providerRuntimeAdapterCreate } from "../providers/runtime/providerRunti
 import type { ProviderCatalog } from "../providers/schema/providerCatalogSchema.js"
 import { runCancel } from "../run/actions/runCancel.js"
 import { runCancellationCoordinatorCreate } from "../run/actions/runCancellationCoordinatorCreate.js"
+import { runChildCreate } from "../run/actions/runChildCreate.js"
 import { runCreate } from "../run/actions/runCreate.js"
 import { runDelegationExecute } from "../run/actions/runDelegationExecute.js"
+import { runDelegationFinalize } from "../run/actions/runDelegationFinalize.js"
 import { runExecutionSnapshotResolve } from "../run/actions/runExecutionSnapshotResolve.js"
 import { runLoad } from "../run/actions/runLoad.js"
 import { runRetryAttemptCreate } from "../run/actions/runRetryAttemptCreate.js"
+import { runSessionStreamSnapshotLoad } from "../run/actions/runSessionStreamSnapshotLoad.js"
 import { runTransition } from "../run/actions/runTransition.js"
 import { sessionChatAdapterCreate } from "../session/actions/sessionChatAdapterCreate.js"
 import { streamLiveSubscriptionCreate } from "../stream/actions/streamLiveSubscriptionCreate.js"
@@ -49,9 +49,6 @@ export type AppCreateOptions = {
   configuration?: RuntimeConfiguration
   configurationStore?: ConfigurationStore
   database?: DatabaseClient
-  identityClient?: IdentityClient
-  serverAgentConvexClient?: ServerAgentConvexClient
-  executionConvexClient?: ExecutionConvexClient
   databaseReadyCheck?: typeof databaseReadyCheck
   developmentIdentityUpsert?: typeof developmentIdentityUpsert
   identitySessionLoad?: typeof identitySessionLoad
@@ -81,10 +78,13 @@ export type AppCreateOptions = {
   runCreate?: typeof runCreate
   runCancel?: typeof runCancel
   runCancellationCoordinator?: ReturnType<typeof runCancellationCoordinatorCreate>
+  runChildCreate?: typeof runChildCreate
   runDelegationExecute?: typeof runDelegationExecute
+  runDelegationFinalize?: typeof runDelegationFinalize
   runExecutionSnapshotResolve?: typeof runExecutionSnapshotResolve
   runLoad?: typeof runLoad
   runRetryAttemptCreate?: typeof runRetryAttemptCreate
+  runSessionStreamSnapshotLoad?: typeof runSessionStreamSnapshotLoad
   runTransition?: typeof runTransition
   sessionChatAdapter?: typeof sessionChatAdapterCreate
   streamInactivityTimeoutMs?: number
@@ -145,7 +145,6 @@ export function appCreate(options: AppCreateOptions = {}): App {
     app.use(
       "/api/*",
       authenticationMiddleware(options.configuration, options.database, {
-        identityClient: options.identityClient,
         developmentIdentityUpsert: options.developmentIdentityUpsert,
         organizationMemberLoad: options.organizationMemberLoad,
         identitySessionLoad: options.identitySessionLoad,
@@ -161,9 +160,6 @@ export function appCreate(options: AppCreateOptions = {}): App {
   apiRoutesAdd(app, readyCheck, {
     configuration: options.configuration,
     database: options.database,
-    identityClient: options.identityClient,
-    serverAgentConvexClient: options.serverAgentConvexClient,
-    executionConvexClient: options.executionConvexClient,
     projectLimits: options.projectLimits,
     projectRootDir: options.projectRootDir,
     projectRootDirs: options.projectRootDirs,
@@ -177,9 +173,11 @@ export function appCreate(options: AppCreateOptions = {}): App {
     runCreate: options.runCreate,
     runCancel: options.runCancel,
     runCancellationCoordinator,
+    runChildCreate: options.runChildCreate,
     runExecutionSnapshotResolve: options.runExecutionSnapshotResolve,
     runLoad: options.runLoad,
     runRetryAttemptCreate: options.runRetryAttemptCreate,
+    runSessionStreamSnapshotLoad: options.runSessionStreamSnapshotLoad,
     runTransition: options.runTransition,
     identitySessionRevoke: options.identitySessionRevoke,
     identitySessionCreate: options.identitySessionCreate,
@@ -197,6 +195,7 @@ export function appCreate(options: AppCreateOptions = {}): App {
     oidcReturnToPathIsKnown: options.oidcReturnToPathIsKnown,
     authCallbackRoute: app,
     runDelegationExecute: options.runDelegationExecute,
+    runDelegationFinalize: options.runDelegationFinalize,
     sessionChatAdapter: options.sessionChatAdapter,
     streamInactivityTimeoutMs: options.streamInactivityTimeoutMs,
     streamReplayServiceCreate: options.streamReplayServiceCreate,

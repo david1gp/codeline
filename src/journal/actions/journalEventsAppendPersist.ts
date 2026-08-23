@@ -1,5 +1,5 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
-import { and, inArray, sql } from "drizzle-orm"
+import { and, eq, inArray } from "drizzle-orm"
 import * as v from "valibot"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { uuidv7 } from "../../uuid/uuidv7.js"
@@ -39,6 +39,26 @@ function journalEventRunId(input: JournalEventAppendInput): string | undefined {
   return typeof payload?.runId === "string" ? payload.runId : undefined
 }
 
+function journalEventSerializedBytes(input: {
+  eventType: string
+  id: string
+  payload: JournalJsonValue
+  sequence: number
+  userId: string
+  createdAt: Date
+}): number {
+  return new TextEncoder().encode(
+    JSON.stringify({
+      id: input.id,
+      userId: input.userId,
+      sequence: input.sequence,
+      eventType: input.eventType,
+      payload: input.payload,
+      createdAt: input.createdAt.getTime(),
+    }),
+  ).byteLength
+}
+
 export async function journalEventsAppendPersist(
   database: DatabaseExecutor,
   input: JournalEventAppendInput,
@@ -55,25 +75,14 @@ export async function journalEventsAppendPersist(
   if (!allocated.success) return createResultError(op, allocated.errorMessage)
 
   const runId = journalEventRunId(parsedInput.output)
-  if (runId !== undefined) {
-    try {
-      await database.execute(sql`select pg_advisory_xact_lock(hashtextextended(${runId}, 0))`)
-    } catch (_error) {
-      return createResultError(op, "The journal run finalization lock could not be acquired.")
-    }
-  }
 
   if (parsedInput.output.eventType === "delta") {
+    if (runId === undefined) return createResultError(op, "The journal event run ID is invalid.")
     try {
       const terminal = await database
         .select({ id: journalEventTable.id })
         .from(journalEventTable)
-        .where(
-          and(
-            inArray(journalEventTable.eventType, journalTerminalEventTypes),
-            sql`${journalEventTable.payload}->>'runId' = ${runId}`,
-          ),
-        )
+        .where(and(inArray(journalEventTable.eventType, journalTerminalEventTypes), eq(journalEventTable.runId, runId)))
         .limit(1)
       if (terminal.length > 0) return createResultError(op, "The journal run has already been finalized.")
     } catch (_error) {
@@ -84,13 +93,27 @@ export async function journalEventsAppendPersist(
   try {
     const events: Array<typeof journalEventTable.$inferSelect> = []
     for (const userId of allocated.data.userIds) {
+      const id = uuidv7()
+      const createdAt = new Date()
+      const sequence = allocated.data.sequenceByUserId[userId] ?? 0
+      const payload = parsedInput.output.payload as JournalJsonValue
       const [event] = await database
         .insert(journalEventTable)
         .values({
+          createdAt,
           eventType: parsedInput.output.eventType,
-          id: uuidv7(),
-          payload: parsedInput.output.payload as JournalJsonValue,
-          sequence: allocated.data.sequenceByUserId[userId] ?? 0,
+          id,
+          payload,
+          runId: runId ?? null,
+          sequence,
+          serializedBytes: journalEventSerializedBytes({
+            createdAt,
+            eventType: parsedInput.output.eventType,
+            id,
+            payload,
+            sequence,
+            userId,
+          }),
           userId,
         })
         .returning()

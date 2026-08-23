@@ -3,7 +3,7 @@ import { Hono } from "hono"
 import { apiRequestParse } from "../../api/apiRequestParse.js"
 import type { AppEnvironment } from "../../api/appEnvironment.js"
 import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.js"
-import type { ServerAgentConvexClient } from "../../convex/serverAgentConvexClient.js"
+import type { DatabaseClient } from "../../database/databaseClient.js"
 import { type ProviderApiConnectionTestResponse } from "../../providers/api/providerApiConnectionTestResponseSchema.js"
 import { type ProviderApiModelsResponse } from "../../providers/api/providerApiModelsResponseSchema.js"
 import { providerConnectionTest } from "../../providers/runtime/providerConnectionTest.js"
@@ -24,9 +24,9 @@ import type { AgentListResponse } from "./agentListResponseSchema.js"
 type ApiContext = Context<AppEnvironment>
 
 type ApiAgentRoutesOptions = {
+  database?: DatabaseClient
   environment?: Readonly<Record<string, string | undefined>>
   fetch?: NonNullable<ProviderModelDiscoveryOptions["fetch"]>
-  serverAgentConvexClient?: ServerAgentConvexClient
 }
 
 function unauthorized(context: ApiContext) {
@@ -97,16 +97,12 @@ export function apiAgentRoutesAdd(api: Hono<AppEnvironment>, options: ApiAgentRo
   const environment = options.environment ?? Bun.env
   const fetchImplementation = options.fetch ?? globalThis.fetch
 
-  const clientResolve = (context: ApiContext): ServerAgentConvexClient | undefined =>
-    options.serverAgentConvexClient ?? context.var.serverAgentConvexClient
+  const databaseResolve = (context: ApiContext): DatabaseClient => options.database ?? context.var.database
 
   api.get("/servers/:serverId/agents", async (context) => {
     if (!requestAuthorized(context)) return unauthorized(context)
     const organizationId = requestOrganizationId(context)
     if (organizationId === undefined) return notFound(context)
-    const client = clientResolve(context)
-    if (client === undefined) return internalServerError(context, "The agents could not be loaded.")
-
     const parsed = apiRequestParse("agentQueryParse", agentQuerySchema, context.req.query())
     if (!parsed.success) {
       const response = {
@@ -115,7 +111,12 @@ export function apiAgentRoutesAdd(api: Hono<AppEnvironment>, options: ApiAgentRo
       return context.json(response, 400)
     }
 
-    const result = await agentList(client, organizationId, context.req.param("serverId"), parsed.data.search)
+    const result = await agentList(
+      databaseResolve(context),
+      organizationId,
+      context.req.param("serverId"),
+      parsed.data.search,
+    )
     if (!result.success) {
       const notFound = result.errorMessage.includes("could not be found")
       const response = {
@@ -143,10 +144,12 @@ export function apiAgentRoutesAdd(api: Hono<AppEnvironment>, options: ApiAgentRo
     if (!requestAuthorized(context)) return unauthorized(context)
     const organizationId = requestOrganizationId(context)
     if (organizationId === undefined) return notFound(context)
-    const client = clientResolve(context)
-    if (client === undefined) return internalServerError(context, "The agent could not be loaded.")
-
-    const result = await agentLoad(client, organizationId, context.req.param("serverId"), context.req.param("agentId"))
+    const result = await agentLoad(
+      databaseResolve(context),
+      organizationId,
+      context.req.param("serverId"),
+      context.req.param("agentId"),
+    )
     if (!result.success) return agentError(context, result.errorMessage, "load")
 
     const response = agentResponse({
@@ -163,13 +166,10 @@ export function apiAgentRoutesAdd(api: Hono<AppEnvironment>, options: ApiAgentRo
     if (!requestAuthorized(context)) return unauthorized(context)
     const organizationId = requestOrganizationId(context)
     if (organizationId === undefined) return notFound(context)
-    const client = clientResolve(context)
-    if (client === undefined) return internalServerError(context, "The agent could not be created.")
-
     const body = apiRequestParse("agentCreateRequestParse", agentCreateRequestSchema, await requestBodyRead(context))
     if (!body.success) return badRequest(context, "The agent creation request is invalid.")
 
-    const result = await agentCreate(client, organizationId, context.req.param("serverId"), body.data)
+    const result = await agentCreate(databaseResolve(context), organizationId, context.req.param("serverId"), body.data)
     if (!result.success) return agentError(context, result.errorMessage, "create")
 
     const response = agentResponse({
@@ -186,14 +186,11 @@ export function apiAgentRoutesAdd(api: Hono<AppEnvironment>, options: ApiAgentRo
     if (!requestAuthorized(context)) return unauthorized(context)
     const organizationId = requestOrganizationId(context)
     if (organizationId === undefined) return notFound(context)
-    const client = clientResolve(context)
-    if (client === undefined) return internalServerError(context, "The agent could not be updated.")
-
     const body = apiRequestParse("agentUpdateRequestParse", agentUpdateRequestSchema, await requestBodyRead(context))
     if (!body.success) return badRequest(context, "The agent update request is invalid.")
 
     const result = await agentUpdate(
-      client,
+      databaseResolve(context),
       organizationId,
       context.req.param("serverId"),
       context.req.param("agentId"),
@@ -215,9 +212,6 @@ export function apiAgentRoutesAdd(api: Hono<AppEnvironment>, options: ApiAgentRo
     if (!requestAuthorized(context)) return unauthorized(context)
     const organizationId = requestOrganizationId(context)
     if (organizationId === undefined) return notFound(context)
-    const client = clientResolve(context)
-    if (client === undefined) return internalServerError(context, "The server could not be loaded.")
-
     const body = apiRequestParse(
       "agentProviderRequestParse",
       agentProviderRequestSchema,
@@ -227,7 +221,7 @@ export function apiAgentRoutesAdd(api: Hono<AppEnvironment>, options: ApiAgentRo
       return badRequest(context, "The agent provider configuration is required.")
     }
 
-    const server = await serverLoad(client, organizationId, context.req.param("serverId"))
+    const server = await serverLoad(databaseResolve(context), organizationId, context.req.param("serverId"))
     if (!server.success) return serverError(context, server.errorMessage)
 
     const result = await providerModelDiscovery(body.data.configuration, {
@@ -243,9 +237,6 @@ export function apiAgentRoutesAdd(api: Hono<AppEnvironment>, options: ApiAgentRo
     if (!requestAuthorized(context)) return unauthorized(context)
     const organizationId = requestOrganizationId(context)
     if (organizationId === undefined) return notFound(context)
-    const client = clientResolve(context)
-    if (client === undefined) return internalServerError(context, "The server could not be loaded.")
-
     const body = apiRequestParse(
       "agentProviderRequestParse",
       agentProviderRequestSchema,
@@ -255,7 +246,7 @@ export function apiAgentRoutesAdd(api: Hono<AppEnvironment>, options: ApiAgentRo
       return badRequest(context, "The agent provider configuration is required.")
     }
 
-    const server = await serverLoad(client, organizationId, context.req.param("serverId"))
+    const server = await serverLoad(databaseResolve(context), organizationId, context.req.param("serverId"))
     if (!server.success) return serverError(context, server.errorMessage)
 
     const result = await providerConnectionTest(body.data.configuration, {
@@ -277,9 +268,6 @@ export function apiAgentRoutesAdd(api: Hono<AppEnvironment>, options: ApiAgentRo
     if (!requestAuthorized(context)) return unauthorized(context)
     const organizationId = requestOrganizationId(context)
     if (organizationId === undefined) return notFound(context)
-    const client = clientResolve(context)
-    if (client === undefined) return internalServerError(context, "The agent could not be loaded.")
-
     const body = apiRequestParse(
       "agentProviderRequestParse",
       agentProviderRequestSchema,
@@ -287,7 +275,12 @@ export function apiAgentRoutesAdd(api: Hono<AppEnvironment>, options: ApiAgentRo
     )
     if (!body.success) return badRequest(context, "The agent provider request is invalid.")
 
-    const agent = await agentLoad(client, organizationId, context.req.param("serverId"), context.req.param("agentId"))
+    const agent = await agentLoad(
+      databaseResolve(context),
+      organizationId,
+      context.req.param("serverId"),
+      context.req.param("agentId"),
+    )
     if (!agent.success) return agentError(context, agent.errorMessage, "load")
 
     const result = await providerModelDiscovery(body.data.configuration ?? agent.data.agent.configuration, {
@@ -303,9 +296,6 @@ export function apiAgentRoutesAdd(api: Hono<AppEnvironment>, options: ApiAgentRo
     if (!requestAuthorized(context)) return unauthorized(context)
     const organizationId = requestOrganizationId(context)
     if (organizationId === undefined) return notFound(context)
-    const client = clientResolve(context)
-    if (client === undefined) return internalServerError(context, "The agent could not be loaded.")
-
     const body = apiRequestParse(
       "agentProviderRequestParse",
       agentProviderRequestSchema,
@@ -313,7 +303,12 @@ export function apiAgentRoutesAdd(api: Hono<AppEnvironment>, options: ApiAgentRo
     )
     if (!body.success) return badRequest(context, "The agent provider request is invalid.")
 
-    const agent = await agentLoad(client, organizationId, context.req.param("serverId"), context.req.param("agentId"))
+    const agent = await agentLoad(
+      databaseResolve(context),
+      organizationId,
+      context.req.param("serverId"),
+      context.req.param("agentId"),
+    )
     if (!agent.success) return agentError(context, agent.errorMessage, "load")
 
     const result = await providerConnectionTest(body.data.configuration ?? agent.data.agent.configuration, {
