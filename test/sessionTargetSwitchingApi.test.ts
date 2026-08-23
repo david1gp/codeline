@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
+import { randomBytes } from "node:crypto"
 import { eq } from "drizzle-orm"
 import * as v from "valibot"
 import { agentListResponseSchema } from "../src/agents/api/agentListResponseSchema.js"
@@ -11,6 +12,7 @@ import { applicationUserTable } from "../src/identity/db/applicationUserTable.js
 import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
 import { organizationMemberTable } from "../src/identity/db/organizationMemberTable.js"
 import { organizationTable } from "../src/identity/db/organizationTable.js"
+import { journalCursorCodecCreate } from "../src/journal/actions/journalCursorCodecCreate.js"
 import { serverListResponseSchema } from "../src/servers/api/serverListResponseSchema.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionTargetCreateResponseSchema } from "../src/session/api/sessionTargetCreateResponseSchema.js"
@@ -28,6 +30,8 @@ const secondaryServerId = `switching-server-b-${uuidv7()}`
 const primaryAgentId = `switching-agent-a1-${uuidv7()}`
 const reviewAgentId = `switching-agent-a2-${uuidv7()}`
 const secondaryAgentId = `switching-agent-b1-${uuidv7()}`
+const journalCursorCodec = journalCursorCodecCreate({ randomBytes, secret: `session-switching-${uuidv7()}` })
+if (!journalCursorCodec.success) throw new Error(journalCursorCodec.errorMessage)
 const app = appCreate({
   configuration: {
     authMode: "development" as const,
@@ -37,6 +41,7 @@ const app = appCreate({
     oidcOrganizationId: userId,
   },
   database,
+  journalCursorCodec: journalCursorCodec.data,
 })
 
 beforeAll(async () => {

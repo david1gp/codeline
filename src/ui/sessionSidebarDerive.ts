@@ -1,4 +1,4 @@
-import type { SessionSearchResponse } from "../session/schema/sessionSearchResponseSchema.js"
+import type { SessionShell } from "../session/api/sessionShellSchema.js"
 import { sessionSearchResultAdapt } from "./sessionSearchResultAdapt.js"
 import { sessionSidebarProjectLabelResolve } from "./sessionSidebarProjectLabelResolve.js"
 import type { SessionSidebarSession } from "./sessionSidebarSession.js"
@@ -52,7 +52,7 @@ function sessionSidebarRowCreate(
 
 export function sessionSidebarDerive(
   activeSessions: readonly SessionSidebarSession[],
-  searchResults: readonly SessionSearchResponse["sessions"][number][],
+  searchResults: readonly SessionShell[],
   now: number = Date.now(),
   projectLabels: Record<string, string> = {},
 ): SessionSidebarTabs {

@@ -63,6 +63,8 @@ test("note typed clients preserve routes, validation, and conditional mutations"
     "DELETE /api/notes/note%2F1",
     "POST /api/notes/note%2F1/reorder",
   ])
+  expect(requests[0]?.cache).toBe("no-store")
+  expect(requests[1]?.cache).toBe("no-store")
   expect(requests[3]?.headers.get("If-Match")).toBe('"note-etag"')
   expect(await requests[5]?.json()).toEqual({ direction: "down", id: "note/1", projectPath: null })
 })

@@ -14,9 +14,14 @@ import { sessionTargetSelectorStateCreate } from "./sessionTargetSelectorStateCr
 import { workspacePageStateCreate } from "./workspacePageStateCreate.js"
 import type { WorkspaceScreenView } from "./workspaceScreenView.js"
 
+type WorkspaceScreenStateOptions = {
+  fetcher?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+}
+
 export function workspaceScreenStateCreate(
   navigation: SessionNavigationState = sessionNavigationStateCreate(),
   sidebarRoute?: SessionSidebarRouteState,
+  options: WorkspaceScreenStateOptions = {},
 ): WorkspaceScreenView {
   const shell = useContext(applicationShellContext) ?? applicationShellStateCreate()
   const activeProject = useContext(appShellContext)?.activeProject ?? activeProjectStateCreate()
@@ -51,7 +56,7 @@ export function workspaceScreenStateCreate(
       sessionCreateStart: sessionTargetSelector.sessionCreateStart,
       sessionTargetAvailable: sessionTargetSelector.canCreateSession,
     }),
-    sessionList: sessionListStateCreate(() => navigation, sidebarRoute),
+    sessionList: sessionListStateCreate(() => navigation, sidebarRoute, { fetcher: options.fetcher }),
     sessionTargetSelector,
   }
 }

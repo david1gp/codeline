@@ -1,9 +1,12 @@
 import { useLocation, useNavigate } from "@solidjs/router"
+import { useContext } from "solid-js"
+import { apiFetchContext } from "./apiFetchContext.js"
 import { sessionNavigationStateCreate } from "./sessionNavigationStateCreate.js"
 import { sessionSidebarRouteStateCreate } from "./sessionSidebarRouteStateCreate.js"
 import { workspaceScreenStateCreate } from "./workspaceScreenStateCreate.js"
 
 export function workspaceRoutePageStateCreate() {
+  const fetcher = useContext(apiFetchContext)
   const location = useLocation()
   const navigate = useNavigate()
   const navigation = sessionNavigationStateCreate({
@@ -22,5 +25,5 @@ export function workspaceRoutePageStateCreate() {
     navigate,
   })
 
-  return workspaceScreenStateCreate(navigation, sidebarRoute)
+  return workspaceScreenStateCreate(navigation, sidebarRoute, { fetcher })
 }

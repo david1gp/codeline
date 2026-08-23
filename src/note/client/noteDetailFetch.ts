@@ -16,6 +16,7 @@ export async function noteDetailFetch(
 
   const client = apiHttpClientCreate({ fetch: dependencies.fetch ?? fetch })
   const result = await client.get({
+    cache: "no-store",
     op,
     path: `/api/notes/${encodeURIComponent(noteId)}`,
     responseSchema: noteDetailResponseSchema,

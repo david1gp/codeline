@@ -80,7 +80,7 @@ test("search state reads and replaces the URL query and parses results", async (
 
   await new Promise((resolve) => setTimeout(resolve, 0))
   expect(dispose.state.query()).toBe("title")
-  expect(dispose.state.sessions()).toEqual([{ session: sessionCreate("one", "Title match") }])
+  expect(dispose.state.sessions()).toEqual([sessionCreate("one", "Title match")])
   expect(dispose.state.isComplete()).toBe(true)
   expect(calls).toEqual(["/api/sessions?includeArchived=0&limit=100&search=title"])
 

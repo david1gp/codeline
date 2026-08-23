@@ -13,6 +13,7 @@ type SignedInApplicationStateOptions = {
 }
 
 export function signedInApplicationStateCreate(options: SignedInApplicationStateOptions) {
+  const fetcher = options.fetch ?? fetch
   const state = appShellStateCreate()
   const shell = applicationShellStateCreate()
   const auth = protectedShellStateCreate({
@@ -24,7 +25,7 @@ export function signedInApplicationStateCreate(options: SignedInApplicationState
     bootstrap: { fresh: true },
     connectionIndicator: state.events,
     eventSourceFactory: (url, eventSourceOptions) => new EventSource(url, eventSourceOptions),
-    reconciliation: eventFeedReconciliationCreate({ fetch: options.fetch ?? fetch }),
+    reconciliation: eventFeedReconciliationCreate({ fetch: fetcher }),
   })
 
   onCleanup(eventFeed.close)

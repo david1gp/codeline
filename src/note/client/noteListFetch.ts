@@ -11,6 +11,7 @@ export function noteListFetch(dependencies: NoteListFetchDependencies = {}): Pro
   const op = "noteListFetch"
   const client = apiHttpClientCreate({ fetch: dependencies.fetch ?? fetch })
   return client.get({
+    cache: "no-store",
     op,
     path: "/api/notes",
     responseSchema: noteListResponseSchema,

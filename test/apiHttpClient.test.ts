@@ -3,6 +3,8 @@ import * as v from "valibot"
 import { apiHttpClientCreate } from "../src/api/client/apiHttpClientCreate.js"
 import { apiQueryKeyCreate } from "../src/api/client/apiQueryKeyCreate.js"
 import { healthResponseSchema } from "../src/api/health/healthResponseSchema.js"
+import { noteListFetch } from "../src/note/client/noteListFetch.js"
+import { sessionListPageLoad } from "../src/session/client/sessionListPageLoad.js"
 
 test("canonical query keys sort names and retain repeated-value order", () => {
   expect(apiQueryKeyCreate("/api/sessions?z=last&a=first", { b: 2, a: ["second", "third"] })).toBe(
@@ -34,6 +36,39 @@ test("typed HTTP requests validate bodies and responses through injected fetch",
 
   expect(result).toEqual({ success: true, data: { service: "codeline", status: "ok" } })
   expect(requests).toEqual([{ body: '{"title":"A session"}', method: "POST", url: "/api/sessions" }])
+})
+
+test("session and note reads invoke a browser-shaped fetch dependency", async () => {
+  const requests: string[] = []
+  const fetcher = function (this: unknown, input: RequestInfo | URL): Promise<Response> {
+    if (this !== undefined) throw new TypeError("Illegal invocation")
+    const url = String(input)
+    requests.push(url)
+    if (url.startsWith("/api/sessions"))
+      return Promise.resolve(
+        Response.json({
+          asOfCursor: "cursor-1",
+          etag: '"sessions"',
+          nextCursor: null,
+          revision: 1,
+          schemaVersion: "session-list.v3",
+          sessions: [],
+        }),
+      )
+    return Promise.resolve(Response.json([]))
+  }
+  const client = apiHttpClientCreate({ fetch: fetcher })
+
+  const [sessions, notes] = await Promise.all([
+    sessionListPageLoad(client, { limit: 25 }),
+    noteListFetch({ fetch: fetcher }),
+  ])
+
+  expect(sessions.success).toBe(true)
+  expect(notes.success).toBe(true)
+  expect(requests).toHaveLength(2)
+  expect(requests).toContain("/api/sessions?includeArchived=0&limit=25")
+  expect(requests).toContain("/api/notes")
 })
 
 test("structured API errors become coded Results with HTTP status and body data", async () => {

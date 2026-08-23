@@ -2,8 +2,8 @@ import type { Accessor } from "solid-js"
 import * as solidRuntime from "solid-js/dist/solid.js"
 import * as v from "valibot"
 import { apiHttpClientCreate } from "../api/client/apiHttpClientCreate.js"
+import type { SessionShell } from "../session/api/sessionShellSchema.js"
 import { sessionListPageLoad } from "../session/client/sessionListPageLoad.js"
-import type { SessionSearchResponse } from "../session/schema/sessionSearchResponseSchema.js"
 
 const { createEffect, createSignal, onCleanup } = solidRuntime as unknown as Pick<
   typeof import("solid-js"),
@@ -36,7 +36,7 @@ export function sessionSearchStateCreate(
 ) {
   const getNavigation = typeof navigation === "function" ? navigation : () => navigation
   const [query, setQuery] = createSignal(searchResolve(getNavigation()))
-  const [sessions, setSessions] = createSignal<SessionSearchResponse["sessions"]>([])
+  const [sessions, setSessions] = createSignal<SessionShell[]>([])
   const [status, setStatus] = createSignal<"idle" | "loading" | "complete" | "error">("idle")
   const [retryVersion, setRetryVersion] = createSignal(0)
   const client = apiHttpClientCreate({ fetch: options.fetcher ?? fetch })
@@ -84,7 +84,7 @@ export function sessionSearchStateCreate(
         setStatus("error")
         return
       }
-      setSessions(result.data.sessions.map((session) => ({ session })))
+      setSessions(result.data.sessions)
       setStatus("complete")
     })
   })

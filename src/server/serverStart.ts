@@ -25,6 +25,7 @@ type Server = {
 type Serve = (options: {
   fetch: (request: Request) => Response | Promise<Response>
   hostname: string
+  idleTimeout: number
   port: number
 }) => Server
 
@@ -121,6 +122,7 @@ export async function serverStart(options: ServerStartOptions = {}): Promise<Ser
       journalCursorCodec,
     }).fetch,
     hostname,
+    idleTimeout: 0,
     port,
   })
 

@@ -29,6 +29,7 @@ type ApiHttpRequestInput<
   TRequestSchema extends v.GenericSchema | undefined = undefined,
 > = {
   body?: TRequestSchema extends v.GenericSchema ? v.InferInput<TRequestSchema> : never
+  cache?: RequestCache
   coalesce?: boolean
   headers?: HeadersInit
   method: ApiHttpMethod
@@ -219,6 +220,7 @@ async function apiHttpClientResponseLoad(
   url: string,
   headers: Headers,
   method: ApiHttpMethod,
+  cache: RequestCache | undefined,
   body: string | undefined,
   op: string,
   signal: AbortSignal | undefined,
@@ -227,12 +229,14 @@ async function apiHttpClientResponseLoad(
     headers,
     method,
   }
+  if (cache !== undefined) init.cache = cache
   if (body !== undefined) init.body = body
   if (signal !== undefined) init.signal = signal
 
   let responseValue: unknown
   try {
-    responseValue = await dependencies.fetch(url, init)
+    const fetcher = dependencies.fetch
+    responseValue = await fetcher(url, init)
   } catch (_error) {
     if (signal?.aborted) return apiHttpClientAbortResult(op)
     return apiHttpClientErrorCreate(op, "The request could not be completed.", "network_error")
@@ -311,6 +315,7 @@ function apiHttpClientRequestKey<TSchema extends v.GenericSchema, TRequestSchema
   headers: Headers,
 ): string {
   return JSON.stringify({
+    cache: input.cache,
     headers: apiHttpClientHeadersKey(headers),
     method: input.method,
     url,
@@ -370,7 +375,7 @@ export function apiHttpClientCreate(dependencies: ApiHttpClientDependencies) {
       return apiHttpClientErrorCreate(op, "The request path or query is invalid.", "invalid_request")
     }
     const load = () =>
-      apiHttpClientResponseLoad(dependencies, url, headersResult.data, input.method, body, op, undefined)
+      apiHttpClientResponseLoad(dependencies, url, headersResult.data, input.method, input.cache, body, op, undefined)
 
     if (input.method !== "GET" || input.coalesce === false) {
       const loadedResponse = await apiHttpClientResponseLoad(
@@ -378,6 +383,7 @@ export function apiHttpClientCreate(dependencies: ApiHttpClientDependencies) {
         url,
         headersResult.data,
         input.method,
+        input.cache,
         body,
         op,
         input.signal,
