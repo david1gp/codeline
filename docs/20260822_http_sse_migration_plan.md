@@ -140,7 +140,7 @@ The SQLite/libSQL migration is active: Drizzle owns the durable runtime, typed H
 
 Establish the SQLite/libSQL runtime and fresh baseline before the remaining domain cutovers. Keep each domain on SQLite/libSQL with Drizzle plus the typed HTTP/SSE layer in one pass. Do not introduce dual writes. Keep the application runnable after each domain cutover, and retain legacy migration references only as cleanup history.
 
-Current context: SQLite/libSQL and the typed HTTP/SSE foundation are authoritative. The remaining work is the domain and UI completion checklist; Zero and Convex are historical migration inputs, not active runtime dependencies.
+Current context: SQLite/libSQL and the typed HTTP/SSE foundation are authoritative. Session/message HTTP and settled snapshots are complete. Provider execution and cancellation use the app-owned active-run registry rather than the request signal, and startup reconciliation interrupts abandoned runs transactionally. The keyed producer coalescer exists but is not yet journal-integrated. Typed account-scoped IndexedDB storage and cached settled-session rendering/revalidation are complete, including signed-out/offline read-only browsing. API/SSE are explicitly network-only in the service worker. Server-list HTTP revision/ETag support is complete. Next increments are coalescer/journal integration, the run-specific active snapshot, old stream retirement, and remaining domain/cache cutovers. Zero and Convex are historical migration inputs, not active runtime dependencies.
 
 ## Tasks
 
@@ -159,8 +159,8 @@ Current context: SQLite/libSQL and the typed HTTP/SSE foundation are authoritati
 
 ### Phase C — sessions and runs
 
-- [ ] 8. Complete sessions and messages on SQLite/libSQL with Drizzle behind typed HTTP endpoints, including keyset-paginated lists and one complete conditional settled-session snapshot response with atomic `asOfSequence`.
-- [ ] 9. Move execution to the process-owned run registry so disconnect no longer aborts providers; add explicit cancellation and startup interruption reconciliation.
+- [x] 8. Complete sessions and messages on SQLite/libSQL with Drizzle behind typed HTTP endpoints, including keyset-paginated lists and one complete conditional settled-session snapshot response with atomic `asOfSequence`.
+- [x] 9. Move execution to the process-owned run registry so disconnect no longer aborts providers; add explicit cancellation and startup interruption reconciliation.
 - [ ] 10. Move provider output to independently keyed 500ms producer coalescing and the per-user journal; flush first/size/lifecycle boundaries and retire `streamEventTable`, `streamCheckpointTable`, and the old replay client.
 - [ ] 11. Add the consistent active-run snapshot endpoint returning `{status, partialText, lastSequence}` and implement snapshot-then-attach reload behavior.
 
@@ -171,9 +171,9 @@ Current context: SQLite/libSQL and the typed HTTP/SSE foundation are authoritati
 
 ### Phase E — IndexedDB and offline access
 
-- [ ] 14. Add the `idb` database with versioned account/session records, Valibot validation, complete-record atomic replacement, oldest-first eviction, quota/schema failure handling, and no sign-out deletion.
-- [ ] 15. Render cached settled sessions immediately, conditionally revalidate them online, automatically cache authoritative completion snapshots, and support signed-out/offline read-only browsing of the last locally active account.
-- [ ] 16. Keep the service worker limited to the application shell and immutable assets; keep API and SSE network-only.
+- [x] 14. Add the `idb` database with versioned account/session records, Valibot validation, complete-record atomic replacement, oldest-first eviction, quota/schema failure handling, and no sign-out deletion.
+- [x] 15. Render cached settled sessions immediately, conditionally revalidate them online, automatically cache authoritative completion snapshots, and support signed-out/offline read-only browsing of the last locally active account.
+- [x] 16. Keep the service worker limited to the application shell and immutable assets; keep API and SSE network-only.
 
 ### Phase F — cleanup and verification
 
