@@ -10,7 +10,7 @@ export type NotesScreenGroup = {
 }
 
 /**
- * Rendering contract of the notes index screen, so production Zero state and
+ * Rendering contract of the notes index screen, so production state and
  * demo fixtures can supply the same shape without the view knowing the source.
  */
 export type NotesScreenView = {
@@ -18,5 +18,7 @@ export type NotesScreenView = {
   isEmpty: () => boolean
   isError: () => boolean
   isLoading: () => boolean
+  refresh: () => void
+  revalidate: () => void
   retry: () => void
 }

@@ -9,7 +9,7 @@ export const demoNotesFixture = [
   },
   {
     content:
-      "Zero mutator review\n\nCustom mutators must stay deterministic on the client and the server so optimistic state never diverges.",
+      "HTTP mutation review\n\nTyped mutations must stay deterministic on the client and the server so reconciled state never diverges.",
     id: "demo-note-mutators",
     projectPath: "/workspace/codeline",
     sortOrder: 1,

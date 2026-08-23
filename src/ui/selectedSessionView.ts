@@ -18,7 +18,7 @@ export type SelectedSessionViewSession = {
 }
 
 /**
- * Rendering contract of the selected session view, so production Zero state and
+ * Rendering contract of the selected session view, so production state and
  * demo fixtures can supply the same shape without the view knowing the source.
  */
 export type SelectedSessionView = {
@@ -33,6 +33,8 @@ export type SelectedSessionView = {
   isSessionError: () => boolean
   isSessionLoading: () => boolean
   messages: () => ReadonlyArray<SelectedSessionViewMessage>
+  refresh: () => void
+  revalidate: () => void
   displayMode: ReturnType<typeof sessionDisplayModeStateCreate>
   renameState: () => ReturnType<typeof sessionRenameControlStateCreate> | undefined
   pinState: () => ReturnType<typeof sessionPinToggleStateCreate> | undefined

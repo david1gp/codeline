@@ -2,7 +2,7 @@ import type { DemoSpecimen } from "./demoSpecimen.js"
 
 export const demoScreenSpecimenRegistry = [
   {
-    description: "The real workspace screen composed from fixture state instead of Zero and API calls.",
+    description: "The real workspace screen composed from fixture state instead of live HTTP calls.",
     href: "/demo/screens/workspace-screen",
     label: "Workspace screen",
     slug: "workspace-screen",
@@ -44,7 +44,7 @@ export const demoScreenSpecimenRegistry = [
     variants: ["ready", "editing", "streaming", "loading", "empty", "error"],
   },
   {
-    description: "The real application header with navigation, theme, PWA, Zero, and API status.",
+    description: "The real application header with navigation, theme, PWA, event-feed, and API status.",
     href: "/demo/screens/app-shell",
     label: "Application shell",
     slug: "app-shell",

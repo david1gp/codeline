@@ -13,6 +13,8 @@ export type NoteWorkspaceSidebarView = {
   noteMoveDown: () => void
   noteMoveUp: () => void
   previewHtml: () => string
+  refresh: () => void
+  revalidate: () => void
   retry: () => void
 }
 
@@ -22,5 +24,7 @@ export type NoteWorkspaceSidebarView = {
  */
 export type NoteWorkspaceScreenView = {
   detail: NoteScreenView
+  refresh: () => void
+  revalidate: () => void
   sidebar: NoteWorkspaceSidebarView
 }

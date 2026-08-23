@@ -14,10 +14,10 @@ test("connectionStatusSummaryResolve prefers error over other states", () => {
     },
     {
       disconnectedSince: 1,
-      icon: "zero",
+      icon: "events",
       kind: connectionStatusKind.error,
-      label: "Zero error",
-      source: connectionStatusSource.zero,
+      label: "Events stale",
+      source: connectionStatusSource.events,
     },
     {
       disconnectedSince: undefined,
@@ -28,5 +28,5 @@ test("connectionStatusSummaryResolve prefers error over other states", () => {
     },
   ])
 
-  expect(summary).toEqual({ kind: connectionStatusKind.error, source: connectionStatusSource.zero })
+  expect(summary).toEqual({ kind: connectionStatusKind.error, source: connectionStatusSource.events })
 })

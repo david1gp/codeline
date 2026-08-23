@@ -39,6 +39,8 @@ export function demoNoteScreenStateCreate(variant: () => DemoSessionScreenVarian
     projectId: () => projectId.get() ?? "",
     projectIdUpdate: (event) => projectId.set(event.currentTarget.value === "" ? null : event.currentTarget.value),
     projects: () => noteProjectChoicesResolve(demoNoteProjectsFixture, projectId.get()),
+    refresh: () => {},
+    revalidate: () => {},
     submit: (event) => event.preventDefault(),
     title: titleState.title,
   }

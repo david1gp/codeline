@@ -1,19 +1,19 @@
+import type { EventFeedConnectionView } from "./eventFeedConnectionView.js"
 import { connectionStatusLineIconResolve } from "./connectionStatusIconResolve.js"
 import { connectionStatusKind } from "./connectionStatusKind.js"
 import { connectionStatusSource } from "./connectionStatusSource.js"
 import type { ConnectionStatusLine } from "./connectionStatusSummaryResolve.js"
 import type { PwaStatusView } from "./pwa/pwaStatusView.js"
-import type { ZeroConnectionView } from "./zeroConnectionView.js"
 
 export function appConnectionDetailsResolve(input: {
+  events: EventFeedConnectionView
   healthDisconnectedSince: () => number | undefined
   healthLabel: () => string
   healthStatus: () => string
   pwa: PwaStatusView
-  zero: ZeroConnectionView
 }): ConnectionStatusLine[] {
   const appStatus = input.pwa.status()
-  const zeroStatus = input.zero.status()
+  const eventsStatus = input.events.status()
   const healthStatus = input.healthStatus()
 
   const app = {
@@ -27,18 +27,20 @@ export function appConnectionDetailsResolve(input: {
     label: input.pwa.label(),
     source: connectionStatusSource.app,
   }
-  const zero = {
-    disconnectedSince: input.zero.disconnectedSince(),
+  const events = {
+    disconnectedSince: input.events.disconnectedSince(),
     kind:
-      zeroStatus === "error"
+      eventsStatus === "stale"
         ? connectionStatusKind.error
-        : zeroStatus === "offline"
+        : eventsStatus === "offline"
           ? connectionStatusKind.offline
-          : zeroStatus === "connecting"
+          : eventsStatus === "reconnecting"
             ? connectionStatusKind.connecting
-            : connectionStatusKind.ok,
-    label: input.zero.label(),
-    source: connectionStatusSource.zero,
+            : eventsStatus === "reconciling"
+              ? connectionStatusKind.checking
+              : connectionStatusKind.ok,
+    label: input.events.label(),
+    source: connectionStatusSource.events,
   }
   const api = {
     disconnectedSince: input.healthDisconnectedSince(),
@@ -54,7 +56,7 @@ export function appConnectionDetailsResolve(input: {
 
   return [
     { ...app, icon: connectionStatusLineIconResolve(app) },
-    { ...zero, icon: connectionStatusLineIconResolve(zero) },
+    { ...events, icon: connectionStatusLineIconResolve(events) },
     { ...api, icon: connectionStatusLineIconResolve(api) },
   ]
 }

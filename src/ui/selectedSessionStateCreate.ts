@@ -1,16 +1,15 @@
-import type { Result } from "@adaptive-ds/result"
-import { useQuery } from "@rocicorp/zero/solid"
-import { makeFunctionReference } from "convex/server"
-import { type Accessor, createEffect, useContext } from "solid-js"
-import { codelineConvexMutationCreate } from "../convex/codelineConvexMutationCreate.js"
-import { codelineConvexQueryCreate } from "../convex/codelineConvexQueryCreate.js"
-import { convexContext } from "../convex/convexContext.js"
+import { type Accessor, createEffect, onCleanup, useContext } from "solid-js"
 import { finalizedMessageCopyStateCreate } from "../message/ui/finalizedMessageCopyStateCreate.js"
+import { sessionFinalizedMessagesFetch } from "../message/ui/sessionFinalizedMessagesFetch.js"
 import type { CodelineExecution } from "../providers/schema/codelineExecutionSchema.js"
-import type { SessionListRow } from "../session/convex/sessionListRow.js"
-import type { SessionRecord } from "../session/convex/sessionRecord.js"
+import { sessionDelegationsFetch } from "../run/ui/sessionDelegationsFetch.js"
+import { sessionStreamSnapshotFetch } from "../run/ui/sessionStreamSnapshotFetch.js"
+import { sessionDetailFetch } from "../session/ui/sessionDetailFetch.js"
+import { sessionPinRequest } from "../session/ui/sessionPinRequest.js"
 import { sessionRenameControlStateCreate } from "../session/ui/sessionRenameControlStateCreate.js"
-import { codelineQueries } from "./codelineQueries.js"
+import { sessionRenameRequest } from "../session/ui/sessionRenameRequest.js"
+import { eventFeedCoordinatorContext } from "./eventFeedCoordinatorContext.js"
+import { httpQueryStateCreate } from "./httpQueryStateCreate.js"
 import type { SelectedSessionView } from "./selectedSessionView.js"
 import { sessionChatStateCacheCreate } from "./sessionChatStateCacheCreate.js"
 import { sessionChatStateCreate } from "./sessionChatStateCreate.js"
@@ -21,16 +20,6 @@ import { sessionPinToggleStateCreate } from "./sessionPinToggleStateCreate.js"
 import { sessionStreamStateCreate } from "./sessionStreamStateCreate.js"
 import { sessionSubagentThreadStateCreate } from "./sessionSubagentThreadStateCreate.js"
 import { signalObjectCreate } from "./signalObjectCreate.js"
-
-const sessionDetailReference = makeFunctionReference<"query", Record<string, unknown>, Result<SessionListRow>>(
-  "sessions:sessionDetail",
-)
-const sessionRenameReference = makeFunctionReference<"mutation", Record<string, unknown>, Result<SessionRecord>>(
-  "sessions:sessionUpdate",
-)
-const sessionPinReference = makeFunctionReference<"mutation", Record<string, unknown>, Result<SessionRecord>>(
-  "sessions:sessionPin",
-)
 
 type SelectedSessionStateOptions = {
   codelineExecution: Accessor<CodelineExecution | null>
@@ -43,47 +32,43 @@ type SelectedSessionStateOptions = {
 }
 
 export function selectedSessionStateCreate(options: SelectedSessionStateOptions): SelectedSessionView {
+  const eventFeed = useContext(eventFeedCoordinatorContext)
   const displayMode = sessionDisplayModeStateCreate()
   const selectedSessionId = () => options.navigation().selectedSessionId()
-  const convex = useContext(convexContext)
-  const zeroSessionState =
-    convex === undefined
-      ? useQuery(() => {
-          const sessionId = selectedSessionId()
-          return sessionId ? codelineQueries.activeSession({ sessionId }) : false
-        })
-      : undefined
-  const convexSessionState =
-    convex === undefined
-      ? undefined
-      : codelineConvexQueryCreate<SessionListRow>(
-          sessionDetailReference,
-          () => ({
-            sessionId: selectedSessionId() ?? "",
-            organizationId: convex?.organizationId ?? "",
-          }),
-          { enabled: () => selectedSessionId() !== null && convex?.organizationId !== undefined },
-        )
-  const session = () => (convex === undefined ? zeroSessionState?.[0]() : convexSessionState?.data()?.session)
-  const sessionResult = () => {
-    if (convex === undefined) return zeroSessionState?.[1]() ?? { type: "unknown" as const }
-    return {
-      retry: convexSessionState?.retry ?? (() => undefined),
-      type: convexSessionState?.isError()
-        ? ("error" as const)
-        : convexSessionState?.isLoading()
-          ? ("unknown" as const)
-          : ("complete" as const),
-    }
-  }
-  const [messages, messagesResult] = useQuery(() => {
-    const activeSession = session()
-    return activeSession ? codelineQueries.finalizedMessages({ sessionId: activeSession.id }) : false
+  const selectedSessionKey = () => selectedSessionId() ?? undefined
+  const sessionQuery = httpQueryStateCreate({
+    key: selectedSessionKey,
+    load: (sessionId, signal) => sessionDetailFetch(sessionId, { signal }),
   })
-  const [delegations] = useQuery(() => {
-    const activeSession = session()
-    return activeSession ? codelineQueries.sessionDelegations({ sessionId: activeSession.id }) : false
+  const session = () => sessionQuery.data()?.session
+  const sessionEtag = () => sessionQuery.data()?.etag ?? ""
+  const sessionResult = () => ({
+    retry: sessionQuery.retry,
+    type: sessionQuery.isError()
+      ? ("error" as const)
+      : sessionQuery.isLoading()
+        ? ("unknown" as const)
+        : ("complete" as const),
   })
+  const messagesQuery = httpQueryStateCreate({
+    key: () => session()?.id,
+    load: (sessionId, signal) => sessionFinalizedMessagesFetch(sessionId, { signal }),
+  })
+  const messages = () => messagesQuery.data()?.messages
+  const messagesResult = () => ({
+    retry: messagesQuery.retry,
+    type: messagesQuery.isError()
+      ? ("error" as const)
+      : messagesQuery.isLoading()
+        ? ("unknown" as const)
+        : ("complete" as const),
+  })
+  const delegationsQuery = httpQueryStateCreate({
+    enabled: () => session()?.id === selectedSessionId(),
+    key: selectedSessionKey,
+    load: (sessionId, signal) => sessionDelegationsFetch(sessionId, { signal }),
+  })
+  const delegations = () => delegationsQuery.data()?.delegations
   const copyStates = new Map<string, ReturnType<typeof finalizedMessageCopyStateCreate>>()
   const durableMessages = () =>
     (messages() ?? []).map((message) => ({
@@ -92,9 +77,6 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
     }))
   const renameStates = new Map<string, ReturnType<typeof sessionRenameControlStateCreate>>()
   const pinStates = new Map<string, ReturnType<typeof sessionPinToggleStateCreate>>()
-  const convexRename =
-    convex === undefined ? undefined : codelineConvexMutationCreate<SessionRecord>(sessionRenameReference)
-  const convexPin = convex === undefined ? undefined : codelineConvexMutationCreate<SessionRecord>(sessionPinReference)
   const renameState = () => {
     const current = session()
     if (!current) return undefined
@@ -102,17 +84,12 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
     if (existing) return existing
     const created = sessionRenameControlStateCreate({
       sessionId: () => current.id,
-      title: () => current.title,
-      ...(convexRename === undefined
-        ? {}
-        : {
-            mutate: (sessionId, title) =>
-              convexRename({
-                sessionId,
-                title,
-                organizationId: convex?.organizationId ?? "",
-              }),
-          }),
+      title: () => session()?.title ?? current.title,
+      mutate: async (sessionId, title) => {
+        const result = await sessionRenameRequest(sessionId, title, { etag: sessionEtag() })
+        if (result.success) sessionQuery.refresh()
+        return result
+      },
     })
     renameStates.set(current.id, created)
     return created
@@ -125,16 +102,11 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
     const created = sessionPinToggleStateCreate({
       sessionId: () => current.id,
       pinned: () => session()?.pinned ?? current.pinned,
-      ...(convexPin === undefined
-        ? {}
-        : {
-            mutate: (sessionId, pinned) =>
-              convexPin({
-                pinned,
-                sessionId,
-                organizationId: convex?.organizationId ?? "",
-              }),
-          }),
+      mutate: async (sessionId, pinned) => {
+        const result = await sessionPinRequest(sessionId, pinned, { etag: sessionEtag() })
+        if (result.success) sessionQuery.refresh()
+        return result
+      },
     })
     pinStates.set(current.id, created)
     return created
@@ -177,6 +149,7 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
       return currentSession ? chatCreate(currentSession.id).pendingMessages() : []
     },
     isEnabled: () => displayMode.mode() === "stream" || subagentThread.selected() !== undefined,
+    load: (sessionId, signal) => sessionStreamSnapshotFetch(sessionId, { signal }),
     sessionId: () => session()?.id,
   })
   const initialMessage = sessionInitialMessageStateCreate({
@@ -189,6 +162,38 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
   })
   const lastSession = signalObjectCreate<ReturnType<typeof session>>(undefined)
   const lastMessages = signalObjectCreate<ReturnType<typeof durableMessages>>([])
+
+  const revalidate = () => {
+    sessionQuery.refresh()
+    messagesQuery.refresh()
+    delegationsQuery.refresh()
+    streamState.revalidate()
+  }
+
+  const unregisterEventFeed = [
+    eventFeed?.registerSelectedSession({
+      refresh: () => {
+        sessionQuery.refresh()
+      },
+      sessionId: selectedSessionId,
+    }),
+    eventFeed?.registerSelectedMessages({
+      refresh: () => {
+        messagesQuery.refresh()
+      },
+      sessionId: selectedSessionId,
+    }),
+    eventFeed?.registerSelectedDelegations({
+      refresh: () => {
+        delegationsQuery.refresh()
+      },
+      sessionId: selectedSessionId,
+    }),
+    eventFeed?.registerSelectedStream({ refresh: streamState.revalidate, sessionId: selectedSessionId }),
+  ].filter((unregister): unregister is () => void => unregister !== undefined)
+  onCleanup(() => {
+    for (const unregister of unregisterEventFeed) unregister()
+  })
 
   createEffect(() => {
     const current = session()
@@ -222,6 +227,8 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
       const current = durableMessages()
       return current.length > 0 ? current : lastMessages.get()
     },
+    refresh: revalidate,
+    revalidate,
     renameState,
     pinState,
     streamGroups: streamState.groups,

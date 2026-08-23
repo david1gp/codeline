@@ -14,7 +14,7 @@ type SessionSidebarDialog =
   | { kind: "sessionDelete"; sessionId: string }
 
 type SessionSidebarActionsOptions = {
-  fetcher?: typeof fetch
+  fetcher?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
   onSessionDeleted?: (sessionId: string) => void
   sessionDelete?: (sessionId: string) => Promise<Result<true>>
   sessionRename?: (sessionId: string, title: string) => Promise<Result<string>>

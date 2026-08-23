@@ -24,7 +24,7 @@ const kindPriority: Record<ConnectionStatusKind, number> = {
 }
 
 const sourcePriority: Record<ConnectionStatusSource, number> = {
-  [connectionStatusSource.zero]: 0,
+  [connectionStatusSource.events]: 0,
   [connectionStatusSource.api]: 1,
   [connectionStatusSource.app]: 2,
 }

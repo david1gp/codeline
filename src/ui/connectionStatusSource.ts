@@ -1,6 +1,6 @@
 export const connectionStatusSource = {
   app: "app",
-  zero: "zero",
+  events: "events",
   api: "api",
 } as const
 

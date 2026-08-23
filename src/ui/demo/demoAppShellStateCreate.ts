@@ -1,11 +1,12 @@
 import type { AppShellView } from "../appShellView.js"
 import { appConnectionDetailsResolve } from "../appConnectionDetailsResolve.js"
 import { connectionStatusIndicatorStateCreate } from "../connectionStatusIndicatorStateCreate.js"
+import type { EventFeedConnectionView } from "../eventFeedConnectionView.js"
 import type { DemoSessionScreenVariant } from "./demoSessionScreenVariant.js"
 import { demoThemeSwitcherStateCreate } from "./demoThemeSwitcherStateCreate.js"
 import { activeProjectStateCreate } from "../activeProjectStateCreate.js"
 
-/** Supplies deterministic header status without API, Zero, or service workers. */
+/** Supplies deterministic header status without API, event feed, or service workers. */
 export function demoAppShellStateCreate(variant: () => DemoSessionScreenVariant): AppShellView {
   const isHealthy = () => variant() === "ready" || variant() === "streaming"
   const disconnectedSince = () => (variant() === "error" || variant() === "empty" ? Date.now() - 65_000 : undefined)
@@ -27,19 +28,19 @@ export function demoAppShellStateCreate(variant: () => DemoSessionScreenVariant)
     },
   }
 
-  const zero = {
+  const events: EventFeedConnectionView = {
     disconnectedSince: () => (variant() === "empty" || variant() === "error" ? disconnectedSince() : undefined),
     label: () => {
-      if (variant() === "loading") return "Zero connecting"
-      if (variant() === "empty") return "Zero offline"
-      if (variant() === "error") return "Zero error"
-      return "Zero online"
+      if (variant() === "loading") return "Events reconciling"
+      if (variant() === "empty") return "Events offline"
+      if (variant() === "error") return "Events stale"
+      return "Events connected"
     },
     status: () => {
-      if (variant() === "loading") return "connecting" as const
+      if (variant() === "loading") return "reconciling" as const
       if (variant() === "empty") return "offline" as const
-      if (variant() === "error") return "error" as const
-      return "online" as const
+      if (variant() === "error") return "stale" as const
+      return "connected" as const
     },
   }
 
@@ -60,18 +61,18 @@ export function demoAppShellStateCreate(variant: () => DemoSessionScreenVariant)
     connection: connectionStatusIndicatorStateCreate({
       details: () =>
         appConnectionDetailsResolve({
+          events,
           healthDisconnectedSince,
           healthLabel,
           healthStatus,
           pwa,
-          zero,
         }),
     }),
+    events,
     healthDisconnectedSince,
     healthLabel,
     healthStatus,
     pwa,
-    zero,
     theme: demoThemeSwitcherStateCreate(),
   }
 }

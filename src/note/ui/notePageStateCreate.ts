@@ -1,49 +1,49 @@
 import { createSignalObject } from "@adaptive-ds/solid-ui/utils/createSignalObject"
-import { makeFunctionReference } from "convex/server"
 import { useNavigate } from "@solidjs/router"
-import { createEffect } from "solid-js"
-import type { Result } from "@adaptive-ds/result"
-import { codelineConvexMutationCreate } from "../../convex/codelineConvexMutationCreate.js"
-import { codelineConvexQueryCreate } from "../../convex/codelineConvexQueryCreate.js"
-import type { NoteRecord } from "../convex/noteRecord.js"
-import { noteLineCount } from "./noteLineCount.js"
+import { createEffect, onCleanup, useContext } from "solid-js"
+import { eventFeedCoordinatorContext } from "../../ui/eventFeedCoordinatorContext.js"
+import { httpQueryStateCreate } from "../../ui/httpQueryStateCreate.js"
+import type { NoteDetailResponse } from "../api/noteDetailResponseSchema.js"
+import { noteRepresentationEtagCreate } from "../api/noteRepresentationEtagCreate.js"
+import { noteDeleteRequest } from "../client/noteDeleteRequest.js"
+import { noteDetailFetch } from "../client/noteDetailFetch.js"
+import { noteUpdateRequest } from "../client/noteUpdateRequest.js"
 import { noteContentFieldStateCreate } from "./noteContentFieldStateCreate.js"
+import { noteLineCount } from "./noteLineCount.js"
 import { noteProjectChoicesResolve } from "./noteProjectChoicesResolve.js"
 import { noteProjectListStateCreate } from "./noteProjectListStateCreate.js"
 import type { NoteScreenView } from "./noteScreenView.js"
 import { noteTitleStateCreate } from "./noteTitleStateCreate.js"
 import { noteViewModeStateCreate } from "./noteViewModeStateCreate.js"
 
-const noteDetailReference = makeFunctionReference<"query", Record<string, unknown>, Result<NoteRecord | undefined>>(
-  "notes:noteDetail",
-)
-const noteUpdateReference = makeFunctionReference<"mutation", Record<string, unknown>, Result<NoteRecord>>(
-  "notes:noteUpdate",
-)
-const noteDeleteReference = makeFunctionReference<"mutation", Record<string, unknown>, Result<NoteRecord>>(
-  "notes:noteDelete",
-)
-
 type NotePageStateOptions = {
   apiBase?: string
   fetcher?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
-  noteId: string
+  noteId: string | (() => string)
 }
 
 export function notePageStateCreate(options: NotePageStateOptions): NoteScreenView {
+  const eventFeed = useContext(eventFeedCoordinatorContext)
   const navigate = useNavigate()
   const apiBase = options.apiBase ?? "/api/project"
   const fetcher = options.fetcher ?? fetch
-  const noteQuery = codelineConvexQueryCreate<NoteRecord | undefined>(noteDetailReference, () => ({
-    noteId: options.noteId,
-  }))
-  const noteUpdate = codelineConvexMutationCreate<NoteRecord>(noteUpdateReference)
-  const noteDelete = codelineConvexMutationCreate<NoteRecord>(noteDeleteReference)
+  const configuredNoteId = options.noteId
+  const noteId = typeof configuredNoteId === "function" ? configuredNoteId : () => configuredNoteId
+  const noteQuery = httpQueryStateCreate({
+    key: noteId,
+    load: (noteId, signal) => noteDetailFetch(noteId, { fetch: fetcher, signal }),
+  })
   const content = createSignalObject<string | null>(null)
   const projectId = createSignalObject<string | null>(null)
   const projectList = noteProjectListStateCreate({ apiBase, fetcher })
   const status = createSignalObject<"idle" | "saving" | "error">("idle")
   const isDeleteConfirmOpen = createSignalObject(false)
+  const revalidate = () => {
+    noteQuery.refresh()
+    projectList.revalidate()
+  }
+  const unregisterEventFeed = eventFeed?.registerNoteDetail({ noteId, refresh: revalidate })
+  if (unregisterEventFeed !== undefined) onCleanup(unregisterEventFeed)
 
   createEffect(() => {
     const loaded = noteQuery.data()
@@ -57,13 +57,24 @@ export function notePageStateCreate(options: NotePageStateOptions): NoteScreenVi
     const editedContent = content.get()
     if (current === undefined || editedContent === null || status.get() === "saving") return
     status.set("saving")
-    const result = await noteUpdate({
-      content: editedContent,
-      id: current.id,
-      projectPath: projectId.get(),
-      updatedAt: Date.now(),
-    })
-    status.set(result.success ? "idle" : "error")
+    const result = await noteUpdateRequest(
+      current.id,
+      {
+        content: editedContent,
+        id: current.id,
+        projectPath: projectId.get(),
+        updatedAt: Date.now(),
+      },
+      { etag: noteEtag(current), fetch: fetcher },
+    )
+    if (!result.success) {
+      status.set("error")
+      return
+    }
+    content.set(result.data.content)
+    projectId.set(result.data.projectPath)
+    status.set("idle")
+    noteQuery.refresh()
   }
   const viewModeState = noteViewModeStateCreate()
   const contentField = noteContentFieldStateCreate({
@@ -87,12 +98,13 @@ export function notePageStateCreate(options: NotePageStateOptions): NoteScreenVi
       const current = noteQuery.data()
       if (current === undefined || status.get() === "saving") return
       status.set("saving")
-      void noteDelete({ noteId: current.id }).then((result) => {
+      void noteDeleteRequest(current.id, { etag: noteEtag(current), fetch: fetcher }).then((result) => {
         if (!result.success) {
           status.set("error")
           isDeleteConfirmOpen.set(false)
           return
         }
+        noteQuery.refresh()
         navigate("/notes")
       })
     },
@@ -117,9 +129,15 @@ export function notePageStateCreate(options: NotePageStateOptions): NoteScreenVi
       projectId.set(event.currentTarget.value === "" ? null : event.currentTarget.value)
       if (status.get() === "error") status.set("idle")
     },
+    refresh: revalidate,
+    revalidate,
     submit: async (event) => {
       event.preventDefault()
       await noteSave()
     },
   }
+}
+
+function noteEtag(note: NoteDetailResponse): string {
+  return noteRepresentationEtagCreate(note.id, note.revision)
 }

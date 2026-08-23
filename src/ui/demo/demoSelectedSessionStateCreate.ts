@@ -82,6 +82,8 @@ export function demoSelectedSessionStateCreate(options: DemoSelectedSessionState
     isSessionError: () => false,
     isSessionLoading: () => options.variant() === "loading",
     messages,
+    refresh: () => undefined,
+    revalidate: () => undefined,
     renameState,
     retryMessages: () => undefined,
     retrySession: () => undefined,

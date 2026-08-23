@@ -12,6 +12,8 @@ export function demoNotesScreenStateCreate(variant: () => DemoSessionScreenVaria
     isEmpty: () => notes().length === 0,
     isError: () => variant() === "error",
     isLoading: () => variant() === "loading",
+    refresh: () => {},
+    revalidate: () => {},
     retry: () => {},
   }
 }

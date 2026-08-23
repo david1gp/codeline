@@ -1,7 +1,7 @@
 import { createSignalObject } from "@adaptive-ds/solid-ui/utils/createSignalObject"
 import type { Result } from "@adaptive-ds/result"
-import * as v from "valibot"
-import { apiErrorResponseSchema } from "../api/errors/apiErrorResponseSchema.js"
+import { sessionEtagFetch } from "../session/ui/sessionEtagFetch.js"
+import { sessionPinRequest } from "../session/ui/sessionPinRequest.js"
 
 type SessionPinToggleStateOptions = {
   fetcher?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
@@ -36,19 +36,24 @@ export function sessionPinToggleStateCreate(options: SessionPinToggleStateOption
         errorMessage.set(result.errorMessage)
         return
       }
-      const response = await fetcher(`/api/sessions/${encodeURIComponent(options.sessionId())}/pin`, {
-        body: JSON.stringify({ pinned: next }),
-        headers: { "Content-Type": "application/json" },
-        method: "PATCH",
-      })
-      if (response.ok) {
+      const sessionId = options.sessionId()
+      const etag = await sessionEtagFetch(sessionId, { fetch: fetcher })
+      if (!etag.success) {
+        optimisticPinned.set(previous)
+        errorMessage.set("The pinned state could not be updated.")
+        return
+      }
+      const updated = await sessionPinRequest(sessionId, next, { etag: etag.data, fetch: fetcher })
+      if (updated.success) {
         optimisticPinned.set(undefined)
         return
       }
-      const body: unknown = await response.json().catch(() => undefined)
-      const error = v.safeParse(apiErrorResponseSchema, body)
       optimisticPinned.set(previous)
-      errorMessage.set(error.success ? error.output.error.message : "The pinned state could not be updated.")
+      errorMessage.set(
+        updated.code === "network_error"
+          ? "The pinned state could not be updated. Check your connection and try again."
+          : updated.errorMessage,
+      )
     } catch (_error: unknown) {
       optimisticPinned.set(previous)
       errorMessage.set("The pinned state could not be updated. Check your connection and try again.")

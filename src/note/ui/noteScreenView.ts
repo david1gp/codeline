@@ -3,7 +3,7 @@ import type { NoteViewMode } from "./noteViewModeSchema.js"
 import type { noteContentFieldStateCreate } from "./noteContentFieldStateCreate.js"
 
 /**
- * Rendering contract of the note detail screen, so production Zero state and
+ * Rendering contract of the note detail screen, so production state and
  * demo fixtures can supply the same shape without the view knowing the source.
  */
 export type NoteScreenView = {
@@ -26,6 +26,8 @@ export type NoteScreenView = {
   projects: () => ProjectApiListResponse["projects"]
   submit: (event: SubmitEvent) => void
   title: () => string
+  refresh: () => void
+  revalidate: () => void
   viewMode: () => NoteViewMode
   viewModeSelect: (value: NoteViewMode) => void
 }

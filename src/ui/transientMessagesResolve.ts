@@ -18,7 +18,7 @@ function transientMessageKey(role: string, content: string): string {
 
 /**
  * Remove in-flight turn entries that a synchronized durable message already
- * covers, so a finalized Zero row never renders twice. Matching is per
+ * covers, so a finalized durable row never renders twice. Matching is per
  * role/content occurrence, so repeating the same prompt keeps the extra
  * transient copy until its own durable row arrives.
  */

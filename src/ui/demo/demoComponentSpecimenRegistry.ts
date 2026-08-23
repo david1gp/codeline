@@ -93,7 +93,7 @@ export const demoComponentSpecimenRegistry = [
     variants: ["ready"],
   },
   {
-    description: "Combined app, Zero, and API connection icon with a details popover.",
+    description: "Combined app, event-feed, and API connection icon with a details popover.",
     href: "/demo/components/connection-status-indicator",
     label: "Connection status indicator",
     slug: "connection-status-indicator",

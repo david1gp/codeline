@@ -9,7 +9,7 @@ type AuthSessionStateOptions = {
 }
 
 /**
- * Bootstraps the protected UI. Zero and every protected surface stay unmounted
+ * Bootstraps the protected UI. Protected data surfaces stay unmounted
  * until the server confirms the durable user ID, so a 401 can never expose a
  * previously cached user's synchronized data.
  */

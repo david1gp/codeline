@@ -1,12 +1,9 @@
 import type { JSX } from "solid-js"
 import { Match, Switch } from "solid-js"
-import { CodelineConvexProvider } from "../convex/CodelineConvexProvider.js"
 import { authSessionStateCreate } from "../identity/ui/authSessionStateCreate.js"
 import { App } from "./App.js"
-import { applicationShellStateCreate } from "./applicationShellStateCreate.js"
-import { appShellStateCreate } from "./appShellStateCreate.js"
-import { CodelineZeroProvider } from "./CodelineZeroProvider.js"
-import { protectedShellStateCreate } from "./protectedShellStateCreate.js"
+import { eventFeedCoordinatorContext } from "./eventFeedCoordinatorContext.js"
+import { signedInApplicationStateCreate } from "./signedInApplicationStateCreate.js"
 
 export function ApplicationRoot(props: { children?: JSX.Element }) {
   const session = authSessionStateCreate()
@@ -53,8 +50,6 @@ export function ApplicationRoot(props: { children?: JSX.Element }) {
           session.status() === "signed-in" && session.userId() !== undefined && session.displayName() !== undefined
             ? {
                 displayName: session.displayName() as string,
-                organizationId: session.organizationId(),
-                token: session.token(),
                 userId: session.userId() as string,
               }
             : undefined
@@ -62,13 +57,9 @@ export function ApplicationRoot(props: { children?: JSX.Element }) {
         keyed
       >
         {(user) => (
-          <CodelineConvexProvider organizationId={user.organizationId} token={user.token}>
-            <CodelineZeroProvider userId={user.userId}>
-              <ProtectedShell displayName={user.displayName} userId={user.userId} sessionClear={session.signOut}>
-                {props.children}
-              </ProtectedShell>
-            </CodelineZeroProvider>
-          </CodelineConvexProvider>
+          <ProtectedShell displayName={user.displayName} userId={user.userId} sessionClear={session.signOut}>
+            {props.children}
+          </ProtectedShell>
         )}
       </Match>
     </Switch>
@@ -81,17 +72,17 @@ function ProtectedShell(props: {
   sessionClear: () => void
   userId: string
 }) {
-  const state = appShellStateCreate()
-  const shell = applicationShellStateCreate()
-  const auth = protectedShellStateCreate({
+  const state = signedInApplicationStateCreate({
     displayName: () => props.displayName,
     sessionClear: () => props.sessionClear(),
     userId: () => props.userId,
   })
 
   return (
-    <App applicationShell={shell} auth={auth} state={state}>
-      {props.children}
-    </App>
+    <eventFeedCoordinatorContext.Provider value={state.eventFeed}>
+      <App applicationShell={state.applicationShell} auth={state.auth} state={state.state}>
+        {props.children}
+      </App>
+    </eventFeedCoordinatorContext.Provider>
   )
 }

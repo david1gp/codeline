@@ -235,7 +235,7 @@ export const demoScenarioFixtures = {
       { author: "user", body: "Start by inventorying the existing route boundary.", detail: "09:12", kind: "markdown" },
       {
         author: "assistant",
-        body: "The `/demo` branch occurs before Zero mounts, so fixtures remain client-only.",
+        body: "The `/demo` branch occurs before the production data layer mounts, so fixtures remain client-only.",
         detail: "09:13",
         kind: "markdown",
       },
@@ -313,7 +313,7 @@ export const demoScenarioFixtures = {
       },
       {
         author: "assistant",
-        body: "The route now branches before Zero mounts. The demo is composed from local typed fixtures and keeps the production workspace untouched.",
+        body: "The route now branches before the production data layer mounts. The demo is composed from local typed fixtures and keeps the production workspace untouched.",
         detail: "2 files changed · verified locally",
       },
     ],

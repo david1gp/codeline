@@ -53,6 +53,8 @@ export function demoSessionListStateCreate(options: DemoSessionListStateOptions)
     isLoading: () => options.variant() === "loading",
     isSelected: (sessionId: string) => options.selectedSessionId.get() === sessionId,
     query: query.get,
+    refresh: () => {},
+    revalidate: () => {},
     retry: () => query.set(""),
     roots: branchTree.roots,
     selectedAncestry: branchTree.selectedAncestry,

@@ -1,16 +1,18 @@
+import { activeProjectStateCreate } from "./activeProjectStateCreate.js"
 import { appConnectionDetailsResolve } from "./appConnectionDetailsResolve.js"
 import type { AppShellView } from "./appShellView.js"
 import { appStateCreate } from "./appStateCreate.js"
 import { connectionStatusIndicatorStateCreate } from "./connectionStatusIndicatorStateCreate.js"
+import { eventFeedConnectionIndicatorStateCreate } from "./eventFeedConnectionIndicatorStateCreate.js"
 import { pwaStatusIndicatorStateCreate } from "./pwa/pwaStatusIndicatorStateCreate.js"
 import { themeSwitcherStateCreate } from "./themeSwitcherStateCreate.js"
-import { zeroConnectionIndicatorStateCreate } from "./zeroConnectionIndicatorStateCreate.js"
-import { activeProjectStateCreate } from "./activeProjectStateCreate.js"
 
-export function appShellStateCreate(): AppShellView {
+export function appShellStateCreate(): AppShellView & {
+  events: ReturnType<typeof eventFeedConnectionIndicatorStateCreate>
+} {
   const app = appStateCreate()
   const pwa = pwaStatusIndicatorStateCreate()
-  const zero = zeroConnectionIndicatorStateCreate()
+  const events = eventFeedConnectionIndicatorStateCreate()
 
   return {
     ...app,
@@ -18,15 +20,15 @@ export function appShellStateCreate(): AppShellView {
     connection: connectionStatusIndicatorStateCreate({
       details: () =>
         appConnectionDetailsResolve({
+          events,
           healthDisconnectedSince: app.healthDisconnectedSince,
           healthLabel: app.healthLabel,
           healthStatus: app.healthStatus,
           pwa,
-          zero,
         }),
     }),
+    events,
     pwa,
     theme: themeSwitcherStateCreate(),
-    zero,
   }
 }

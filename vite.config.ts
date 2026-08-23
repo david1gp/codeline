@@ -6,14 +6,12 @@ import { oidcCallbackPathResolve } from "./src/configuration/oidcCallbackPathRes
 import { oidcCallbackProxyContextResolve } from "./src/configuration/oidcCallbackProxyContextResolve.js"
 
 const solidUiRoot = resolve(import.meta.dirname, "ui")
-const convexRoot = resolve(import.meta.dirname, "convex")
 const dependenciesRoot = resolve(import.meta.dirname, "node_modules")
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, import.meta.dirname, "")
   const apiPort = Number(env.PORT ?? 6001)
   const uiPort = Number(env.UI_PORT ?? 6000)
-  const zeroCachePort = Number(env.ZERO_PORT ?? 6003)
   const oidcCallbackPath = oidcCallbackPathResolve(env)
   const solidRuntime = mode === "development" ? "solid-js/dist/dev.js" : "solid-js/dist/solid.js"
   const solidStoreRuntime = mode === "development" ? "solid-js/store/dist/dev.js" : "solid-js/store/dist/store.js"
@@ -22,7 +20,6 @@ export default defineConfig(({ mode }) => {
     plugins: [solid(), tailwindcss()],
     resolve: {
       alias: [
-        { find: "#convex", replacement: convexRoot },
         { find: "#ui", replacement: solidUiRoot },
         {
           find: "@adaptive-ds/solid-ui/static/badge/Badge",
@@ -61,10 +58,6 @@ export default defineConfig(({ mode }) => {
               [oidcCallbackProxyContextResolve(oidcCallbackPath)]: `http://127.0.0.1:${apiPort}`,
             }),
         "/api": `http://127.0.0.1:${apiPort}`,
-        "/sync": {
-          target: `ws://127.0.0.1:${zeroCachePort}`,
-          ws: true,
-        },
       },
     },
     build: {

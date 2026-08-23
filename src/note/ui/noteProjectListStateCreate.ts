@@ -1,4 +1,4 @@
-import { createSignal, onCleanup } from "solid-js/dist/solid.js"
+import { createEffect, createSignal, onCleanup } from "solid-js/dist/solid.js"
 import * as v from "valibot"
 import type { ProjectApiListResponse } from "../../project/api/projectApiListResponseSchema.js"
 import { projectApiListResponseSchema } from "../../project/api/projectApiListResponseSchema.js"
@@ -17,20 +17,29 @@ export function noteProjectListStateCreate(options: NoteProjectListStateOptions 
   const apiBase = options.apiBase ?? "/api/project"
   const fetcher = options.fetcher ?? fetch
   const projects = createSignalObject<ProjectApiListResponse["projects"]>([])
-  const controller = new AbortController()
+  const [refreshVersion, setRefreshVersion] = createSignal(0)
+  let controller: AbortController | undefined
 
-  void fetcher(`${apiBase}/list`, { signal: controller.signal })
-    .then(async (response) => {
-      if (!response.ok) return
-      const parsed = v.safeParse(projectApiListResponseSchema, await response.json())
-      if (!parsed.success || controller.signal.aborted) return
-      projects.set(parsed.output.projects)
-    })
-    .catch((_error: unknown) => {
-      if (!controller.signal.aborted) projects.set([])
-    })
+  createEffect(() => {
+    refreshVersion()
+    controller?.abort()
+    const active = new AbortController()
+    controller = active
+    void fetcher(`${apiBase}/list`, { signal: active.signal })
+      .then(async (response) => {
+        if (!response.ok) return
+        const parsed = v.safeParse(projectApiListResponseSchema, await response.json())
+        if (!parsed.success || active.signal.aborted) return
+        projects.set(parsed.output.projects)
+      })
+      .catch((_error: unknown) => {
+        if (!active.signal.aborted) return
+      })
+  })
 
-  onCleanup(() => controller.abort())
+  const revalidate = () => setRefreshVersion((version) => version + 1)
 
-  return { projects: projects.get }
+  onCleanup(() => controller?.abort())
+
+  return { projects: projects.get, refresh: revalidate, revalidate }
 }

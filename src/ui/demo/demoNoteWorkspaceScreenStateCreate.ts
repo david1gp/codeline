@@ -15,9 +15,14 @@ export function demoNoteWorkspaceScreenStateCreate(variant: () => DemoSessionScr
   const groups = () => noteGroupsDerive(notes(), demoNoteProjectsFixture)
   const projectNotes = () => groups().find((group) => group.projectPath === demoActiveNote.projectPath)?.notes ?? []
   const bounds = () => noteMoveBoundsResolve(projectNotes(), demoActiveNote.id)
+  const revalidate = () => {
+    detail.revalidate()
+  }
 
   return {
     detail,
+    refresh: revalidate,
+    revalidate,
     sidebar: {
       activeNoteId: () => demoActiveNote.id,
       activeProjectPath: () => demoActiveNote.projectPath,
@@ -30,6 +35,8 @@ export function demoNoteWorkspaceScreenStateCreate(variant: () => DemoSessionScr
       noteMoveDown: () => {},
       noteMoveUp: () => {},
       previewHtml: () => markdownHtmlRender(detail.content()),
+      refresh: revalidate,
+      revalidate,
       retry: () => {},
     },
   }
