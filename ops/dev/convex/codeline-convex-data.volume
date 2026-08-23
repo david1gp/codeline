@@ -1,3 +1,0 @@
-# Persistent data for the self-hosted Codeline Convex deployment.
-[Volume]
-VolumeName=codeline-convex-data

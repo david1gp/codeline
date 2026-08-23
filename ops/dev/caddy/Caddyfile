@@ -9,27 +9,3 @@ preview.codeline.work {
 	}
 	reverse_proxy localhost:6000
 }
-
-convex.preview.codeline.work {
-	import shared_config_simple
-	header {
-		Routed "codeline-convex"
-	}
-	reverse_proxy localhost:3210
-}
-
-api.preview.codeline.work {
-	import shared_config_simple
-	header {
-		Routed "codeline-convex-api"
-	}
-	reverse_proxy localhost:3211
-}
-
-dash.preview.codeline.work {
-	import shared_config_simple
-	header {
-		Routed "codeline-convex-dashboard"
-	}
-	reverse_proxy localhost:6791
-}

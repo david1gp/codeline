@@ -21,12 +21,11 @@ const releaseInputManifestSchema = v.object({
   schemaVersion: v.literal(1),
   bun: v.object({ version: v.string() }),
   inputs: v.object({
-    zero: v.optional(releaseInputSchema),
     gitStore: releaseInputSchema,
   }),
 })
 
-type ReleaseInputName = "zero" | "gitStore"
+type ReleaseInputName = "gitStore"
 type ReleaseInput = v.InferOutput<typeof releaseInputSchema>
 type ReleaseInputManifest = v.InferOutput<typeof releaseInputManifestSchema>
 

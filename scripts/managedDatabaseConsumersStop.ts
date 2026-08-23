@@ -36,8 +36,9 @@ export function managedDatabaseConsumersStop(): Result<true> {
     return createResultError(op, "systemctl is required to stop managed database consumers before a reset.")
   }
 
+  const units = ["codeline-dev.target", ...managedDatabaseConsumerUnitsRead()]
   const stopTarget = Bun.spawnSync({
-    cmd: [systemctl, "--user", "stop", "codeline-dev.target", "codeline-dev-postgres.service"],
+    cmd: [systemctl, "--user", "stop", ...units],
     stderr: "pipe",
     stdout: "pipe",
   })
@@ -46,7 +47,6 @@ export function managedDatabaseConsumersStop(): Result<true> {
     return createResultError(op, message || "Unable to stop the managed Codeline development target.")
   }
 
-  const units = ["codeline-dev.target", ...managedDatabaseConsumerUnitsRead()]
   for (const unit of units) {
     const state = unitStateRead(systemctl, unit)
     if (!state.success) return state

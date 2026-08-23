@@ -10,7 +10,6 @@ dist/
 out/
 build/
 *.tgz
-ops/dev/zero-pkgs/
 
 # Tests and logs
 coverage/
@@ -30,20 +29,14 @@ logs/
 .env
 .env.*
 !.env.example
-!.env.production
 
 # Application icons must stay tracked even when a global ignore excludes images.
 !public/icons/*.png
 
 # Local application data and caches
 data/
+data/db.sqlite*
 .cache/
 .turbo/
 *.tsbuildinfo
 .wrangler/
-
-# Convex generated API, server, and data-model types. Regenerate with bun run convex:codegen.
-convex/_generated/
-
-# Self-hosted Convex container credentials.
-ops/dev/convex/.env.docker

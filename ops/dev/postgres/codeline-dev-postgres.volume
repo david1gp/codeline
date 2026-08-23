@@ -1,3 +1,0 @@
-# Persistent PostgreSQL data for the repository-managed development service.
-[Volume]
-VolumeName=codeline-dev-postgres

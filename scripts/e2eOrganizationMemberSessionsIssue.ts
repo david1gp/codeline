@@ -1,9 +1,10 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import { eq } from "drizzle-orm"
-import { drizzle } from "drizzle-orm/postgres-js"
-import postgres from "postgres"
+import { drizzle } from "drizzle-orm/libsql"
 import type { DatabaseExecutor } from "../src/database/databaseClient.js"
+import { databasePath } from "../src/database/databasePath.js"
 import { databaseSchema } from "../src/database/databaseSchema.js"
+import { openLibsql } from "../src/database/openLibsql.js"
 import { identitySessionCreate } from "../src/identity/actions/identitySessionCreate.js"
 import { oidcIdentityUpsert } from "../src/identity/actions/oidcIdentityUpsert.js"
 import { organizationMemberLoad } from "../src/identity/actions/organizationMemberLoad.js"
@@ -83,7 +84,8 @@ if (!environment.success) {
 }
 
 const subjectPrefix = e2eIdentitySubjectPrefixCreate(runId)
-const databaseClient = postgres(environment.data.databaseUrl)
+const openedDatabase = openLibsql(databasePath)
+const databaseClient = openedDatabase.$client
 const database = drizzle(databaseClient, { schema: databaseSchema })
 const issued = await membersIssue(database, {
   issuer: environment.data.issuer,
@@ -95,11 +97,11 @@ const issued = await membersIssue(database, {
 if (!issued.success) {
   console.error(issued.errorMessage)
   await e2eIdentityRunPurge(database, subjectPrefix)
-  await databaseClient.end()
+  databaseClient.close()
   process.exit(1)
 }
 
-await databaseClient.end()
+databaseClient.close()
 console.log(
   JSON.stringify({
     members: issued.data.members,

@@ -8,6 +8,24 @@ unit_dir="$config_dir/systemd/user"
 quadlet_dir="$config_dir/containers/systemd"
 stable_checkout="$HOME/codeline"
 
+# Compatibility-only cleanup for units from pre-SQLite installations. These
+# names are never linked, enabled, or required by the current stack.
+legacy_units=(
+  codeline-convex-backend.service
+  codeline-convex-dashboard.service
+  codeline-convex-data-volume.service
+  codeline-convex-dev.service
+  codeline-dev-postgres.service
+  codeline-dev-zero-cache.service
+)
+legacy_quadlets=(
+  codeline-convex-backend.container
+  codeline-convex-dashboard.container
+  codeline-convex-data.volume
+  codeline-dev-postgres.container
+  codeline-dev-postgres.volume
+)
+
 fail() {
   printf 'codeline-dev-systemd: %s\n' "$1" >&2
   exit 1
@@ -15,25 +33,28 @@ fail() {
 
 command -v systemctl >/dev/null 2>&1 || fail 'systemctl is required'
 
+remove_legacy_links() {
+  local legacy
+  for legacy in "${legacy_units[@]}"; do
+    rm -f "$unit_dir/$legacy"
+  done
+  for legacy in "${legacy_quadlets[@]}"; do
+    rm -f "$quadlet_dir/$legacy"
+  done
+}
+
 install_units() {
-  local unit quadlet
+  local unit
   if [[ "$root" != "$stable_checkout" ]]; then
     ln -sfn "$root" "$stable_checkout"
     printf 'linked %s -> %s\n' "$stable_checkout" "$root"
   fi
 
-  mkdir -p "$unit_dir" "$quadlet_dir"
-  for unit in codeline-convex-dev.service codeline-dev-api.service codeline-dev-ui.service codeline-dev.target; do
+  mkdir -p "$unit_dir"
+  remove_legacy_links
+  for unit in codeline-dev-api.service codeline-dev-ui.service codeline-dev.target; do
     ln -sf "$script_dir/$unit" "$unit_dir/$unit"
     printf 'linked %s\n' "$unit"
-  done
-  for quadlet in codeline-dev-postgres.container codeline-dev-postgres.volume; do
-    ln -sf "$root/ops/dev/postgres/$quadlet" "$quadlet_dir/$quadlet"
-    printf 'linked %s\n' "$quadlet"
-  done
-  for quadlet in codeline-convex-backend.container codeline-convex-dashboard.container codeline-convex-data.volume; do
-    ln -sf "$root/ops/dev/convex/$quadlet" "$quadlet_dir/$quadlet"
-    printf 'linked %s\n' "$quadlet"
   done
 
   # Preparation only: do not enable or start any unit here. The final cutover
@@ -42,15 +63,10 @@ install_units() {
 }
 
 remove_units() {
-  local unit quadlet
-  for unit in codeline-convex-dev.service codeline-dev-api.service codeline-dev-ui.service codeline-dev.target; do
+  local unit
+  remove_legacy_links
+  for unit in codeline-dev-api.service codeline-dev.target codeline-dev-ui.service; do
     rm -f "$unit_dir/$unit"
-  done
-  for quadlet in codeline-dev-postgres.container codeline-dev-postgres.volume; do
-    rm -f "$quadlet_dir/$quadlet"
-  done
-  for quadlet in codeline-convex-backend.container codeline-convex-dashboard.container codeline-convex-data.volume; do
-    rm -f "$quadlet_dir/$quadlet"
   done
   systemctl --user daemon-reload
 }

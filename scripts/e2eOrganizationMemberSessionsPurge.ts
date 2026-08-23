@@ -1,6 +1,7 @@
-import { drizzle } from "drizzle-orm/postgres-js"
-import postgres from "postgres"
+import { drizzle } from "drizzle-orm/libsql"
+import { databasePath } from "../src/database/databasePath.js"
 import { databaseSchema } from "../src/database/databaseSchema.js"
+import { openLibsql } from "../src/database/openLibsql.js"
 import { e2eEnvironmentAssertLocal } from "./e2eEnvironmentAssertLocal.js"
 import { e2eIdentityRunPurge } from "./e2eIdentityRunPurge.js"
 import { e2eIdentitySubjectPrefixCreate } from "./e2eIdentitySubjectPrefixCreate.js"
@@ -23,10 +24,11 @@ if (!environment.success) {
   process.exit(1)
 }
 
-const databaseClient = postgres(environment.data.databaseUrl)
+const openedDatabase = openLibsql(databasePath)
+const databaseClient = openedDatabase.$client
 const database = drizzle(databaseClient, { schema: databaseSchema })
 const purged = await e2eIdentityRunPurge(database, e2eIdentitySubjectPrefixCreate(runId))
-await databaseClient.end()
+databaseClient.close()
 
 if (!purged.success) {
   console.error(purged.errorMessage)

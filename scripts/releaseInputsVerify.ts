@@ -3,7 +3,7 @@ import { releaseInputsVerify } from "../src/release/releaseInputsVerify.js"
 const root = new URL("..", import.meta.url).pathname.replace(/\/$/, "")
 const args = Bun.argv.slice(2)
 let manifestPath: string | undefined
-let input: "zero" | "gitStore" | undefined
+let input: "gitStore" | undefined
 let verifyRoot = root
 
 for (let index = 0; index < args.length; index += 1) {
@@ -17,8 +17,7 @@ for (let index = 0; index < args.length; index += 1) {
     if (argument === "--manifest") manifestPath = value
     if (argument === "--root") verifyRoot = value
     if (argument === "--input") {
-      if (value === "zero") input = "zero"
-      else if (value === "git-store" || value === "gitStore") input = "gitStore"
+      if (value === "git-store" || value === "gitStore") input = "gitStore"
       else {
         console.error(`release-inputs: unknown input ${value}`)
         process.exit(2)

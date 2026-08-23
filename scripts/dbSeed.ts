@@ -1,21 +1,14 @@
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { drizzle } from "drizzle-orm/postgres-js"
-import postgres from "postgres"
+import { drizzle } from "drizzle-orm/libsql"
 import { configurationStoreCreate } from "../src/configuration/configurationStoreCreate.js"
+import { databasePath } from "../src/database/databasePath.js"
 import { databaseSchema } from "../src/database/databaseSchema.js"
 import { exampleDataSeed } from "../src/database/exampleDataSeed.js"
+import { openLibsql } from "../src/database/openLibsql.js"
 import { providerAgentCatalogLoad } from "../src/providers/catalog/providerAgentCatalogLoad.js"
 import { managedDatabaseConsumersStop } from "./managedDatabaseConsumersStop.js"
 import { managedDatabaseResetLockRun } from "./managedDatabaseResetLockRun.js"
-import { managedPostgresServiceEnsure } from "./managedPostgresServiceEnsure.js"
-import { managedPostgresTargetAssert } from "./managedPostgresTargetAssert.js"
-
-const configuredDatabaseUrl = Bun.env.DATABASE_URL
-if (configuredDatabaseUrl === undefined) {
-  console.error("DATABASE_URL is required.")
-  process.exit(1)
-}
 
 const configurationStoreDir = Bun.env.CONFIG_STORE_DIR
 if (configurationStoreDir === undefined) {
@@ -44,24 +37,12 @@ if (reset && Bun.env.CODELINE_MANAGED_DATABASE_RESET_LOCK_HELD !== "1") {
   process.exit(lock.data)
 }
 
-let databaseUrl = configuredDatabaseUrl
 if (reset) {
-  const target = managedPostgresTargetAssert()
-  if (!target.success) {
-    console.error(target.errorMessage)
-    process.exit(1)
-  }
   const consumers = managedDatabaseConsumersStop()
   if (!consumers.success) {
     console.error(consumers.errorMessage)
     process.exit(1)
   }
-  const service = managedPostgresServiceEnsure()
-  if (!service.success) {
-    console.error(service.errorMessage)
-    process.exit(1)
-  }
-  databaseUrl = target.data.databaseUrl
 }
 
 const configurationStoreResult = await configurationStoreCreate({
@@ -82,8 +63,8 @@ if (!catalogResult.success) {
   process.exit(1)
 }
 
-const databaseClient = postgres(databaseUrl)
-const database = drizzle(databaseClient, { schema: databaseSchema })
+const openedDatabase = openLibsql(databasePath)
+const database = drizzle(openedDatabase.$client, { schema: databaseSchema })
 const result = await exampleDataSeed(database, {
   catalog: catalogResult.data,
   configurationStore: configurationStoreResult.data,
@@ -93,11 +74,11 @@ const result = await exampleDataSeed(database, {
 
 if (!result.success) {
   console.error(result.errorMessage)
-  await databaseClient.end()
+  database.$client.close()
   process.exit(1)
 }
 
 console.log(
   `${reset ? "Reset and seeded" : "Seeded"} ${result.data.sessionCount} sessions and ${result.data.messageCount} messages.`,
 )
-await databaseClient.end()
+database.$client.close()

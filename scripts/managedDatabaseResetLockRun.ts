@@ -1,32 +1,13 @@
 import { createHash } from "node:crypto"
+import path from "node:path"
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
-import { managedPostgresTargetAssert } from "./managedPostgresTargetAssert.js"
+import { databasePath } from "../src/database/databasePath.js"
 
 const lockHeldEnvironmentName = "CODELINE_MANAGED_DATABASE_RESET_LOCK_HELD"
 const lockConflictExitCode = 75
 
-function lockHostnameNormalize(hostname: string): string {
-  const normalized = hostname.toLowerCase().replace(/^\[/, "").replace(/\]$/, "")
-  if (
-    normalized === "localhost" ||
-    normalized === "::1" ||
-    normalized === "0:0:0:0:0:0:0:1" ||
-    /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(normalized) ||
-    /^::ffff:127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(normalized)
-  )
-    return "loopback"
-  return normalized
-}
-
-function lockPathCreate(databaseUrl: string): string {
-  const databaseTarget = new URL(databaseUrl)
-  const lockIdentity = [
-    "managed-postgres",
-    lockHostnameNormalize(databaseTarget.hostname),
-    databaseTarget.port,
-    databaseTarget.username,
-    databaseTarget.pathname,
-  ].join("|")
+function lockPathCreate(databaseFilePath: string): string {
+  const lockIdentity = ["managed-sqlite", path.resolve(databaseFilePath)].join("|")
   const lockKey = createHash("sha256").update(lockIdentity).digest("hex")
   const lockDirectory = Bun.env.XDG_RUNTIME_DIR ?? "/tmp"
   return `${lockDirectory}/codeline-managed-database-reset-${lockKey}.lock`
@@ -35,9 +16,6 @@ function lockPathCreate(databaseUrl: string): string {
 export async function managedDatabaseResetLockRun(command: string[]): Promise<Result<number>> {
   const op = "managedDatabaseResetLockRun"
   if (command.length === 0) return createResultError(op, "A reset command is required after --.")
-
-  const target = managedPostgresTargetAssert()
-  if (!target.success) return createResultError(op, target.errorMessage)
 
   const flock = Bun.which("flock")
   if (flock === null) {
@@ -52,7 +30,7 @@ export async function managedDatabaseResetLockRun(command: string[]): Promise<Re
         "--nonblock",
         "--conflict-exit-code",
         String(lockConflictExitCode),
-        lockPathCreate(target.data.databaseUrl),
+        lockPathCreate(databasePath),
         ...command,
       ],
       {
