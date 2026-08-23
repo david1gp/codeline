@@ -6,6 +6,7 @@ import { SessionSidebar } from "./SessionSidebar.js"
 import { SubagentThreadPanel } from "./SubagentThreadPanel.js"
 import { WorkspaceSetupPanel } from "./WorkspaceSetupPanel.js"
 import type { WorkspaceScreenView } from "./workspaceScreenView.js"
+import { workspaceSessionPaneVisibleResolve } from "./workspaceSessionPaneVisibleResolve.js"
 
 export function WorkspacePage(props: { state: WorkspaceScreenView }) {
   const state = props.state.drawer
@@ -75,7 +76,10 @@ export function WorkspacePage(props: { state: WorkspaceScreenView }) {
         </div>
 
         <Show
-          when={props.state.sessionTargetSelector.configurationReadiness().status === "ready"}
+          when={workspaceSessionPaneVisibleResolve({
+            configurationStatus: props.state.sessionTargetSelector.configurationReadiness().status,
+            readOnlyReason: props.state.selectedSession.readOnlyReason(),
+          })}
           fallback={<WorkspaceSetupPanel configuration={props.state.sessionTargetSelector.configurationReadiness()} />}
         >
           <SelectedSession

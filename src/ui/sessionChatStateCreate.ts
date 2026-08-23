@@ -44,5 +44,7 @@ export function sessionChatStateCreate(options: SessionChatStateOptions) {
 }
 
 export type SessionChatState = Omit<ReturnType<typeof sessionChatStateCreate>, "runId"> & {
+  /** Set when the composer is disabled because the session renders read-only from cache. */
+  readOnlyNotice?: () => string
   runId?: () => string | null
 }

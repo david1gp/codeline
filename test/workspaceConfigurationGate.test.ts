@@ -1,10 +1,22 @@
 import { expect, test } from "bun:test"
+import { workspaceSessionPaneVisibleResolve } from "../src/ui/workspaceSessionPaneVisibleResolve.js"
+
+test("a read-only cached session renders without a ready execution target", () => {
+  expect(workspaceSessionPaneVisibleResolve({ configurationStatus: "ready", readOnlyReason: null })).toBe(true)
+  expect(workspaceSessionPaneVisibleResolve({ configurationStatus: "server-error", readOnlyReason: null })).toBe(false)
+  expect(
+    workspaceSessionPaneVisibleResolve({ configurationStatus: "server-error", readOnlyReason: "signed-out" }),
+  ).toBe(true)
+  expect(workspaceSessionPaneVisibleResolve({ configurationStatus: "loading", readOnlyReason: "offline" })).toBe(true)
+})
 
 test("the workspace shows the initial composer when execution configuration is ready", async () => {
   const workspacePage = await Bun.file(new URL("../src/ui/WorkspacePage.tsx", import.meta.url)).text()
   const normalized = workspacePage.replace(/\s+/g, " ")
 
-  expect(normalized).toContain('when={props.state.sessionTargetSelector.configurationReadiness().status === "ready"}')
+  expect(normalized).toContain(
+    "when={workspaceSessionPaneVisibleResolve({ configurationStatus: props.state.sessionTargetSelector.configurationReadiness().status, readOnlyReason: props.state.selectedSession.readOnlyReason(), })}",
+  )
   expect(normalized).toContain(
     "fallback={<WorkspaceSetupPanel configuration={props.state.sessionTargetSelector.configurationReadiness()} />}",
   )

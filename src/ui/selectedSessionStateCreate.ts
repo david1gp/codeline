@@ -1,22 +1,31 @@
-import { type Accessor, createEffect, onCleanup, useContext } from "solid-js"
+import { createResultError } from "@adaptive-ds/result"
+import { type Accessor, createEffect, createMemo, onCleanup, useContext } from "solid-js"
 import { finalizedMessageCopyStateCreate } from "../message/ui/finalizedMessageCopyStateCreate.js"
 import { sessionFinalizedMessagesFetch } from "../message/ui/sessionFinalizedMessagesFetch.js"
 import type { CodelineExecution } from "../providers/schema/codelineExecutionSchema.js"
 import { sessionDelegationsFetch } from "../run/ui/sessionDelegationsFetch.js"
 import { sessionStreamSnapshotFetch } from "../run/ui/sessionStreamSnapshotFetch.js"
+import { sessionReadOnlyNoticeResolve } from "../session/client/sessionReadOnlyNoticeResolve.js"
+import { sessionReadOnlyReasonResolve } from "../session/client/sessionReadOnlyReasonResolve.js"
 import { sessionDetailFetch } from "../session/ui/sessionDetailFetch.js"
 import { sessionPinRequest } from "../session/ui/sessionPinRequest.js"
 import { sessionRenameControlStateCreate } from "../session/ui/sessionRenameControlStateCreate.js"
 import { sessionRenameRequest } from "../session/ui/sessionRenameRequest.js"
+import { apiFetchContext } from "./apiFetchContext.js"
+import { applicationAccountContext } from "./applicationAccountContext.js"
+import { appShellContext } from "./appShellContext.js"
 import { eventFeedCoordinatorContext } from "./eventFeedCoordinatorContext.js"
 import { httpQueryStateCreate } from "./httpQueryStateCreate.js"
 import type { SelectedSessionView } from "./selectedSessionView.js"
 import { sessionChatStateCacheCreate } from "./sessionChatStateCacheCreate.js"
 import { sessionChatStateCreate } from "./sessionChatStateCreate.js"
+import { sessionChatStateReadOnlyWrap } from "./sessionChatStateReadOnlyWrap.js"
 import { sessionDisplayModeStateCreate } from "./sessionDisplayModeStateCreate.js"
 import { sessionInitialMessageStateCreate } from "./sessionInitialMessageStateCreate.js"
 import type { SessionNavigationState } from "./sessionNavigationStateCreate.js"
 import { sessionPinToggleStateCreate } from "./sessionPinToggleStateCreate.js"
+import { sessionSettledCacheViewStateCreate } from "./sessionSettledCacheViewStateCreate.js"
+import { sessionSettledCompletionCacheRegistry } from "./sessionSettledCompletionCacheRegistry.js"
 import { sessionStreamStateCreate } from "./sessionStreamStateCreate.js"
 import { sessionSubagentThreadStateCreate } from "./sessionSubagentThreadStateCreate.js"
 import { signalObjectCreate } from "./signalObjectCreate.js"
@@ -33,14 +42,28 @@ type SelectedSessionStateOptions = {
 
 export function selectedSessionStateCreate(options: SelectedSessionStateOptions): SelectedSessionView {
   const eventFeed = useContext(eventFeedCoordinatorContext)
+  const account = useContext(applicationAccountContext)
+  const fetcher = useContext(apiFetchContext)
+  const pwa = useContext(appShellContext)?.pwa
   const displayMode = sessionDisplayModeStateCreate()
   const selectedSessionId = () => options.navigation().selectedSessionId()
   const selectedSessionKey = () => selectedSessionId() ?? undefined
+  const isSignedIn = () => (account?.userId() ?? null) !== null
+  const isOnline = () => pwa?.status() !== "offline"
+  const settledCache = sessionSettledCacheViewStateCreate({
+    ...(fetcher === undefined ? {} : { fetch: fetcher }),
+    isOnline,
+    sessionId: selectedSessionId,
+    userId: () => account?.userId() ?? null,
+  })
   const sessionQuery = httpQueryStateCreate({
+    enabled: isSignedIn,
     key: selectedSessionKey,
     load: (sessionId, signal) => sessionDetailFetch(sessionId, { signal }),
   })
-  const session = () => sessionQuery.data()?.session
+  const liveSession = () => sessionQuery.data()?.session
+  const cachedSession = () => settledCache.record()?.payload.session
+  const session = () => liveSession() ?? cachedSession()
   const sessionEtag = () => sessionQuery.data()?.etag ?? ""
   const sessionResult = () => ({
     retry: sessionQuery.retry,
@@ -51,10 +74,11 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
         : ("complete" as const),
   })
   const messagesQuery = httpQueryStateCreate({
-    key: () => session()?.id,
+    enabled: isSignedIn,
+    key: () => liveSession()?.id,
     load: (sessionId, signal) => sessionFinalizedMessagesFetch(sessionId, { signal }),
   })
-  const messages = () => messagesQuery.data()?.messages
+  const messages = () => messagesQuery.data()?.messages ?? settledCache.record()?.payload.messages
   const messagesResult = () => ({
     retry: messagesQuery.retry,
     type: messagesQuery.isError()
@@ -64,7 +88,7 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
         : ("complete" as const),
   })
   const delegationsQuery = httpQueryStateCreate({
-    enabled: () => session()?.id === selectedSessionId(),
+    enabled: () => isSignedIn() && liveSession()?.id === selectedSessionId(),
     key: selectedSessionKey,
     load: (sessionId, signal) => sessionDelegationsFetch(sessionId, { signal }),
   })
@@ -75,6 +99,19 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
       ...message,
       copyState: copyStates.get(message.id) ?? copyStateCreate(copyStates, message.id, message.content),
     }))
+  const readOnlyReason = createMemo(() =>
+    sessionReadOnlyReasonResolve({
+      cacheStatus: settledCache.status(),
+      hasCachedRecord: settledCache.record() !== undefined,
+      hasLiveSession: liveSession() !== undefined,
+      isOnline: isOnline(),
+      isSignedIn: isSignedIn(),
+    }),
+  )
+  const readOnlyNotice = () => {
+    const reason = readOnlyReason()
+    return reason === null ? undefined : sessionReadOnlyNoticeResolve(reason)
+  }
   const renameStates = new Map<string, ReturnType<typeof sessionRenameControlStateCreate>>()
   const pinStates = new Map<string, ReturnType<typeof sessionPinToggleStateCreate>>()
   const renameState = () => {
@@ -86,6 +123,8 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
       sessionId: () => current.id,
       title: () => session()?.title ?? current.title,
       mutate: async (sessionId, title) => {
+        const reason = readOnlyReason()
+        if (reason !== null) return createResultError("selectedSessionRename", sessionReadOnlyNoticeResolve(reason))
         const result = await sessionRenameRequest(sessionId, title, { etag: sessionEtag() })
         if (result.success) sessionQuery.refresh()
         return result
@@ -103,6 +142,8 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
       sessionId: () => current.id,
       pinned: () => session()?.pinned ?? current.pinned,
       mutate: async (sessionId, pinned) => {
+        const reason = readOnlyReason()
+        if (reason !== null) return createResultError("selectedSessionPin", sessionReadOnlyNoticeResolve(reason))
         const result = await sessionPinRequest(sessionId, pinned, { etag: sessionEtag() })
         if (result.success) sessionQuery.refresh()
         return result
@@ -112,11 +153,21 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
     return created
   }
 
-  const chatCreate = sessionChatStateCacheCreate({
+  const chatCreateLive = sessionChatStateCacheCreate({
     chatStateCreate: sessionChatStateCreate,
     codelineExecution: options.codelineExecution,
     durableMessages,
   })
+  const readOnlyChats = new Map<string, ReturnType<typeof sessionChatStateReadOnlyWrap>>()
+  const chatCreate = (sessionId: string) => {
+    const live = chatCreateLive(sessionId)
+    if (readOnlyReason() === null) return live
+    const existing = readOnlyChats.get(sessionId)
+    if (existing) return existing
+    const wrapped = sessionChatStateReadOnlyWrap(live, () => readOnlyNotice() ?? "")
+    readOnlyChats.set(sessionId, wrapped)
+    return wrapped
+  }
   const subagentThread = sessionSubagentThreadStateCreate({
     rightPanelClose: options.rightPanelClose,
     rightPanelShow: options.rightPanelShow,
@@ -168,6 +219,7 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
     messagesQuery.refresh()
     delegationsQuery.refresh()
     streamState.revalidate()
+    settledCache.revalidate()
   }
 
   const unregisterEventFeed = [
@@ -190,6 +242,7 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
       sessionId: selectedSessionId,
     }),
     eventFeed?.registerSelectedStream({ refresh: streamState.revalidate, sessionId: selectedSessionId }),
+    sessionSettledCompletionCacheRegistry.register(settledCache.completionReconcile),
   ].filter((unregister): unregister is () => void => unregister !== undefined)
   onCleanup(() => {
     for (const unregister of unregisterEventFeed) unregister()
@@ -210,6 +263,7 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
     if (
       selectedSessionId() === null ||
       initialMessage.isVisible() ||
+      readOnlyReason() !== null ||
       sessionResult().type !== "complete" ||
       session() !== undefined
     )
@@ -227,6 +281,8 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
       const current = durableMessages()
       return current.length > 0 ? current : lastMessages.get()
     },
+    readOnlyNotice,
+    readOnlyReason,
     refresh: revalidate,
     revalidate,
     renameState,
@@ -236,12 +292,17 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
     subagentThread,
     hasSelection: () => selectedSessionId() !== null,
     isSessionLoading: () =>
-      selectedSessionId() !== null && sessionResult().type === "unknown" && session() === undefined,
-    isSessionError: () => sessionResult().type === "error",
+      selectedSessionId() !== null &&
+      settledCache.status() === "loading" &&
+      sessionResult().type === "unknown" &&
+      session() === undefined,
+    isSessionError: () => readOnlyReason() === null && sessionResult().type === "error" && session() === undefined,
     isMessagesLoading: () => session() !== undefined && messagesResult().type === "unknown" && messages() === undefined,
-    isMessagesRefreshing: () => messagesResult().type === "unknown" && (messages()?.length ?? 0) > 0,
-    isMessagesError: () => messagesResult().type === "error",
-    isMessagesEmpty: () => messagesResult().type === "complete" && (messages()?.length ?? 0) === 0,
+    isMessagesRefreshing: () =>
+      readOnlyReason() === null && messagesResult().type === "unknown" && (messages()?.length ?? 0) > 0,
+    isMessagesError: () => readOnlyReason() === null && messagesResult().type === "error" && messages() === undefined,
+    isMessagesEmpty: () =>
+      (readOnlyReason() !== null || messagesResult().type === "complete") && (messages()?.length ?? 0) === 0,
     retrySession: () => {
       const currentResult = sessionResult()
       if (currentResult.type === "error") currentResult.retry()

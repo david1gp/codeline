@@ -2,8 +2,8 @@ import { createResult, createResultError, createResultErrorCode, type Result } f
 import { and, asc, eq, inArray } from "drizzle-orm"
 import * as v from "valibot"
 import { agentTable } from "../../agents/db/agentTable.js"
-import { databaseReadTransactionRun } from "../../database/databaseReadTransactionRun.js"
 import type { DatabaseClient } from "../../database/databaseClient.js"
+import { databaseReadTransactionRun } from "../../database/databaseReadTransactionRun.js"
 import { applicationUserTable } from "../../identity/db/applicationUserTable.js"
 import { journalSequenceCounterTable } from "../../journal/db/journalSequenceCounterTable.js"
 import { messageTable } from "../../message/db/messageTable.js"
@@ -107,6 +107,7 @@ export async function sessionRepositorySettledSnapshot(
 
       return sessionSettledSnapshotResponseCreate({
         asOfCursor: asOfCursor.data,
+        asOfSequence: highestSequence.data,
         etag: dependencies.etagCreate(sessionRow.session.id, sessionRow.session.revision),
         messages,
         revision: sessionRow.session.revision,

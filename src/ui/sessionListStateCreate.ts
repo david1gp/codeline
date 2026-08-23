@@ -9,6 +9,7 @@ import { sessionRenameRequestSchema } from "../session/schema/sessionRenameReque
 import { sessionDeleteRequest } from "../session/ui/sessionDeleteRequest.js"
 import { sessionEtagFetch } from "../session/ui/sessionEtagFetch.js"
 import { sessionRenameRequest } from "../session/ui/sessionRenameRequest.js"
+import { applicationAccountContext } from "./applicationAccountContext.js"
 import { eventFeedCoordinatorContext } from "./eventFeedCoordinatorContext.js"
 import { sessionBranchTreeStateCreate } from "./sessionBranchTreeStateCreate.js"
 import type { SessionNavigationState } from "./sessionNavigationStateCreate.js"
@@ -37,6 +38,11 @@ export function sessionListStateCreate(
 ) {
   const pageSize = sessionsSidebarPageSizeResolve()
   const eventFeed = useContext(eventFeedCoordinatorContext)
+  const account = useContext(applicationAccountContext)
+  // A signed-out reader may only browse cached settled sessions; the
+  // authenticated list endpoint is never called on their behalf. Without an
+  // account provider the list is unscoped and stays enabled.
+  const isSignedIn = () => account === undefined || account.userId() !== null
   const fetcher = options.fetcher ?? fetch
   const client = apiHttpClientCreate({ fetch: fetcher })
   const pageCursors = createSignalObject<Array<string | undefined>>([undefined])
@@ -63,6 +69,12 @@ export function sessionListStateCreate(
   createEffect(() => {
     const requested = requestedPage.get()
     refreshVersion.get()
+    if (!isSignedIn()) {
+      pageResults.set([])
+      nextCursor.set(null)
+      status.set("complete")
+      return
+    }
     const { cursor, index: pageIndex } = requested
     if (pageIndex === 0) status.set("loading")
 
@@ -217,6 +229,7 @@ export function sessionListStateCreate(
       refreshVersion.set(refreshVersion.get() + 1)
     },
     emptyMessage: () => {
+      if (!isSignedIn()) return "Sign in to see your conversations."
       if (activeTab() === "search" && !search.isActive()) return "Enter a search term to find conversations."
       if (activeTab() === "search") return "No conversations match your search."
       if (activeTab() === "pinned") return "No pinned conversations."

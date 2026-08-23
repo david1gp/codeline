@@ -1,9 +1,10 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
+import { type ApiSequence } from "../../api/schema/apiSequenceSchema.js"
 import { messageApiRecordCreate } from "../../message/api/messageApiRecordCreate.js"
 import {
-  sessionSettledSnapshotResponseSchema,
   type SessionSettledSnapshotResponse,
+  sessionSettledSnapshotResponseSchema,
 } from "./sessionSettledSnapshotResponseSchema.js"
 import { sessionShellCreate } from "./sessionShellCreate.js"
 
@@ -11,6 +12,7 @@ type SessionSettledSnapshotMessage = Parameters<typeof messageApiRecordCreate>[0
 
 export function sessionSettledSnapshotResponseCreate(input: {
   asOfCursor: string
+  asOfSequence?: ApiSequence
   etag: string
   messages: SessionSettledSnapshotMessage[]
   revision: number
@@ -30,6 +32,7 @@ export function sessionSettledSnapshotResponseCreate(input: {
 
   const parsed = v.safeParse(sessionSettledSnapshotResponseSchema, {
     asOfCursor: input.asOfCursor,
+    ...(input.asOfSequence === undefined ? {} : { asOfSequence: input.asOfSequence }),
     etag: input.etag,
     messages,
     revision: input.revision,

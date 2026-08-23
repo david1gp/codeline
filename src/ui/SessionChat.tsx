@@ -83,9 +83,13 @@ export function SessionChat(props: {
             <textarea
               class="max-h-[200px] min-h-6 w-full flex-1 resize-none border-none bg-transparent text-sm leading-relaxed text-foreground outline-none placeholder:text-placeholder disabled:text-disabled"
               aria-label="Message"
-              placeholder="Send a message. Enter sends, Shift+Enter adds a newline."
+              placeholder={
+                props.state.readOnlyNotice?.() === undefined
+                  ? "Send a message. Enter sends, Shift+Enter adds a newline."
+                  : "Read-only. Sending is unavailable."
+              }
               rows={2}
-              disabled={props.state.isBusy()}
+              disabled={props.state.isBusy() || props.state.readOnlyNotice?.() !== undefined}
               value={props.state.draft()}
               onInput={(event) => props.state.draftUpdate(event.currentTarget.value)}
               onKeyDown={props.state.keyDownHandle}

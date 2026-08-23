@@ -4,12 +4,16 @@ import { apiHttpClientCreate } from "../api/client/apiHttpClientCreate.js"
 import type { EventFeedReconciliationCallbacks, EventFeedResetBootstrap } from "../events/client/eventFeedCreate.js"
 import { runStatusSchema } from "../run/schema/runStatusSchema.js"
 import { sessionStreamSnapshotFetch } from "../run/ui/sessionStreamSnapshotFetch.js"
-import { sessionSnapshotResponseSchema } from "../session/api/sessionSnapshotResponseSchema.js"
+import {
+  type SessionSnapshotResponse,
+  sessionSnapshotResponseSchema,
+} from "../session/api/sessionSnapshotResponseSchema.js"
 import { sessionListPageLoad } from "../session/client/sessionListPageLoad.js"
 import type { EventFeedResourceRevision, EventFeedStaleResource } from "../stream/client/eventFeedStateCreate.js"
 
 type EventFeedReconciliationCreateOptions = {
   fetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+  settledSnapshotCacheWrite?: (snapshot: SessionSnapshotResponse) => Result<void> | Promise<Result<void>>
 }
 
 function eventFeedResourceRevisionCreate(input: EventFeedStaleResource): EventFeedResourceRevision {
@@ -83,7 +87,14 @@ export function eventFeedReconciliationCreate(
       path: `/api/sessions/${encodeURIComponent(input.sessionId)}/snapshot`,
       responseSchema: sessionSnapshotResponseSchema,
     })
-  const sessionSnapshotReplace = (): Result<void> => createResult(undefined)
+  const sessionSnapshotReplace: EventFeedReconciliationCallbacks["sessionSnapshotReplace"] = async (snapshot) => {
+    if (options.settledSnapshotCacheWrite === undefined) return createResult(undefined)
+    try {
+      return await options.settledSnapshotCacheWrite(snapshot)
+    } catch (_error) {
+      return createResultError("eventFeedSessionSnapshotReplace", "The settled session snapshot could not be cached.")
+    }
+  }
   const visibleResources: EventFeedReconciliationCallbacks["visibleResources"] = () => []
 
   return {

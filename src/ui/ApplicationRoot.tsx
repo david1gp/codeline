@@ -1,14 +1,16 @@
 import type { JSX } from "solid-js"
 import { Match, Switch } from "solid-js"
-import { authSessionStateCreate } from "../identity/ui/authSessionStateCreate.js"
 import { App } from "./App.js"
 import { apiFetchContext } from "./apiFetchContext.js"
+import { applicationAccountContext } from "./applicationAccountContext.js"
+import { applicationRootStateCreate } from "./applicationRootStateCreate.js"
 import { eventFeedCoordinatorContext } from "./eventFeedCoordinatorContext.js"
 import { signedInApplicationStateCreate } from "./signedInApplicationStateCreate.js"
+import { signedOutApplicationStateCreate } from "./signedOutApplicationStateCreate.js"
 
 export function ApplicationRoot(props: { children?: JSX.Element }) {
   const fetcher = fetch
-  const session = authSessionStateCreate({ fetcher })
+  const session = applicationRootStateCreate({ fetcher })
 
   return (
     <apiFetchContext.Provider value={fetcher}>
@@ -36,6 +38,9 @@ export function ApplicationRoot(props: { children?: JSX.Element }) {
               </button>
             </div>
           </main>
+        </Match>
+        <Match when={session.isSignedOutCachedBrowsing()}>
+          <SignedOutCachedShell>{props.children}</SignedOutCachedShell>
         </Match>
         <Match when={session.status() === "signed-out"}>
           <main class="grid min-h-screen place-items-center px-6 py-12">
@@ -89,11 +94,32 @@ function ProtectedShell(props: {
     userId: () => props.userId,
   })
 
+  const account = { userId: () => props.userId }
+
   return (
-    <eventFeedCoordinatorContext.Provider value={state.eventFeed}>
-      <App applicationShell={state.applicationShell} auth={state.auth} state={state.state}>
+    <applicationAccountContext.Provider value={account}>
+      <eventFeedCoordinatorContext.Provider value={state.eventFeed}>
+        <App applicationShell={state.applicationShell} auth={state.auth} state={state.state}>
+          {props.children}
+        </App>
+      </eventFeedCoordinatorContext.Provider>
+    </applicationAccountContext.Provider>
+  )
+}
+
+/**
+ * Read-only shell for a signed-out visitor browsing the last locally active
+ * account's cached settled sessions. No event feed is opened and no
+ * authenticated identity is exposed, so every mutation path stays disabled.
+ */
+function SignedOutCachedShell(props: { children?: JSX.Element }) {
+  const state = signedOutApplicationStateCreate()
+
+  return (
+    <applicationAccountContext.Provider value={state.account}>
+      <App applicationShell={state.applicationShell} state={state.state}>
         {props.children}
       </App>
-    </eventFeedCoordinatorContext.Provider>
+    </applicationAccountContext.Provider>
   )
 }

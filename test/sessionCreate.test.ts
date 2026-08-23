@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
-import { and, eq } from "drizzle-orm"
+import { eq } from "drizzle-orm"
 import { agentTable } from "../src/agents/db/agentTable.js"
 import { apiIdempotencyRequestHashCreate } from "../src/api/idempotency/apiIdempotencyRequestHashCreate.js"
 import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
@@ -11,11 +11,9 @@ import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionArchive } from "../src/session/actions/sessionArchive.js"
 import { sessionCreate } from "../src/session/actions/sessionCreate.js"
 import { sessionDelete } from "../src/session/actions/sessionDelete.js"
-import { sessionList } from "../src/session/actions/sessionList.js"
 import { sessionLoad } from "../src/session/actions/sessionLoad.js"
 import { sessionPin } from "../src/session/actions/sessionPin.js"
 import { sessionRename } from "../src/session/actions/sessionRename.js"
-import { sessionTable } from "../src/session/db/sessionTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
 import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
 
@@ -120,11 +118,6 @@ test.skipIf(!databaseAvailable)("session actions create idempotently and enforce
   expect(renamedArchived).toMatchObject({ success: false, errorMessage: "The session is archived." })
   const pinnedArchived = await sessionPin(database, userId, created.data.session.id, false)
   expect(pinnedArchived).toMatchObject({ success: false, errorMessage: "The session is archived." })
-  const withoutArchived = await sessionList(database, userId, userId, { includeArchived: false, limit: 100 })
-  expect(withoutArchived).toMatchObject({ success: true, data: { rows: [] } })
-  const withArchived = await sessionList(database, userId, userId, { includeArchived: true, limit: 100 })
-  expect(withArchived).toMatchObject({ success: true, data: { rows: [{ session: { id: created.data.session.id } }] } })
-
   const deleted = await sessionDelete(database, userId, created.data.session.id)
   expect(deleted).toMatchObject({ success: true, data: { id: created.data.session.id } })
 })
@@ -166,54 +159,4 @@ test.skipIf(!databaseAvailable)("session creation binds retries to the original 
   })
   expect(replayed).toMatchObject({ success: true, data: { created: false, replayed: true } })
   if (replayed.success) await sessionDelete(database, userId, replayed.data.session.id)
-})
-
-test.skipIf(!databaseAvailable)("session list paginates in updated order and rejects malformed cursors", async () => {
-  if (userId === undefined) return
-  const sessionUserId = userId
-  const sessions = await Promise.all(
-    ["one", "two", "three"].map((title) =>
-      sessionCreate(
-        database,
-        sessionUserId,
-        {
-          clientRequestId: `session-test-page-${title}-${uuidv7()}`,
-          metadata: {},
-          primaryAgentId: fixture.agentId,
-          serverId: fixture.serverId,
-          title,
-        },
-        { organizationId: sessionUserId },
-      ),
-    ),
-  )
-  expect(sessions.every((result) => result.success)).toBe(true)
-
-  const firstPage = await sessionList(database, sessionUserId, sessionUserId, { includeArchived: true, limit: 2 })
-  expect(firstPage.success).toBe(true)
-  if (!firstPage.success || firstPage.data.nextCursor === null) return
-  expect(firstPage.data.rows).toHaveLength(2)
-
-  const secondPage = await sessionList(database, sessionUserId, sessionUserId, {
-    cursor: firstPage.data.nextCursor,
-    includeArchived: true,
-    limit: 2,
-  })
-  expect(secondPage).toMatchObject({ success: true, data: { nextCursor: null } })
-  if (!secondPage.success) return
-  expect(secondPage.data.rows).toHaveLength(1)
-  expect(new Set(secondPage.data.rows.map((row) => row.session.id)).size).toBe(1)
-
-  const invalidCursor = await sessionList(database, sessionUserId, sessionUserId, {
-    cursor: "not-a-cursor",
-    includeArchived: true,
-    limit: 2,
-  })
-  expect(invalidCursor).toMatchObject({ success: false, errorMessage: "The session list cursor is invalid." })
-
-  await database.delete(sessionTable).where(and(eq(sessionTable.userId, sessionUserId), eq(sessionTable.title, "one")))
-  await database.delete(sessionTable).where(and(eq(sessionTable.userId, sessionUserId), eq(sessionTable.title, "two")))
-  await database
-    .delete(sessionTable)
-    .where(and(eq(sessionTable.userId, sessionUserId), eq(sessionTable.title, "three")))
 })

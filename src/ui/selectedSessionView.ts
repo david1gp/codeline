@@ -1,4 +1,5 @@
 import type { finalizedMessageCopyStateCreate } from "../message/ui/finalizedMessageCopyStateCreate.js"
+import type { SessionReadOnlyReason } from "../session/client/sessionReadOnlyReasonResolve.js"
 import type { sessionRenameControlStateCreate } from "../session/ui/sessionRenameControlStateCreate.js"
 import type { SessionChatState } from "./sessionChatStateCreate.js"
 import type { sessionDisplayModeStateCreate } from "./sessionDisplayModeStateCreate.js"
@@ -33,6 +34,10 @@ export type SelectedSessionView = {
   isSessionError: () => boolean
   isSessionLoading: () => boolean
   messages: () => ReadonlyArray<SelectedSessionViewMessage>
+  /** Explains why the open session is read-only, or null when it is editable. */
+  readOnlyReason: () => SessionReadOnlyReason | null
+  /** Single-sentence notice matching `readOnlyReason`, or undefined when editable. */
+  readOnlyNotice: () => string | undefined
   refresh: () => void
   revalidate: () => void
   displayMode: ReturnType<typeof sessionDisplayModeStateCreate>
