@@ -8,12 +8,25 @@ const resetScript = await Bun.file(new URL("../scripts/dbReset.ts", import.meta.
 const seedScript = await Bun.file(new URL("../scripts/dbSeed.ts", import.meta.url)).text()
 const resetLockScript = await Bun.file(new URL("../scripts/managedDatabaseResetLockRun.ts", import.meta.url)).text()
 const consumersScript = await Bun.file(new URL("../scripts/managedDatabaseConsumersStop.ts", import.meta.url)).text()
+const installScript = await Bun.file(new URL("../ops/dev/systemd/install.sh", import.meta.url)).text()
 
 test("the known managed consumer inventory remains explicit", () => {
   expect(managedDatabaseConsumerUnitsRead()).toEqual(["codeline-dev-api.service"])
   expect(consumersScript).toContain("managedDatabaseConsumerUnitsRead()")
   expect(consumersScript).toContain('"codeline-dev.target"')
   expect(consumersScript).not.toContain("codeline-dev-postgres.service")
+})
+
+test("managed systemd installation contains only API and UI services", () => {
+  expect(installScript).toContain("codeline-dev-api.service")
+  expect(installScript).toContain("codeline-dev-ui.service")
+  expect(installScript).toContain("codeline-dev.target")
+  expect(installScript).not.toContain("remove_legacy_links")
+  expect(installScript).not.toContain("legacy_units")
+  expect(installScript).not.toContain("legacy_quadlets")
+  expect(installScript).not.toContain("codeline-convex")
+  expect(installScript).not.toContain("codeline-dev-postgres")
+  expect(installScript).not.toContain("codeline-dev-zero-cache")
 })
 
 test("direct reset stops consumers before deleting the SQLite database and sidecars", () => {

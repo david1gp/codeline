@@ -13,4 +13,4 @@ ExecStart=/usr/bin/env bun run dev:api
 ExecStartPost=%h/codeline/ops/dev/codeline-dev.sh wait api
 Restart=on-failure
 RestartSec=2s
-TimeoutStopSec=10s
+TimeoutStopSec=30s
