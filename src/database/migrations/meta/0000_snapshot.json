@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "05beeb60-7670-4795-8e15-26a772797386",
+  "id": "e3dbc0d6-6954-4264-b0ff-efc1559f30ce",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "mutation_idempotency": {
@@ -1131,6 +1131,14 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
         },
         "created_at": {
           "name": "created_at",

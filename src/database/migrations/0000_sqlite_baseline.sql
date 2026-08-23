@@ -176,6 +176,7 @@ CREATE TABLE `note` (
 	`content` text NOT NULL,
 	`project_path` text,
 	`sort_order` integer,
+	`revision` integer DEFAULT 1 NOT NULL,
 	`created_at` integer DEFAULT (cast((julianday('now') - 2440587.5)*86400000 as integer)) NOT NULL,
 	`updated_at` integer DEFAULT (cast((julianday('now') - 2440587.5)*86400000 as integer)) NOT NULL,
 	FOREIGN KEY (`user_id`) REFERENCES `identity_user`(`id`) ON UPDATE no action ON DELETE cascade
