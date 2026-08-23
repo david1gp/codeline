@@ -37,6 +37,7 @@ test("server startup parses and forwards configured project roots", async () => 
     configuration,
     configurationStore: {} as never,
     database,
+    runStartupInterruptionReconcile: async () => ({ success: true as const, data: { interruptedRunIds: [] } }),
     serve: () => ({
       stop: async () => undefined,
       url: new URL("http://codeline.test"),
@@ -66,6 +67,7 @@ test("explicit single-root startup configuration overrides configured roots", as
     database,
     projectRootDirs: [path.resolve("injected-projects")],
     projectRootDir: path.resolve("single-project"),
+    runStartupInterruptionReconcile: async () => ({ success: true as const, data: { interruptedRunIds: [] } }),
     serve: () => ({
       stop: async () => undefined,
       url: new URL("http://codeline.test"),
@@ -93,6 +95,7 @@ test("managed startup opens the configured configuration store", async () => {
       },
       configuration,
       database,
+      runStartupInterruptionReconcile: async () => ({ success: true as const, data: { interruptedRunIds: [] } }),
       serve: () => ({
         stop: async () => undefined,
         url: new URL("http://codeline.test"),

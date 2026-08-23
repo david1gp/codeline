@@ -14,8 +14,11 @@ import { databaseCreate } from "../database/databaseCreate.js"
 import { databaseUrl } from "../database/databaseUrl.js"
 import type { JournalCursorCodec } from "../journal/actions/journalCursorCodecCreate.js"
 import { journalCursorCodecCreate } from "../journal/actions/journalCursorCodecCreate.js"
+import { journalPostCommitPublishCreate } from "../journal/actions/journalPostCommitPublishCreate.js"
 import { providerAgentCatalogLoad } from "../providers/catalog/providerAgentCatalogLoad.js"
 import type { ProviderCatalog } from "../providers/schema/providerCatalogSchema.js"
+import { runStartupInterruptionReconcile } from "../run/actions/runStartupInterruptionReconcile.js"
+import { streamLiveSubscriptionCreate } from "../stream/actions/streamLiveSubscriptionCreate.js"
 
 type Server = {
   stop: (closeActiveConnections?: boolean) => Promise<void>
@@ -43,6 +46,8 @@ type ServerStartOptions = {
     projectRootDir?: string
     providerAgentCatalog?: ProviderCatalog
     journalCursorCodec?: JournalCursorCodec
+    journalPostCommitPublish?: ReturnType<typeof journalPostCommitPublishCreate>
+    streamLiveSubscription?: ReturnType<typeof streamLiveSubscriptionCreate>
   }) => App
   configuration?: RuntimeConfiguration
   configurationStore?: ConfigurationStore
@@ -51,6 +56,7 @@ type ServerStartOptions = {
   projectRootDir?: string
   providerAgentCatalog?: ProviderCatalog
   journalCursorCodec?: JournalCursorCodec
+  runStartupInterruptionReconcile?: typeof runStartupInterruptionReconcile
   serve?: Serve
   signalSource?: SignalSource
 }
@@ -111,16 +117,29 @@ export async function serverStart(options: ServerStartOptions = {}): Promise<Ser
   const hostname = Bun.env.HOST ?? "127.0.0.1"
   const createApp = options.appCreate ?? appCreate
   const journalCursorCodec = options.journalCursorCodec ?? serverJournalCursorCodecCreate()
+  const streamLiveSubscription = streamLiveSubscriptionCreate()
+  const journalPostCommitPublish = journalPostCommitPublishCreate({
+    cursorCodec: journalCursorCodec,
+    liveSubscription: streamLiveSubscription,
+  })
+  const application = createApp({
+    configuration: configuration.data,
+    configurationStore,
+    database: database.data.db,
+    ...(options.projectRootDir === undefined ? {} : { projectRootDir: options.projectRootDir }),
+    projectRootDirs,
+    providerAgentCatalog: providerAgentCatalogResult.data,
+    journalCursorCodec,
+    journalPostCommitPublish,
+    streamLiveSubscription,
+  })
+  const reconciled = await (options.runStartupInterruptionReconcile ?? runStartupInterruptionReconcile)({
+    database: database.data.db,
+    postCommitPublish: journalPostCommitPublish,
+  })
+  if (!reconciled.success) throw new Error(reconciled.errorMessage)
   const server = (options.serve ?? (Bun.serve as Serve))({
-    fetch: createApp({
-      configuration: configuration.data,
-      configurationStore,
-      database: database.data.db,
-      ...(options.projectRootDir === undefined ? {} : { projectRootDir: options.projectRootDir }),
-      projectRootDirs,
-      providerAgentCatalog: providerAgentCatalogResult.data,
-      journalCursorCodec,
-    }).fetch,
+    fetch: application.fetch,
     hostname,
     idleTimeout: 0,
     port,

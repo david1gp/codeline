@@ -4,6 +4,7 @@ import * as v from "valibot"
 import { apiRequestParse } from "../../api/apiRequestParse.js"
 import type { AppEnvironment } from "../../api/appEnvironment.js"
 import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.js"
+import { runActiveRegistryCreate } from "../actions/runActiveRegistryCreate.js"
 import { runCancel } from "../actions/runCancel.js"
 import { runCancellationCoordinatorCreate } from "../actions/runCancellationCoordinatorCreate.js"
 import { runDelegationsLoad } from "../actions/runDelegationsLoad.js"
@@ -17,6 +18,7 @@ type ApiContext = Context<AppEnvironment>
 type RunCancellationCoordinator = ReturnType<typeof runCancellationCoordinatorCreate>
 
 type ApiRunRoutesOptions = {
+  runActiveRegistry?: ReturnType<typeof runActiveRegistryCreate>
   runCancel?: typeof runCancel
   runCancellationCoordinator?: RunCancellationCoordinator
   runDelegationsLoad?: typeof runDelegationsLoad
@@ -116,11 +118,17 @@ export function apiRunRoutesAdd(api: Hono<AppEnvironment>, options: ApiRunRoutes
     }
 
     const signalledRunIds =
+      options.runActiveRegistry?.cancel({
+        runIds: result.data.cancelledRunIds,
+        sessionId,
+        userId: context.var.requestIdentity.userId,
+      }) ??
       options.runCancellationCoordinator?.abort({
         runIds: result.data.cancelledRunIds,
         sessionId,
         userId: context.var.requestIdentity.userId,
-      }) ?? []
+      }) ??
+      []
     return context.json({ ...result.data, signalledRunIds })
   })
 }

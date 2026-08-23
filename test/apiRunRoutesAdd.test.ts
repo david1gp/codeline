@@ -2,26 +2,24 @@ import { expect, test } from "bun:test"
 import { createResult, createResultError } from "@adaptive-ds/result"
 import { Hono } from "hono"
 import type { AppEnvironment } from "../src/api/appEnvironment.js"
+import { runActiveRegistryCreate } from "../src/run/actions/runActiveRegistryCreate.js"
 import { runCancel } from "../src/run/actions/runCancel.js"
-import { runCancellationCoordinatorCreate } from "../src/run/actions/runCancellationCoordinatorCreate.js"
 import { runDelegationsLoad } from "../src/run/actions/runDelegationsLoad.js"
 import { runSessionStreamSnapshotLoad } from "../src/run/actions/runSessionStreamSnapshotLoad.js"
 import { apiRunRoutesAdd } from "../src/run/api/apiRunRoutesAdd.js"
 import type { runTable } from "../src/run/db/runTable.js"
 
-test("run cancellation route passes the authenticated session scope and exact durable IDs to the coordinator", async () => {
+test("run cancellation route passes the authenticated session scope and exact durable IDs to the active registry", async () => {
   const app = new Hono<AppEnvironment>()
-  const coordinator = runCancellationCoordinatorCreate()
-  const target = new AbortController()
-  const descendant = new AbortController()
-  const sibling = new AbortController()
+  const registry = runActiveRegistryCreate()
   const scope = { sessionId: "session-1", userId: "user-1" }
   const run = { id: "durable-target" } as typeof runTable.$inferSelect
   let received: Parameters<typeof runCancel> | undefined
 
-  coordinator.register({ ...scope, controller: target, runId: "durable-target" })
-  coordinator.register({ ...scope, controller: descendant, runId: "descendant" })
-  coordinator.register({ ...scope, controller: sibling, runId: "sibling" })
+  const target = registry.register({ ...scope, runId: "durable-target" })
+  const descendant = registry.register({ ...scope, runId: "descendant" })
+  const sibling = registry.register({ ...scope, runId: "sibling" })
+  expect(target.success && descendant.success && sibling.success).toBe(true)
   app.use("*", async (context, next) => {
     context.set("database", {} as AppEnvironment["Variables"]["database"])
     context.set("requestIdentity", { userId: scope.userId })
@@ -42,7 +40,7 @@ test("run cancellation route passes the authenticated session scope and exact du
         run,
       })
     },
-    runCancellationCoordinator: coordinator,
+    runActiveRegistry: registry,
   })
 
   const response = await app.request("http://codeline.test/sessions/session-1/runs/client-target/cancel", {
@@ -58,9 +56,10 @@ test("run cancellation route passes the authenticated session scope and exact du
     descendantsCancelled: 1,
     signalledRunIds: ["durable-target", "descendant"],
   })
-  expect(target.signal.aborted).toBe(true)
-  expect(descendant.signal.aborted).toBe(true)
-  expect(sibling.signal.aborted).toBe(false)
+  if (!target.success || !descendant.success || !sibling.success) return
+  expect(target.data.lifecycle.signal.aborted).toBe(true)
+  expect(descendant.data.lifecycle.signal.aborted).toBe(true)
+  expect(sibling.data.lifecycle.signal.aborted).toBe(false)
 })
 
 test("run cancellation route rejects an invalid command body", async () => {

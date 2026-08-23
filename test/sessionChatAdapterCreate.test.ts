@@ -2,6 +2,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test"
 import { randomBytes } from "node:crypto"
 import { mkdtempSync, rmSync } from "node:fs"
 import { join } from "node:path"
+import { createResult } from "@adaptive-ds/result"
 import { EventType, type StreamChunk } from "@tanstack/ai"
 import { and, asc, eq } from "drizzle-orm"
 import { agentTable } from "../src/agents/db/agentTable.js"
@@ -17,13 +18,14 @@ import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentit
 import { organizationMemberTable } from "../src/identity/db/organizationMemberTable.js"
 import { organizationTable } from "../src/identity/db/organizationTable.js"
 import { journalCursorCodecCreate } from "../src/journal/actions/journalCursorCodecCreate.js"
+import { journalEventTable } from "../src/journal/db/journalEventTable.js"
 import { messageAppend } from "../src/message/actions/messageAppend.js"
 import { messageTable } from "../src/message/db/messageTable.js"
 import {
   type ProviderRuntimeAdapterOptions,
   providerRuntimeAdapterCreate,
 } from "../src/providers/runtime/providerRuntimeAdapterCreate.js"
-import { runCancellationCoordinatorCreate } from "../src/run/actions/runCancellationCoordinatorCreate.js"
+import { runActiveRegistryCreate } from "../src/run/actions/runActiveRegistryCreate.js"
 import { runCreate } from "../src/run/actions/runCreate.js"
 import { runTransition } from "../src/run/actions/runTransition.js"
 import { attemptTable } from "../src/run/db/attemptTable.js"
@@ -818,6 +820,51 @@ test.skipIf(!databaseAvailable)("chat transitions the admitted run and attempt t
   }
 })
 
+test.skipIf(!databaseAvailable)("journals provider deltas before compacting the completed run", async () => {
+  if (userId === undefined) return
+  const sessionId = await sessionCreateForTest(userId, "Chat journal output", fixture.serverId, fixture.agentId)
+  const lifecycle = await configurationStoreForTest()
+  const published: Array<typeof journalEventTable.$inferSelect> = []
+  try {
+    const lifecycleApp = chatAppCreate({
+      configurationStore: lifecycle.store,
+      journalPostCommitPublish: async (events) => {
+        published.push(...events)
+        return createResult(undefined)
+      },
+    })
+    const runId = `session-chat-journal-output-${uuidv7()}`
+    const response = await lifecycleApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+      body: JSON.stringify(chatBody(sessionId, runId, "journal this")),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+
+    expect(response.status).toBe(200)
+    expect((await sseEvents(response)).at(-1)?.type).toBe("RUN_FINISHED")
+    const rows = await runRowsForTest(sessionId, runId)
+    const persistedRunId = rows.runs[0]?.id
+    const runEvents = published.filter((event) => event.runId === persistedRunId)
+    expect(runEvents.map((event) => event.eventType)).toEqual(["delta", "delta", "run-completed"])
+    expect(runEvents.slice(0, 2).map((event) => (event.payload as { delta?: string }).delta)).toEqual([
+      "Deterministic response: ",
+      "journal this",
+    ])
+    const firstDelta = runEvents[0]
+    expect(firstDelta).toBeDefined()
+    if (firstDelta === undefined) return
+    expect((firstDelta.payload as { deltaKind?: string; messageId?: string }).deltaKind).toBe("text")
+    expect((firstDelta.payload as { messageId?: string }).messageId).toBe(`assistant-${runId}`)
+
+    const durable = await database.select().from(journalEventTable).where(eq(journalEventTable.userId, userId))
+    expect(durable.filter((event) => event.runId === persistedRunId).map((event) => event.eventType)).toEqual([
+      "run-completed",
+    ])
+  } finally {
+    rmSync(lifecycle.configDirectory, { force: true, recursive: true })
+  }
+})
+
 test.skipIf(!databaseAvailable)("chat transitions a provider failure to failed", async () => {
   if (userId === undefined) return
   const sessionId = await sessionCreateForTest(userId, "Chat lifecycle failure", fixture.serverId, fixture.agentId)
@@ -1081,11 +1128,14 @@ test.skipIf(!databaseAvailable)("chat continues execution after the request disc
   if (userId === undefined) return
   const sessionId = await sessionCreateForTest(userId, "Chat lifecycle abort", fixture.serverId, fixture.agentId)
   const lifecycle = await configurationStoreForTest()
+  const activeRegistry = runActiveRegistryCreate()
+  let providerSignal: AbortSignal | undefined
   let startedResolve: () => void = () => {}
   const started = new Promise<void>((resolve) => {
     startedResolve = resolve
   })
   const abortAdapter: ChatAdapter = (input) => {
+    providerSignal = input.signal
     startedResolve()
     return sessionChatAdapterCreate(input)
   }
@@ -1095,6 +1145,7 @@ test.skipIf(!databaseAvailable)("chat continues execution after the request disc
       configuration,
       configurationStore: lifecycle.store,
       database,
+      runActiveRegistry: activeRegistry,
       sessionChatAdapter: abortAdapter,
     })
     const runId = `session-chat-lifecycle-abort-${uuidv7()}`
@@ -1107,7 +1158,15 @@ test.skipIf(!databaseAvailable)("chat continues execution after the request disc
     })
     const bodyPromise = response.text()
     await started
+    const durableRun = (await runRowsForTest(sessionId, runId)).runs[0]
+    if (durableRun === undefined) throw new Error("Expected an admitted durable run")
+    if (providerSignal === undefined) throw new Error("Expected the provider execution signal")
+    const observedProviderSignal = providerSignal
+    const registeredExecution = activeRegistry.lookup(durableRun.id)
+    if (registeredExecution === undefined) throw new Error("Expected the run registry execution")
+    expect(observedProviderSignal).toBe(registeredExecution.signal)
     controller.abort()
+    expect(observedProviderSignal.aborted).toBe(false)
     await bodyPromise
 
     const rows = await runRowsForTest(sessionId, runId)
@@ -1173,14 +1232,16 @@ test.skipIf(!databaseAvailable)(
     if (userId === undefined) return
     const sessionId = await sessionCreateForTest(userId, "Chat cancellation command", fixture.serverId, fixture.agentId)
     const lifecycle = await configurationStoreForTest()
-    const coordinator = runCancellationCoordinatorCreate()
+    const activeRegistry = runActiveRegistryCreate()
     let startedResolve: () => void = () => {}
     let adapterAborted = false
+    let providerSignal: AbortSignal | undefined
     const started = new Promise<void>((resolve) => {
       startedResolve = resolve
     })
     const abortAdapter: ChatAdapter = (input) =>
       (async function* () {
+        providerSignal = input.signal
         startedResolve()
         yield runStartedChunk(input)
         await new Promise<void>((resolve) => {
@@ -1205,7 +1266,7 @@ test.skipIf(!databaseAvailable)(
         configuration,
         configurationStore: lifecycle.store,
         database,
-        runCancellationCoordinator: coordinator,
+        runActiveRegistry: activeRegistry,
         sessionChatAdapter: abortAdapter,
       })
       const runId = `session-chat-cancellation-command-${uuidv7()}`
@@ -1220,6 +1281,11 @@ test.skipIf(!databaseAvailable)(
       const admitted = await runRowsForTest(sessionId, runId)
       const durableRun = admitted.runs[0]
       if (durableRun === undefined) throw new Error("Expected an admitted durable run")
+      if (providerSignal === undefined) throw new Error("Expected the provider execution signal")
+      const observedProviderSignal = providerSignal
+      const registeredExecution = activeRegistry.lookup(durableRun.id)
+      if (registeredExecution === undefined) throw new Error("Expected the run registry execution")
+      expect(observedProviderSignal).toBe(registeredExecution.signal)
       const cancelled = await lifecycleApp.request(
         `http://codeline.test/api/sessions/${sessionId}/runs/${runId}/cancel`,
         { method: "POST" },
@@ -1230,6 +1296,7 @@ test.skipIf(!databaseAvailable)(
         signalledRunIds: [durableRun.id],
       })
       expect(adapterAborted).toBe(true)
+      expect(observedProviderSignal.aborted).toBe(true)
 
       await bodyPromise
       const completed = await runRowsForTest(sessionId, runId)
@@ -1272,21 +1339,20 @@ test.skipIf(!databaseAvailable)(
       expect(
         await runTransition(database, userId, sessionId, inactive.data.run.id, { status: "succeeded" }),
       ).toMatchObject({ success: true })
-      const inactiveController = new AbortController()
-      const unregisterInactive = coordinator.register({
-        controller: inactiveController,
+      const inactiveRegistration = activeRegistry.register({
         runId: inactive.data.run.id,
         sessionId,
         userId,
       })
+      if (!inactiveRegistration.success) throw new Error(inactiveRegistration.errorMessage)
       const inactiveCancellation = await lifecycleApp.request(
         `http://codeline.test/api/sessions/${sessionId}/runs/${inactive.data.run.clientRunId}/cancel`,
         { method: "POST" },
       )
       expect(inactiveCancellation.status).toBe(200)
       expect(await inactiveCancellation.json()).toMatchObject({ cancelledRunIds: [], signalledRunIds: [] })
-      expect(inactiveController.signal.aborted).toBe(false)
-      unregisterInactive()
+      expect(inactiveRegistration.data.lifecycle.signal.aborted).toBe(false)
+      inactiveRegistration.data.cleanup()
     } finally {
       rmSync(lifecycle.configDirectory, { force: true, recursive: true })
     }
@@ -1566,7 +1632,7 @@ test.skipIf(!databaseAvailable)("chat propagates explicit Stop to the active del
   if (userId === undefined) return
   const sessionId = await sessionCreateForTest(userId, "Delegation stop", fixture.serverId, fixture.agentId)
   const lifecycle = await configurationStoreForTest()
-  const coordinator = runCancellationCoordinatorCreate()
+  const activeRegistry = runActiveRegistryCreate()
   let childStartedResolve: () => void = () => undefined
   const childStarted = new Promise<void>((resolve) => {
     childStartedResolve = resolve
@@ -1592,7 +1658,7 @@ test.skipIf(!databaseAvailable)("chat propagates explicit Stop to the active del
       configurationStore: lifecycle.store,
       database,
       providerRuntimeAdapterCreate: stoppingRuntimeAdapter,
-      runCancellationCoordinator: coordinator,
+      runActiveRegistry: activeRegistry,
     })
     const runId = `session-chat-delegation-stop-${uuidv7()}`
     const response = await delegatedApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {

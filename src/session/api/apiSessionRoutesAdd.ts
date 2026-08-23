@@ -28,6 +28,7 @@ import type { ProviderModelDiscoveryOptions } from "../../providers/runtime/prov
 import { providerRuntimeAdapterCreate } from "../../providers/runtime/providerRuntimeAdapterCreate.js"
 import { providerRuntimeAdapterResolve } from "../../providers/runtime/providerRuntimeAdapterResolve.js"
 import type { ProviderCatalog } from "../../providers/schema/providerCatalogSchema.js"
+import { runActiveRegistryCreate } from "../../run/actions/runActiveRegistryCreate.js"
 import { runCancellationCoordinatorCreate } from "../../run/actions/runCancellationCoordinatorCreate.js"
 import { runChildCreate } from "../../run/actions/runChildCreate.js"
 import { runCreate } from "../../run/actions/runCreate.js"
@@ -36,6 +37,7 @@ import { runDelegationFinalize } from "../../run/actions/runDelegationFinalize.j
 import { runExecutionSnapshotResolve } from "../../run/actions/runExecutionSnapshotResolve.js"
 import { runFailureClassResolve } from "../../run/actions/runFailureClassResolve.js"
 import { runLoad } from "../../run/actions/runLoad.js"
+import { runProviderOutputCreate } from "../../run/actions/runProviderOutputCreate.js"
 import { runRetryAttemptCreate } from "../../run/actions/runRetryAttemptCreate.js"
 import { runTransition } from "../../run/actions/runTransition.js"
 import type { attemptTable } from "../../run/db/attemptTable.js"
@@ -140,6 +142,7 @@ type ApiSessionRoutesOptions = {
   projectRootDirs?: readonly string[]
   providerDelegationToolLoopCreate?: typeof providerDelegationToolLoopCreate
   providerRuntimeAdapterCreate?: typeof providerRuntimeAdapterCreate
+  runActiveRegistry?: ReturnType<typeof runActiveRegistryCreate>
   runCancellationCoordinator?: ReturnType<typeof runCancellationCoordinatorCreate>
   runChildCreate?: typeof runChildCreate
   runDelegationExecute?: typeof runDelegationExecute
@@ -563,7 +566,13 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
             return sessionChatChildExecutionStreamCreate({ adapter: resolved.data, run, signal, task })
           },
           cancellationRegister: (registration) =>
-            options.runCancellationCoordinator?.register(registration) ?? (() => undefined),
+            options.runActiveRegistry !== undefined
+              ? (() => {
+                  const registered = options.runActiveRegistry.register(registration)
+                  if (!registered.success) throw new Error(registered.errorMessage)
+                  return registered.data.cleanup
+                })()
+              : (options.runCancellationCoordinator?.register(registration) ?? (() => undefined)),
           childCreate: (childInput) => runChildCreateAction(options.database, userId, sessionId, childInput),
           delegationFinalize: (delegationId, result) =>
             runDelegationFinalizeAction(options.database, userId, sessionId, delegationId, result),
@@ -590,7 +599,6 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
       return internalServerError(context)
     }
 
-    const executionAbortController = new AbortController()
     const requestSignal = context.req.raw.signal
 
     const eventIds: Array<string | undefined> = []
@@ -661,15 +669,45 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
             : resolved.data
       }
 
-      const unregisterCancellation =
+      let executionSignal: AbortSignal
+      let unregisterCancellation: (() => void) | undefined
+      const executionRunId = admittedRun?.id ?? parsed.data.runId
+      const createdProviderOutput =
         admittedRun === undefined
           ? undefined
-          : options.runCancellationCoordinator?.register({
-              controller: executionAbortController,
+          : runProviderOutputCreate({
+              database: options.database,
+              journalPostCommitPublish: options.journalPostCommitPublish,
               runId: admittedRun.id,
+              scheduler: {
+                clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+                setTimeout: (handler, timeoutMs) => setTimeout(handler, timeoutMs),
+              },
               sessionId,
               userId,
             })
+      let providerOutput = createdProviderOutput
+      if (options.runActiveRegistry !== undefined) {
+        const registered = options.runActiveRegistry.register({
+          ...(createdProviderOutput === undefined ? {} : { providerOutput: createdProviderOutput }),
+          runId: executionRunId,
+          sessionId,
+          userId,
+        })
+        if (!registered.success) return internalServerError(context)
+        providerOutput = registered.data.lifecycle.providerOutput
+        executionSignal = registered.data.lifecycle.signal
+        unregisterCancellation = registered.data.cleanup
+      } else {
+        const executionAbortController = new AbortController()
+        executionSignal = executionAbortController.signal
+        unregisterCancellation = options.runCancellationCoordinator?.register({
+          controller: executionAbortController,
+          runId: executionRunId,
+          sessionId,
+          userId,
+        })
+      }
       stream = (async function* () {
         let currentAttempt = admittedAttempt
         let replayService = initialReplayService
@@ -687,13 +725,49 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
               },
               onTerminal: async (terminal) => {
                 if (activeRun === undefined || currentAttempt === undefined) return
-                const transitioned = await runTransitionAction(
-                  options.database,
-                  userId,
-                  sessionId,
-                  activeRun.id,
-                  terminal,
-                )
+                const providerFailureFinalize = async (): Promise<void> => {
+                  if (providerOutput === undefined || terminal.failure === undefined) return
+                  const finalized = await providerOutput.finalize({
+                    failure: terminal.failure,
+                    messageId: terminal.messageId,
+                    status: "failed",
+                  })
+                  if (!finalized.success) throw new Error(finalized.errorMessage)
+                  activeRun = finalized.data.run
+                  activeAttempt = finalized.data.attempt
+                }
+                if (providerOutput !== undefined && terminal.status === "failed" && terminal.failure !== undefined) {
+                  if (runFailureClassResolve(terminal.failure) !== "retryable") {
+                    await providerFailureFinalize()
+                    return
+                  }
+                }
+                if (providerOutput !== undefined && terminal.status === "succeeded") {
+                  const finalized = await providerOutput.finalize({
+                    assistantText: terminal.assistantText,
+                    messageId: terminal.messageId,
+                    status: terminal.status,
+                  })
+                  if (!finalized.success) throw new Error(finalized.errorMessage)
+                  activeRun = finalized.data.run
+                  activeAttempt = finalized.data.attempt
+                  return
+                }
+                if (providerOutput !== undefined && terminal.status === "aborted") {
+                  const finalized = await providerOutput.finalize({
+                    messageId: terminal.messageId,
+                    reason: "The chat run was aborted.",
+                    status: terminal.status,
+                  })
+                  if (!finalized.success) throw new Error(finalized.errorMessage)
+                  activeRun = finalized.data.run
+                  activeAttempt = finalized.data.attempt
+                  return
+                }
+                const transitioned = await runTransitionAction(options.database, userId, sessionId, activeRun.id, {
+                  failure: terminal.failure,
+                  status: terminal.status,
+                })
                 if (!transitioned.success) throw new Error(transitioned.errorMessage)
                 activeRun = transitioned.data.run
                 activeAttempt = transitioned.data.attempt
@@ -702,10 +776,16 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
 
                 const retry = await runRetryAttemptCreateAction(options.database, userId, sessionId, activeRun.id)
                 if (!retry.success) {
-                  if (retry.errorMessage.includes("The run retry was not admitted:")) return
+                  if (retry.errorMessage.includes("The run retry was not admitted:")) {
+                    await providerFailureFinalize()
+                    return
+                  }
                   throw new Error(retry.errorMessage)
                 }
-                if (retry.data.attempt.status !== "accepted") return
+                if (retry.data.attempt.status !== "accepted") {
+                  await providerFailureFinalize()
+                  return
+                }
                 nextAttempt = retry.data.attempt
                 activeRun = retry.data.run
                 activeAttempt = retry.data.attempt
@@ -714,11 +794,12 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
                 }
               },
               prompt,
+              providerOutput,
               replayService,
               requestId: parsed.data.runId,
               runId: parsed.data.runId,
               sessionId,
-              signal: executionAbortController.signal,
+              signal: executionSignal,
               userId,
             })
 

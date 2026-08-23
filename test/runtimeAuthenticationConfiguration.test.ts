@@ -223,6 +223,7 @@ test("server startup passes validated authentication configuration to the app bo
     configuration: parsed.data,
     configurationStore: {} as never,
     database: { client: { close: () => undefined }, db: {} } as never,
+    runStartupInterruptionReconcile: async () => ({ success: true as const, data: { interruptedRunIds: [] } }),
     serve: () => ({ stop: async () => undefined, url: new URL("https://codeline.example.test") }),
     signalSource: { once: () => undefined, removeListener: () => undefined },
   })

@@ -1,4 +1,4 @@
-import { createResultError } from "@adaptive-ds/result"
+import { createResultError, type Result } from "@adaptive-ds/result"
 import { EventType, type StreamChunk } from "@tanstack/ai"
 import type { DatabaseClient } from "../../database/databaseClient.js"
 import { databaseTransactionRun } from "../../database/databaseTransactionRun.js"
@@ -20,9 +20,15 @@ type SessionChatStreamCreateOptions = {
   sessionId: string
   signal: AbortSignal
   userId: string
+  providerOutput?: {
+    append: (input: unknown) => Promise<Result<void>>
+    flush: () => Promise<Result<void>>
+  }
   onEventId?: (sequence: number, eventId: string) => void
   onTerminal?: (terminal: {
+    assistantText?: string
     failure?: { code: string; message: string }
+    messageId?: string | null
     status: "succeeded" | "failed" | "aborted"
   }) => Promise<void>
 }
@@ -59,6 +65,7 @@ async function* sessionChatStreamGenerate(options: SessionChatStreamCreateOption
   let eventSequence = 0
   let terminalPersisted = false
   let terminal: StreamChunk | undefined
+  let assistantMessageId: string | null = null
 
   const eventPersist = async (chunk: StreamChunk): Promise<void> => {
     if (options.replayService === undefined) return
@@ -76,6 +83,24 @@ async function* sessionChatStreamGenerate(options: SessionChatStreamCreateOption
     options.onEventId?.(sequence, persisted.data.event.id)
   }
 
+  const providerOutputAppend = async (chunk: StreamChunk): Promise<void> => {
+    if (options.providerOutput === undefined) return
+    const appended = await options.providerOutput.append(chunk)
+    if (!appended.success) throw new Error(appended.errorMessage)
+  }
+
+  const terminalNotify = async (input: {
+    assistantText?: string
+    failure?: { code: string; message: string }
+    status: "succeeded" | "failed" | "aborted"
+  }): Promise<void> => {
+    if (options.providerOutput !== undefined) {
+      const flushed = await options.providerOutput.flush()
+      if (!flushed.success) throw new Error(flushed.errorMessage)
+    }
+    await options.onTerminal?.({ ...input, messageId: assistantMessageId })
+  }
+
   try {
     try {
       for await (const chunk of options.adapter({
@@ -89,11 +114,14 @@ async function* sessionChatStreamGenerate(options: SessionChatStreamCreateOption
         if (options.signal.aborted) return
         if (terminal !== undefined) throw new Error("The chat adapter emitted data after completion.")
 
+        if ("messageId" in chunk && typeof chunk.messageId === "string") assistantMessageId = chunk.messageId
+
         if (chunk.type === EventType.TEXT_MESSAGE_CONTENT) assistantText += chunk.delta
         if (chunk.type === EventType.RUN_ERROR) {
+          await providerOutputAppend(chunk)
           await eventPersist(chunk)
           terminalPersisted = true
-          await options.onTerminal?.({
+          await terminalNotify({
             failure: sessionChatFailureCreate(chunk, "provider_failed", "The provider reported a failed run."),
             status: "failed",
           })
@@ -102,9 +130,10 @@ async function* sessionChatStreamGenerate(options: SessionChatStreamCreateOption
         }
         if (chunk.type === EventType.RUN_FINISHED) {
           if (chunk.outcome?.type !== "success") {
+            await providerOutputAppend(chunk)
             await eventPersist(chunk)
             terminalPersisted = true
-            await options.onTerminal?.({
+            await terminalNotify({
               failure: sessionChatFailureCreate(chunk, "provider_failed", "The provider reported a failed run."),
               status: "failed",
             })
@@ -115,6 +144,7 @@ async function* sessionChatStreamGenerate(options: SessionChatStreamCreateOption
           continue
         }
 
+        await providerOutputAppend(chunk)
         await eventPersist(chunk)
         yield chunk
       }
@@ -124,7 +154,7 @@ async function* sessionChatStreamGenerate(options: SessionChatStreamCreateOption
       const errorChunk = sessionChatRunErrorCreate(sessionChatAdapterErrorMessage(error), "chat_adapter_error")
       await eventPersist(errorChunk)
       terminalPersisted = true
-      await options.onTerminal?.({
+      await terminalNotify({
         failure: sessionChatFailureCreate(errorChunk, "chat_adapter_error", "The chat adapter failed."),
         status: "failed",
       })
@@ -137,7 +167,7 @@ async function* sessionChatStreamGenerate(options: SessionChatStreamCreateOption
       const errorChunk = sessionChatRunErrorCreate("The chat adapter ended before completion.", "chat_interrupted")
       await eventPersist(errorChunk)
       terminalPersisted = true
-      await options.onTerminal?.({
+      await terminalNotify({
         failure: sessionChatFailureCreate(errorChunk, "chat_interrupted", "The chat adapter ended before completion."),
         status: "failed",
       })
@@ -148,7 +178,7 @@ async function* sessionChatStreamGenerate(options: SessionChatStreamCreateOption
       const errorChunk = sessionChatRunErrorCreate("The chat adapter returned no assistant text.", "assistant_empty")
       await eventPersist(errorChunk)
       terminalPersisted = true
-      await options.onTerminal?.({
+      await terminalNotify({
         failure: sessionChatFailureCreate(
           errorChunk,
           "assistant_empty",
@@ -159,42 +189,44 @@ async function* sessionChatStreamGenerate(options: SessionChatStreamCreateOption
       yield errorChunk
       return
     }
-
-    const persisted = await databaseTransactionRun(options.database, (transaction) =>
-      (async () => {
-        if (options.signal.aborted) return createResultError("sessionChatAssistantPersist", "The chat run was aborted.")
-        const result = await messageAppend(transaction, options.userId, options.sessionId, {
-          clientRequestId: `${options.requestId}:assistant`,
-          content: assistantText,
-          role: "assistant",
+    if (options.providerOutput === undefined) {
+      const persisted = await databaseTransactionRun(options.database, (transaction) =>
+        (async () => {
+          if (options.signal.aborted)
+            return createResultError("sessionChatAssistantPersist", "The chat run was aborted.")
+          const result = await messageAppend(transaction, options.userId, options.sessionId, {
+            clientRequestId: `${options.requestId}:assistant`,
+            content: assistantText,
+            role: "assistant",
+          })
+          if (options.signal.aborted)
+            return createResultError("sessionChatAssistantPersist", "The chat run was aborted.")
+          return result
+        })(),
+      )
+      if (options.signal.aborted) return
+      if (!persisted.success) {
+        const errorChunk = sessionChatRunErrorCreate(persisted.errorMessage, "assistant_persistence_error")
+        await eventPersist(errorChunk)
+        terminalPersisted = true
+        await terminalNotify({
+          failure: sessionChatFailureCreate(errorChunk, "assistant_persistence_error", persisted.errorMessage),
+          status: "failed",
         })
-        if (options.signal.aborted) return createResultError("sessionChatAssistantPersist", "The chat run was aborted.")
-        return result
-      })(),
-    )
-    if (options.signal.aborted) return
-    if (!persisted.success) {
-      const errorChunk = sessionChatRunErrorCreate(persisted.errorMessage, "assistant_persistence_error")
-      await eventPersist(errorChunk)
-      terminalPersisted = true
-      await options.onTerminal?.({
-        failure: sessionChatFailureCreate(errorChunk, "assistant_persistence_error", persisted.errorMessage),
-        status: "failed",
-      })
-      yield errorChunk
-      return
+        yield errorChunk
+        return
+      }
     }
-
+    await terminalNotify({ assistantText, status: "succeeded" })
     await eventPersist(terminal)
     terminalPersisted = true
-    await options.onTerminal?.({ status: "succeeded" })
     yield terminal
   } finally {
     if (!terminalPersisted && options.replayService !== undefined) {
       const errorChunk = sessionChatRunErrorCreate("The chat run was aborted.", "chat_aborted")
       await eventPersist(errorChunk).catch(() => undefined)
       if (options.signal.aborted) {
-        await options.onTerminal?.({ status: "aborted" })
+        await terminalNotify({ status: "aborted" })
       }
     }
     options.cleanup?.()

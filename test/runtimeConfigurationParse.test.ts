@@ -232,8 +232,11 @@ test("server shutdown stops the server and closes the injected database once", a
     configuration: configuration.data,
     configurationStore: {} as never,
     database,
+    runStartupInterruptionReconcile: async () => ({ success: true as const, data: { interruptedRunIds: [] } }),
     serve: () => ({
-      stop: async () => void (stopCount += 1),
+      stop: async () => {
+        stopCount += 1
+      },
       url: new URL("http://codeline.test"),
     }),
     signalSource: {

@@ -27,6 +27,7 @@ import { providerDelegationToolLoopCreate } from "../providers/runtime/providerD
 import type { ProviderModelDiscoveryOptions } from "../providers/runtime/providerModelDiscovery.js"
 import { providerRuntimeAdapterCreate } from "../providers/runtime/providerRuntimeAdapterCreate.js"
 import type { ProviderCatalog } from "../providers/schema/providerCatalogSchema.js"
+import { runActiveRegistryCreate } from "../run/actions/runActiveRegistryCreate.js"
 import { runCancel } from "../run/actions/runCancel.js"
 import { runCancellationCoordinatorCreate } from "../run/actions/runCancellationCoordinatorCreate.js"
 import { runChildCreate } from "../run/actions/runChildCreate.js"
@@ -76,6 +77,7 @@ export type AppCreateOptions = {
   providerFetch?: NonNullable<ProviderModelDiscoveryOptions["fetch"]>
   providerRuntimeAdapterCreate?: typeof providerRuntimeAdapterCreate
   runCreate?: typeof runCreate
+  runActiveRegistry?: ReturnType<typeof runActiveRegistryCreate>
   runCancel?: typeof runCancel
   runCancellationCoordinator?: ReturnType<typeof runCancellationCoordinatorCreate>
   runChildCreate?: typeof runChildCreate
@@ -101,7 +103,7 @@ export type AppCreateOptions = {
 
 export function appCreate(options: AppCreateOptions = {}): App {
   const app = new Hono<AppEnvironment>()
-  const runCancellationCoordinator = options.runCancellationCoordinator ?? runCancellationCoordinatorCreate()
+  const runActiveRegistry = options.runActiveRegistry ?? runActiveRegistryCreate()
   const streamLiveSubscription = options.streamLiveSubscription ?? streamLiveSubscriptionCreate()
   const journalPostCommitPublish =
     options.journalPostCommitPublish ??
@@ -171,8 +173,9 @@ export function appCreate(options: AppCreateOptions = {}): App {
     providerDelegationToolLoopCreate: options.providerDelegationToolLoopCreate,
     configurationStore: options.configurationStore,
     runCreate: options.runCreate,
+    runActiveRegistry,
     runCancel: options.runCancel,
-    runCancellationCoordinator,
+    runCancellationCoordinator: options.runCancellationCoordinator,
     runChildCreate: options.runChildCreate,
     runExecutionSnapshotResolve: options.runExecutionSnapshotResolve,
     runLoad: options.runLoad,
