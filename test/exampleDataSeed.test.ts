@@ -1,15 +1,16 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
-import { dirname, resolve } from "node:path"
+import { mkdtemp, rm } from "node:fs/promises"
+import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { and, eq, inArray } from "drizzle-orm"
-import { drizzle } from "drizzle-orm/postgres-js"
-import postgres from "postgres"
+import { drizzle } from "drizzle-orm/libsql"
 import { agentTable } from "../src/agents/db/agentTable.js"
 import { appCreate } from "../src/app/appCreate.js"
-import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
+import { databaseMigrate } from "../src/database/databaseMigrate.js"
 import { databaseSchema } from "../src/database/databaseSchema.js"
 import { exampleDataFixture } from "../src/database/exampleDataFixture.js"
 import { exampleDataSeed } from "../src/database/exampleDataSeed.js"
+import { openLibsql } from "../src/database/openLibsql.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { organizationMemberTable } from "../src/identity/db/organizationMemberTable.js"
 import { organizationTable } from "../src/identity/db/organizationTable.js"
@@ -20,9 +21,12 @@ import { sessionTable } from "../src/session/db/sessionTable.js"
 import { simulationScenarioSessionMetadata } from "../src/simulation/simulationScenarioSessionMetadata.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
 
-const client = postgres(Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline")
+const temporaryDirectory = await mkdtemp(join(process.env.TMPDIR ?? "/tmp", "codeline-example-seed-"))
+const databaseFilePath = join(temporaryDirectory, "db.sqlite")
+const migrationResult = await databaseMigrate(databaseFilePath)
+if (!migrationResult.success) throw new Error(migrationResult.errorMessage)
+const client = openLibsql(databaseFilePath).$client
 const database = drizzle(client, { schema: databaseSchema })
-const databaseAvailable = await databaseReadyCheck(database).then((result) => result.success)
 const catalogResult = await providerAgentCatalogLoad(resolve(dirname(fileURLToPath(import.meta.url)), ".."))
 if (!catalogResult.success) throw new Error(catalogResult.errorMessage)
 const catalogAgentIds = catalogResult.data.agents.map((agent) => agent.id)
@@ -30,7 +34,7 @@ const serverIds = exampleDataFixture.servers.map((server) => server.id)
 const agentIds = exampleDataFixture.agents.map((agent) => agent.id)
 const sessionIds = exampleDataFixture.sessions.map((session) => session.id)
 const messageIds = exampleDataFixture.sessions.flatMap((session) => session.messages.map((message) => message.id))
-const organizationExternalId = Bun.env.ZITADEL_ORGANIZATION_ID ?? "seed-test-contentoren-organization"
+const organizationExternalId = "seed-test-contentoren-organization"
 const unrelated = {
   agentId: `seed-test-agent-${uuidv7()}`,
   serverId: `seed-test-server-${uuidv7()}`,
@@ -41,7 +45,6 @@ const unrelated = {
 }
 
 beforeAll(async () => {
-  if (!databaseAvailable) return
   await database.insert(applicationUserTable).values({
     id: unrelated.userId,
     displayName: "Unrelated Seed Test User",
@@ -83,11 +86,10 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  if (databaseAvailable) {
-    await database.delete(sessionTable).where(eq(sessionTable.id, unrelated.descendantSessionId))
-    await database.delete(applicationUserTable).where(eq(applicationUserTable.id, unrelated.userId))
-  }
-  await client.end()
+  await database.delete(sessionTable).where(eq(sessionTable.id, unrelated.descendantSessionId))
+  await database.delete(applicationUserTable).where(eq(applicationUserTable.id, unrelated.userId))
+  client.close()
+  await rm(temporaryDirectory, { recursive: true, force: true })
 })
 
 test("the typed fixture has stable counts, IDs, timestamps, and content", () => {
@@ -139,14 +141,14 @@ test("the typed fixture has stable counts, IDs, timestamps, and content", () => 
   expect(exampleDataFixture.sessions.map((session) => session.pinned).slice(0, 4)).toEqual([true, false, true, true])
 })
 
-test.skipIf(!databaseAvailable)("development fixture can list and use seeded organization servers", async () => {
+test("development fixture can list and use seeded organization servers", async () => {
   const seeded = await exampleDataSeed(database, { organizationExternalId })
   expect(seeded.success).toBe(true)
 
   const developmentApp = appCreate({
     configuration: {
       authMode: "development",
-      databaseUrl: Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline",
+      databaseUrl: `file://${databaseFilePath}`,
       developmentIdentity: {
         displayName: exampleDataFixture.user.displayName,
         email: exampleDataFixture.user.email,
@@ -172,7 +174,7 @@ test.skipIf(!databaseAvailable)("development fixture can list and use seeded org
   expect(developmentAgentsBody.agents.some((agent) => agent.id === "example-agent-local")).toBe(true)
 })
 
-test.skipIf(!databaseAvailable)("rejects a conflicting organization ID without changing seeded rows", async () => {
+test("rejects a conflicting organization ID without changing seeded rows", async () => {
   const seeded = await exampleDataSeed(database, { organizationExternalId, reset: true })
   expect(seeded.success).toBe(true)
   const conflictingOrganizationExternalId = `seed-test-conflicting-${uuidv7()}`
@@ -251,7 +253,7 @@ test.skipIf(!databaseAvailable)("rejects a conflicting organization ID without c
   }
 })
 
-test.skipIf(!databaseAvailable)("reset preserves unrelated data and descendant links", async () => {
+test("reset preserves unrelated data and descendant links", async () => {
   const first = await exampleDataSeed(database, { organizationExternalId })
   expect(first).toEqual({ success: true, data: { sessionCount: 11, messageCount: 8 } })
   const second = await exampleDataSeed(database, { organizationExternalId })

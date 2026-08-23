@@ -1,13 +1,12 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
 import { eq } from "drizzle-orm"
-import { drizzle } from "drizzle-orm/postgres-js"
-import postgres from "postgres"
 import * as v from "valibot"
 import { agentListResponseSchema } from "../src/agents/api/agentListResponseSchema.js"
 import { agentTable } from "../src/agents/db/agentTable.js"
 import { appCreate } from "../src/app/appCreate.js"
+import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
+import { databaseUrl } from "../src/database/databaseUrl.js"
 import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
-import { databaseSchema } from "../src/database/databaseSchema.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
 import { organizationMemberTable } from "../src/identity/db/organizationMemberTable.js"
@@ -17,10 +16,10 @@ import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionTargetCreateResponseSchema } from "../src/session/api/sessionTargetCreateResponseSchema.js"
 import { sessionTargetLoadResponseSchema } from "../src/session/api/sessionTargetLoadResponseSchema.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
+import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
 
-const databaseUrl = Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline"
-const client = postgres(databaseUrl)
-const database = drizzle(client, { schema: databaseSchema })
+const connection = databaseTestConnectionCreate()
+const database = connection.db
 const databaseAvailable = await databaseReadyCheck(database).then((result) => result.success)
 const identityKey = `switching-user-${uuidv7()}`
 const userId = `development:${identityKey}`
@@ -71,7 +70,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (databaseAvailable) await database.delete(applicationUserTable).where(eq(applicationUserTable.id, userId))
-  await client.end()
+  await databaseConnectionClose(connection)
 })
 
 test.skipIf(!databaseAvailable)("the server list validates and contains both switchable servers", async () => {

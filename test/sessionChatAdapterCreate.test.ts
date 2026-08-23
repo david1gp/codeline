@@ -1,21 +1,22 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
+import { randomBytes } from "node:crypto"
 import { mkdtempSync, rmSync } from "node:fs"
 import { join } from "node:path"
 import { EventType, type StreamChunk } from "@tanstack/ai"
 import { and, asc, eq } from "drizzle-orm"
-import { drizzle } from "drizzle-orm/postgres-js"
-import postgres from "postgres"
 import { agentTable } from "../src/agents/db/agentTable.js"
 import { type AppCreateOptions, appCreate } from "../src/app/appCreate.js"
 import { configurationStoreCreate } from "../src/configuration/configurationStoreCreate.js"
 import { configurationStoreWrite } from "../src/configuration/configurationStoreWrite.js"
+import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
 import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
-import { databaseSchema } from "../src/database/databaseSchema.js"
 import { databaseTransactionRun } from "../src/database/databaseTransactionRun.js"
+import { databaseUrl } from "../src/database/databaseUrl.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
 import { organizationMemberTable } from "../src/identity/db/organizationMemberTable.js"
 import { organizationTable } from "../src/identity/db/organizationTable.js"
+import { journalCursorCodecCreate } from "../src/journal/actions/journalCursorCodecCreate.js"
 import { messageAppend } from "../src/message/actions/messageAppend.js"
 import { messageTable } from "../src/message/db/messageTable.js"
 import {
@@ -35,13 +36,13 @@ import { sessionCreate } from "../src/session/actions/sessionCreate.js"
 import { streamReplayServiceCreate } from "../src/stream/actions/streamReplayServiceCreate.js"
 import { streamEventTable } from "../src/stream/db/streamEventTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
+import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
 
 type ChatAdapter = NonNullable<AppCreateOptions["sessionChatAdapter"]>
 type ChatAdapterInput = Parameters<ChatAdapter>[0]
 
-const databaseUrl = Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline"
-const client = postgres(databaseUrl)
-const database = drizzle(client, { schema: databaseSchema })
+const connection = databaseTestConnectionCreate()
+const database = connection.db
 const databaseAvailable = await databaseReadyCheck(database).then((result) => result.success)
 const fixture = {
   agentId: `session-chat-agent-${uuidv7()}`,
@@ -60,7 +61,15 @@ const configuration = {
   nodeEnv: "development" as const,
   oidcOrganizationId: `development:${fixture.userKey}`,
 }
-const app = appCreate({ configuration, database })
+const journalCursorCodec = journalCursorCodecCreate({ randomBytes, secret: `session-chat-${uuidv7()}` })
+if (!journalCursorCodec.success) throw new Error(journalCursorCodec.errorMessage)
+const chatJournalCursorCodec = journalCursorCodec.data
+
+function chatAppCreate(options: AppCreateOptions = {}) {
+  return appCreate({ configuration, database, journalCursorCodec: chatJournalCursorCodec, ...options })
+}
+
+const app = chatAppCreate()
 let userId: string | undefined
 let otherUserId: string | undefined
 
@@ -330,7 +339,7 @@ afterAll(async () => {
   if (userId !== undefined) await database.delete(applicationUserTable).where(eq(applicationUserTable.id, userId))
   if (otherUserId !== undefined)
     await database.delete(applicationUserTable).where(eq(applicationUserTable.id, otherUserId))
-  await client.end()
+  await databaseConnectionClose(connection)
 })
 
 test.skipIf(!databaseAvailable)("chat success streams valid events and uses only durable history", async () => {
@@ -352,7 +361,7 @@ test.skipIf(!databaseAvailable)("chat success streams valid events and uses only
     observedHistory = input.history.map(({ content, role }) => ({ content, role }))
     return sessionChatAdapterCreate(input)
   }
-  const observingApp = appCreate({
+  const observingApp = chatAppCreate({
     configuration,
     database,
     providerEnvironment: {},
@@ -435,7 +444,7 @@ test.skipIf(!databaseAvailable)("chat completes and replays after the SSE reader
   const lifecycle = await configurationStoreForTest()
 
   try {
-    const lifecycleApp = appCreate({ configuration, configurationStore: lifecycle.store, database })
+    const lifecycleApp = chatAppCreate({ configurationStore: lifecycle.store })
     const runId = `session-chat-disconnect-${uuidv7()}`
     const response = await lifecycleApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
       body: JSON.stringify(chatBody(sessionId, runId, "disconnect")),
@@ -481,7 +490,7 @@ test.skipIf(!databaseAvailable)("chat selects the configured provider runtime wi
   const sessionId = await sessionCreateForTest(userId, "Provider chat", fixture.serverId, fixture.providerAgentId)
   const environment = { CLIPROXYAPI_API_KEY: "injected-secret" }
   let observedOptions: ProviderRuntimeAdapterOptions | undefined
-  const providerApp = appCreate({
+  const providerApp = chatAppCreate({
     configuration,
     database,
     providerEnvironment: environment,
@@ -527,7 +536,7 @@ test.skipIf(!databaseAvailable)(
     )
     const environment = { CLIPROXYAPI_API_KEY: "injected-secret" }
     let observedOptions: ProviderRuntimeAdapterOptions | undefined
-    const providerApp = appCreate({
+    const providerApp = chatAppCreate({
       configuration,
       database,
       providerEnvironment: environment,
@@ -571,7 +580,7 @@ test.skipIf(!databaseAvailable)("chat replays a checkpoint instead of resolving 
   )
   const environment = { CLIPROXYAPI_API_KEY: "injected-secret" }
   let runtimeResolutionCount = 0
-  const providerApp = appCreate({
+  const providerApp = chatAppCreate({
     configuration,
     database,
     providerEnvironment: environment,
@@ -642,7 +651,7 @@ test.skipIf(!databaseAvailable)("chat persists the user before generation and as
         timestamp: Date.now(),
       }
     })()
-  const gatedApp = appCreate({ configuration, database, sessionChatAdapter: gatedAdapter })
+  const gatedApp = chatAppCreate({ sessionChatAdapter: gatedAdapter })
   const response = await gatedApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
     body: JSON.stringify(chatBody(sessionId, `session-chat-order-${uuidv7()}`, "wait")),
     headers: { "Content-Type": "application/json" },
@@ -726,7 +735,7 @@ test.skipIf(!databaseAvailable)(
       expect(firstRevision.success).toBe(true)
       if (!firstRevision.success) return
 
-      const admissionApp = appCreate({ configuration, configurationStore: store, database })
+      const admissionApp = chatAppCreate({ configurationStore: store })
       const runId = `session-chat-admission-${uuidv7()}`
       const body = chatBody(sessionId, runId, "persist this snapshot")
       const first = await admissionApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
@@ -787,7 +796,7 @@ test.skipIf(!databaseAvailable)("chat transitions the admitted run and attempt t
   const sessionId = await sessionCreateForTest(userId, "Chat lifecycle success", fixture.serverId, fixture.agentId)
   const lifecycle = await configurationStoreForTest()
   try {
-    const lifecycleApp = appCreate({ configuration, configurationStore: lifecycle.store, database })
+    const lifecycleApp = chatAppCreate({ configurationStore: lifecycle.store })
     const runId = `session-chat-lifecycle-success-${uuidv7()}`
     const response = await lifecycleApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
       body: JSON.stringify(chatBody(sessionId, runId, "succeed")),
@@ -825,7 +834,7 @@ test.skipIf(!databaseAvailable)("chat transitions a provider failure to failed",
     })()
 
   try {
-    const lifecycleApp = appCreate({
+    const lifecycleApp = chatAppCreate({
       configuration,
       configurationStore: lifecycle.store,
       database,
@@ -877,7 +886,7 @@ test.skipIf(!databaseAvailable)("chat automatically executes an admitted retry a
   }
 
   try {
-    const lifecycleApp = appCreate({
+    const lifecycleApp = chatAppCreate({
       configuration,
       configurationStore: lifecycle.store,
       database,
@@ -933,7 +942,7 @@ test.skipIf(!databaseAvailable)("chat stops automatic retries at the persisted a
   }
 
   try {
-    const lifecycleApp = appCreate({
+    const lifecycleApp = chatAppCreate({
       configuration,
       configurationStore: lifecycle.store,
       database,
@@ -986,7 +995,7 @@ test.skipIf(!databaseAvailable)("chat replays a completed automatic retry withou
   }
 
   try {
-    const lifecycleApp = appCreate({
+    const lifecycleApp = chatAppCreate({
       configuration,
       configurationStore: lifecycle.store,
       database,
@@ -1039,7 +1048,7 @@ test.skipIf(!databaseAvailable)("chat finalizes one assistant message across aut
   }
 
   try {
-    const lifecycleApp = appCreate({
+    const lifecycleApp = chatAppCreate({
       configuration,
       configurationStore: lifecycle.store,
       database,
@@ -1082,7 +1091,7 @@ test.skipIf(!databaseAvailable)("chat continues execution after the request disc
   }
 
   try {
-    const lifecycleApp = appCreate({
+    const lifecycleApp = chatAppCreate({
       configuration,
       configurationStore: lifecycle.store,
       database,
@@ -1124,7 +1133,7 @@ test.skipIf(!databaseAvailable)(
     }
 
     try {
-      const lifecycleApp = appCreate({
+      const lifecycleApp = chatAppCreate({
         configuration,
         configurationStore: lifecycle.store,
         database,
@@ -1192,7 +1201,7 @@ test.skipIf(!databaseAvailable)(
       })()
 
     try {
-      const lifecycleApp = appCreate({
+      const lifecycleApp = chatAppCreate({
         configuration,
         configurationStore: lifecycle.store,
         database,
@@ -1239,7 +1248,7 @@ test.skipIf(!databaseAvailable)(
         developmentIdentity: { ...configuration.developmentIdentity, identityKey: fixture.otherUserKey },
         oidcOrganizationId: otherUserId,
       }
-      const ownership = await appCreate({ configuration: otherConfiguration, database }).request(
+      const ownership = await chatAppCreate({ configuration: otherConfiguration }).request(
         `http://codeline.test/api/sessions/${sessionId}/runs/${runId}/cancel`,
         { method: "POST" },
       )
@@ -1387,7 +1396,7 @@ test.skipIf(!databaseAvailable)("chat checkpoints interrupted execution without 
       yield { type: EventType.TEXT_MESSAGE_START, messageId, role: "assistant", timestamp: Date.now() }
       yield { type: EventType.TEXT_MESSAGE_CONTENT, messageId, delta: "partial", timestamp: Date.now() }
     })()
-  const failingApp = appCreate({ configuration, database, sessionChatAdapter: failingAdapter })
+  const failingApp = chatAppCreate({ sessionChatAdapter: failingAdapter })
   const runId = `session-chat-failure-${uuidv7()}`
   const response = await failingApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
     body: JSON.stringify(chatBody(sessionId, runId, "fail")),
@@ -1414,7 +1423,7 @@ test.skipIf(!databaseAvailable)("chat persists the assistant after a disconnecte
     startedResolve()
     return sessionChatAdapterCreate(input)
   }
-  const abortApp = appCreate({ configuration, database, sessionChatAdapter: abortAdapter })
+  const abortApp = chatAppCreate({ sessionChatAdapter: abortAdapter })
   const controller = new AbortController()
   const response = await abortApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
     body: JSON.stringify(chatBody(sessionId, `session-chat-abort-${uuidv7()}`, "abort")),
@@ -1440,7 +1449,7 @@ test.skipIf(!databaseAvailable)(
     const lifecycle = await configurationStoreForTest()
 
     try {
-      const delegatedApp = appCreate({ configuration, configurationStore: lifecycle.store, database })
+      const delegatedApp = chatAppCreate({ configurationStore: lifecycle.store })
       const runId = `session-chat-delegation-success-${uuidv7()}`
       const response = await delegatedApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
         body: JSON.stringify(chatBody(sessionId, runId, "delegate:inspect private child")),
@@ -1493,7 +1502,7 @@ test.skipIf(!databaseAvailable)("chat retries a delegated child without duplicat
   }
 
   try {
-    const delegatedApp = appCreate({
+    const delegatedApp = chatAppCreate({
       configuration,
       configurationStore: lifecycle.store,
       database,
@@ -1532,7 +1541,7 @@ test.skipIf(!databaseAvailable)(
     const lifecycle = await configurationStoreForTest()
 
     try {
-      const delegatedApp = appCreate({ configuration, configurationStore: lifecycle.store, database })
+      const delegatedApp = chatAppCreate({ configurationStore: lifecycle.store })
       const runId = `session-chat-delegation-budget-${uuidv7()}`
       const response = await delegatedApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
         body: JSON.stringify(chatBody(sessionId, runId, "delegate-twice:first child|second child")),
@@ -1578,7 +1587,7 @@ test.skipIf(!databaseAvailable)("chat propagates explicit Stop to the active del
   }
 
   try {
-    const delegatedApp = appCreate({
+    const delegatedApp = chatAppCreate({
       configuration,
       configurationStore: lifecycle.store,
       database,
@@ -1619,7 +1628,7 @@ test.skipIf(!databaseAvailable)("chat continues a delegated run after the SSE re
   const lifecycle = await configurationStoreForTest()
 
   try {
-    const delegatedApp = appCreate({ configuration, configurationStore: lifecycle.store, database })
+    const delegatedApp = chatAppCreate({ configurationStore: lifecycle.store })
     const runId = `session-chat-delegation-disconnect-${uuidv7()}`
     const response = await delegatedApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
       body: JSON.stringify(chatBody(sessionId, runId, "delegate:continue child")),
@@ -1661,7 +1670,7 @@ test.skipIf(!databaseAvailable)("chat replays a completed delegation without exe
   }
 
   try {
-    const delegatedApp = appCreate({
+    const delegatedApp = chatAppCreate({
       configuration,
       configurationStore: lifecycle.store,
       database,
@@ -1697,7 +1706,7 @@ test.skipIf(!databaseAvailable)(
     const lifecycle = await configurationStoreForTest()
 
     try {
-      const delegatedApp = appCreate({ configuration, configurationStore: lifecycle.store, database })
+      const delegatedApp = chatAppCreate({ configurationStore: lifecycle.store })
       const runId = `session-chat-delegation-privacy-${uuidv7()}`
       const response = await delegatedApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
         body: JSON.stringify(chatBody(sessionId, runId, "delegate:private child text")),
@@ -1817,7 +1826,7 @@ test.skipIf(!databaseAvailable)(
 
       try {
         const runId = `session-chat-simulation-${scenario.model}-${uuidv7()}`
-        const scenarioApp = appCreate({ configuration, configurationStore: lifecycle.store, database })
+        const scenarioApp = chatAppCreate({ configurationStore: lifecycle.store })
         const response = await scenarioApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
           body: JSON.stringify(chatBody(sessionId, runId, "run this deterministic scenario")),
           headers: { "Content-Type": "application/json" },
@@ -1868,7 +1877,7 @@ test.skipIf(!databaseAvailable)(
 
     try {
       const runId = `session-chat-simulation-cancellation-${uuidv7()}`
-      const scenarioApp = appCreate({ configuration, configurationStore: lifecycle.store, database })
+      const scenarioApp = chatAppCreate({ configurationStore: lifecycle.store })
       const response = await scenarioApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
         body: JSON.stringify(chatBody(sessionId, runId, "cancel this deterministic scenario")),
         headers: { "Content-Type": "application/json" },
@@ -2014,7 +2023,7 @@ test.skipIf(!databaseAvailable)(
       }
 
       try {
-        const providerApp = appCreate({
+        const providerApp = chatAppCreate({
           configuration,
           configurationStore: lifecycle.store,
           database,
@@ -2043,7 +2052,7 @@ test.skipIf(!databaseAvailable)(
         expect(requests).toHaveLength(3)
         expect(requests[1]?.tools).toBeUndefined()
         expect(
-          (requests[2]?.messages as Array<{ content: unknown; role: string }>).some(
+          ((requests[2]?.messages as Array<{ content: unknown; role: string }> | undefined) ?? []).some(
             (message) => message.role === "tool" && message.content === "child result",
           ),
         ).toBe(true)

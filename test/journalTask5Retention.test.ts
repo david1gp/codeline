@@ -1,11 +1,8 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
 import { createResult } from "@adaptive-ds/result"
 import { and, asc, eq, inArray } from "drizzle-orm"
-import { drizzle } from "drizzle-orm/postgres-js"
-import postgres from "postgres"
 import * as v from "valibot"
-import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
-import { databaseSchema } from "../src/database/databaseSchema.js"
+import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { journalEventsAppend } from "../src/journal/actions/journalEventsAppend.js"
 import { journalEventsPrune } from "../src/journal/actions/journalEventsPrune.js"
@@ -17,10 +14,10 @@ import type { JournalEventsPruneLimits } from "../src/journal/schema/journalEven
 import { journalEventsPruneLimitsSchema } from "../src/journal/schema/journalEventsPruneLimitsSchema.js"
 import type { JournalJsonValue } from "../src/journal/schema/journalJsonValueSchema.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
+import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
 
-const client = postgres(Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline")
-const database = drizzle(client, { schema: databaseSchema })
-const databaseAvailable = await databaseReadyCheck(database).then((result) => result.success)
+const connection = databaseTestConnectionCreate()
+const database = connection.db
 const fixturePrefix = `task5-retention-${uuidv7()}`
 const ageUserId = `${fixturePrefix}-age`
 const countUserId = `${fixturePrefix}-count`
@@ -42,17 +39,14 @@ const now = new Date("2026-08-22T12:00:00.000Z")
 const twelveHours = 12 * 60 * 60 * 1_000
 
 beforeAll(async () => {
-  if (!databaseAvailable) return
   await database.insert(applicationUserTable).values(fixtureUserIds.map((id) => ({ displayName: id, id })))
 })
 
 afterAll(async () => {
-  if (databaseAvailable) {
-    for (const userId of fixtureUserIds) {
-      await database.delete(applicationUserTable).where(eq(applicationUserTable.id, userId))
-    }
+  for (const userId of fixtureUserIds) {
+    await database.delete(applicationUserTable).where(eq(applicationUserTable.id, userId))
   }
-  await client.end()
+  await databaseConnectionClose(connection)
 })
 
 type FixtureEvent = {
@@ -69,15 +63,32 @@ async function fixtureEventsInsert(userId: string, events: readonly FixtureEvent
     userId,
   })
   await database.insert(journalEventTable).values(
-    events.map((event) => ({
-      createdAt: event.createdAt,
-      eventType: event.eventType,
-      id: uuidv7(),
-      payload: event.payload,
-      sequence: event.sequence,
-      userId,
-    })),
+    events.map((event) => {
+      const id = uuidv7()
+      return {
+        createdAt: event.createdAt,
+        eventType: event.eventType,
+        id,
+        payload: event.payload,
+        sequence: event.sequence,
+        serializedBytes: fixtureSerializedBytes({ ...event, id, userId }),
+        userId,
+      }
+    }),
   )
+}
+
+function fixtureSerializedBytes(input: FixtureEvent & { id: string; userId: string }): number {
+  return new TextEncoder().encode(
+    JSON.stringify({
+      id: input.id,
+      userId: input.userId,
+      sequence: input.sequence,
+      eventType: input.eventType,
+      payload: input.payload,
+      createdAt: input.createdAt.getTime(),
+    }),
+  ).byteLength
 }
 
 function fixtureLimits(overrides: Partial<JournalEventsPruneLimits> = {}): JournalEventsPruneLimits {
@@ -120,7 +131,7 @@ async function fixtureCompactSerializedBytes(userId: string) {
     .orderBy(asc(journalEventTable.sequence))
 }
 
-test.skipIf(!databaseAvailable)("prunes compact events at the twelve-hour age boundary", async () => {
+test("prunes compact events at the twelve-hour age boundary", async () => {
   await fixtureEventsInsert(ageUserId, [
     {
       createdAt: new Date(now.getTime() - twelveHours - 1),
@@ -164,100 +175,105 @@ test.skipIf(!databaseAvailable)("prunes compact events at the twelve-hour age bo
   ])
 })
 
-test.skipIf(!databaseAvailable)(
-  "prunes the oldest compact events at the count boundary without reusing sequences",
-  async () => {
-    await fixtureEventsInsert(
-      countUserId,
-      Array.from({ length: 4 }, (_, index) => ({
-        createdAt: new Date(now.getTime() - (4 - index) * 1_000),
-        eventType: "invalidate",
-        payload: { index },
-        sequence: index + 1,
-      })),
-    )
+test("prunes the oldest compact events at the count boundary without reusing sequences", async () => {
+  await fixtureEventsInsert(
+    countUserId,
+    Array.from({ length: 4 }, (_, index) => ({
+      createdAt: new Date(now.getTime() - (4 - index) * 1_000),
+      eventType: "invalidate",
+      payload: { index },
+      sequence: index + 1,
+    })),
+  )
 
-    const result = await fixturePrune(countUserId, fixtureLimits({ maxAgeMs: twelveHours * 2, maxCount: 2 }))
+  const result = await fixturePrune(countUserId, fixtureLimits({ maxAgeMs: twelveHours * 2, maxCount: 2 }))
 
-    expect(result).toMatchObject({
-      success: true,
-      data: {
-        compactEventCountAfter: 2,
-        compactEventCountBefore: 4,
-        prunedEventCount: 2,
-      },
-    })
-    const appended = await journalEventsAppend(
-      database,
-      {
-        eventType: "invalidate",
-        payload: { index: 4 },
-        resource: { resourceId: countUserId, resourceType: "test-resource" },
-      },
-      async () => createResult([countUserId]),
-    )
-    expect(appended).toMatchObject({ success: true, data: { events: [{ sequence: 5 }] } })
-    expect((await fixtureSequences(countUserId)).map((event) => event.sequence)).toEqual([3, 4, 5])
-  },
-)
+  expect(result).toMatchObject({
+    success: true,
+    data: {
+      compactEventCountAfter: 2,
+      compactEventCountBefore: 4,
+      prunedEventCount: 2,
+    },
+  })
+  const appended = await journalEventsAppend(
+    database,
+    {
+      eventType: "invalidate",
+      payload: { index: 4 },
+      resource: { resourceId: countUserId, resourceType: "test-resource" },
+    },
+    async () => createResult([countUserId]),
+  )
+  expect(appended).toMatchObject({ success: true, data: { events: [{ sequence: 5 }] } })
+  expect((await fixtureSequences(countUserId)).map((event) => event.sequence)).toEqual([3, 4, 5])
+})
 
-test.skipIf(!databaseAvailable)(
-  "prunes the oldest compact events at the serialized journal-event-size boundary",
-  async () => {
-    const payloads = ["a", "bb", "ccc"] as const
-    await fixtureEventsInsert(
-      sizeUserId,
-      payloads.map((payload, index) => ({
-        createdAt: new Date(now.getTime() - (payloads.length - index) * 1_000),
-        eventType: "run-completed",
-        payload,
-        sequence: index + 1,
-      })),
-    )
-    await database.insert(journalEventTable).values({
-      createdAt: new Date(now.getTime() - 24 * twelveHours),
+test("prunes the oldest compact events at the serialized journal-event-size boundary", async () => {
+  const payloads = ["a", "bb", "ccc"] as const
+  await fixtureEventsInsert(
+    sizeUserId,
+    payloads.map((payload, index) => ({
+      createdAt: new Date(now.getTime() - (payloads.length - index) * 1_000),
+      eventType: "run-completed",
+      payload,
+      sequence: index + 1,
+    })),
+  )
+  const createdAt = new Date(now.getTime() - 24 * twelveHours)
+  const id = uuidv7()
+  const payload = { delta: "active", padding: "this is not part of compact retention" }
+  await database.insert(journalEventTable).values({
+    createdAt,
+    eventType: "delta",
+    id,
+    payload,
+    sequence: 4,
+    serializedBytes: fixtureSerializedBytes({
+      createdAt,
       eventType: "delta",
-      id: uuidv7(),
-      payload: { delta: "active", padding: "this is not part of compact retention" },
+      id,
+      payload,
       sequence: 4,
       userId: sizeUserId,
-    })
+    }),
+    userId: sizeUserId,
+  })
 
-    const compactEventsBefore = await fixtureCompactSerializedBytes(sizeUserId)
-    const retainedSerializedBytes = compactEventsBefore.find((event) => event.sequence === 3)?.serializedBytes
-    expect(retainedSerializedBytes).toBeDefined()
-    if (retainedSerializedBytes === undefined) return
-    expect(compactEventsBefore[0]?.serializedBytes).toBeGreaterThan(
-      new TextEncoder().encode(JSON.stringify("a") ?? "null").byteLength,
-    )
+  const compactEventsBefore = await fixtureCompactSerializedBytes(sizeUserId)
+  const retainedSerializedBytes = compactEventsBefore.find((event) => event.sequence === 3)?.serializedBytes
+  expect(retainedSerializedBytes).toBeDefined()
+  if (retainedSerializedBytes === undefined) return
+  expect(compactEventsBefore[0]?.serializedBytes).toBeGreaterThan(
+    new TextEncoder().encode(JSON.stringify("a") ?? "null").byteLength,
+  )
 
-    const result = await fixturePrune(
-      sizeUserId,
-      fixtureLimits({
-        maxAgeMs: twelveHours * 2,
-        maxSerializedBytes: retainedSerializedBytes,
-      }),
-    )
+  const result = await fixturePrune(
+    sizeUserId,
+    fixtureLimits({
+      maxAgeMs: twelveHours * 2,
+      maxSerializedBytes: retainedSerializedBytes,
+    }),
+  )
 
-    const prunedSerializedBytes = compactEventsBefore
-      .filter((event) => event.sequence !== 3)
-      .reduce((total, event) => total + event.serializedBytes, 0)
-    expect(result).toMatchObject({
-      success: true,
-      data: {
-        compactSerializedBytesAfter: retainedSerializedBytes,
-        prunedEventCount: 2,
-        prunedSerializedBytes,
-      },
-    })
-    expect(await fixtureSequences(sizeUserId)).toEqual([
-      { eventType: "run-completed", sequence: 3 },
-      { eventType: "delta", sequence: 4 },
-    ])
-  },
-)
+  const prunedSerializedBytes = compactEventsBefore
+    .filter((event) => event.sequence !== 3)
+    .reduce((total, event) => total + event.serializedBytes, 0)
+  expect(result).toMatchObject({
+    success: true,
+    data: {
+      compactSerializedBytesAfter: retainedSerializedBytes,
+      prunedEventCount: 2,
+      prunedSerializedBytes,
+    },
+  })
+  expect(await fixtureSequences(sizeUserId)).toEqual([
+    { eventType: "run-completed", sequence: 3 },
+    { eventType: "delta", sequence: 4 },
+  ])
+})
 
-test.skipIf(!databaseAvailable)("isolates pruning by application user and preserves active deltas", async () => {
+test("isolates pruning by application user and preserves active deltas", async () => {
   await fixtureEventsInsert(isolationUserAId, [
     {
       createdAt: new Date(now.getTime() - twelveHours - 1),
@@ -295,7 +311,7 @@ test.skipIf(!databaseAvailable)("isolates pruning by application user and preser
   ).toEqual([{ sequence: 1, userId: isolationUserAId }])
 })
 
-test.skipIf(!databaseAvailable)("reports cursor reset recoverability when a compact cursor is pruned", async () => {
+test("reports cursor reset recoverability when a compact cursor is pruned", async () => {
   await fixtureEventsInsert(cursorUserId, [
     {
       createdAt: new Date(now.getTime() - twelveHours - 1),
@@ -347,7 +363,7 @@ test.skipIf(!databaseAvailable)("reports cursor reset recoverability when a comp
   })
 })
 
-test.skipIf(!databaseAvailable)("persists the replay boundary across repeated pruning invocations", async () => {
+test("persists the replay boundary across repeated pruning invocations", async () => {
   const repeatedUserId = `${fixturePrefix}-repeated`
   await database.insert(applicationUserTable).values({ displayName: repeatedUserId, id: repeatedUserId })
   try {
@@ -389,7 +405,7 @@ test.skipIf(!databaseAvailable)("persists the replay boundary across repeated pr
   }
 })
 
-test.skipIf(!databaseAvailable)("prunes compact events in bounded batches", async () => {
+test("prunes compact events in bounded batches", async () => {
   const events = Array.from({ length: 2_005 }, (_, index) => ({
     createdAt: new Date(now.getTime() - (2_005 - index) * 1_000),
     eventType: "invalidate",
@@ -414,7 +430,7 @@ test.skipIf(!databaseAvailable)("prunes compact events in bounded batches", asyn
   })
 })
 
-test.skipIf(!databaseAvailable)("keeps the configured twelve-hour, count, and 512 MiB limits explicit", () => {
+test("keeps the configured twelve-hour, count, and 512 MiB limits explicit", () => {
   expect(journalEventsPruneDefaultLimits).toEqual({
     maxAgeMs: twelveHours,
     maxCount: 500_000,

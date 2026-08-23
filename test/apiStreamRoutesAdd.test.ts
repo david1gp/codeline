@@ -1,13 +1,11 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
 import { eq } from "drizzle-orm"
-import { drizzle } from "drizzle-orm/postgres-js"
 import { Hono } from "hono"
-import postgres from "postgres"
 import * as v from "valibot"
 import { agentTable } from "../src/agents/db/agentTable.js"
 import type { AppEnvironment } from "../src/api/appEnvironment.js"
+import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
 import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
-import { databaseSchema } from "../src/database/databaseSchema.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import type { ApplicationUser } from "../src/identity/db/applicationUserTable.js"
 import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
@@ -24,9 +22,10 @@ import { streamApiErrorResponseSchema } from "../src/stream/api/streamApiErrorRe
 import { streamApiStatusResponseSchema } from "../src/stream/api/streamApiStatusResponseSchema.js"
 import { streamCheckpointTable } from "../src/stream/db/streamCheckpointTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
+import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
 
-const client = postgres(Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline")
-const database = drizzle(client, { schema: databaseSchema })
+const connection = databaseTestConnectionCreate()
+const database = connection.db
 const databaseAvailable = await databaseReadyCheck(database).then((result) => result.success)
 const fixture = {
   agentId: `stream-api-agent-${uuidv7()}`,
@@ -166,7 +165,7 @@ beforeAll(async () => {
 afterAll(async () => {
   if (developmentUser !== undefined)
     await database.delete(applicationUserTable).where(eq(applicationUserTable.id, developmentUser.id))
-  await client.end()
+  await databaseConnectionClose(connection)
 })
 
 test.skipIf(!databaseAvailable)("replays authorized root-run events and resumes after a Last-Event-ID", async () => {

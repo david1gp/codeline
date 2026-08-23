@@ -101,7 +101,7 @@ test("app composition forwards provider configuration and runtime dependencies",
   const app = appCreate({
     configuration: {
       authMode: "development",
-      databaseUrl: "postgres://codeline.test/codeline",
+      databaseUrl: "file:./data/db.sqlite",
       developmentIdentity: { displayName: user.displayName, identityKey: user.identityKey },
       nodeEnv: "development",
       oidcOrganizationId: "provider-composition-organization",

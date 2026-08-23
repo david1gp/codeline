@@ -1,10 +1,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
 import { randomBytes } from "node:crypto"
 import { eq } from "drizzle-orm"
-import { drizzle } from "drizzle-orm/postgres-js"
-import postgres from "postgres"
-import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
-import { databaseSchema } from "../src/database/databaseSchema.js"
+import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { journalBacklogRead } from "../src/journal/actions/journalBacklogRead.js"
 import { journalCursorCodecCreate } from "../src/journal/actions/journalCursorCodecCreate.js"
@@ -13,10 +10,10 @@ import { journalReplayBoundaryTable } from "../src/journal/db/journalReplayBound
 import { journalSequenceCounterTable } from "../src/journal/db/journalSequenceCounterTable.js"
 import type { StreamSseFrame } from "../src/stream/api/streamSseFrameSchema.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
+import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
 
-const client = postgres(Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline")
-const database = drizzle(client, { schema: databaseSchema })
-const databaseAvailable = await databaseReadyCheck(database).then((result) => result.success)
+const connection = databaseTestConnectionCreate()
+const database = connection.db
 const fixturePrefix = `task6-backlog-${uuidv7()}`
 const userId = `${fixturePrefix}-user`
 const otherUserId = `${fixturePrefix}-other`
@@ -28,7 +25,6 @@ const codecResult = journalCursorCodecCreate({
 })
 
 beforeAll(async () => {
-  if (!databaseAvailable) return
   await database.insert(applicationUserTable).values(fixtureUserIds.map((id) => ({ displayName: id, id })))
   await database.insert(journalSequenceCounterTable).values({ nextSequence: 6, userId })
   await database.insert(journalReplayBoundaryTable).values({ prunedThroughSequence: 1, userId })
@@ -41,6 +37,7 @@ beforeAll(async () => {
         id: uuidv7(),
         payload: { resourceId: `resource-${sequence}`, resourceType: "session" as const, revision: sequence },
         sequence,
+        serializedBytes: 1,
         userId: largeUserId,
       }
     }),
@@ -51,6 +48,7 @@ beforeAll(async () => {
       id: uuidv7(),
       payload: { resourceId: "session-2", resourceType: "session", revision: 2 },
       sequence: 2,
+      serializedBytes: 1,
       userId,
     },
     {
@@ -63,17 +61,16 @@ beforeAll(async () => {
         sessionRevision: 5,
       },
       sequence: 5,
+      serializedBytes: 1,
       userId,
     },
   ])
 })
 
 afterAll(async () => {
-  if (databaseAvailable) {
-    for (const fixtureUserId of fixtureUserIds)
-      await database.delete(applicationUserTable).where(eq(applicationUserTable.id, fixtureUserId))
-  }
-  await client.end()
+  for (const fixtureUserId of fixtureUserIds)
+    await database.delete(applicationUserTable).where(eq(applicationUserTable.id, fixtureUserId))
+  await databaseConnectionClose(connection)
 })
 
 function backlogRead(input: { after?: unknown; lastEventId?: unknown; userId: unknown }) {
@@ -81,7 +78,7 @@ function backlogRead(input: { after?: unknown; lastEventId?: unknown; userId: un
   return journalBacklogRead({ cursorCodec: codecResult.data, database }, input)
 }
 
-test.skipIf(!databaseAvailable)("reads durable events in sequence order without inferring gaps", async () => {
+test("reads durable events in sequence order without inferring gaps", async () => {
   const cursor = codecResult.success ? codecResult.data.encode(userId, 1) : undefined
   expect(cursor?.success).toBe(true)
   if (cursor === undefined || !cursor.success) return
@@ -98,7 +95,7 @@ test.skipIf(!databaseAvailable)("reads durable events in sequence order without 
   expect(events.map((event) => event.event)).toEqual(["invalidate", "run-completed"])
 })
 
-test.skipIf(!databaseAvailable)("uses Last-Event-ID before after", async () => {
+test("uses Last-Event-ID before after", async () => {
   if (!codecResult.success) return
   const headerCursor = codecResult.data.encode(userId, 5)
   const queryCursor = codecResult.data.encode(userId, 1)
@@ -115,7 +112,7 @@ test.skipIf(!databaseAvailable)("uses Last-Event-ID before after", async () => {
   for await (const page of result.data.pages) expect(page.success && page.data).toEqual([])
 })
 
-test.skipIf(!databaseAvailable)("streams a large durable backlog in bounded sequence pages", async () => {
+test("streams a large durable backlog in bounded sequence pages", async () => {
   const result = await backlogRead({ userId: largeUserId })
   expect(result).toMatchObject({ data: { mode: "replay", replayUpperBound: 1_100 }, success: true })
   if (!result.success) return
@@ -138,7 +135,7 @@ test.skipIf(!databaseAvailable)("streams a large durable backlog in bounded sequ
   expect(maximumPageSize).toBeLessThanOrEqual(128)
 })
 
-test.skipIf(!databaseAvailable)("returns one reset frame for an unrecoverable cursor", async () => {
+test("returns one reset frame for an unrecoverable cursor", async () => {
   if (!codecResult.success) return
   const expired = codecResult.data.encode(userId, 0)
   expect(expired.success).toBe(true)
@@ -154,7 +151,7 @@ test.skipIf(!databaseAvailable)("returns one reset frame for an unrecoverable cu
   expect(reset?.data).toMatchObject({ asOfSequence: 5, eventType: "reset", reason: "cursor-expired", sequence: 5 })
 })
 
-test.skipIf(!databaseAvailable)("rejects malformed, cross-user, and unauthenticated cursors", async () => {
+test("rejects malformed, cross-user, and unauthenticated cursors", async () => {
   const malformed = await backlogRead({ lastEventId: "not-a-cursor", userId })
   expect(malformed).toMatchObject({ code: "cursor_invalid", success: false })
 

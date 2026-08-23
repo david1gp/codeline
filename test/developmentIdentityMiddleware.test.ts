@@ -11,7 +11,7 @@ import { developmentIdentityMiddleware } from "../src/identity/api/developmentId
 
 const developmentConfiguration = {
   authMode: "development",
-  databaseUrl: "postgres://codeline.test/codeline",
+  databaseUrl: "file:./data/db.sqlite",
   oidcOrganizationId: "configured-organization",
   developmentIdentity: { displayName: "Development User", identityKey: "development" },
   nodeEnv: "development",

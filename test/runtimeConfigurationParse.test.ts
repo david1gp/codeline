@@ -12,7 +12,7 @@ import { serverStart } from "../src/server/serverStart.js"
 
 const configuration = runtimeConfigurationParse({
   authMode: "development",
-  databaseUrl: "postgres://codeline:local@127.0.0.1:6002/codeline",
+  databaseUrl: "file:./data/db.sqlite",
   developmentIdentity: {
     email: "developer@example.test",
     identityKey: "configured-developer",
@@ -26,7 +26,7 @@ const configuration = runtimeConfigurationParse({
 test("runtime configuration rejects missing development identity without exposing values", () => {
   const result = runtimeConfigurationParse({
     authMode: "development",
-    databaseUrl: "postgres://secret:password@127.0.0.1:6002/codeline",
+    databaseUrl: "file:./data/db.sqlite",
     nodeEnv: "development",
     publicOrigin: "http://127.0.0.1:6000",
   })
@@ -198,7 +198,7 @@ test("database client close is idempotent", async () => {
   let closeCount = 0
   const connection = {
     client: {
-      end: async () => {
+      close: () => {
         closeCount += 1
       },
     },
@@ -220,7 +220,11 @@ test("server shutdown stops the server and closes the injected database once", a
   let stopCount = 0
   let closeCount = 0
   const database = {
-    client: { end: async () => void (closeCount += 1) },
+    client: {
+      close: () => {
+        closeCount += 1
+      },
+    },
     db: {},
   } as never
   const server = await serverStart({

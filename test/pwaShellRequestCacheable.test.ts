@@ -10,8 +10,6 @@ test.each([
   ["GET", "https://codeline.work/favicon.ico", true],
   ["GET", "https://codeline.work/api/health", false],
   ["GET", "https://codeline.work/api/sessions/1/chat", false],
-  ["GET", "https://codeline.work/api/query", false],
-  ["GET", "https://codeline.work/sync", false],
   ["GET", "https://codeline.work/api/auth/session", false],
   ["GET", "https://codeline.work/api/auth/login", false],
   ["GET", "https://codeline.work/api/auth/callback", false],

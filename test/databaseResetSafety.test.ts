@@ -8,75 +8,41 @@ const resetScript = await Bun.file(new URL("../scripts/dbReset.ts", import.meta.
 const seedScript = await Bun.file(new URL("../scripts/dbSeed.ts", import.meta.url)).text()
 const resetLockScript = await Bun.file(new URL("../scripts/managedDatabaseResetLockRun.ts", import.meta.url)).text()
 const consumersScript = await Bun.file(new URL("../scripts/managedDatabaseConsumersStop.ts", import.meta.url)).text()
-const serviceScript = await Bun.file(new URL("../scripts/managedPostgresServiceEnsure.ts", import.meta.url)).text()
-const developmentScript = await Bun.file(new URL("../ops/dev/codeline-dev.sh", import.meta.url)).text()
-const apiService = await Bun.file(new URL("../ops/dev/systemd/codeline-dev-api.service", import.meta.url)).text()
-const developmentTarget = await Bun.file(new URL("../ops/dev/systemd/codeline-dev.target", import.meta.url)).text()
-const installer = await Bun.file(new URL("../ops/dev/systemd/install.sh", import.meta.url)).text()
 
-test("the known managed PostgreSQL consumer inventory remains explicit", () => {
+test("the known managed consumer inventory remains explicit", () => {
   expect(managedDatabaseConsumerUnitsRead()).toEqual(["codeline-dev-api.service"])
   expect(consumersScript).toContain("managedDatabaseConsumerUnitsRead()")
   expect(consumersScript).toContain('"codeline-dev.target"')
-  expect(consumersScript).toContain('"codeline-dev-postgres.service"')
+  expect(consumersScript).not.toContain("codeline-dev-postgres.service")
 })
 
-test("direct reset and reset-seed use the validated target after consumer stop and service readiness", () => {
-  expect(resetScript.indexOf("managedPostgresTargetAssert()")).toBeLessThan(
-    resetScript.indexOf("managedDatabaseConsumersStop()"),
-  )
-  expect(resetScript.indexOf("managedDatabaseConsumersStop()")).toBeLessThan(
-    resetScript.indexOf("managedPostgresServiceEnsure()"),
-  )
-  expect(resetScript.indexOf("managedPostgresServiceEnsure()")).toBeLessThan(
-    resetScript.indexOf("postgres(target.data.databaseUrl,"),
-  )
-
-  expect(seedScript.indexOf("managedPostgresTargetAssert()")).toBeLessThan(
-    seedScript.indexOf("managedDatabaseConsumersStop()"),
-  )
-  expect(seedScript.indexOf("managedDatabaseConsumersStop()")).toBeLessThan(
-    seedScript.indexOf("managedPostgresServiceEnsure()"),
-  )
-  expect(seedScript.indexOf("managedPostgresServiceEnsure()")).toBeLessThan(
-    seedScript.indexOf("databaseUrl = target.data.databaseUrl"),
-  )
-  expect(seedScript).toContain("postgres(databaseUrl)")
+test("direct reset stops consumers before deleting the SQLite database and sidecars", () => {
+  expect(resetScript).not.toContain("managedPostgresTargetAssert")
+  expect(resetScript).not.toContain("managedPostgresServiceEnsure")
+  expect(resetScript).not.toContain("postgres(")
+  expect(resetScript.indexOf("managedDatabaseConsumersStop()")).toBeLessThan(resetScript.indexOf("await rm("))
+  expect(resetScript).toContain("databasePath")
+  expect(resetScript).toMatch(/`\$\{databaseFilePath\}-wal`/)
+  expect(resetScript).toMatch(/`\$\{databaseFilePath\}-shm`/)
 
   expect(packageJson.scripts["db:reset"]).toBe("bun scripts/dbReset.ts")
   expect(packageJson.scripts["db:seed"]).toContain("bun scripts/managedDatabaseResetLockRun.ts --")
   expect(packageJson.scripts["db:seed"]).toContain("bun run db:migrate")
-  expect(packageJson.scripts["db:seed"]).toContain('bun scripts/dbSeed.ts \"$@\"')
+  expect(packageJson.scripts["db:seed"]).toContain('bun scripts/dbSeed.ts "$@"')
   expect(packageJson.scripts["db:reset-seed"]).toContain("bun scripts/managedDatabaseResetLockRun.ts --")
   expect(packageJson.scripts["db:reset-seed"]).toContain("bun run db:migrate")
   expect(packageJson.scripts["db:reset-seed"]).toContain("bun scripts/dbSeed.ts --reset")
-  expect(packageJson.scripts["db:migrate"]).toBe("drizzle-kit migrate --config drizzle.config.ts")
+  expect(packageJson.scripts["db:migrate"]).toBe("bun scripts/dbMigrate.ts")
 })
 
 test("reset workflows use a nonblocking managed-database lock", () => {
-  expect(resetLockScript).toContain("managedPostgresTargetAssert()")
-  expect(resetLockScript).toContain("databaseTarget.hostname")
+  expect(resetLockScript).not.toContain("managedPostgresTargetAssert")
+  expect(resetLockScript).toContain('"managed-sqlite"')
+  expect(resetLockScript).toContain("path.resolve(databaseFilePath)")
   expect(resetLockScript).toContain('"--nonblock"')
   expect(resetLockScript).toContain('"--conflict-exit-code"')
   expect(resetLockScript).toContain("Another managed database reset/bootstrap command")
   expect(resetLockScript).toContain("CODELINE_MANAGED_DATABASE_RESET_LOCK_HELD")
   expect(resetScript).toContain("managedDatabaseResetLockRun(")
   expect(seedScript).toContain("managedDatabaseResetLockRun(")
-})
-
-test("managed reset workflow starts and verifies PostgreSQL without enabling the full target", () => {
-  expect(serviceScript.indexOf('"start", managedPostgresService')).toBeLessThan(
-    serviceScript.indexOf('"show", managedPostgresService'),
-  )
-  expect(serviceScript).toContain('!== "active"')
-  expect(apiService).toContain("Requires=codeline-dev-postgres.service")
-  expect(developmentTarget).toContain("Requires=codeline-dev-postgres.service")
-  expect(installer).toContain("codeline-dev-postgres.container")
-  expect(installer).toContain("codeline-dev-postgres.volume")
-  expect(installer).not.toMatch(/systemctl --user\s+(?:enable|start|restart)/)
-  const resetCommands = developmentScript.slice(
-    developmentScript.indexOf("  db-reset)"),
-    developmentScript.indexOf("  down|stop)"),
-  )
-  expect(resetCommands).not.toContain("systemctl_user start codeline-dev-postgres.service")
 })

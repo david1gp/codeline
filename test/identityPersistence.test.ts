@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
 import { eq } from "drizzle-orm"
-import { drizzle } from "drizzle-orm/postgres-js"
-import postgres from "postgres"
+import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
 import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
 import { databaseSchema } from "../src/database/databaseSchema.js"
 import { identitySessionRevoke } from "../src/identity/actions/identitySessionRevoke.js"
@@ -14,9 +13,10 @@ import { oidcLoginTransactionConsume } from "../src/identity/db/oidcLoginTransac
 import { oidcLoginTransactionCreate } from "../src/identity/db/oidcLoginTransactionCreate.js"
 import { oidcLoginTransactionTable } from "../src/identity/db/oidcLoginTransactionTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
+import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
 
-const client = postgres(Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline")
-const database = drizzle(client, { schema: databaseSchema })
+const connection = databaseTestConnectionCreate()
+const database = connection.db
 const databaseAvailable = await databaseReadyCheck(database).then((result) => result.success)
 const subject = `identity-persistence-${uuidv7()}`
 const userId = `development:${subject}`
@@ -38,20 +38,20 @@ afterAll(async () => {
     await database.delete(identitySessionTable).where(eq(identitySessionTable.id, sessionId))
     await database.delete(applicationUserTable).where(eq(applicationUserTable.id, userId))
   }
-  await client.end()
+  await databaseConnectionClose(connection)
 })
 
 test.skipIf(!databaseAvailable)("migration creates a public user table and private identity tables", async () => {
-  const tables = await client.unsafe(
-    "select table_schema, table_name from information_schema.tables where (table_schema = 'public' and table_name in ('user', 'development_user')) or (table_schema = 'identity' and table_name in ('external_identity', 'session', 'oidc_login_transaction')) order by table_schema, table_name",
+  const tables = await connection.client.execute(
+    "select name from sqlite_master where type = 'table' and name in ('identity_external_identity', 'identity_oidc_login_transaction', 'identity_session', 'identity_user') order by name",
   )
-  const tableNames = tables.map(({ table_schema, table_name }) => ({ table_schema, table_name }))
+  const tableNames = tables.rows.map((row) => ({ name: String(row.name) }))
 
   expect(tableNames).toEqual([
-    { table_schema: "identity", table_name: "external_identity" },
-    { table_schema: "identity", table_name: "oidc_login_transaction" },
-    { table_schema: "identity", table_name: "session" },
-    { table_schema: "public", table_name: "user" },
+    { name: "identity_external_identity" },
+    { name: "identity_oidc_login_transaction" },
+    { name: "identity_session" },
+    { name: "identity_user" },
   ])
 })
 

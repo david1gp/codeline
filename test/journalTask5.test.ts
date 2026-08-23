@@ -2,10 +2,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test"
 import { randomBytes } from "node:crypto"
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import { asc, eq, inArray } from "drizzle-orm"
-import { drizzle } from "drizzle-orm/postgres-js"
-import postgres from "postgres"
-import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
-import { databaseSchema } from "../src/database/databaseSchema.js"
+import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { journalCursorCodecCreate } from "../src/journal/actions/journalCursorCodecCreate.js"
 import type { JournalEventRecipientResolver } from "../src/journal/actions/journalEventRecipientResolver.js"
@@ -14,10 +11,10 @@ import { journalEventTable } from "../src/journal/db/journalEventTable.js"
 import { journalSequenceCounterTable } from "../src/journal/db/journalSequenceCounterTable.js"
 import type { JournalEventAppendInput } from "../src/journal/schema/journalEventAppendInputSchema.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
+import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
 
-const client = postgres(Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline")
-const database = drizzle(client, { schema: databaseSchema })
-const databaseAvailable = await databaseReadyCheck(database).then((result) => result.success)
+const connection = databaseTestConnectionCreate()
+const database = connection.db
 const fixturePrefix = `task5-journal-${uuidv7()}`
 const orderingUserId = `${fixturePrefix}-ordering`
 const fanoutUserAId = `${fixturePrefix}-fanout-a`
@@ -38,18 +35,15 @@ const fixtureUserIds = [
 const recipientsByResourceId = new Map<string, readonly string[]>()
 
 beforeAll(async () => {
-  if (!databaseAvailable) return
   await database.insert(applicationUserTable).values(fixtureUserIds.map((id) => ({ displayName: id, id })))
 })
 
 afterAll(async () => {
-  if (databaseAvailable) await database.delete(applicationUserTable).where(eq(applicationUserTable.id, orderingUserId))
-  if (databaseAvailable) {
-    for (const userId of fixtureUserIds.slice(1)) {
-      await database.delete(applicationUserTable).where(eq(applicationUserTable.id, userId))
-    }
+  await database.delete(applicationUserTable).where(eq(applicationUserTable.id, orderingUserId))
+  for (const userId of fixtureUserIds.slice(1)) {
+    await database.delete(applicationUserTable).where(eq(applicationUserTable.id, userId))
   }
-  await client.end()
+  await databaseConnectionClose(connection)
 })
 
 function journalWriterCreate(published: Array<typeof journalEventTable.$inferSelect>) {
@@ -89,7 +83,7 @@ function journalResource(resourceId: string, authorizedUserIds: readonly string[
   return { resourceId, resourceType: "test-resource" }
 }
 
-test.skipIf(!databaseAvailable)("allocates ordered per-user sequences under concurrent PostgreSQL writes", async () => {
+test("allocates ordered per-user sequences under concurrent SQLite writes", async () => {
   const published: Array<typeof journalEventTable.$inferSelect> = []
   const writer = journalWriterCreate(published)
   const results = await Promise.all(
@@ -117,7 +111,7 @@ test.skipIf(!databaseAvailable)("allocates ordered per-user sequences under conc
   expect(counter?.nextSequence).toBe(25)
 })
 
-test.skipIf(!databaseAvailable)("fans out shared-resource events with independent ordered user journals", async () => {
+test("fans out shared-resource events with independent ordered user journals", async () => {
   const published: Array<typeof journalEventTable.$inferSelect> = []
   const writer = journalWriterCreate(published)
   const results = await Promise.all(
@@ -146,7 +140,7 @@ test.skipIf(!databaseAvailable)("fans out shared-resource events with independen
   }
 })
 
-test.skipIf(!databaseAvailable)("rejects opaque cursors belonging to another journal owner", async () => {
+test("rejects opaque cursors belonging to another journal owner", async () => {
   const codec = journalCursorCodecCreate({
     randomBytes: (size) => randomBytes(size),
     secret: "task5-test-cursor-secret",
@@ -166,115 +160,109 @@ test.skipIf(!databaseAvailable)("rejects opaque cursors belonging to another jou
   expect(codec.data.decode(`${encoded.data}invalid`)).toMatchObject({ success: false })
 })
 
-test.skipIf(!databaseAvailable)(
-  "persists before publication and publishes nothing for rolled-back writes",
-  async () => {
-    const published: Array<typeof journalEventTable.$inferSelect> = []
-    let persistedAtPublication = false
-    const writer = journalWriteCreate({
-      database,
-      resolveRecipients: journalRecipientsResolve,
-      postCommitPublish: async (events) => {
-        const [event] = events
-        if (event !== undefined) {
-          const persisted = await database
-            .select({ id: journalEventTable.id })
-            .from(journalEventTable)
-            .where(eq(journalEventTable.id, event.id))
-          persistedAtPublication = persisted.length === 1
-        }
-        published.push(...events)
-        return createResult(undefined)
-      },
-    })
+test("persists before publication and publishes nothing for rolled-back writes", async () => {
+  const published: Array<typeof journalEventTable.$inferSelect> = []
+  let persistedAtPublication = false
+  const writer = journalWriteCreate({
+    database,
+    resolveRecipients: journalRecipientsResolve,
+    postCommitPublish: async (events) => {
+      const [event] = events
+      if (event !== undefined) {
+        const persisted = await database
+          .select({ id: journalEventTable.id })
+          .from(journalEventTable)
+          .where(eq(journalEventTable.id, event.id))
+        persistedAtPublication = persisted.length === 1
+      }
+      published.push(...events)
+      return createResult(undefined)
+    },
+  })
 
-    const rolledBack: Result<void> = await writer.run({
-      resources: [journalResource("rolled-back-resource", [rollbackUserId])],
-      write: async (_transaction, journal) => {
-        const appended = await journal.append({
-          eventType: "invalidate",
-          payload: { resourceId: "rolled-back-resource" },
-          resource: journalResource("rolled-back-resource", [rollbackUserId]),
-        })
-        if (!appended.success) return createResultError("journalTask5Rollback", appended.errorMessage)
-        return createResultError("journalTask5Rollback", "The test transaction must roll back.")
-      },
-    })
-    expect(rolledBack).toMatchObject({ success: false })
-    expect(published).toHaveLength(0)
-    expect(
-      await database.select().from(journalEventTable).where(eq(journalEventTable.userId, rollbackUserId)),
-    ).toHaveLength(0)
-    expect(
-      await database
-        .select()
-        .from(journalSequenceCounterTable)
-        .where(eq(journalSequenceCounterTable.userId, rollbackUserId)),
-    ).toHaveLength(0)
+  const rolledBack: Result<void> = await writer.run({
+    resources: [journalResource("rolled-back-resource", [rollbackUserId])],
+    write: async (_transaction, journal) => {
+      const appended = await journal.append({
+        eventType: "invalidate",
+        payload: { resourceId: "rolled-back-resource" },
+        resource: journalResource("rolled-back-resource", [rollbackUserId]),
+      })
+      if (!appended.success) return createResultError("journalTask5Rollback", appended.errorMessage)
+      return createResultError("journalTask5Rollback", "The test transaction must roll back.")
+    },
+  })
+  expect(rolledBack).toMatchObject({ success: false })
+  expect(published).toHaveLength(0)
+  expect(
+    await database.select().from(journalEventTable).where(eq(journalEventTable.userId, rollbackUserId)),
+  ).toHaveLength(0)
+  expect(
+    await database
+      .select()
+      .from(journalSequenceCounterTable)
+      .where(eq(journalSequenceCounterTable.userId, rollbackUserId)),
+  ).toHaveLength(0)
 
-    const committed = await journalAppend(writer, {
-      eventType: "invalidate",
-      payload: { resourceId: "committed-resource" },
-      resource: journalResource("committed-resource", [rollbackUserId]),
-    })
-    expect(committed).toMatchObject({ success: true })
-    expect(persistedAtPublication).toBe(true)
-    expect(published).toHaveLength(1)
-  },
-)
+  const committed = await journalAppend(writer, {
+    eventType: "invalidate",
+    payload: { resourceId: "committed-resource" },
+    resource: journalResource("committed-resource", [rollbackUserId]),
+  })
+  expect(committed).toMatchObject({ success: true })
+  expect(persistedAtPublication).toBe(true)
+  expect(published).toHaveLength(1)
+})
 
-test.skipIf(!databaseAvailable)(
-  "keeps post-commit publication ordered per user across concurrent commits",
-  async () => {
-    const publicationOrder: number[] = []
-    let publicationStarted!: () => void
-    let releasePublication!: () => void
-    const firstPublicationStarted = new Promise<void>((resolve) => {
-      publicationStarted = resolve
-    })
-    const firstPublicationReleased = new Promise<void>((resolve) => {
-      releasePublication = resolve
-    })
-    let publicationCount = 0
-    const writer = journalWriteCreate({
-      database,
-      resolveRecipients: journalRecipientsResolve,
-      postCommitPublish: async (events) => {
-        const event = events[0]
-        if (event === undefined) return createResultError("journalTask5Publication", "The event is missing.")
-        publicationOrder.push(event.sequence)
-        publicationCount += 1
-        if (publicationCount === 1) {
-          publicationStarted()
-          await firstPublicationReleased
-        }
-        return createResult(undefined)
-      },
-    })
+test("keeps post-commit publication ordered per user across concurrent commits", async () => {
+  const publicationOrder: number[] = []
+  let publicationStarted!: () => void
+  let releasePublication!: () => void
+  const firstPublicationStarted = new Promise<void>((resolve) => {
+    publicationStarted = resolve
+  })
+  const firstPublicationReleased = new Promise<void>((resolve) => {
+    releasePublication = resolve
+  })
+  let publicationCount = 0
+  const writer = journalWriteCreate({
+    database,
+    resolveRecipients: journalRecipientsResolve,
+    postCommitPublish: async (events) => {
+      const event = events[0]
+      if (event === undefined) return createResultError("journalTask5Publication", "The event is missing.")
+      publicationOrder.push(event.sequence)
+      publicationCount += 1
+      if (publicationCount === 1) {
+        publicationStarted()
+        await firstPublicationReleased
+      }
+      return createResult(undefined)
+    },
+  })
 
-    const first = journalAppend(writer, {
-      eventType: "invalidate",
-      payload: { resourceId: "publication-order-resource", version: 1 },
-      resource: journalResource("publication-order-resource", [publicationUserId]),
-    })
-    await firstPublicationStarted
+  const first = journalAppend(writer, {
+    eventType: "invalidate",
+    payload: { resourceId: "publication-order-resource", version: 1 },
+    resource: journalResource("publication-order-resource", [publicationUserId]),
+  })
+  await firstPublicationStarted
 
-    const second = journalAppend(writer, {
-      eventType: "invalidate",
-      payload: { resourceId: "publication-order-resource", version: 2 },
-      resource: journalResource("publication-order-resource", [publicationUserId]),
-    })
-    await Bun.sleep(25)
-    expect(publicationOrder).toEqual([1])
+  const second = journalAppend(writer, {
+    eventType: "invalidate",
+    payload: { resourceId: "publication-order-resource", version: 2 },
+    resource: journalResource("publication-order-resource", [publicationUserId]),
+  })
+  await Bun.sleep(25)
+  expect(publicationOrder).toEqual([1])
 
-    releasePublication()
-    expect((await first).success).toBe(true)
-    expect((await second).success).toBe(true)
-    expect(publicationOrder).toEqual([1, 2])
-  },
-)
+  releasePublication()
+  expect((await first).success).toBe(true)
+  expect((await second).success).toBe(true)
+  expect(publicationOrder).toEqual([1, 2])
+})
 
-test.skipIf(!databaseAvailable)("reports post-commit publication failure after durable commit", async () => {
+test("reports post-commit publication failure after durable commit", async () => {
   const resourceId = "publication-failure-resource"
   const writer = journalWriteCreate({
     database,
@@ -317,42 +305,39 @@ test.skipIf(!databaseAvailable)("reports post-commit publication failure after d
   expect(counter?.nextSequence).toBe(2)
 })
 
-test.skipIf(!databaseAvailable)(
-  "enforces resolver, mutation, and journal-write phases in transaction order",
-  async () => {
-    const phaseOrder: string[] = []
-    const resourceId = "transaction-api-resource"
-    const writer = journalWriteCreate({
-      database,
-      resolveRecipients: async (transaction, resource) => {
-        phaseOrder.push(`resolve:${resource.resourceId}`)
-        const users = await transaction
-          .select({ id: applicationUserTable.id })
-          .from(applicationUserTable)
-          .where(eq(applicationUserTable.id, orderingUserId))
-        return createResult(users.map((user) => user.id))
-      },
-      postCommitPublish: async () => createResult(undefined),
-    })
+test("enforces resolver, mutation, and journal-write phases in transaction order", async () => {
+  const phaseOrder: string[] = []
+  const resourceId = "transaction-api-resource"
+  const writer = journalWriteCreate({
+    database,
+    resolveRecipients: async (transaction, resource) => {
+      phaseOrder.push(`resolve:${resource.resourceId}`)
+      const users = await transaction
+        .select({ id: applicationUserTable.id })
+        .from(applicationUserTable)
+        .where(eq(applicationUserTable.id, orderingUserId))
+      return createResult(users.map((user) => user.id))
+    },
+    postCommitPublish: async () => createResult(undefined),
+  })
 
-    const result = await writer.run({
-      mutate: async () => {
-        phaseOrder.push("mutate")
-        return createResult("domain-result")
-      },
-      resources: [{ resourceId, resourceType: "test-resource" }],
-      write: async (_transaction, journal) => {
-        phaseOrder.push("write")
-        const appended = await journal.append({
-          eventType: "invalidate",
-          payload: { resourceId },
-          resource: { resourceId, resourceType: "test-resource" },
-        })
-        return appended.success ? createResult(undefined) : appended
-      },
-    })
+  const result = await writer.run({
+    mutate: async () => {
+      phaseOrder.push("mutate")
+      return createResult("domain-result")
+    },
+    resources: [{ resourceId, resourceType: "test-resource" }],
+    write: async (_transaction, journal) => {
+      phaseOrder.push("write")
+      const appended = await journal.append({
+        eventType: "invalidate",
+        payload: { resourceId },
+        resource: { resourceId, resourceType: "test-resource" },
+      })
+      return appended.success ? createResult(undefined) : appended
+    },
+  })
 
-    expect(result).toMatchObject({ success: true, data: "domain-result" })
-    expect(phaseOrder).toEqual([`resolve:${resourceId}`, "mutate", "write"])
-  },
-)
+  expect(result).toMatchObject({ success: true, data: "domain-result" })
+  expect(phaseOrder).toEqual([`resolve:${resourceId}`, "mutate", "write"])
+})

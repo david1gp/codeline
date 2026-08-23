@@ -1,15 +1,14 @@
-import { afterAll, beforeAll, expect, test } from "bun:test"
+import { afterAll, afterEach, beforeAll, expect, test } from "bun:test"
 import { randomBytes } from "node:crypto"
 import { createResult } from "@adaptive-ds/result"
 import { eq } from "drizzle-orm"
-import { drizzle } from "drizzle-orm/postgres-js"
 import { Hono } from "hono"
-import postgres from "postgres"
 import { agentTable } from "../src/agents/db/agentTable.js"
 import type { AppEnvironment } from "../src/api/appEnvironment.js"
 import { appCreate } from "../src/app/appCreate.js"
+import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
 import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
-import { databaseSchema } from "../src/database/databaseSchema.js"
+import { databaseUrl } from "../src/database/databaseUrl.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
 import { organizationMemberTable } from "../src/identity/db/organizationMemberTable.js"
@@ -17,11 +16,15 @@ import { organizationTable } from "../src/identity/db/organizationTable.js"
 import { journalCursorCodecCreate } from "../src/journal/actions/journalCursorCodecCreate.js"
 import { messageTable } from "../src/message/db/messageTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
+import { sessionChatAdapterCreate } from "../src/session/actions/sessionChatAdapterCreate.js"
 import { apiSessionRoutesAdd } from "../src/session/api/apiSessionRoutesAdd.js"
+import { sessionTable } from "../src/session/db/sessionTable.js"
+import { streamEventTable } from "../src/stream/db/streamEventTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
+import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
 
-const client = postgres(Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline")
-const database = drizzle(client, { schema: databaseSchema })
+const connection = databaseTestConnectionCreate()
+const database = connection.db
 const databaseAvailable = await databaseReadyCheck(database).then((result) => result.success)
 const identityKey = `session-http-user-${uuidv7()}`
 const userId = `development:${identityKey}`
@@ -29,7 +32,7 @@ const serverId = `session-http-server-${uuidv7()}`
 const agentId = `session-http-agent-${uuidv7()}`
 const configuration = {
   authMode: "development" as const,
-  databaseUrl: Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline",
+  databaseUrl,
   developmentIdentity: {
     displayName: "Session HTTP Test User",
     identityKey,
@@ -39,7 +42,12 @@ const configuration = {
 }
 const journalCursorCodec = journalCursorCodecCreate({ randomBytes, secret: `session-http-${uuidv7()}` })
 if (!journalCursorCodec.success) throw new Error(journalCursorCodec.errorMessage)
-const app = appCreate({ configuration, database, journalCursorCodec: journalCursorCodec.data })
+const app = appCreate({
+  configuration,
+  database,
+  journalCursorCodec: journalCursorCodec.data,
+  sessionChatAdapter: sessionChatAdapterCreate,
+})
 
 test("requires the authenticated session cursor and journal dependencies at construction", () => {
   expect(() =>
@@ -92,7 +100,11 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (databaseAvailable) await database.delete(applicationUserTable).where(eq(applicationUserTable.id, userId))
-  await client.end()
+  await databaseConnectionClose(connection)
+})
+
+afterEach(async () => {
+  if (databaseAvailable) await database.delete(sessionTable).where(eq(sessionTable.userId, userId))
 })
 
 test.skipIf(!databaseAvailable)(
@@ -176,7 +188,7 @@ test.skipIf(!databaseAvailable)(
     expect(await defaultList.json()).toMatchObject({ sessions: [] })
     const archivedList = await app.request("http://codeline.test/api/sessions?includeArchived=1")
     expect(archivedList.status).toBe(200)
-    expect(await archivedList.json()).toMatchObject({ sessions: [{ session: { id: sessionId } }] })
+    expect(await archivedList.json()).toMatchObject({ sessions: [{ id: sessionId }] })
 
     sessionEtag = (await app.request(`http://codeline.test/api/sessions/${sessionId}?includeArchived=1`)).headers.get(
       "ETag",
@@ -416,6 +428,50 @@ test.skipIf(!databaseAvailable)("session HTTP routes validate requests and curso
   expect(await invalidCursor.json()).toMatchObject({ error: { code: "bad_request" } })
 })
 
+test.skipIf(!databaseAvailable)(
+  "session chat HTTP persists prepared messages and replay events in SQLite",
+  async () => {
+    const created = await app.request("http://codeline.test/api/sessions", {
+      body: JSON.stringify({
+        clientRequestId: `session-chat-http-${uuidv7()}`,
+        metadata: {},
+        primaryAgentId: agentId,
+        serverId,
+        title: "HTTP chat persistence",
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+    expect(created.status).toBe(201)
+    const sessionId = ((await created.json()) as { session: { id: string } }).session.id
+    const runId = `session-chat-http-run-${uuidv7()}`
+    const response = await app.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+      body: JSON.stringify({
+        context: [],
+        forwardedProps: {},
+        messages: [{ content: "Persist this chat", id: `prompt-${runId}`, role: "user" }],
+        runId,
+        state: {},
+        threadId: sessionId,
+        tools: [],
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+    expect(response.status).toBe(200)
+    expect(await response.text()).toContain("RUN_FINISHED")
+
+    const messages = await database.select().from(messageTable).where(eq(messageTable.sessionId, sessionId))
+    expect(messages).toMatchObject([
+      { content: "Persist this chat", role: "user", sequence: 1 },
+      { content: "Deterministic response: Persist this chat", role: "assistant", sequence: 2 },
+    ])
+    const events = await database.select().from(streamEventTable).where(eq(streamEventTable.sessionId, sessionId))
+    expect(events.length).toBeGreaterThan(0)
+    expect(events.at(-1)?.eventType).toBe("RUN_FINISHED")
+  },
+)
+
 test.skipIf(!databaseAvailable)("session and message HTTP routes persist the complete lifecycle", async () => {
   const input = {
     clientRequestId: `session-flow-request-${uuidv7()}`,
@@ -493,7 +549,7 @@ test.skipIf(!databaseAvailable)("session and message HTTP routes persist the com
 
   const listedBeforeArchive = await app.request("http://codeline.test/api/sessions")
   expect(listedBeforeArchive.status).toBe(200)
-  expect(await listedBeforeArchive.json()).toMatchObject({ sessions: [{ session: { id: sessionId } }] })
+  expect(await listedBeforeArchive.json()).toMatchObject({ sessions: [{ id: sessionId }] })
 
   const archivedRead = await app.request(`http://codeline.test/api/sessions/${sessionId}`)
   const archived = await app.request(`http://codeline.test/api/sessions/${sessionId}/archive`, {
@@ -518,7 +574,7 @@ test.skipIf(!databaseAvailable)("session and message HTTP routes persist the com
   expect(await listedAfterArchive.json()).toMatchObject({ sessions: [] })
   const listedArchived = await app.request("http://codeline.test/api/sessions?includeArchived=1")
   expect(await listedArchived.json()).toMatchObject({
-    sessions: [{ session: { id: sessionId, archivedAt: expect.any(String) } }],
+    sessions: [{ id: sessionId, archivedAt: expect.any(String) }],
   })
   const readArchived = await app.request(`http://codeline.test/api/sessions/${sessionId}`)
   expect(readArchived.status).toBe(200)

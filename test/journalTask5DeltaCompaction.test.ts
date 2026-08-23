@@ -1,10 +1,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
 import { createResult, createResultError } from "@adaptive-ds/result"
 import { asc, eq } from "drizzle-orm"
-import { drizzle } from "drizzle-orm/postgres-js"
-import postgres from "postgres"
-import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
-import { databaseSchema } from "../src/database/databaseSchema.js"
+import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { journalRunFinalize } from "../src/journal/actions/journalRunFinalize.js"
 import { journalWriteCreate } from "../src/journal/actions/journalWriteCreate.js"
@@ -12,10 +9,10 @@ import { journalEventTable } from "../src/journal/db/journalEventTable.js"
 import { journalSequenceCounterTable } from "../src/journal/db/journalSequenceCounterTable.js"
 import type { JournalEventAppendInput } from "../src/journal/schema/journalEventAppendInputSchema.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
+import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
 
-const client = postgres(Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline")
-const database = drizzle(client, { schema: databaseSchema })
-const databaseAvailable = await databaseReadyCheck(database).then((result) => result.success)
+const connection = databaseTestConnectionCreate()
+const database = connection.db
 const fixturePrefix = `task5-delta-${uuidv7()}`
 const commitUserId = `${fixturePrefix}-commit`
 const rollbackUserId = `${fixturePrefix}-rollback`
@@ -36,17 +33,14 @@ const fixtureUserIds = [
 const recipientsByResourceId = new Map<string, readonly string[]>()
 
 beforeAll(async () => {
-  if (!databaseAvailable) return
   await database.insert(applicationUserTable).values(fixtureUserIds.map((id) => ({ displayName: id, id })))
 })
 
 afterAll(async () => {
-  if (databaseAvailable) {
-    for (const userId of fixtureUserIds) {
-      await database.delete(applicationUserTable).where(eq(applicationUserTable.id, userId))
-    }
+  for (const userId of fixtureUserIds) {
+    await database.delete(applicationUserTable).where(eq(applicationUserTable.id, userId))
   }
-  await client.end()
+  await databaseConnectionClose(connection)
 })
 
 function journalWriterCreate(published: Array<typeof journalEventTable.$inferSelect>) {
@@ -124,7 +118,7 @@ async function appendDelta(
   })
 }
 
-test.skipIf(!databaseAvailable)("commits delta deletion and the compact terminal checkpoint with a gap", async () => {
+test("commits delta deletion and the compact terminal checkpoint with a gap", async () => {
   const published: Array<typeof journalEventTable.$inferSelect> = []
   const runId = `run-${uuidv7()}`
   const otherRunId = `run-${uuidv7()}`
@@ -163,7 +157,7 @@ test.skipIf(!databaseAvailable)("commits delta deletion and the compact terminal
   expect(counter?.nextSequence).toBe(5)
 })
 
-test.skipIf(!databaseAvailable)("serializes a concurrent delta append before finalization deletion", async () => {
+test("serializes a concurrent delta append before finalization deletion", async () => {
   const runId = `run-${uuidv7()}`
   const published: Array<typeof journalEventTable.$inferSelect> = []
   const writer = journalWriterCreate(published)
@@ -205,7 +199,7 @@ test.skipIf(!databaseAvailable)("serializes a concurrent delta append before fin
   ).toEqual(["run-completed"])
 })
 
-test.skipIf(!databaseAvailable)("rejects a delta that reaches a finalized run after the terminal commit", async () => {
+test("rejects a delta that reaches a finalized run after the terminal commit", async () => {
   const runId = `run-${uuidv7()}`
   journalResource(runId, [concurrencyUserId])
   let operationStarted!: () => void
@@ -239,7 +233,7 @@ test.skipIf(!databaseAvailable)("rejects a delta that reaches a finalized run af
   ).toEqual(["run-completed"])
 })
 
-test.skipIf(!databaseAvailable)("rolls back compaction and publication when the run finalization fails", async () => {
+test("rolls back compaction and publication when the run finalization fails", async () => {
   const published: Array<typeof journalEventTable.$inferSelect> = []
   const runId = `run-${uuidv7()}`
   await appendDelta(rollbackUserId, runId, "retained", "delta", published)
@@ -265,7 +259,7 @@ test.skipIf(!databaseAvailable)("rolls back compaction and publication when the 
   ).toHaveLength(1)
 })
 
-test.skipIf(!databaseAvailable)("deletes only the selected run deltas for the selected journal users", async () => {
+test("deletes only the selected run deltas for the selected journal users", async () => {
   const published: Array<typeof journalEventTable.$inferSelect> = []
   const runId = `run-${uuidv7()}`
   const otherRunId = `run-${uuidv7()}`
@@ -306,46 +300,43 @@ test.skipIf(!databaseAvailable)("deletes only the selected run deltas for the se
   expect((userBEvent.payload as { delta?: string }).delta).toBe("other user")
 })
 
-test.skipIf(!databaseAvailable)(
-  "allocates the terminal checkpoint after prior events and keeps later events ordered",
-  async () => {
-    const published: Array<typeof journalEventTable.$inferSelect> = []
-    const runId = `run-${uuidv7()}`
-    await appendDelta(orderingUserId, runId, "first", "delta", published)
-    await appendDelta(orderingUserId, runId, "second", "delta", published)
-    await appendDelta(orderingUserId, `run-${uuidv7()}`, "before terminal", "invalidate", published)
+test("allocates the terminal checkpoint after prior events and keeps later events ordered", async () => {
+  const published: Array<typeof journalEventTable.$inferSelect> = []
+  const runId = `run-${uuidv7()}`
+  await appendDelta(orderingUserId, runId, "first", "delta", published)
+  await appendDelta(orderingUserId, runId, "second", "delta", published)
+  await appendDelta(orderingUserId, `run-${uuidv7()}`, "before terminal", "invalidate", published)
 
-    const finalized = await journalFinalizerCreate(published).finalize(
-      {
-        runId,
-        terminalEvent: completedEvent(runId),
-      },
-      async () => createResult(undefined),
-    )
-    expect(finalized.success).toBe(true)
+  const finalized = await journalFinalizerCreate(published).finalize(
+    {
+      runId,
+      terminalEvent: completedEvent(runId),
+    },
+    async () => createResult(undefined),
+  )
+  expect(finalized.success).toBe(true)
 
-    const writer = journalWriterCreate(published)
-    const after = await journalAppend(writer, {
-      eventType: "invalidate",
-      payload: { resourceId: "after-terminal" },
-      resource: journalResource("after-terminal", [orderingUserId], "session"),
-    })
-    expect(after).toMatchObject({ success: true })
+  const writer = journalWriterCreate(published)
+  const after = await journalAppend(writer, {
+    eventType: "invalidate",
+    payload: { resourceId: "after-terminal" },
+    resource: journalResource("after-terminal", [orderingUserId], "session"),
+  })
+  expect(after).toMatchObject({ success: true })
 
-    const events = await database
-      .select()
-      .from(journalEventTable)
-      .where(eq(journalEventTable.userId, orderingUserId))
-      .orderBy(asc(journalEventTable.sequence))
-    expect(events.map((event) => [event.sequence, event.eventType])).toEqual([
-      [3, "invalidate"],
-      [4, "run-completed"],
-      [5, "invalidate"],
-    ])
-  },
-)
+  const events = await database
+    .select()
+    .from(journalEventTable)
+    .where(eq(journalEventTable.userId, orderingUserId))
+    .orderBy(asc(journalEventTable.sequence))
+  expect(events.map((event) => [event.sequence, event.eventType])).toEqual([
+    [3, "invalidate"],
+    [4, "run-completed"],
+    [5, "invalidate"],
+  ])
+})
 
-test.skipIf(!databaseAvailable)("publishes the compact terminal event only after committed compaction", async () => {
+test("publishes the compact terminal event only after committed compaction", async () => {
   const published: Array<typeof journalEventTable.$inferSelect> = []
   let observedCommit = false
   const runId = `run-${uuidv7()}`
@@ -384,7 +375,7 @@ test.skipIf(!databaseAvailable)("publishes the compact terminal event only after
   expect((publishedEvent.payload as { sessionRevision?: number }).sessionRevision).toBe(73)
 })
 
-test.skipIf(!databaseAvailable)("compacts deltas for prior recipients when authorization changes", async () => {
+test("compacts deltas for prior recipients when authorization changes", async () => {
   const published: Array<typeof journalEventTable.$inferSelect> = []
   const runId = `run-${uuidv7()}`
   await appendDelta(isolationUserAId, runId, "old recipient", "delta", published)
@@ -417,26 +408,23 @@ test.skipIf(!databaseAvailable)("compacts deltas for prior recipients when autho
   ).toEqual([isolationUserBId])
 })
 
-test.skipIf(!databaseAvailable)(
-  "rejects duplicate terminal finalization without rerunning the domain mutation",
-  async () => {
-    const published: Array<typeof journalEventTable.$inferSelect> = []
-    const runId = `run-${uuidv7()}`
-    journalResource(runId, [commitUserId])
-    let operationCalls = 0
-    const finalizer = journalFinalizerCreate(published)
-    const first = await finalizer.finalize({ runId, terminalEvent: completedEvent(runId) }, async () => {
-      operationCalls += 1
-      return createResult(undefined)
-    })
-    const duplicate = await finalizer.finalize({ runId, terminalEvent: completedEvent(runId) }, async () => {
-      operationCalls += 1
-      return createResult(undefined)
-    })
+test("rejects duplicate terminal finalization without rerunning the domain mutation", async () => {
+  const published: Array<typeof journalEventTable.$inferSelect> = []
+  const runId = `run-${uuidv7()}`
+  journalResource(runId, [commitUserId])
+  let operationCalls = 0
+  const finalizer = journalFinalizerCreate(published)
+  const first = await finalizer.finalize({ runId, terminalEvent: completedEvent(runId) }, async () => {
+    operationCalls += 1
+    return createResult(undefined)
+  })
+  const duplicate = await finalizer.finalize({ runId, terminalEvent: completedEvent(runId) }, async () => {
+    operationCalls += 1
+    return createResult(undefined)
+  })
 
-    expect(first.success).toBe(true)
-    expect(duplicate).toMatchObject({ code: "journal_run_already_finalized", success: false })
-    expect(operationCalls).toBe(1)
-    expect(published.filter((event) => (event.payload as { runId?: string }).runId === runId)).toHaveLength(1)
-  },
-)
+  expect(first.success).toBe(true)
+  expect(duplicate).toMatchObject({ code: "journal_run_already_finalized", success: false })
+  expect(operationCalls).toBe(1)
+  expect(published.filter((event) => (event.payload as { runId?: string }).runId === runId)).toHaveLength(1)
+})

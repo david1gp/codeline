@@ -14,7 +14,7 @@ const userId = "oidc:user-1"
 
 const configuration = {
   authMode: "oidc",
-  databaseUrl: "postgres://codeline.test/codeline",
+  databaseUrl: "file:./data/db.sqlite",
   nodeEnv: "production",
   oidcClientId: "client",
   oidcIssuer: configuredIssuer,

@@ -16,7 +16,7 @@ test("session rename component declares accessible edit and form semantics", asy
   expect(source).toContain('<h2 class="m-0 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">')
 })
 
-test("selected session exposes rename at its Zero-backed title without navigation callbacks", async () => {
+test("selected session exposes rename at its HTTP-backed title without navigation callbacks", async () => {
   const source = await Bun.file(new URL("../src/ui/SelectedSession.tsx", import.meta.url)).text()
 
   expect(source).toContain('import { SessionRenameControl } from "../session/ui/SessionRenameControl.js"')

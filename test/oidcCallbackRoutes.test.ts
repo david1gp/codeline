@@ -13,7 +13,7 @@ import { oidcResourceOwnerClaim } from "../src/identity/oidc/oidcResourceOwnerCl
 const now = new Date("2026-08-14T12:00:00.000Z")
 const configuration = {
   authMode: "oidc" as const,
-  databaseUrl: "postgres://codeline.test/codeline",
+  databaseUrl: "file:./data/db.sqlite",
   nodeEnv: "production" as const,
   oidcCallbackUrl: "https://codeline.test/login/zitadel/callback",
   oidcClientId: "client-id",

@@ -72,7 +72,7 @@ test("a failed or invalid session response renders the error state and retries",
   root.dispose()
 })
 
-test("logout revokes the server session, deletes the local Zero cache, clears state, and replaces navigation", async () => {
+test("logout revokes the server session, clears state, and replaces navigation", async () => {
   const order: string[] = []
   const root = createRoot((dispose) => ({
     dispose,
@@ -83,23 +83,17 @@ test("logout revokes the server session, deletes the local Zero cache, clears st
       },
       navigateToLogin: () => order.push("navigate"),
       sessionClear: () => order.push("clear"),
-      zero: () => ({
-        delete: async () => {
-          order.push("zero-delete")
-          return { deleted: [], errors: [] }
-        },
-      }),
     }),
   }))
 
   root.state.logout()
   await tick()
-  expect(order).toEqual(["fetch:/api/auth/logout:POST:same-origin:no-store", "zero-delete", "clear", "navigate"])
+  expect(order).toEqual(["fetch:/api/auth/logout:POST:same-origin:no-store", "clear", "navigate"])
   expect(root.state.busy()).toBe(false)
   root.dispose()
 })
 
-test("logout still clears protected state and navigates when the server or Zero cleanup fails", async () => {
+test("logout still clears protected state and navigates when the server request fails", async () => {
   const order: string[] = []
   const root = createRoot((dispose) => ({
     dispose,
@@ -109,7 +103,6 @@ test("logout still clears protected state and navigates when the server or Zero 
       },
       navigateToLogin: () => order.push("navigate"),
       sessionClear: () => order.push("clear"),
-      zero: () => ({ delete: async () => Promise.reject(new Error("blocked")) }),
     }),
   }))
 

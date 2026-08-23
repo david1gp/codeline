@@ -26,8 +26,7 @@ interface ReleaseInputFixture {
   manifest: {
     bun: { version: string }
     inputs: {
-      gitStore: Record<string, unknown>
-      zero: {
+      gitStore: {
         buildExports: Record<string, unknown>
         checkout: { defaultPath: string; environmentVariable: string }
         label: string
@@ -45,13 +44,13 @@ interface ReleaseInputFixture {
 
 async function releaseInputFixtureCreate(): Promise<ReleaseInputFixture> {
   const rootDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "codeline-release-inputs-")))
-  const checkout = path.join(rootDir, "zero")
+  const checkout = path.join(rootDir, "git-store")
   await fs.mkdir(path.join(checkout, "dist"), { recursive: true })
   await fs.writeFile(
     path.join(checkout, "package.json"),
     JSON.stringify({
-      name: "@rocicorp/zero",
-      version: "1.10.0",
+      name: "@adaptive-ds/git-store",
+      version: "0.1.0",
       exports: {
         ".": {
           types: "./dist/index.d.ts",
@@ -71,8 +70,8 @@ async function releaseInputFixtureCreate(): Promise<ReleaseInputFixture> {
   const revisionResult = await gitRun(checkout, ["rev-parse", "HEAD"])
   if (revisionResult.exitCode !== 0) throw new Error(revisionResult.stderr)
 
-  await fs.mkdir(path.join(rootDir, "node_modules/@rocicorp"), { recursive: true })
-  await fs.symlink(checkout, path.join(rootDir, "node_modules/@rocicorp/zero"))
+  await fs.mkdir(path.join(rootDir, "node_modules/@adaptive-ds"), { recursive: true })
+  await fs.symlink(checkout, path.join(rootDir, "node_modules/@adaptive-ds/git-store"))
 
   return {
     rootDir,
@@ -81,12 +80,12 @@ async function releaseInputFixtureCreate(): Promise<ReleaseInputFixture> {
       schemaVersion: 1,
       bun: { version: Bun.version },
       inputs: {
-        zero: {
-          label: "Zero fixture",
-          checkout: { environmentVariable: "ZERO_CHECKOUT", defaultPath: checkout },
+        gitStore: {
+          label: "git-store fixture",
+          checkout: { environmentVariable: "GIT_STORE_CHECKOUT", defaultPath: checkout },
           packagePath: ".",
-          packageName: "@rocicorp/zero",
-          packageVersion: "1.10.0",
+          packageName: "@adaptive-ds/git-store",
+          packageVersion: "0.1.0",
           sourceRevision: revisionResult.stdout.trim(),
           buildExports: {
             ".": {
@@ -95,16 +94,6 @@ async function releaseInputFixtureCreate(): Promise<ReleaseInputFixture> {
             },
           },
           requiredBuiltOutputs: ["dist/index.d.ts", "dist/index.js"],
-        },
-        gitStore: {
-          label: "git-store fixture",
-          checkout: { environmentVariable: "GIT_STORE_CHECKOUT", defaultPath: checkout },
-          packagePath: ".",
-          packageName: "@adaptive-ds/git-store",
-          packageVersion: "0.1.0",
-          sourceRevision: null,
-          buildExports: {},
-          requiredBuiltOutputs: [],
         },
       },
     },
@@ -115,8 +104,8 @@ async function releaseInputFixtureVerify(fixture: ReleaseInputFixture) {
   await fs.writeFile(path.join(fixture.rootDir, "release-inputs.json"), JSON.stringify(fixture.manifest))
   return releaseInputsVerify({
     root: fixture.rootDir,
-    inputNames: ["zero"],
-    checkoutPaths: { zero: fixture.checkout },
+    inputNames: ["gitStore"],
+    checkoutPaths: { gitStore: fixture.checkout },
   })
 }
 
@@ -140,7 +129,7 @@ describe("release input provenance verification", () => {
     expect(result.success).toBe(true)
 
     const childProcess = Bun.spawn(
-      ["bun", "run", "release:inputs:verify", "--", "--root", fixture.rootDir, "--input", "zero"],
+      ["bun", "run", "release:inputs:verify", "--", "--root", fixture.rootDir, "--input", "git-store"],
       { cwd: process.cwd(), stderr: "pipe", stdout: "pipe" },
     )
     const [stdout, stderr, exitCode] = await Promise.all([
@@ -149,14 +138,14 @@ describe("release input provenance verification", () => {
       childProcess.exited,
     ])
     expect(exitCode).toBe(0)
-    expect(stdout).toContain("verified Zero fixture")
+    expect(stdout).toContain("verified git-store fixture")
     expect(stderr).toContain("$ bun scripts/releaseInputsVerify.ts")
   })
 
   test("resolves a relative default checkout from the verification root", async () => {
-    fixture.manifest.inputs.zero.checkout.defaultPath = "zero"
+    fixture.manifest.inputs.gitStore.checkout.defaultPath = "git-store"
     await fs.writeFile(path.join(fixture.rootDir, "release-inputs.json"), JSON.stringify(fixture.manifest))
-    const result = await releaseInputsVerify({ root: fixture.rootDir, inputNames: ["zero"] })
+    const result = await releaseInputsVerify({ root: fixture.rootDir, inputNames: ["gitStore"] })
     expect(result.success).toBe(true)
   })
 
@@ -167,13 +156,13 @@ describe("release input provenance verification", () => {
   })
 
   test("rejects a package version mismatch", async () => {
-    fixture.manifest.inputs.zero.packageVersion = "1.9.0"
+    fixture.manifest.inputs.gitStore.packageVersion = "0.0.0"
     const result = await releaseInputFixtureVerify(fixture)
     expect(resultErrorMessage(result)).toContain("package version")
   })
 
   test("rejects a commit mismatch", async () => {
-    fixture.manifest.inputs.zero.sourceRevision = "0".repeat(40)
+    fixture.manifest.inputs.gitStore.sourceRevision = "0".repeat(40)
     const result = await releaseInputFixtureVerify(fixture)
     expect(resultErrorMessage(result)).toContain("pinned commit")
   })
@@ -193,8 +182,8 @@ describe("release input provenance verification", () => {
   test("rejects a link to the wrong package path", async () => {
     const wrongPackage = path.join(fixture.checkout, "wrong-package")
     await fs.mkdir(wrongPackage)
-    await fs.rm(path.join(fixture.rootDir, "node_modules/@rocicorp/zero"))
-    await fs.symlink(wrongPackage, path.join(fixture.rootDir, "node_modules/@rocicorp/zero"))
+    await fs.rm(path.join(fixture.rootDir, "node_modules/@adaptive-ds/git-store"))
+    await fs.symlink(wrongPackage, path.join(fixture.rootDir, "node_modules/@adaptive-ds/git-store"))
     const result = await releaseInputFixtureVerify(fixture)
     expect(resultErrorMessage(result)).toContain("link resolves to")
   })

@@ -1,11 +1,9 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
 import { and, eq } from "drizzle-orm"
-import { drizzle } from "drizzle-orm/postgres-js"
-import postgres from "postgres"
 import { agentTable } from "../src/agents/db/agentTable.js"
 import { apiIdempotencyRequestHashCreate } from "../src/api/idempotency/apiIdempotencyRequestHashCreate.js"
+import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
 import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
-import { databaseSchema } from "../src/database/databaseSchema.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
 import { organizationTable } from "../src/identity/db/organizationTable.js"
@@ -19,9 +17,10 @@ import { sessionPin } from "../src/session/actions/sessionPin.js"
 import { sessionRename } from "../src/session/actions/sessionRename.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
+import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
 
-const client = postgres(Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline")
-const database = drizzle(client, { schema: databaseSchema })
+const connection = databaseTestConnectionCreate()
+const database = connection.db
 const databaseAvailable = await databaseReadyCheck(database).then((result) => result.success)
 const fixture = {
   agentId: `session-test-agent-${uuidv7()}`,
@@ -57,7 +56,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (userId !== undefined) await database.delete(applicationUserTable).where(eq(applicationUserTable.id, userId))
-  await client.end()
+  await databaseConnectionClose(connection)
 })
 
 test.skipIf(!databaseAvailable)("session actions create idempotently and enforce ownership", async () => {

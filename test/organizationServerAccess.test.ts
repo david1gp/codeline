@@ -1,15 +1,16 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
+import { randomBytes } from "node:crypto"
 import { inArray } from "drizzle-orm"
-import { drizzle } from "drizzle-orm/postgres-js"
-import postgres from "postgres"
 import { agentTable } from "../src/agents/db/agentTable.js"
 import { appCreate } from "../src/app/appCreate.js"
+import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
+import { databaseUrl } from "../src/database/databaseUrl.js"
 import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
-import { databaseSchema } from "../src/database/databaseSchema.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
 import { organizationMemberTable } from "../src/identity/db/organizationMemberTable.js"
 import { organizationTable } from "../src/identity/db/organizationTable.js"
+import { journalCursorCodecCreate } from "../src/journal/actions/journalCursorCodecCreate.js"
 import { runCancel } from "../src/run/actions/runCancel.js"
 import { runChildCreate } from "../src/run/actions/runChildCreate.js"
 import { runCreate } from "../src/run/actions/runCreate.js"
@@ -21,10 +22,10 @@ import { streamAppend } from "../src/stream/actions/streamAppend.js"
 import { streamListAfter } from "../src/stream/actions/streamListAfter.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
+import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
 
-const databaseUrl = Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline"
-const client = postgres(databaseUrl)
-const database = drizzle(client, { schema: databaseSchema })
+const connection = databaseTestConnectionCreate()
+const database = connection.db
 const databaseAvailable = await databaseReadyCheck(database).then((result) => result.success)
 const organizationId = `server-access-organization-${uuidv7()}`
 const otherOrganizationId = `server-access-other-organization-${uuidv7()}`
@@ -93,10 +94,13 @@ afterAll(async () => {
       .delete(applicationUserTable)
       .where(inArray(applicationUserTable.id, [memberUserId, secondMemberUserId, foreignUserId]))
   }
-  await client.end()
+  await databaseConnectionClose(connection)
 })
 
 function appForUser(userId: string, organizationId: string) {
+  const journalCursorCodec = journalCursorCodecCreate({ randomBytes, secret: `server-access-${uuidv7()}` })
+  if (!journalCursorCodec.success) throw new Error(journalCursorCodec.errorMessage)
+
   return appCreate({
     configuration: {
       authMode: "development",
@@ -109,6 +113,7 @@ function appForUser(userId: string, organizationId: string) {
       oidcOrganizationId: organizationId,
     },
     database,
+    journalCursorCodec: journalCursorCodec.data,
     projectRootDirs: [],
   })
 }
@@ -159,15 +164,15 @@ test.skipIf(!databaseAvailable)("two members of one organization share server, a
   expect(firstSessionList.status).toBe(200)
   expect(secondSessionList.status).toBe(200)
   expect(foreignSessionList.status).toBe(200)
-  expect(
-    (await firstSessionList.json()).sessions.map((entry: { session: { id: string } }) => entry.session.id),
-  ).toContain(firstSessionBody.session.id)
-  expect(
-    (await secondSessionList.json()).sessions.map((entry: { session: { id: string } }) => entry.session.id),
-  ).not.toContain(firstSessionBody.session.id)
-  expect(
-    (await foreignSessionList.json()).sessions.map((entry: { session: { id: string } }) => entry.session.id),
-  ).not.toContain(firstSessionBody.session.id)
+  expect((await firstSessionList.json()).sessions.map((entry: { id: string }) => entry.id)).toContain(
+    firstSessionBody.session.id,
+  )
+  expect((await secondSessionList.json()).sessions.map((entry: { id: string }) => entry.id)).not.toContain(
+    firstSessionBody.session.id,
+  )
+  expect((await foreignSessionList.json()).sessions.map((entry: { id: string }) => entry.id)).not.toContain(
+    firstSessionBody.session.id,
+  )
 
   const secondSessionSearch = await secondApp.request("/api/sessions?search=Private%20session")
   expect(secondSessionSearch.status).toBe(200)

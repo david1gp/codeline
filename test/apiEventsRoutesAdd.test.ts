@@ -130,7 +130,7 @@ function appForEvents(options: {
   const api = new Hono<AppEnvironment>()
   const configuration = {
     authMode: "oidc" as const,
-    databaseUrl: "postgres://events.test/codeline",
+    databaseUrl: "file:./data/db.sqlite",
     nodeEnv: "test" as const,
     publicOrigin: "https://events.test/",
   }

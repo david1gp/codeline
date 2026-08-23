@@ -2,14 +2,12 @@ import { afterAll, beforeAll, expect, test } from "bun:test"
 import { randomBytes } from "node:crypto"
 import { createResult } from "@adaptive-ds/result"
 import { eq } from "drizzle-orm"
-import { drizzle } from "drizzle-orm/postgres-js"
 import { Hono } from "hono"
-import postgres from "postgres"
 import { agentTable } from "../src/agents/db/agentTable.js"
 import type { AppEnvironment } from "../src/api/appEnvironment.js"
 import { apiIdempotencyRequestHashCreate } from "../src/api/idempotency/apiIdempotencyRequestHashCreate.js"
 import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
-import { databaseSchema } from "../src/database/databaseSchema.js"
+import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
 import { databaseTransactionRun } from "../src/database/databaseTransactionRun.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
@@ -31,10 +29,13 @@ import { sessionRepositoryPin } from "../src/session/db/sessionRepositoryPin.js"
 import { sessionRepositoryRename } from "../src/session/db/sessionRepositoryRename.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
+import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
 
-const client = postgres(Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline")
-const database = drizzle(client, { schema: databaseSchema })
+const connection = databaseTestConnectionCreate()
+const database = connection.db
 const databaseAvailable = await databaseReadyCheck(database).then((result) => result.success)
+const journalCursorCodec = journalCursorCodecCreate({ randomBytes, secret: `session-task4-${uuidv7()}` })
+if (!journalCursorCodec.success) throw new Error(journalCursorCodec.errorMessage)
 const identityKey = `task4-drizzle-user-${uuidv7()}`
 const userId = `development:${identityKey}`
 const serverId = `task4-drizzle-server-${uuidv7()}`
@@ -50,6 +51,7 @@ renameApi.use("*", async (context, next) => {
 })
 apiSessionRenameRoutesAdd(renameApi, {
   database,
+  journalCursorCodec: journalCursorCodec.data,
   journalPostCommitPublish: async () => createResult(undefined),
 })
 
@@ -92,7 +94,7 @@ afterAll(async () => {
     await database.delete(organizationTable).where(eq(organizationTable.id, userId))
     await database.delete(applicationUserTable).where(eq(applicationUserTable.id, userId))
   }
-  await client.end()
+  await databaseConnectionClose(connection)
 })
 
 test.skipIf(!databaseAvailable)(
@@ -302,6 +304,7 @@ test.skipIf(!databaseAvailable)(
     })
     apiSessionRenameRoutesAdd(unauthorizedApi, {
       database,
+      journalCursorCodec: journalCursorCodec.data,
       journalPostCommitPublish: async () => createResult(undefined),
     })
     const unauthorized = await unauthorizedApi.request(`http://codeline.test/sessions/${sessionId}`, {

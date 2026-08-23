@@ -1,13 +1,11 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
 import { createResult } from "@adaptive-ds/result"
 import { and, asc, eq } from "drizzle-orm"
-import { drizzle } from "drizzle-orm/postgres-js"
 import { Hono } from "hono"
-import postgres from "postgres"
 import { agentTable } from "../src/agents/db/agentTable.js"
 import type { AppEnvironment } from "../src/api/appEnvironment.js"
+import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
 import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
-import { databaseSchema } from "../src/database/databaseSchema.js"
 import type { ApplicationUser } from "../src/identity/db/applicationUserTable.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
@@ -22,9 +20,10 @@ import { apiSessionBranchRoutesAdd } from "../src/session/api/apiSessionBranchRo
 import { sessionJournalRecipientResolverCreate } from "../src/session/db/sessionJournalRecipientResolverCreate.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
+import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
 
-const client = postgres(Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline")
-const database = drizzle(client, { schema: databaseSchema })
+const connection = databaseTestConnectionCreate()
+const database = connection.db
 const databaseAvailable = await databaseReadyCheck(database).then((result) => result.success)
 const fixture = {
   agentId: `session-branch-agent-${uuidv7()}`,
@@ -117,7 +116,7 @@ beforeAll(async () => {
 afterAll(async () => {
   if (developmentUser !== undefined)
     await database.delete(applicationUserTable).where(eq(applicationUserTable.id, developmentUser.id))
-  await client.end()
+  await databaseConnectionClose(connection)
 })
 
 test.skipIf(!databaseAvailable)("branches an owned active session through a finalized message", async () => {

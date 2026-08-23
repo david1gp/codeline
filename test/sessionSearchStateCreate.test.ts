@@ -36,6 +36,34 @@ function navigationCreate(initialUrl: string) {
   }
 }
 
+function sessionCreate(id: string, title: string) {
+  return {
+    archivedAt: null,
+    createdAt: "2026-08-23T00:00:00.000Z",
+    id,
+    metadata: {},
+    parentSessionId: null,
+    pinned: false,
+    primaryAgentId: "agent-1",
+    projectPath: "~",
+    revision: 1,
+    serverId: "server-1",
+    title,
+    updatedAt: "2026-08-23T00:00:00.000Z",
+  }
+}
+
+function searchResponse(sessions: ReturnType<typeof sessionCreate>[]) {
+  return Response.json({
+    asOfCursor: "cursor-as-of",
+    etag: '"session-search"',
+    nextCursor: null,
+    revision: 1,
+    schemaVersion: "session-list.v3",
+    sessions,
+  })
+}
+
 test("search state reads and replaces the URL query and parses results", async () => {
   const navigation = navigationCreate("https://codeline.test/sessions/search?session=selected&search=title")
   const calls: string[] = []
@@ -43,9 +71,7 @@ test("search state reads and replaces the URL query and parses results", async (
     const state = sessionSearchStateCreate(navigation, {
       fetcher: async (input) => {
         calls.push(String(input))
-        return new Response(
-          JSON.stringify({ nextCursor: null, sessions: [{ session: { id: "one", title: "Title match" } }] }),
-        )
+        return searchResponse([sessionCreate("one", "Title match")])
       },
     })
 
@@ -54,9 +80,9 @@ test("search state reads and replaces the URL query and parses results", async (
 
   await new Promise((resolve) => setTimeout(resolve, 0))
   expect(dispose.state.query()).toBe("title")
-  expect(dispose.state.sessions()).toEqual([{ session: { id: "one", title: "Title match" } }])
+  expect(dispose.state.sessions()).toEqual([{ session: sessionCreate("one", "Title match") }])
   expect(dispose.state.isComplete()).toBe(true)
-  expect(calls).toEqual(["/api/sessions?search=title"])
+  expect(calls).toEqual(["/api/sessions?includeArchived=0&limit=100&search=title"])
 
   dispose.state.updateQuery("  metadata value  ")
   expect(dispose.state.query()).toBe("metadata value")
@@ -81,8 +107,9 @@ test("search state exposes request failures and retries", async () => {
     const state = sessionSearchStateCreate(navigation, {
       fetcher: async () => {
         attempt += 1
-        if (attempt === 1) return new Response(null, { status: 500 })
-        return new Response(JSON.stringify({ nextCursor: null, sessions: [] }))
+        if (attempt === 1)
+          return Response.json({ error: { code: "internal_server_error", message: "failed" } }, { status: 500 })
+        return searchResponse([])
       },
     })
     state.updateQuery("missing")

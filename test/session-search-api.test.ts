@@ -1,12 +1,11 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
 import { randomBytes } from "node:crypto"
 import { eq } from "drizzle-orm"
-import { drizzle } from "drizzle-orm/postgres-js"
-import postgres from "postgres"
 import { agentTable } from "../src/agents/db/agentTable.js"
 import { appCreate } from "../src/app/appCreate.js"
+import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
+import { databaseUrl } from "../src/database/databaseUrl.js"
 import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
-import { databaseSchema } from "../src/database/databaseSchema.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
 import { organizationMemberTable } from "../src/identity/db/organizationMemberTable.js"
@@ -16,9 +15,10 @@ import { messageTable } from "../src/message/db/messageTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
+import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
 
-const client = postgres(Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline")
-const database = drizzle(client, { schema: databaseSchema })
+const connection = databaseTestConnectionCreate()
+const database = connection.db
 const databaseAvailable = await databaseReadyCheck(database).then((result) => result.success)
 const identityKey = `session-search-user-${uuidv7()}`
 const userId = `development:${identityKey}`
@@ -26,7 +26,7 @@ const serverId = `session-search-server-${uuidv7()}`
 const agentId = `session-search-agent-${uuidv7()}`
 const configuration = {
   authMode: "development" as const,
-  databaseUrl: Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline",
+  databaseUrl,
   developmentIdentity: { displayName: "Session Search Test User", identityKey },
   nodeEnv: "development" as const,
   oidcOrganizationId: userId,
@@ -66,7 +66,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (databaseAvailable) await database.delete(applicationUserTable).where(eq(applicationUserTable.id, userId))
-  await client.end()
+  await databaseConnectionClose(connection)
 })
 
 test.skipIf(!databaseAvailable)(
@@ -105,7 +105,12 @@ test.skipIf(!databaseAvailable)(
       method: "POST",
     })
     const archivedId = (await archived.json()).session.id as string
-    await app.request(`http://codeline.test/api/sessions/${archivedId}/archive`, { method: "POST" })
+    const archivedRead = await app.request(`http://codeline.test/api/sessions/${archivedId}`)
+    const archivedMutation = await app.request(`http://codeline.test/api/sessions/${archivedId}/archive`, {
+      headers: { "If-Match": archivedRead.headers.get("ETag") as string },
+      method: "POST",
+    })
+    expect(archivedMutation.status).toBe(200)
     await database.insert(messageTable).values({
       agentId,
       clientRequestId: `session-search-message-${uuidv7()}`,
@@ -152,7 +157,7 @@ test.skipIf(!databaseAvailable)(
 
     const idsFor = async (term: string) => {
       const response = await app.request(`http://codeline.test/api/sessions?search=${encodeURIComponent(term)}`)
-      return (await response.json()).sessions.map((row: { session: { id: string } }) => row.session.id)
+      return (await response.json()).sessions.map((row: { id: string }) => row.id)
     }
     const activeIds = [secondActiveBody.session.id, activeBody.session.id]
     expect(await idsFor("SEARCH TARGET")).toEqual([secondActiveBody.session.id, activeBody.session.id])
@@ -165,13 +170,9 @@ test.skipIf(!databaseAvailable)(
     const archivedSearch = await app.request(
       `http://codeline.test/api/sessions?includeArchived=1&search=${encodeURIComponent("archived search target")}`,
     )
-    expect((await archivedSearch.json()).sessions.map((row: { session: { id: string } }) => row.session.id)).toEqual([
-      archivedId,
-    ])
+    expect((await archivedSearch.json()).sessions.map((row: { id: string }) => row.id)).toEqual([archivedId])
     const activeSessions = await app.request("http://codeline.test/api/sessions")
-    expect((await activeSessions.json()).sessions.map((row: { session: { id: string } }) => row.session.id)).toEqual(
-      activeIds,
-    )
+    expect((await activeSessions.json()).sessions.map((row: { id: string }) => row.id)).toEqual(activeIds)
     const invalidSearch = await app.request(`http://codeline.test/api/sessions?search=${"x".repeat(101)}`)
     expect(invalidSearch.status).toBe(400)
   },

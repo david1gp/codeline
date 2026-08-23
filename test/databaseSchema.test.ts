@@ -1,82 +1,39 @@
 import { expect, test } from "bun:test"
 import { getTableName } from "drizzle-orm"
-import { getTableConfig } from "drizzle-orm/pg-core"
+import { getTableConfig } from "drizzle-orm/sqlite-core"
 import { databaseSchema } from "../src/database/databaseSchema.js"
-import { zeroSchema } from "../src/database/zeroSchema.js"
 
 const expectedTables = [
-  "user",
-  "organization",
-  "organization_member",
-  "server",
   "agent",
-  "session",
-  "message",
-  "note",
-  "stream_event",
-  "stream_checkpoint",
-  "run",
   "attempt",
+  "identity_external_identity",
+  "identity_oidc_login_transaction",
+  "identity_organization",
+  "identity_organization_member",
+  "identity_session",
+  "identity_user",
+  "journal_event",
+  "journal_replay_boundary",
+  "journal_sequence_counter",
+  "message",
+  "mutation_idempotency",
+  "note",
+  "run",
   "run_delegation",
+  "server",
+  "session",
+  "stream_checkpoint",
+  "stream_event",
 ] as const
 
-test("Zero exposes the durable application tables with matching PostgreSQL names", () => {
-  const zeroTables = Object.values(zeroSchema.tables) as readonly { name: string; serverName?: string }[]
-  const zeroTableNames = zeroTables.map((table) => table.serverName ?? table.name).sort()
-  const databaseTableNames = [
-    databaseSchema.applicationUserTable,
-    databaseSchema.organizationTable,
-    databaseSchema.organizationMemberTable,
-    databaseSchema.serverTable,
-    databaseSchema.agentTable,
-    databaseSchema.sessionTable,
-    databaseSchema.messageTable,
-    databaseSchema.noteTable,
-    databaseSchema.streamEventTable,
-    databaseSchema.streamCheckpointTable,
-    databaseSchema.runTable,
-    databaseSchema.attemptTable,
-    databaseSchema.runDelegationTable,
-  ]
+test("SQLite exposes all durable tables with flattened identity names", () => {
+  const databaseTableNames = Object.values(databaseSchema)
     .map((table) => getTableName(table))
     .sort()
 
-  expect(zeroTableNames).toEqual([...expectedTables].sort())
   expect(databaseTableNames).toEqual([...expectedTables].sort())
-  expect(getTableConfig(databaseSchema.externalIdentityTable).schema).toBe("identity")
-  expect(getTableConfig(databaseSchema.identitySessionTable).schema).toBe("identity")
-  expect(getTableConfig(databaseSchema.oidcLoginTransactionTable).schema).toBe("identity")
-  expect(zeroTableNames).not.toContain("external_identity")
-  expect(zeroTableNames).not.toContain("oidc_login_transaction")
-  expect(zeroSchema.tables.streamEvent.primaryKey).toEqual(["id"])
-  expect(Object.keys(zeroSchema.tables.user.columns).sort()).toEqual(["createdAt", "displayName", "id", "updatedAt"])
-  expect(zeroSchema.tables.organization.columns.externalId.serverName).toBe("external_id")
-  expect(zeroSchema.tables.organizationMember.primaryKey).toEqual(["organizationId", "userId"])
-  expect(zeroSchema.tables.organizationMember.uniqueKeys).toEqual([["organizationId", "issuer", "subject"]])
-  expect(zeroSchema.tables.server.columns.organizationId.serverName).toBe("organization_id")
-  expect(zeroSchema.tables.streamEvent.columns.sequence.type).toBe("number")
-  expect(zeroSchema.tables.streamCheckpoint.columns.lastSequence.type).toBe("number")
-  expect(zeroSchema.tables.note.columns.projectPath.optional).toBe(true)
-  expect(zeroSchema.tables.note.columns.sortOrder.type).toBe("number")
-  expect(zeroSchema.tables.note.columns.sortOrder.optional).toBe(true)
-  expect(zeroSchema.tables.session.columns.parentSessionId.optional).toBe(true)
-  expect(zeroSchema.tables.session.columns.projectPath.type).toBe("string")
-  expect(zeroSchema.tables.session.columns.pinned.type).toBe("boolean")
-  expect(zeroSchema.tables.run.columns.snapshot.type).toBe("json")
-  expect(zeroSchema.tables.run.columns.deadlineAt.type).toBe("number")
-  expect(zeroSchema.tables.run.columns.cancellationRequestedAt.type).toBe("number")
-  expect(zeroSchema.tables.run.columns.cancellationKind.type).toBe("string")
-  expect(zeroSchema.tables.attempt.columns.ordinal.type).toBe("number")
-  expect(zeroSchema.tables.runDelegation.columns.finalizedResult.optional).toBe(true)
-  expect(zeroSchema.tables.runDelegation.columns.finalizedResult.serverName).toBe("finalized_result")
-  expect(zeroSchema.tables.runDelegation.columns.depth.type).toBe("number")
-  expect(zeroSchema.tables.run.uniqueKeys).toEqual([["sessionId", "clientRunId"], ["streamId"]])
-  expect(zeroSchema.tables.attempt.uniqueKeys).toEqual([["runId", "ordinal"], ["streamId"]])
-  expect(zeroSchema.tables.runDelegation.uniqueKeys).toEqual([
-    ["childRunId"],
-    ["parentRunId", "parentAttemptId", "delegationKey"],
-    ["rootRunId", "rootOrdinal"],
-  ])
+  expect(databaseTableNames).not.toContain("external_identity")
+  expect(databaseTableNames).not.toContain("oidc_login_transaction")
 })
 
 test("Drizzle keeps note ordering nullable for compatibility", () => {
@@ -87,7 +44,22 @@ test("Drizzle keeps note ordering nullable for compatibility", () => {
   expect(sortOrder?.notNull).toBe(false)
 })
 
-test("Drizzle keeps run and attempt stream IDs and ownership unique", () => {
+test("SQLite stores JSON, dates, booleans, and numeric sequences with native modes", () => {
+  const sessionColumns = getTableConfig(databaseSchema.sessionTable).columns
+  const runColumns = getTableConfig(databaseSchema.runTable).columns
+  const journalColumns = getTableConfig(databaseSchema.journalEventTable).columns
+
+  expect(sessionColumns.find((column) => column.name === "metadata")?.dataType).toBe("json")
+  expect(sessionColumns.find((column) => column.name === "pinned")?.dataType).toBe("boolean")
+  expect(sessionColumns.find((column) => column.name === "created_at")?.dataType).toBe("date")
+  expect(runColumns.find((column) => column.name === "snapshot")?.dataType).toBe("json")
+  expect(runColumns.find((column) => column.name === "deadline_at")?.dataType).toBe("date")
+  expect(journalColumns.find((column) => column.name === "sequence")?.dataType).toBe("number")
+  expect(journalColumns.find((column) => column.name === "serialized_bytes")?.dataType).toBe("number")
+  expect(journalColumns.find((column) => column.name === "run_id")?.notNull).toBe(false)
+})
+
+test("SQLite keeps run and attempt stream IDs and ownership unique", () => {
   const runConfig = getTableConfig(databaseSchema.runTable)
   const attemptConfig = getTableConfig(databaseSchema.attemptTable)
   const sessionConfig = getTableConfig(databaseSchema.sessionTable)
@@ -132,49 +104,17 @@ test("Drizzle keeps run and attempt stream IDs and ownership unique", () => {
     "run_delegation_parent_attempt_consistency_fk",
     "run_delegation_parent_ownership_consistency_fk",
     "run_delegation_root_ownership_consistency_fk",
-    "run_delegation_user_id_user_id_fk",
+    "run_delegation_user_id_identity_user_id_fk",
   ])
 })
 
-test("Zero relationships cover restart-safe session and stream ownership", () => {
-  expect(zeroSchema.relationships.organization).toHaveProperty("members")
-  expect(zeroSchema.relationships.organization).toHaveProperty("servers")
-  expect(zeroSchema.relationships.organizationMember).toHaveProperty("organization")
-  expect(zeroSchema.relationships.organizationMember).toHaveProperty("user")
-  expect(zeroSchema.relationships.server).toHaveProperty("organization")
-  expect(zeroSchema.relationships.user).toHaveProperty("organizationMemberships")
-  expect(zeroSchema.relationships.session).toHaveProperty("streamEvents")
-  expect(zeroSchema.relationships.session).toHaveProperty("streamCheckpoints")
-  expect(zeroSchema.relationships.session).toHaveProperty("parent")
-  expect(zeroSchema.relationships.session).toHaveProperty("children")
-  expect(zeroSchema.relationships.session.parent[0]).toMatchObject({
-    sourceField: ["parentSessionId"],
-    destField: ["id"],
-    destSchema: "session",
-    cardinality: "one",
-  })
-  expect(zeroSchema.relationships.streamEvent.session[0]).toMatchObject({
-    sourceField: ["sessionId"],
-    destField: ["id"],
-    destSchema: "session",
-    cardinality: "one",
-  })
-  expect(zeroSchema.relationships.user).toHaveProperty("notes")
-  expect(zeroSchema.relationships.session).toHaveProperty("runs")
-  expect(zeroSchema.relationships.run).toHaveProperty("attempts")
-  expect(zeroSchema.relationships.run).toHaveProperty("user")
-  expect(zeroSchema.relationships.run).toHaveProperty("session")
-  expect(zeroSchema.relationships.attempt).toHaveProperty("run")
-  expect(zeroSchema.relationships.user).toHaveProperty("delegations")
-  expect(zeroSchema.relationships.session).toHaveProperty("delegations")
-  expect(zeroSchema.relationships.run).toHaveProperty("childDelegations")
-  expect(zeroSchema.relationships.run).toHaveProperty("rootDelegations")
-  expect(zeroSchema.relationships.run).toHaveProperty("parentDelegations")
-  expect(zeroSchema.relationships.runDelegation).toHaveProperty("parentAttempt")
-  expect(zeroSchema.relationships.note.user[0]).toMatchObject({
-    sourceField: ["userId"],
-    destField: ["id"],
-    destSchema: "user",
-    cardinality: "one",
-  })
+test("SQLite table configurations preserve foreign keys, checks, and indexes", () => {
+  const runConfig = getTableConfig(databaseSchema.runTable)
+  const journalConfig = getTableConfig(databaseSchema.journalEventTable)
+
+  expect(runConfig.foreignKeys.map((foreignKey) => foreignKey.getName())).toContain(
+    "run_cancellation_source_ownership_fk",
+  )
+  expect(runConfig.checks.map((checkConstraint) => checkConstraint.name)).toContain("run_cancellation_fields_allowed")
+  expect(journalConfig.indexes.map((index) => index.config.name)).toContain("journal_event_run_idx")
 })

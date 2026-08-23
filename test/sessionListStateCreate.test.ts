@@ -1,35 +1,12 @@
 import { afterAll, expect, mock, test } from "bun:test"
-import { createEffect, createRoot, createSignal } from "solid-js/dist/solid.js"
+import { createRoot, createSignal } from "solid-js/dist/solid.js"
 import * as solidRuntime from "solid-js/dist/solid.js"
-
-type QueryResult = { type: "unknown" } | { type: "complete" } | { type: "error"; retry: () => void }
-
-type QuerySlot = {
-  requests: unknown[]
-  rows: ReturnType<typeof createSignal<readonly unknown[]>>
-  result: ReturnType<typeof createSignal<QueryResult>>
-}
-
-const querySlots: QuerySlot[] = []
 
 mock.module("solid-js", () => solidRuntime)
 mock.module("@adaptive-ds/solid-ui/utils/createSignalObject", () => ({
   createSignalObject: <T>(value: T) => {
     const [get, set] = createSignal(value)
     return { get, set }
-  },
-}))
-mock.module("@rocicorp/zero/solid", () => ({
-  useQuery: (queryAccessor: () => unknown) => {
-    const rows = createSignal<readonly unknown[]>([])
-    const result = createSignal<QueryResult>({ type: "unknown" })
-    const slot: QuerySlot = { requests: [], result, rows }
-    querySlots.push(slot)
-    createEffect(() => {
-      if (slot.requests.length > 0) result[1]({ type: "unknown" })
-      slot.requests.push(queryAccessor())
-    })
-    return [rows[0], result[0]]
   },
 }))
 
@@ -60,36 +37,61 @@ const windowNavigation = {
 }
 Object.defineProperty(globalThis, "window", { configurable: true, value: windowNavigation })
 
-function session(id: string, updatedAt: number) {
+function session(id: string, updatedAt: string) {
   return {
+    archivedAt: null,
+    createdAt: updatedAt,
     id,
+    metadata: {},
     parentSessionId: null,
     pinned: false,
+    primaryAgentId: "agent-1",
     projectPath: "~",
+    revision: 1,
+    serverId: "server-1",
     title: id,
     updatedAt,
   }
 }
 
+function pageResponse(sessions: ReturnType<typeof session>[], nextCursor: string | null) {
+  return Response.json({
+    asOfCursor: "cursor-as-of",
+    etag: '"session-list"',
+    nextCursor,
+    revision: 1,
+    schemaVersion: "session-list.v3",
+    sessions,
+  })
+}
+
 async function flush() {
-  await Promise.resolve()
-  await Promise.resolve()
+  for (let index = 0; index < 8; index += 1) await Promise.resolve()
+  await new Promise((resolve) => setTimeout(resolve, 0))
 }
 
-function stateCreate() {
-  querySlots.length = 0
-  return createRoot((rootDispose) => ({ rootDispose, state: sessionListStateCreate(() => navigation) }))
-}
+test("session list loads one HTTP page at a time until the cursor is exhausted", async () => {
+  const requests: string[] = []
+  const root = createRoot((rootDispose) => ({
+    rootDispose,
+    state: sessionListStateCreate(() => navigation, undefined, {
+      fetcher: async (input) => {
+        const url = String(input)
+        requests.push(url)
+        if (url.includes("cursor=page-2")) return pageResponse([session("older", "2026-08-20T00:00:00.000Z")], null)
+        return pageResponse(
+          [session("new", "2026-08-23T00:00:00.000Z"), session("cursor", "2026-08-22T00:00:00.000Z")],
+          "page-2",
+        )
+      },
+    }),
+  }))
 
-test("session list expands one live page at a time until the end", async () => {
-  const root = stateCreate()
-  const sessionsQuery = querySlots[0]!
   expect(root.state.isLoading()).toBe(true)
-  sessionsQuery.rows[1]([session("new", 300), session("cursor", 200)])
-  sessionsQuery.result[1]({ type: "complete" })
   await flush()
 
-  expect(sessionsQuery.requests[0]).toMatchObject({ args: { limit: 2, start: null } })
+  expect(requests).toEqual(["/api/sessions?includeArchived=0&limit=2"])
+  expect(root.state.isLoading()).toBe(false)
   expect(root.state.sidebar.canLoadMore()).toBe(true)
   expect(root.state.sidebar.activeRows().map((row) => row.session.id)).toEqual(["new", "cursor"])
 
@@ -97,57 +99,136 @@ test("session list expands one live page at a time until the end", async () => {
   root.state.sidebar.loadMore()
   expect(root.state.sidebar.isLoadingMore()).toBe(true)
   await flush()
-  expect(sessionsQuery.requests.at(-1)).toMatchObject({ args: { limit: 4, start: null } })
 
-  sessionsQuery.rows[1]([session("new", 300), session("cursor", 200), session("older", 100), session("oldest", 50)])
-  sessionsQuery.result[1]({ type: "complete" })
-  await flush()
+  expect(requests.at(-1)).toBe("/api/sessions?cursor=page-2&includeArchived=0&limit=2")
+  expect(requests).toHaveLength(2)
   expect(root.state.sidebar.isLoadingMore()).toBe(false)
-  expect(root.state.sidebar.canLoadMore()).toBe(true)
-  expect(root.state.sidebar.activeRows().map((row) => row.session.id)).toEqual(["new", "cursor", "older", "oldest"])
-
-  root.state.sidebar.loadMore()
-  await flush()
-  expect(sessionsQuery.requests.at(-1)).toMatchObject({ args: { limit: 6, start: null } })
-  sessionsQuery.rows[1]([session("new", 300), session("cursor", 200), session("older", 100), session("oldest", 50)])
-  sessionsQuery.result[1]({ type: "complete" })
-  await flush()
-
   expect(root.state.sidebar.canLoadMore()).toBe(false)
-  expect(root.state.sidebar.activeRows().map((row) => row.session.id)).toEqual(["new", "cursor", "older", "oldest"])
-
-  sessionsQuery.rows[1]([{ ...session("new", 400), title: "renamed" }, session("older", 100), session("oldest", 50)])
-  await flush()
-  expect(root.state.sidebar.activeRows().map((row) => row.session.id)).toEqual(["new", "older", "oldest"])
-  expect(root.state.sidebar.activeRows()[0]?.session.title).toBe("renamed")
+  expect(root.state.sidebar.activeRows().map((row) => row.session.id)).toEqual(["new", "cursor", "older"])
+  expect(root.state.isEmpty()).toBe(false)
   root.rootDispose()
 })
 
-test("session list keeps the first page state when a later page fails", async () => {
-  const root = stateCreate()
-  const sessionsQuery = querySlots[0]!
-  sessionsQuery.result[1]({ type: "error", retry: () => {} })
+test("session list revalidates the first page without clearing retained rows", async () => {
+  let attempt = 0
+  const root = createRoot((rootDispose) => ({
+    rootDispose,
+    state: sessionListStateCreate(() => navigation, undefined, {
+      fetcher: async () => {
+        attempt += 1
+        return pageResponse([session(attempt === 1 ? "old" : "fresh", `2026-08-${attempt + 22}T00:00:00.000Z`)], null)
+      },
+    }),
+  }))
+
+  await flush()
+  expect(root.state.sidebar.activeRows().map((row) => row.session.id)).toEqual(["old"])
+
+  root.state.revalidate()
+  expect(root.state.sidebar.activeRows().map((row) => row.session.id)).toEqual(["old"])
+  await flush()
+
+  expect(attempt).toBe(2)
+  expect(root.state.sidebar.activeRows().map((row) => row.session.id)).toEqual(["fresh"])
+  root.rootDispose()
+})
+
+test("session list surfaces first-page failures and retries them", async () => {
+  let attempt = 0
+  const root = createRoot((rootDispose) => ({
+    rootDispose,
+    state: sessionListStateCreate(() => navigation, undefined, {
+      fetcher: async () => {
+        attempt += 1
+        if (attempt === 1)
+          return Response.json({ error: { code: "internal_server_error", message: "failed" } }, { status: 500 })
+        return pageResponse([session("new", "2026-08-23T00:00:00.000Z")], null)
+      },
+    }),
+  }))
+
   await flush()
   expect(root.state.isError()).toBe(true)
   expect(root.state.isLoading()).toBe(false)
-  sessionsQuery.rows[1]([session("new", 300)])
-  sessionsQuery.result[1]({ type: "complete" })
+
+  root.state.retry()
   await flush()
 
-  expect(root.state.sidebar.canLoadMore()).toBe(false)
-  expect(root.state.isLoading()).toBe(false)
-  expect(root.state.isEmpty()).toBe(false)
-
-  // A full first page is required before the additional-page boundary is reachable.
-  sessionsQuery.rows[1]([session("new", 300), session("cursor", 200)])
-  await flush()
-  root.state.sidebar.loadMore()
-  await flush()
-  sessionsQuery.result[1]({ type: "error", retry: () => {} })
-  await flush()
-
-  expect(root.state.sidebar.isLoadingMore()).toBe(false)
+  expect(attempt).toBe(2)
   expect(root.state.isError()).toBe(false)
-  expect(root.state.sidebar.activeRows().map((row) => row.session.id)).toEqual(["new", "cursor"])
+  expect(root.state.sidebar.canLoadMore()).toBe(false)
+  expect(root.state.sidebar.activeRows().map((row) => row.session.id)).toEqual(["new"])
+  root.rootDispose()
+})
+
+test("session list renames and deletes selected sessions through conditional HTTP requests", async () => {
+  const requests: Array<{ ifMatch: string | null; method: string; url: string }> = []
+  const root = createRoot((rootDispose) => ({
+    rootDispose,
+    state: sessionListStateCreate(() => navigation, undefined, {
+      fetcher: async (input, init) => {
+        const url = String(input)
+        const method = init?.method ?? "GET"
+        const headers = new Headers(init?.headers)
+        requests.push({ ifMatch: headers.get("If-Match"), method, url })
+
+        if (url === "/api/sessions?includeArchived=0&limit=2")
+          return pageResponse([session("new", "2026-08-23T00:00:00.000Z")], null)
+        if (method === "GET")
+          return Response.json({
+            agent: { id: "agent-1" },
+            etag: '"session-etag"',
+            revision: 1,
+            schemaVersion: "session.v1",
+            server: { id: "server-1" },
+            session: session("new", "2026-08-23T00:00:00.000Z"),
+          })
+        if (method === "DELETE") return Response.json({ deleted: true, session: { id: "new", revision: 2 } })
+        return Response.json({
+          agent: { id: "agent-1" },
+          etag: '"session-etag-2"',
+          revision: 2,
+          schemaVersion: "session.v1",
+          server: { id: "server-1" },
+          session: { ...session("new", "2026-08-23T00:00:00.000Z"), revision: 2, title: "Renamed" },
+        })
+      },
+    }),
+  }))
+
+  await flush()
+  root.state.actions.sessionRenameOpen("new")
+  root.state.actions.draftChange("  Renamed  ")
+  await root.state.actions.sessionRenameSubmit()
+
+  expect(requests.at(-2)).toEqual({ ifMatch: null, method: "GET", url: "/api/sessions/new" })
+  expect(requests.at(-1)).toEqual({ ifMatch: '"session-etag"', method: "PATCH", url: "/api/sessions/new" })
+  expect(root.state.actions.errorMessage()).toBe(null)
+
+  await root.state.actions.sessionDeleteImmediate("new")
+  expect(requests.at(-1)).toEqual({ ifMatch: '"session-etag"', method: "DELETE", url: "/api/sessions/new" })
+  root.rootDispose()
+})
+
+test("session list rejects invalid rename titles before issuing a request", async () => {
+  const requests: string[] = []
+  const root = createRoot((rootDispose) => ({
+    rootDispose,
+    state: sessionListStateCreate(() => navigation, undefined, {
+      fetcher: async (input) => {
+        requests.push(String(input))
+        return pageResponse([session("new", "2026-08-23T00:00:00.000Z")], null)
+      },
+    }),
+  }))
+
+  await flush()
+  requests.length = 0
+  root.state.actions.sessionRenameOpen("new")
+  root.state.actions.draftChange("   ")
+  await root.state.actions.sessionRenameSubmit()
+
+  expect(requests).toEqual([])
+  expect(root.state.actions.errorMessage()).toBe("Enter a session title.")
   root.rootDispose()
 })

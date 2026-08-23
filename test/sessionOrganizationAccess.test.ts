@@ -2,12 +2,11 @@ import { afterAll, beforeAll, expect, test } from "bun:test"
 import { randomBytes } from "node:crypto"
 import { createResult } from "@adaptive-ds/result"
 import { and, eq } from "drizzle-orm"
-import { drizzle } from "drizzle-orm/postgres-js"
-import postgres from "postgres"
 import { agentTable } from "../src/agents/db/agentTable.js"
 import { appCreate } from "../src/app/appCreate.js"
+import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
+import { databaseUrl } from "../src/database/databaseUrl.js"
 import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
-import { databaseSchema } from "../src/database/databaseSchema.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
 import { identitySessionTable } from "../src/identity/db/identitySessionTable.js"
@@ -20,10 +19,10 @@ import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionChatAdapterCreate } from "../src/session/actions/sessionChatAdapterCreate.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
+import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
 
-const databaseUrl = Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline"
-const client = postgres(databaseUrl)
-const database = drizzle(client, { schema: databaseSchema })
+const connection = databaseTestConnectionCreate()
+const database = connection.db
 const databaseAvailable = await databaseReadyCheck(database).then((result) => result.success)
 const fixture = {
   agentId: `session-organization-agent-${uuidv7()}`,
@@ -106,7 +105,7 @@ afterAll(async () => {
     await database.delete(organizationTable).where(eq(organizationTable.id, fixture.organizationId))
     await database.delete(organizationTable).where(eq(organizationTable.id, fixture.otherOrganizationId))
   }
-  await client.end()
+  await databaseConnectionClose(connection)
 })
 
 test.skipIf(!databaseAvailable)(
@@ -148,9 +147,7 @@ test.skipIf(!databaseAvailable)(
       headers: { Cookie: "__Host-codeline-session=opaque-session" },
     })
     expect(listed.status).toBe(200)
-    expect((await listed.json()).sessions.map((entry: { session: { id: string } }) => entry.session.id)).toContain(
-      sessionId,
-    )
+    expect((await listed.json()).sessions.map((entry: { id: string }) => entry.id)).toContain(sessionId)
 
     const repeated = await app.request("https://codeline.test/api/sessions", {
       body: JSON.stringify(body),

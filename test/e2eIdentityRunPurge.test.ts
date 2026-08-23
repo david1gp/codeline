@@ -1,19 +1,18 @@
 import { afterAll, expect, test } from "bun:test"
 import { and, eq, inArray, like } from "drizzle-orm"
-import { drizzle } from "drizzle-orm/postgres-js"
-import postgres from "postgres"
+import { e2eIdentityRunPurge } from "../scripts/e2eIdentityRunPurge.js"
+import { e2eIdentitySubjectPrefixCreate } from "../scripts/e2eIdentitySubjectPrefixCreate.js"
 import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
-import { databaseSchema } from "../src/database/databaseSchema.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { externalIdentityTable } from "../src/identity/db/externalIdentityTable.js"
 import { organizationMemberTable } from "../src/identity/db/organizationMemberTable.js"
 import { organizationTable } from "../src/identity/db/organizationTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
-import { e2eIdentityRunPurge } from "../scripts/e2eIdentityRunPurge.js"
-import { e2eIdentitySubjectPrefixCreate } from "../scripts/e2eIdentitySubjectPrefixCreate.js"
+import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
 
-const client = postgres(Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline")
-const database = drizzle(client, { schema: databaseSchema })
+const connection = databaseTestConnectionCreate()
+const client = connection.client
+const database = connection.db
 const databaseAvailable = await databaseReadyCheck(database).then((result) => result.success)
 const issuer = "https://purge-test.example.test"
 const organizationId = `purge-test-organization-${uuidv7()}`
@@ -26,7 +25,7 @@ afterAll(async () => {
     }
     await database.delete(organizationTable).where(eq(organizationTable.id, organizationId))
   }
-  await client.end()
+  client.close()
 })
 
 async function organizationEnsure(): Promise<void> {

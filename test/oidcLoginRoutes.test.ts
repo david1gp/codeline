@@ -7,7 +7,7 @@ import { oidcProviderDiscoveryCreate } from "../src/identity/oidc/oidcProviderDi
 
 const configuration = {
   authMode: "oidc" as const,
-  databaseUrl: "postgres://codeline.test/codeline",
+  databaseUrl: "file:./data/db.sqlite",
   nodeEnv: "production" as const,
   oidcCallbackUrl: "https://codeline.test/login/callback",
   oidcClientId: "client-id",

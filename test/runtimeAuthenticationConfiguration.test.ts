@@ -31,7 +31,7 @@ afterEach(() => {
 test("development authentication is allowed only outside production and derives no OIDC callback", () => {
   const result = runtimeConfigurationParse({
     authMode: "development",
-    databaseUrl: "postgres://codeline.test/codeline",
+    databaseUrl: "file:./data/db.sqlite",
     nodeEnv: "test",
     publicOrigin: "http://localhost:6000",
   })
@@ -43,7 +43,7 @@ test("development authentication is allowed only outside production and derives 
 
 test("production startup fails closed without exposing OIDC values", async () => {
   Bun.env.AUTH_MODE = "development"
-  Bun.env.DATABASE_URL = "postgres://secret:password@127.0.0.1:6002/codeline"
+  Bun.env.DATABASE_URL = "file:./data/db.sqlite"
   Bun.env.NODE_ENV = "production"
   Bun.env.PUBLIC_ORIGIN = "https://codeline.example.test"
 
@@ -60,7 +60,7 @@ test("production startup fails closed without exposing OIDC values", async () =>
 test("OIDC configuration derives the provider-neutral callback URL", () => {
   const result = runtimeConfigurationParse({
     authMode: "oidc",
-    databaseUrl: "postgres://codeline.test/codeline",
+    databaseUrl: "file:./data/db.sqlite",
     nodeEnv: "production",
     oidcClientId: "client-id-value",
     oidcIssuer: "https://issuer.example.test/tenant",
@@ -81,7 +81,7 @@ test("OIDC configuration preserves the issuer's root slash and path spelling", (
   ]) {
     const result = runtimeConfigurationParse({
       authMode: "oidc",
-      databaseUrl: "postgres://codeline.test/codeline",
+      databaseUrl: "file:./data/db.sqlite",
       nodeEnv: "production",
       oidcClientId: "client-id-value",
       oidcIssuer,
@@ -97,7 +97,7 @@ test("OIDC configuration preserves the issuer's root slash and path spelling", (
 test("OIDC configuration requires the allowed ZITADEL organization ID", () => {
   const result = runtimeConfigurationParse({
     authMode: "oidc",
-    databaseUrl: "postgres://codeline.test/codeline",
+    databaseUrl: "file:./data/db.sqlite",
     nodeEnv: "production",
     oidcClientId: "client-id",
     oidcIssuer: "https://issuer.example.test",
@@ -116,7 +116,7 @@ test("Zitadel aliases normalize to provider-neutral fields and preserve the prov
     ZITADEL_ISSUER: "https://issuer.example.test/tenant",
     ZITADEL_ORGANIZATION_ID: "redacted-organization-id",
     ZITADEL_REDIRECT_URI: "https://codeline.example.test/login/zitadel/callback",
-    databaseUrl: "postgres://codeline.test/codeline",
+    databaseUrl: "file:./data/db.sqlite",
     nodeEnv: "production",
     PUBLIC_ORIGIN: "https://codeline.example.test",
   })
@@ -136,7 +136,7 @@ test("Zitadel aliases normalize to provider-neutral fields and preserve the prov
 test("conflicting provider-neutral and Zitadel values are rejected without exposing them", () => {
   const result = runtimeConfigurationParse({
     authMode: "oidc",
-    databaseUrl: "postgres://redacted-user:redacted-password@codeline.test/codeline",
+    databaseUrl: "file:./data/db.sqlite",
     nodeEnv: "production",
     oidcClientId: "generic-client-id",
     oidcIssuer: "https://generic-issuer.example.test",
@@ -172,7 +172,7 @@ test("explicit callback validation requires HTTPS, no query or fragment, and the
       OIDC_ISSUER: "https://issuer.example.test",
       ZITADEL_ORGANIZATION_ID: "redacted-organization-id",
       OIDC_REDIRECT_URI,
-      databaseUrl: "postgres://codeline.test/codeline",
+      databaseUrl: "file:./data/db.sqlite",
       nodeEnv: "production",
       PUBLIC_ORIGIN: "https://codeline.example.test",
     })
@@ -186,7 +186,7 @@ test("explicit callback validation requires HTTPS, no query or fragment, and the
 test("OIDC validation errors expose field names but not supplied values", () => {
   const result = runtimeConfigurationParse({
     authMode: "oidc",
-    databaseUrl: "postgres://secret:password@127.0.0.1:6002/codeline",
+    databaseUrl: "file:./data/db.sqlite",
     nodeEnv: "production",
     oidcClientId: "client-id-secret",
     oidcIssuer: "http://issuer-secret.example.test",
@@ -205,7 +205,7 @@ test("OIDC validation errors expose field names but not supplied values", () => 
 test("server startup passes validated authentication configuration to the app boundary", async () => {
   const parsed = runtimeConfigurationParse({
     authMode: "oidc",
-    databaseUrl: "postgres://codeline.test/codeline",
+    databaseUrl: "file:./data/db.sqlite",
     nodeEnv: "production",
     oidcClientId: "client-id",
     oidcIssuer: "https://issuer.example.test",
@@ -222,7 +222,7 @@ test("server startup passes validated authentication configuration to the app bo
     },
     configuration: parsed.data,
     configurationStore: {} as never,
-    database: { client: { end: async () => undefined }, db: {} } as never,
+    database: { client: { close: () => undefined }, db: {} } as never,
     serve: () => ({ stop: async () => undefined, url: new URL("https://codeline.example.test") }),
     signalSource: { once: () => undefined, removeListener: () => undefined },
   })

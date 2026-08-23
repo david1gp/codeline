@@ -1,15 +1,13 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
 import { eq } from "drizzle-orm"
-import { drizzle } from "drizzle-orm/postgres-js"
 import { Hono } from "hono"
-import postgres from "postgres"
 import * as v from "valibot"
 import { agentDetailResponseSchema } from "../src/agents/api/agentDetailResponseSchema.js"
 import { apiAgentRoutesAdd } from "../src/agents/api/apiAgentRoutesAdd.js"
 import { agentTable } from "../src/agents/db/agentTable.js"
 import type { AppEnvironment } from "../src/api/appEnvironment.js"
+import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
 import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
-import { databaseSchema } from "../src/database/databaseSchema.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
 import { organizationTable } from "../src/identity/db/organizationTable.js"
@@ -17,10 +15,10 @@ import { providerApiConnectionTestResponseSchema } from "../src/providers/api/pr
 import { providerApiModelsResponseSchema } from "../src/providers/api/providerApiModelsResponseSchema.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
+import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
 
-const databaseUrl = Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline"
-const client = postgres(databaseUrl)
-const database = drizzle(client, { schema: databaseSchema })
+const connection = databaseTestConnectionCreate()
+const database = connection.db
 const databaseAvailable = await databaseReadyCheck(database).then((result) => result.success)
 const ownerIdentityKey = `agent-api-owner-${uuidv7()}`
 const otherIdentityKey = `agent-api-other-${uuidv7()}`
@@ -84,7 +82,7 @@ afterAll(async () => {
     await database.delete(applicationUserTable).where(eq(applicationUserTable.id, ownerUserId))
     await database.delete(applicationUserTable).where(eq(applicationUserTable.id, otherUserId))
   }
-  await client.end()
+  await databaseConnectionClose(connection)
 })
 
 function appForUser(userId: string, authorizationValues: string[], organizationId = userId): Hono<AppEnvironment> {

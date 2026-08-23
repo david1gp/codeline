@@ -15,7 +15,7 @@ import type { identitySessionTable } from "../src/identity/db/identitySessionTab
 
 const oidcConfiguration = {
   authMode: "oidc" as const,
-  databaseUrl: "postgres://codeline.test/codeline",
+  databaseUrl: "file:./data/db.sqlite",
   nodeEnv: "production" as const,
   oidcClientId: "client",
   oidcIssuer: "https://issuer.codeline.test",
@@ -118,13 +118,18 @@ test("development authentication resolves the configured identity without a cook
   const app = appCreate({
     configuration: {
       authMode: "development",
-      databaseUrl: "postgres://codeline.test/codeline",
+      databaseUrl: "file:./data/db.sqlite",
       developmentIdentity: { displayName: "Development", identityKey: "development" },
       nodeEnv: "development",
       oidcOrganizationId: "development-organization",
       publicOrigin: "http://codeline.test",
     },
     database: { transaction: async (operation: (transaction: unknown) => Promise<unknown>) => operation({}) } as never,
+    identitySessionCreate: (async () =>
+      createResult({
+        session: { ...session, userId: "development:development" },
+        token: "development-session",
+      })) as typeof identitySessionCreate,
     developmentIdentityUpsert: (async () =>
       createResult({ displayName: "Development", id: "development:development" } as never)) as never,
     organizationMemberLoad: async () =>
@@ -143,6 +148,8 @@ test("development authentication resolves the configured identity without a cook
   expect(await (await app.request("http://codeline.test/api/auth/session")).json()).toEqual({
     authenticated: true,
     displayName: "Development",
+    organizationId: "development-organization",
+    token: "development-session",
     userId: "development:development",
   })
 })

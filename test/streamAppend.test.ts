@@ -1,11 +1,9 @@
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test"
 import { createResultError } from "@adaptive-ds/result"
 import { eq } from "drizzle-orm"
-import { drizzle } from "drizzle-orm/postgres-js"
-import postgres from "postgres"
 import { agentTable } from "../src/agents/db/agentTable.js"
 import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
-import { databaseSchema } from "../src/database/databaseSchema.js"
+import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
 import { databaseTransactionRun } from "../src/database/databaseTransactionRun.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
@@ -17,9 +15,10 @@ import { streamAppend } from "../src/stream/actions/streamAppend.js"
 import { streamCheckpointAdvance } from "../src/stream/actions/streamCheckpointAdvance.js"
 import { streamCheckpointLoadOrCreate } from "../src/stream/actions/streamCheckpointLoadOrCreate.js"
 import { streamListAfter } from "../src/stream/actions/streamListAfter.js"
+import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
 
-const client = postgres(Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline")
-const database = drizzle(client, { schema: databaseSchema })
+const connection = databaseTestConnectionCreate()
+const database = connection.db
 const databaseAvailable = await databaseReadyCheck(database).then((result) => result.success)
 const fixture = {
   agentId: `stream-test-agent-${uuidv7()}`,
@@ -65,7 +64,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (userId !== undefined) await database.delete(applicationUserTable).where(eq(applicationUserTable.id, userId))
-  await client.end()
+  await databaseConnectionClose(connection)
 })
 
 afterEach(async () => {

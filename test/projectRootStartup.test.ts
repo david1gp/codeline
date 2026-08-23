@@ -11,10 +11,10 @@ import { serverStart } from "../src/server/serverStart.js"
 const originalProjectRoots = Bun.env.CODELINE_PROJECT_ROOTS
 const originalConfigurationStoreDir = Bun.env.CONFIG_STORE_DIR
 const configuration = {
-  databaseUrl: "postgres://codeline.test/codeline",
+  databaseUrl: "file:./data/db.sqlite",
   nodeEnv: "test",
 } as const
-const database = { client: { end: async () => undefined }, db: {} } as never
+const database = { client: { close: () => undefined }, db: {} } as never
 
 afterEach(() => {
   if (originalProjectRoots === undefined) delete Bun.env.CODELINE_PROJECT_ROOTS

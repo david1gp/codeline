@@ -2,14 +2,11 @@ import { afterAll, beforeAll, expect, test } from "bun:test"
 import { randomBytes } from "node:crypto"
 import { createResult } from "@adaptive-ds/result"
 import { eq, inArray } from "drizzle-orm"
-import { drizzle } from "drizzle-orm/postgres-js"
 import { Hono } from "hono"
-import postgres from "postgres"
 import * as v from "valibot"
 import { agentTable } from "../src/agents/db/agentTable.js"
 import type { AppEnvironment } from "../src/api/appEnvironment.js"
-import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
-import { databaseSchema } from "../src/database/databaseSchema.js"
+import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { organizationTable } from "../src/identity/db/organizationTable.js"
 import { journalCursorCodecCreate } from "../src/journal/actions/journalCursorCodecCreate.js"
@@ -26,10 +23,10 @@ import { sessionRepresentationSchemaVersion } from "../src/session/api/sessionRe
 import { sessionSettledSnapshotResponseSchema } from "../src/session/api/sessionSettledSnapshotResponseSchema.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
+import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
 
-const client = postgres(Bun.env.DATABASE_URL ?? "postgres://codeline:codeline@127.0.0.1:6002/codeline")
-const database = drizzle(client, { schema: databaseSchema })
-const databaseAvailable = await databaseReadyCheck(database).then((result) => result.success)
+const connection = databaseTestConnectionCreate()
+const database = connection.db
 const fixturePrefix = `task8-snapshot-${uuidv7()}`
 const userId = `${fixturePrefix}-user`
 const otherUserId = `${fixturePrefix}-other-user`
@@ -94,7 +91,6 @@ async function responseJsonRead(response: Response): Promise<unknown> {
 }
 
 beforeAll(async () => {
-  if (!databaseAvailable) return
   await database.insert(applicationUserTable).values([
     { displayName: "Task 8 Snapshot User", id: userId },
     { displayName: "Task 8 Snapshot Other User", id: otherUserId },
@@ -257,17 +253,15 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  if (databaseAvailable) {
-    await database.delete(sessionTable).where(inArray(sessionTable.userId, [userId, otherUserId]))
-    await database.delete(agentTable).where(inArray(agentTable.id, [agentId, otherAgentId]))
-    await database.delete(serverTable).where(inArray(serverTable.id, [serverId, otherServerId]))
-    await database.delete(organizationTable).where(inArray(organizationTable.id, [organizationId, otherOrganizationId]))
-    await database.delete(applicationUserTable).where(inArray(applicationUserTable.id, [userId, otherUserId]))
-  }
-  await client.end()
+  await database.delete(sessionTable).where(inArray(sessionTable.userId, [userId, otherUserId]))
+  await database.delete(agentTable).where(inArray(agentTable.id, [agentId, otherAgentId]))
+  await database.delete(serverTable).where(inArray(serverTable.id, [serverId, otherServerId]))
+  await database.delete(organizationTable).where(inArray(organizationTable.id, [organizationId, otherOrganizationId]))
+  await database.delete(applicationUserTable).where(inArray(applicationUserTable.id, [userId, otherUserId]))
+  await databaseConnectionClose(connection)
 })
 
-test.skipIf(!databaseAvailable)("paginates tied updatedAt values without duplicates", async () => {
+test("paginates tied updatedAt values without duplicates", async () => {
   const first = await sessionListSnapshot(
     database,
     userId,
@@ -293,7 +287,7 @@ test.skipIf(!databaseAvailable)("paginates tied updatedAt values without duplica
   expect(new Set([...first.data.sessions, ...second.data.sessions].map((session) => session.id)).size).toBe(3)
 })
 
-test.skipIf(!databaseAvailable)("isolates authenticated accounts and organizations", async () => {
+test("isolates authenticated accounts and organizations", async () => {
   const organization = await sessionListSnapshot(database, userId, organizationId, {}, snapshotDependencies())
   expect(organization.success).toBe(true)
   if (!organization.success) return
@@ -311,7 +305,7 @@ test.skipIf(!databaseAvailable)("isolates authenticated accounts and organizatio
   expect(otherAccount.data.sessions.map((session) => session.id)).toEqual([listSessionIds.otherUser])
 })
 
-test.skipIf(!databaseAvailable)("returns the authenticated journal boundary as an opaque cursor", async () => {
+test("returns the authenticated journal boundary as an opaque cursor", async () => {
   const snapshot = await sessionListSnapshot(database, userId, organizationId, {}, snapshotDependencies())
   expect(snapshot.success).toBe(true)
   if (!snapshot.success || !codecResult.success) return
@@ -321,7 +315,7 @@ test.skipIf(!databaseAvailable)("returns the authenticated journal boundary as a
   expect(snapshot.data.asOfCursor).not.toContain(userId)
 })
 
-test.skipIf(!databaseAvailable)("keeps session/message data and the cursor in one consistent snapshot", async () => {
+test("keeps session/message data and the cursor in one consistent snapshot", async () => {
   let releaseWriter: (() => void) | undefined
   let writerReadyResolve: (() => void) | undefined
   const writerReady = new Promise<void>((resolve) => {
@@ -370,7 +364,7 @@ test.skipIf(!databaseAvailable)("keeps session/message data and the cursor in on
     .where(eq(journalSequenceCounterTable.userId, userId))
 })
 
-test.skipIf(!databaseAvailable)("rejects active sessions as settled snapshots", async () => {
+test("rejects active sessions as settled snapshots", async () => {
   const created = await runCreate(database, userId, activeSessionId, {
     budget: { maxDurationMs: 10_000 },
     clientRunId: `${fixturePrefix}-active-run`,
@@ -394,7 +388,7 @@ test.skipIf(!databaseAvailable)("rejects active sessions as settled snapshots", 
   expect(snapshot).toMatchObject({ code: "session_active", success: false })
 })
 
-test.skipIf(!databaseAvailable)("returns a complete ordered settled payload with representation inputs", async () => {
+test("returns a complete ordered settled payload with representation inputs", async () => {
   const snapshot = await sessionSettledSnapshot(
     database,
     userId,
@@ -413,7 +407,7 @@ test.skipIf(!databaseAvailable)("returns a complete ordered settled payload with
   expect(snapshot.data.messages.map((message) => message.content)).toEqual(["first", "second", "third"])
 })
 
-test.skipIf(!databaseAvailable)("serves authenticated Drizzle shell/list snapshots with keysets and 304", async () => {
+test("serves authenticated Drizzle shell/list snapshots with keysets and 304", async () => {
   const firstResponse = await httpApi.request("http://codeline.test/sessions?limit=2&search=Tied", {
     headers: { "Accept-Encoding": "gzip" },
   })
@@ -463,7 +457,7 @@ test.skipIf(!databaseAvailable)("serves authenticated Drizzle shell/list snapsho
   expect(detail304.status).toBe(304)
 })
 
-test.skipIf(!databaseAvailable)("serves ordered message pages and complete conditional snapshots", async () => {
+test("serves ordered message pages and complete conditional snapshots", async () => {
   const firstMessages = await httpApi.request(`http://codeline.test/sessions/${settledSessionId}/messages?limit=2`, {
     headers: { "Accept-Encoding": "gzip" },
   })
@@ -507,7 +501,7 @@ test.skipIf(!databaseAvailable)("serves ordered message pages and complete condi
   expect(active.status).toBe(409)
 })
 
-test.skipIf(!databaseAvailable)("does not serve a session or messages across organization scope", async () => {
+test("does not serve a session or messages across organization scope", async () => {
   const otherOrganizationApi = new Hono<AppEnvironment>()
   otherOrganizationApi.use("*", async (context, next) => {
     context.set("database", database)
