@@ -4,8 +4,8 @@ import { inArray } from "drizzle-orm"
 import { agentTable } from "../src/agents/db/agentTable.js"
 import { appCreate } from "../src/app/appCreate.js"
 import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
-import { databaseUrl } from "../src/database/databaseUrl.js"
 import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
+import { databaseUrl } from "../src/database/databaseUrl.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
 import { organizationMemberTable } from "../src/identity/db/organizationMemberTable.js"
@@ -18,9 +18,9 @@ import { runLoad } from "../src/run/actions/runLoad.js"
 import { serverRepositoryList } from "../src/servers/db/serverRepositoryList.js"
 import { serverRepositoryLoad } from "../src/servers/db/serverRepositoryLoad.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
+import { sessionTable } from "../src/session/db/sessionTable.js"
 import { streamAppend } from "../src/stream/actions/streamAppend.js"
 import { streamListAfter } from "../src/stream/actions/streamListAfter.js"
-import { sessionTable } from "../src/session/db/sessionTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
 import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
 
@@ -282,7 +282,7 @@ test.skipIf(!databaseAvailable)(
 
     const servers = await foreignApp.request("/api/servers")
     expect(servers.status).toBe(200)
-    expect(await servers.json()).toEqual({ servers: [{ id: foreignServerId, name: "Foreign Server" }] })
+    expect(await servers.json()).toMatchObject({ servers: [{ id: foreignServerId, name: "Foreign Server" }] })
 
     const agents = await foreignApp.request(`/api/servers/${serverId}/agents`)
     expect(agents.status).toBe(404)

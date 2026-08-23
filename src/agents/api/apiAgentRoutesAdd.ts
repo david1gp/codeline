@@ -2,7 +2,9 @@ import type { Context } from "hono"
 import { Hono } from "hono"
 import { apiRequestParse } from "../../api/apiRequestParse.js"
 import type { AppEnvironment } from "../../api/appEnvironment.js"
+import { apiIfNoneMatchMatches } from "../../api/conditional/apiIfNoneMatchMatches.js"
 import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.js"
+import { apiRepresentationHeadersCreate } from "../../api/representation/apiRepresentationHeadersCreate.js"
 import type { DatabaseClient } from "../../database/databaseClient.js"
 import { type ProviderApiConnectionTestResponse } from "../../providers/api/providerApiConnectionTestResponseSchema.js"
 import { type ProviderApiModelsResponse } from "../../providers/api/providerApiModelsResponseSchema.js"
@@ -19,7 +21,8 @@ import { agentProviderRequestSchema } from "../schema/agentProviderRequestSchema
 import { agentQuerySchema } from "../schema/agentQuerySchema.js"
 import { agentUpdateRequestSchema } from "../schema/agentUpdateRequestSchema.js"
 import type { AgentDetailResponse } from "./agentDetailResponseSchema.js"
-import type { AgentListResponse } from "./agentListResponseSchema.js"
+import { agentDetailResponseCreate } from "./agentDetailResponseCreate.js"
+import { agentListResponseCreate } from "./agentListResponseCreate.js"
 
 type ApiContext = Context<AppEnvironment>
 
@@ -84,6 +87,10 @@ function agentResponse(agent: AgentDetailResponse["agent"]): AgentDetailResponse
   return { agent }
 }
 
+function headersApply(context: ApiContext, headers: Headers): void {
+  for (const [name, value] of headers.entries()) context.header(name, value)
+}
+
 function providerError(context: ApiContext) {
   return internalServerError(context, "The provider request could not be completed.")
 }
@@ -128,7 +135,7 @@ export function apiAgentRoutesAdd(api: Hono<AppEnvironment>, options: ApiAgentRo
       return context.json(response, notFound ? 404 : 500)
     }
 
-    const response = {
+    const response = agentListResponseCreate({
       agents: result.data.map(({ agent }) => ({
         id: agent.id,
         name: agent.name,
@@ -136,8 +143,16 @@ export function apiAgentRoutesAdd(api: Hono<AppEnvironment>, options: ApiAgentRo
         role: agent.role,
         serverId: agent.serverId,
       })),
-    } satisfies AgentListResponse
-    return context.json(response)
+      organizationId,
+      search: parsed.data.search,
+      serverId: context.req.param("serverId"),
+    })
+    if (!response.success) return internalServerError(context)
+    const headers = apiRepresentationHeadersCreate(response.data.etag)
+    if (apiIfNoneMatchMatches(context.req.header("If-None-Match"), response.data.etag))
+      return new Response(null, { headers, status: 304 })
+    headersApply(context, headers)
+    return context.json(response.data)
   })
 
   api.get("/servers/:serverId/agents/:agentId", async (context) => {
@@ -152,14 +167,22 @@ export function apiAgentRoutesAdd(api: Hono<AppEnvironment>, options: ApiAgentRo
     )
     if (!result.success) return agentError(context, result.errorMessage, "load")
 
-    const response = agentResponse({
-      configuration: result.data.agent.configuration,
-      id: result.data.agent.id,
-      name: result.data.agent.name,
-      role: result.data.agent.role,
-      serverId: result.data.agent.serverId,
+    const response = agentDetailResponseCreate({
+      agent: {
+        configuration: result.data.agent.configuration,
+        id: result.data.agent.id,
+        name: result.data.agent.name,
+        role: result.data.agent.role,
+        serverId: result.data.agent.serverId,
+      },
+      organizationId,
     })
-    return context.json(response)
+    if (!response.success) return internalServerError(context)
+    const headers = apiRepresentationHeadersCreate(response.data.etag)
+    if (apiIfNoneMatchMatches(context.req.header("If-None-Match"), response.data.etag))
+      return new Response(null, { headers, status: 304 })
+    headersApply(context, headers)
+    return context.json(response.data)
   })
 
   api.post("/servers/:serverId/agents", async (context) => {

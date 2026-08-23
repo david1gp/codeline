@@ -163,7 +163,7 @@ test("development fixture can list and use seeded organization servers", async (
   })
   const developmentServers = await developmentApp.request("/api/servers")
   expect(developmentServers.status).toBe(200)
-  expect(await developmentServers.json()).toEqual({
+  expect(await developmentServers.json()).toMatchObject({
     servers: [
       { id: "example-server-local", name: "Example Local Server" },
       { id: "example-server-remote", name: "Example Remote Server" },

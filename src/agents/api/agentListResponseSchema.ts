@@ -1,8 +1,9 @@
 import * as v from "valibot"
+import { agentListResponseV2Schema } from "./agentListResponseV2Schema.js"
 
 const agentFieldSchema = v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(200))
 
-export const agentListResponseSchema = v.strictObject({
+const agentListResponseLegacySchema = v.strictObject({
   agents: v.array(
     v.strictObject({
       id: agentFieldSchema,
@@ -13,5 +14,7 @@ export const agentListResponseSchema = v.strictObject({
     }),
   ),
 })
+
+export const agentListResponseSchema = v.union([agentListResponseLegacySchema, agentListResponseV2Schema])
 
 export type AgentListResponse = v.InferOutput<typeof agentListResponseSchema>

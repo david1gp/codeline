@@ -3,7 +3,9 @@ import { eq } from "drizzle-orm"
 import { Hono } from "hono"
 import * as v from "valibot"
 import { agentDetailResponseSchema } from "../src/agents/api/agentDetailResponseSchema.js"
+import { agentDetailResponseV2Schema } from "../src/agents/api/agentDetailResponseV2Schema.js"
 import { apiAgentRoutesAdd } from "../src/agents/api/apiAgentRoutesAdd.js"
+import { agentListResponseV2Schema } from "../src/agents/api/agentListResponseV2Schema.js"
 import { agentTable } from "../src/agents/db/agentTable.js"
 import type { AppEnvironment } from "../src/api/appEnvironment.js"
 import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
@@ -123,7 +125,7 @@ test.skipIf(!databaseAvailable)(
     expect(detail.status).toBe(200)
     const detailBody = await detail.json()
     expect(v.safeParse(agentDetailResponseSchema, detailBody).success).toBe(true)
-    expect(detailBody).toEqual({
+    expect(detailBody).toMatchObject({
       agent: {
         configuration: deterministicConfiguration,
         id: existingAgentId,
@@ -132,6 +134,27 @@ test.skipIf(!databaseAvailable)(
         serverId,
       },
     })
+    expect(v.safeParse(agentDetailResponseV2Schema, detailBody).success).toBe(true)
+
+    const list = await app.request(`http://codeline.test/servers/${serverId}/agents`)
+    expect(list.status).toBe(200)
+    const listBody = await list.json()
+    expect(v.safeParse(agentListResponseV2Schema, listBody).success).toBe(true)
+    expect(list.headers.get("Cache-Control")).toBe("private, no-cache")
+    expect(list.headers.get("Vary")).toBe("Cookie, Accept-Encoding")
+    expect(list.headers.get("ETag")).toBe(listBody.etag)
+
+    const notModified = await app.request(`http://codeline.test/servers/${serverId}/agents`, {
+      headers: { "If-None-Match": listBody.etag },
+    })
+    expect(notModified.status).toBe(304)
+    expect(notModified.headers.get("ETag")).toBe(listBody.etag)
+
+    const detailNotModified = await app.request(`http://codeline.test/servers/${serverId}/agents/${existingAgentId}`, {
+      headers: { "If-None-Match": detailBody.etag },
+    })
+    expect(detailNotModified.status).toBe(304)
+    expect(detailNotModified.headers.get("Cache-Control")).toBe("private, no-cache")
 
     const created = await app.request(`http://codeline.test/servers/${serverId}/agents`, {
       body: JSON.stringify({ configuration: cliproxyConfiguration, name: "Managed Agent", role: "coding" }),
