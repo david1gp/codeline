@@ -93,9 +93,14 @@ async function exampleDataOrganizationReconcile(
 async function exampleDataRowsReconcile(
   database: DatabaseExecutor,
   catalog: ProviderCatalog,
+  userId?: string,
+  organizationMembershipIssuer?: string,
+  organizationMembershipSubject?: string,
 ): Promise<Result<{ sessionCount: number; messageCount: number }>> {
   const op = "exampleDataRowsReconcile"
-  const fixtureUser = exampleDataFixture.user
+  const fixtureUser = userId === undefined ? exampleDataFixture.user : { ...exampleDataFixture.user, id: userId }
+  const membershipIssuer = organizationMembershipIssuer ?? exampleDataFixture.organizationMembership.issuer
+  const membershipSubject = organizationMembershipSubject ?? exampleDataFixture.organizationMembership.subject
   const catalogConfigurations = providerAgentCatalogConfigurationCompile(catalog)
   if (!catalogConfigurations.success) return createResultError(op, catalogConfigurations.errorMessage)
 
@@ -122,8 +127,8 @@ async function exampleDataRowsReconcile(
 
     const externalIdentity = await externalIdentityUpsert(database, {
       userId: fixtureUser.id,
-      issuer: exampleDataFixture.organizationMembership.issuer,
-      subject: exampleDataFixture.organizationMembership.subject,
+      issuer: membershipIssuer,
+      subject: membershipSubject,
     })
     if (!externalIdentity.success) return createResultError(op, externalIdentity.errorMessage)
 
@@ -132,16 +137,16 @@ async function exampleDataRowsReconcile(
       .values({
         organizationId: exampleDataFixture.organization.id,
         userId: fixtureUser.id,
-        issuer: exampleDataFixture.organizationMembership.issuer,
-        subject: exampleDataFixture.organizationMembership.subject,
+        issuer: membershipIssuer,
+        subject: membershipSubject,
         createdAt: date(exampleDataFixture.organizationMembership.createdAt),
         updatedAt: date(exampleDataFixture.organizationMembership.updatedAt),
       })
       .onConflictDoUpdate({
         target: [organizationMemberTable.organizationId, organizationMemberTable.userId],
         set: {
-          issuer: exampleDataFixture.organizationMembership.issuer,
-          subject: exampleDataFixture.organizationMembership.subject,
+          issuer: membershipIssuer,
+          subject: membershipSubject,
           createdAt: date(exampleDataFixture.organizationMembership.createdAt),
           updatedAt: date(exampleDataFixture.organizationMembership.updatedAt),
         },
@@ -320,11 +325,19 @@ export async function exampleDataSeed(
     catalog?: ProviderCatalog
     configurationStore?: ConfigurationStore
     reset?: boolean
+    userId?: string
+    organizationMembershipIssuer?: string
+    organizationMembershipSubject?: string
   },
 ): Promise<Result<{ sessionCount: number; messageCount: number }>> {
   const op = "exampleDataSeed"
   if (options.organizationExternalId.trim().length === 0)
     return createResultError(op, "The Contentoren organization external ID is required.")
+  if (
+    options.userId !== undefined &&
+    (options.organizationMembershipIssuer === undefined || options.organizationMembershipSubject === undefined)
+  )
+    return createResultError(op, "A seeded SSO user ID requires both the organization membership issuer and subject.")
   const catalogResult =
     options.catalog === undefined
       ? await providerAgentCatalogLoad(resolve(dirname(fileURLToPath(import.meta.url)), "../.."))
@@ -335,7 +348,13 @@ export async function exampleDataSeed(
       const organization = await exampleDataOrganizationReconcile(transaction, options.organizationExternalId)
       if (!organization.success) return createResultError(op, organization.errorMessage)
       if (options.reset === true) await exampleDataMessagesDelete(transaction)
-      return await exampleDataRowsReconcile(transaction, catalogResult.data)
+      return await exampleDataRowsReconcile(
+        transaction,
+        catalogResult.data,
+        options.userId,
+        options.organizationMembershipIssuer,
+        options.organizationMembershipSubject,
+      )
     } catch (_error) {
       return createResultError(op, "The example data seed transaction failed.")
     }

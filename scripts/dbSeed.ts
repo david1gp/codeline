@@ -21,6 +21,16 @@ if (organizationExternalId === undefined || organizationExternalId.trim().length
   console.error("ZITADEL_ORGANIZATION_ID is required to seed the Contentoren organization.")
   process.exit(1)
 }
+const userId = Bun.env.EXAMPLE_DATA_USER_ID
+const organizationMembershipSubject = Bun.env.EXAMPLE_DATA_SUBJECT
+
+if (
+  (userId === undefined) !== (organizationMembershipSubject === undefined) ||
+  (userId !== undefined && (Bun.env.ZITADEL_ISSUER === undefined || organizationMembershipSubject === undefined))
+) {
+  console.error("EXAMPLE_DATA_USER_ID and EXAMPLE_DATA_SUBJECT must be set together; the pair requires ZITADEL_ISSUER.")
+  process.exit(1)
+}
 
 const reset = Bun.argv.includes("--reset")
 
@@ -70,6 +80,11 @@ const result = await exampleDataSeed(database, {
   configurationStore: configurationStoreResult.data,
   organizationExternalId,
   reset,
+  ...(userId === undefined ? {} : { userId }),
+  ...(userId === undefined || Bun.env.ZITADEL_ISSUER === undefined
+    ? {}
+    : { organizationMembershipIssuer: Bun.env.ZITADEL_ISSUER }),
+  ...(userId === undefined || organizationMembershipSubject === undefined ? {} : { organizationMembershipSubject }),
 })
 
 if (!result.success) {

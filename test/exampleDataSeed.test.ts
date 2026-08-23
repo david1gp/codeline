@@ -12,6 +12,7 @@ import { exampleDataFixture } from "../src/database/exampleDataFixture.js"
 import { exampleDataSeed } from "../src/database/exampleDataSeed.js"
 import { openLibsql } from "../src/database/openLibsql.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
+import { externalIdentityTable } from "../src/identity/db/externalIdentityTable.js"
 import { organizationMemberTable } from "../src/identity/db/organizationMemberTable.js"
 import { organizationTable } from "../src/identity/db/organizationTable.js"
 import { messageTable } from "../src/message/db/messageTable.js"
@@ -172,6 +173,59 @@ test("development fixture can list and use seeded organization servers", async (
   expect(developmentAgents.status).toBe(200)
   const developmentAgentsBody = (await developmentAgents.json()) as { agents: Array<{ id: string }> }
   expect(developmentAgentsBody.agents.some((agent) => agent.id === "example-agent-local")).toBe(true)
+})
+
+test("rejects an incomplete OIDC fixture identity override", async () => {
+  const seeded = await exampleDataSeed(database, {
+    organizationExternalId,
+    userId: `oidc:incomplete-${uuidv7()}`,
+  })
+
+  expect(seeded.success).toBe(false)
+})
+
+test("OIDC fixture overrides preserve the configured identity ownership", async () => {
+  const userId = `oidc:seed-identity-${uuidv7()}`
+  const issuer = `https://issuer.seed-${uuidv7()}.test`
+  const subject = `seed-subject-${uuidv7()}`
+
+  try {
+    const seeded = await exampleDataSeed(database, {
+      organizationExternalId,
+      organizationMembershipIssuer: issuer,
+      organizationMembershipSubject: subject,
+      reset: true,
+      userId,
+    })
+    expect(seeded.success).toBe(true)
+
+    const membership = await database
+      .select({ issuer: organizationMemberTable.issuer, subject: organizationMemberTable.subject })
+      .from(organizationMemberTable)
+      .where(
+        and(
+          eq(organizationMemberTable.organizationId, exampleDataFixture.organization.id),
+          eq(organizationMemberTable.userId, userId),
+        ),
+      )
+    expect(membership).toEqual([{ issuer, subject }])
+
+    const externalIdentity = await database
+      .select({ issuer: externalIdentityTable.issuer, subject: externalIdentityTable.subject })
+      .from(externalIdentityTable)
+      .where(eq(externalIdentityTable.userId, userId))
+    expect(externalIdentity).toEqual([{ issuer, subject }])
+
+    const sessions = await database
+      .select({ userId: sessionTable.userId })
+      .from(sessionTable)
+      .where(inArray(sessionTable.id, sessionIds))
+    expect(sessions).toHaveLength(exampleDataFixture.sessions.length)
+    expect(sessions.every((session) => session.userId === userId)).toBe(true)
+  } finally {
+    await database.delete(applicationUserTable).where(eq(applicationUserTable.id, userId))
+    await exampleDataSeed(database, { organizationExternalId, reset: true })
+  }
 })
 
 test("rejects a conflicting organization ID without changing seeded rows", async () => {
