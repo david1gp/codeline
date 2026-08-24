@@ -39,7 +39,7 @@ worker.addEventListener("fetch", (event) => {
       match: (request, options) => caches.match(request, options as CacheQueryOptions),
       open: (cacheName) => caches.open(cacheName),
     },
-    fetch,
+    fetch: (request) => worker.fetch(request),
     scopeOrigin: worker.location.origin,
     shellCacheName,
   })
