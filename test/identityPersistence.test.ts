@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm"
 import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
 import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
 import { databaseSchema } from "../src/database/databaseSchema.js"
+import { databaseTransactionRun } from "../src/database/databaseTransactionRun.js"
 import { identitySessionRevoke } from "../src/identity/actions/identitySessionRevoke.js"
 import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
@@ -63,6 +64,22 @@ test.skipIf(!databaseAvailable)("development identity backfill preserves the det
 
   expect(mapping).toEqual({ userId })
 })
+
+test.skipIf(!databaseAvailable)(
+  "development identity upsert reuses an identity inside a root transaction",
+  async () => {
+    const result = await databaseTransactionRun(database, (transaction) =>
+      developmentIdentityUpsert(transaction, {
+        displayName: "Identity Persistence Test User",
+        identityKey: subject,
+      }),
+    )
+
+    expect(result.success).toBe(true)
+    if (!result.success) return
+    expect(result.data.id).toBe(userId)
+  },
+)
 
 test.skipIf(!databaseAvailable)("identity sessions store only a hash of the opaque token", async () => {
   const now = new Date("2026-08-14T12:00:00.000Z")

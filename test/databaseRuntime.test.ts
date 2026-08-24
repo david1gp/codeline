@@ -39,3 +39,43 @@ test("the SQLite runtime is ready and persists data across connection restarts",
     await rm(directory, { recursive: true, force: true })
   }
 })
+
+test("database connection close attempts every transaction handle after one close fails", async () => {
+  const closeAttempts: string[] = []
+  const firstTransaction = {
+    closed: false,
+    close: () => {
+      closeAttempts.push("first")
+      throw new Error("first transaction close failed")
+    },
+  }
+  const secondTransaction = {
+    closed: false,
+    close: () => {
+      closeAttempts.push("second")
+      secondTransaction.closed = true
+    },
+  }
+  let clientCloseCount = 0
+  const connection = {
+    client: {
+      close: () => {
+        clientCloseCount += 1
+      },
+    },
+    db: {},
+    transactionHandles: new Set([firstTransaction, secondTransaction]),
+  }
+
+  const result = await databaseConnectionClose(connection as never)
+
+  expect(closeAttempts).toEqual(["first", "second"])
+  expect(clientCloseCount).toBe(1)
+  expect(connection.transactionHandles).toHaveLength(0)
+  expect(result).toEqual({
+    success: false,
+    op: "databaseConnectionClose",
+    errorMessage: "The database client could not be closed.",
+    errorData: "first transaction close failed",
+  })
+})

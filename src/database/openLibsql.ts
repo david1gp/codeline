@@ -8,7 +8,7 @@ export function openLibsql(filePath: string) {
   const absoluteFilePath = path.resolve(filePath)
   mkdirSync(path.dirname(absoluteFilePath), { recursive: true })
   const absoluteFileUrl = `file://${absoluteFilePath}`
-  const client = createClient({ url: absoluteFileUrl })
+  const client = createClient({ timeout: 5_000, url: absoluteFileUrl })
   const db = drizzle(client)
 
   // https://phiresky.github.io/blog/2020/sqlite-performance-tuning/
