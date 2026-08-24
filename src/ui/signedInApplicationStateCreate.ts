@@ -1,4 +1,4 @@
-import { onCleanup } from "solid-js"
+import { onCleanup, onMount } from "solid-js"
 import { applicationShellStateCreate } from "./applicationShellStateCreate.js"
 import { appShellStateCreate } from "./appShellStateCreate.js"
 import { eventFeedCoordinatorStateCreate } from "./eventFeedCoordinatorStateCreate.js"
@@ -26,10 +26,23 @@ export function signedInApplicationStateCreate(options: SignedInApplicationState
     bootstrap: { fresh: true },
     connectionIndicator: state.events,
     eventSourceFactory: (url, eventSourceOptions) => new EventSource(url, eventSourceOptions),
+    onAuthenticationError: options.sessionClear,
     reconciliation: eventFeedReconciliationCreate({
       fetch: fetcher,
       settledSnapshotCacheWrite: sessionSettledCompletionCacheRegistry.write,
     }),
+  })
+
+  onMount(() => {
+    const browserOffline = () => eventFeed.offline()
+    const browserOnline = () => eventFeed.online()
+    window.addEventListener("offline", browserOffline)
+    window.addEventListener("online", browserOnline)
+    if (navigator.onLine === false) browserOffline()
+    onCleanup(() => {
+      window.removeEventListener("offline", browserOffline)
+      window.removeEventListener("online", browserOnline)
+    })
   })
 
   onCleanup(eventFeed.close)

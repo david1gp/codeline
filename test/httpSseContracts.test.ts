@@ -4,7 +4,7 @@ import { apiErrorResponseSchema } from "../src/api/errors/apiErrorResponseSchema
 import { apiIdempotencyResultSchemaCreate } from "../src/api/schema/apiIdempotencyResultSchemaCreate.js"
 import { runActiveSnapshotResponseSchema } from "../src/run/api/runActiveSnapshotResponseSchema.js"
 import { runActiveSummarySchema } from "../src/run/api/runActiveSummarySchema.js"
-import { sessionSnapshotResponseSchema } from "../src/session/api/sessionSnapshotResponseSchema.js"
+import { sessionSettledSnapshotResponseSchema } from "../src/session/api/sessionSettledSnapshotResponseSchema.js"
 import { streamSseFrameSchema } from "../src/stream/api/streamSseFrameSchema.js"
 import { streamSseFrameSerialize } from "../src/stream/api/streamSseFrameSerialize.js"
 
@@ -91,6 +91,7 @@ test("active-run reconciliation accepts terminal statuses intentionally", () => 
 
 test("settled session reconciliation uses the complete authoritative typed payload", () => {
   const response = {
+    asOfCursor: "cursor-4",
     asOfSequence: 4,
     etag: '"session-4"',
     messages: [],
@@ -112,14 +113,15 @@ test("settled session reconciliation uses the complete authoritative typed paylo
     },
     settled: true,
   }
-  expect(v.safeParse(sessionSnapshotResponseSchema, response).success).toBe(true)
+  expect(v.safeParse(sessionSettledSnapshotResponseSchema, response).success).toBe(true)
   expect(
-    v.safeParse(sessionSnapshotResponseSchema, {
+    v.safeParse(sessionSettledSnapshotResponseSchema, {
       ...response,
       session: { ...response.session, id: "session-2" },
     }).success,
   ).toBe(true)
-  expect(v.safeParse(sessionSnapshotResponseSchema, { revision: 4 }).success).toBe(false)
+  expect(v.safeParse(sessionSettledSnapshotResponseSchema, { ...response, asOfCursor: undefined }).success).toBe(false)
+  expect(v.safeParse(sessionSettledSnapshotResponseSchema, { revision: 4 }).success).toBe(false)
 })
 
 test("SSE size validation covers the complete serialized frame", () => {

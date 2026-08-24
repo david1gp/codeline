@@ -13,6 +13,7 @@ import { journalCursorCodecCreate } from "../src/journal/actions/journalCursorCo
 import { journalSequenceCounterTable } from "../src/journal/db/journalSequenceCounterTable.js"
 import { apiMessageRoutesAdd } from "../src/message/api/apiMessageRoutesAdd.js"
 import { messageTable } from "../src/message/db/messageTable.js"
+import { metricsCollectorCreate } from "../src/metrics/metricsCollectorCreate.js"
 import { runCreate } from "../src/run/actions/runCreate.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionListSnapshot } from "../src/session/actions/sessionListSnapshot.js"
@@ -52,6 +53,7 @@ const codecResult = journalCursorCodecCreate({
   randomBytes: (size) => randomBytes(size),
   secret: `${fixturePrefix}-cursor-secret`,
 })
+const metricsCollector = metricsCollectorCreate()
 
 const httpApi = new Hono<AppEnvironment>()
 httpApi.use("*", async (context, next) => {
@@ -64,6 +66,7 @@ if (codecResult.success) {
     database,
     journalCursorCodec: codecResult.data,
     journalPostCommitPublish: async () => createResult(undefined),
+    metricsCollector,
   })
   apiMessageRoutesAdd(httpApi, {
     journalCursorCodec: codecResult.data,
@@ -496,6 +499,13 @@ test("serves ordered message pages and complete conditional snapshots", async ()
   })
   expect(notModified.status).toBe(304)
   expect(notModified.headers.get("ETag")).toBe(body.etag)
+  expect(metricsCollector.snapshot().metrics).toEqual(
+    expect.arrayContaining([
+      { labels: { status: "200" }, name: "snapshot_response_total", value: 1 },
+      { labels: { status: "304" }, name: "snapshot_response_total", value: 1 },
+      { labels: { outcome: "gzip" }, name: "snapshot_compression_total", value: expect.any(Number) },
+    ]),
+  )
 
   const active = await httpApi.request(`http://codeline.test/sessions/${activeSessionId}/snapshot`)
   expect(active.status).toBe(409)

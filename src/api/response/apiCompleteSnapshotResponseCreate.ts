@@ -1,4 +1,5 @@
 import { createResult, createResultError, createResultErrorCode, type Result } from "@adaptive-ds/result"
+import type { metricsCollectorCreate } from "../../metrics/metricsCollectorCreate.js"
 
 type CompressionEncoding = "deflate" | "gzip"
 type CompressionSelection = { encoding?: CompressionEncoding; identityAllowed: boolean }
@@ -13,6 +14,7 @@ export async function apiCompleteSnapshotResponseCreate(
     acceptEncoding?: string
     dependencies: ApiCompleteSnapshotResponseDependencies
     headers: HeadersInit
+    metricsCollector?: ReturnType<typeof metricsCollectorCreate>
   },
 ): Promise<Result<Response>> {
   const op = "apiCompleteSnapshotResponseCreate"
@@ -28,10 +30,13 @@ export async function apiCompleteSnapshotResponseCreate(
   const headers = new Headers(options.headers)
   headers.set("Content-Type", "application/json; charset=UTF-8")
   const selection = compressionEncodingResolve(options.acceptEncoding)
-  if (selection === undefined)
+  if (selection === undefined) {
+    options.metricsCollector?.increment("snapshot_compression_total", 1, { outcome: "not-acceptable" })
     return createResultErrorCode(op, "No acceptable content encoding is available.", "not_acceptable")
+  }
   const encoding = selection.encoding
   if (encoding === undefined) {
+    options.metricsCollector?.increment("snapshot_compression_total", 1, { outcome: "identity" })
     headers.delete("Content-Encoding")
     headers.set("Content-Length", String(new TextEncoder().encode(serialized).byteLength))
     return createResult(new Response(serialized, { headers }))
@@ -44,9 +49,14 @@ export async function apiCompleteSnapshotResponseCreate(
     const compressed = new Uint8Array(await new Response(compressedStream).arrayBuffer())
     headers.set("Content-Encoding", encoding)
     headers.set("Content-Length", String(compressed.byteLength))
+    options.metricsCollector?.increment("snapshot_compression_total", 1, { outcome: encoding })
     return createResult(new Response(compressed, { headers }))
   } catch (_error) {
-    if (!selection.identityAllowed) return createResultError(op, "The snapshot could not be compressed.")
+    if (!selection.identityAllowed) {
+      options.metricsCollector?.increment("snapshot_compression_total", 1, { outcome: "failure" })
+      return createResultError(op, "The snapshot could not be compressed.")
+    }
+    options.metricsCollector?.increment("snapshot_compression_total", 1, { outcome: "fallback" })
     headers.delete("Content-Encoding")
     headers.set("Content-Length", String(new TextEncoder().encode(serialized).byteLength))
     return createResult(new Response(serialized, { headers }))

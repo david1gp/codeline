@@ -45,6 +45,39 @@ test("a 401 bootstrap yields the signed-out state with no user ID", async () => 
   root.dispose()
 })
 
+test("an expired session retry clears every authenticated field", async () => {
+  let now = new Date("2026-08-23T00:00:00.000Z")
+  const expiresAt = new Date(now.getTime() + 1_000)
+  const root = createRoot((dispose) => ({
+    dispose,
+    state: authSessionStateCreate({
+      fetcher: async () =>
+        now < expiresAt
+          ? Response.json({
+              authenticated: true,
+              displayName: "Expiring User",
+              organizationId: "organization-1",
+              token: "session-token",
+              userId: "oidc:user-expiring",
+            })
+          : Response.json({ error: { code: "unauthorized", message: "Authentication is required." } }, { status: 401 }),
+    }),
+  }))
+
+  await tick()
+  expect(root.state.status()).toBe("signed-in")
+  now = expiresAt
+  root.state.retry()
+  await tick()
+
+  expect(root.state.status()).toBe("signed-out")
+  expect(root.state.displayName()).toBeUndefined()
+  expect(root.state.organizationId()).toBeUndefined()
+  expect(root.state.token()).toBeUndefined()
+  expect(root.state.userId()).toBeUndefined()
+  root.dispose()
+})
+
 test("a failed or invalid session response renders the error state and retries", async () => {
   let attempts = 0
   const root = createRoot((dispose) => ({

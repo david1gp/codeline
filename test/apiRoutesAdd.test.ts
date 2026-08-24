@@ -10,11 +10,14 @@ import { appCreate } from "../src/app/appCreate.js"
 import { providerAgentCatalogLoad } from "../src/providers/catalog/providerAgentCatalogLoad.js"
 
 let rootDir: string
+let projectId: string
 const app = new Hono<AppEnvironment>()
 
 beforeAll(async () => {
   rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "api-composition-test-"))
-  await fs.writeFile(path.join(rootDir, "README.md"), "Codeline\n", "utf8")
+  const projectRoot = path.join(rootDir, "example-project")
+  await fs.mkdir(projectRoot)
+  await fs.writeFile(path.join(projectRoot, "README.md"), "Codeline\n", "utf8")
   const catalog = await providerAgentCatalogLoad(process.cwd())
   expect(catalog.success).toBe(true)
   if (!catalog.success) return
@@ -25,14 +28,8 @@ beforeAll(async () => {
     await next()
   })
   apiRoutesAdd(app, async () => ({ success: true, data: undefined }), {
-    projectRootDir: rootDir,
+    projectRootDirs: [rootDir],
     providerAgentCatalog: catalog.data,
-    streamReplayServiceCreate: () => ({
-      append: async () => ({ success: true, data: {} as never }),
-      replay: async () => ({ success: true, data: { checkpoint: {} as never, events: [], stale: false } }),
-      start: async () => ({ success: true, data: {} as never }),
-    }),
-    runChildStreamResolve: async () => createResult(false),
   })
 })
 
@@ -40,8 +37,10 @@ afterAll(async () => {
   await fs.rm(rootDir, { force: true, recursive: true })
 })
 
-test("shared API composition mounts project routes with the injected root", async () => {
-  const response = await app.request("http://codeline.test/api/project/text?path=README.md")
+test("shared API composition mounts scoped project routes", async () => {
+  const list = await app.request("http://codeline.test/api/project/list")
+  projectId = (await list.json()).projects[0].id
+  const response = await app.request(`http://codeline.test/api/project/text?project=${projectId}&path=README.md`)
 
   expect(response.status).toBe(200)
   expect(await response.json()).toMatchObject({ content: "Codeline\n", path: "README.md" })
@@ -57,14 +56,6 @@ test("does not mount migrated session routes without authenticated Drizzle journ
   const response = await app.request("http://codeline.test/api/sessions")
 
   expect(response.status).toBe(404)
-})
-
-test("shared API composition mounts stream routes with injected replay dependencies", async () => {
-  const response = await app.request("http://codeline.test/api/sessions/session/streams/stream/events")
-
-  expect(response.status).toBe(200)
-  expect(response.headers.get("Content-Type")).toContain("text/event-stream")
-  expect(await response.text()).toBe("")
 })
 
 test("shared API composition mounts provider routes with the development provider default", async () => {

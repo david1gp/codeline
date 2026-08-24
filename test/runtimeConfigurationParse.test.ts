@@ -8,6 +8,7 @@ import { appCreate } from "../src/app/appCreate.js"
 import { runtimeConfigurationParse } from "../src/configuration/runtimeConfigurationParse.js"
 import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
 import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
+import { metricsCollectorCreate } from "../src/metrics/metricsCollectorCreate.js"
 import { serverStart } from "../src/server/serverStart.js"
 
 const configuration = runtimeConfigurationParse({
@@ -219,6 +220,8 @@ test("server shutdown stops the server and closes the injected database once", a
   const listeners = new Map<string, () => void>()
   let stopCount = 0
   let closeCount = 0
+  const metricsCollector = metricsCollectorCreate()
+  let receivedMetricsCollector: typeof metricsCollector | undefined
   const database = {
     client: {
       close: () => {
@@ -228,10 +231,14 @@ test("server shutdown stops the server and closes the injected database once", a
     db: {},
   } as never
   const server = await serverStart({
-    appCreate: () => appCreate(),
+    appCreate: (options) => {
+      receivedMetricsCollector = options.metricsCollector
+      return appCreate()
+    },
     configuration: configuration.data,
     configurationStore: {} as never,
     database,
+    metricsCollector,
     runStartupInterruptionReconcile: async () => ({ success: true as const, data: { interruptedRunIds: [] } }),
     serve: () => ({
       stop: async () => {
@@ -246,6 +253,7 @@ test("server shutdown stops the server and closes the injected database once", a
   })
 
   expect(server.url.toString()).toBe("http://codeline.test/")
+  expect(receivedMetricsCollector).toBe(metricsCollector)
   listeners.get("SIGTERM")?.()
   listeners.get("SIGINT")?.()
   await Bun.sleep(0)

@@ -114,8 +114,8 @@ test("the typed fixture has stable counts, IDs, timestamps, and content", () => 
   ).toBe(true)
   expect(exampleDataFixture.agents.every((agent) => agent.configuration.provider === "deterministic")).toBe(true)
   expect(catalogAgentIds).toHaveLength(11)
-  expect(exampleDataFixture.sessions).toHaveLength(11)
-  expect(exampleDataFixture.sessions.filter((session) => session.archivedAt === null)).toHaveLength(10)
+  expect(exampleDataFixture.sessions).toHaveLength(12)
+  expect(exampleDataFixture.sessions.filter((session) => session.archivedAt === null)).toHaveLength(11)
   expect(exampleDataFixture.sessions.flatMap((session) => session.messages)).toHaveLength(8)
   expect(exampleDataFixture.sessions[0]?.messages[1]?.content).toBe("The workspace shell is ready for local sessions.")
   expect(exampleDataFixture.sessions.slice(0, 4).map((session) => session.parentSessionId)).toEqual([
@@ -309,7 +309,7 @@ test("rejects a conflicting organization ID without changing seeded rows", async
 
 test("reset preserves unrelated data and descendant links", async () => {
   const first = await exampleDataSeed(database, { organizationExternalId })
-  expect(first).toEqual({ success: true, data: { sessionCount: 11, messageCount: 8 } })
+  expect(first).toEqual({ success: true, data: { sessionCount: 12, messageCount: 8 } })
   const second = await exampleDataSeed(database, { organizationExternalId })
   expect(second).toEqual(first)
 
@@ -398,7 +398,7 @@ test("reset preserves unrelated data and descendant links", async () => {
 
   const sessions = await database.select().from(sessionTable).where(inArray(sessionTable.id, sessionIds))
   const messages = await database.select().from(messageTable).where(inArray(messageTable.id, messageIds))
-  expect(sessions).toHaveLength(11)
+  expect(sessions).toHaveLength(12)
   expect(sessions.every((session) => session.userId === exampleDataFixture.user.id)).toBe(true)
   expect(
     [...sessions]
@@ -414,7 +414,7 @@ test("reset preserves unrelated data and descendant links", async () => {
       (session) => session.serverId === "example-server-remote" && session.primaryAgentId === "example-agent-remote",
     ),
   ).toHaveLength(1)
-  expect(sessions.filter((session) => session.archivedAt === null)).toHaveLength(10)
+  expect(sessions.filter((session) => session.archivedAt === null)).toHaveLength(11)
   expect(sessions.find((session) => session.id === "example-session-active-2")?.parentSessionId).toBe(
     "example-session-active-1",
   )

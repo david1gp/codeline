@@ -15,6 +15,7 @@ import { journalBacklogRead } from "../journal/actions/journalBacklogRead.js"
 import type { JournalCursorCodec } from "../journal/actions/journalCursorCodecCreate.js"
 import { journalPostCommitPublishCreate } from "../journal/actions/journalPostCommitPublishCreate.js"
 import { apiMessageRoutesAdd } from "../message/api/apiMessageRoutesAdd.js"
+import { metricsCollectorCreate } from "../metrics/metricsCollectorCreate.js"
 import { apiNoteRoutesAdd } from "../note/api/apiNoteRoutesAdd.js"
 import { apiProjectRoutesAdd } from "../project/api/apiProjectRoutesAdd.js"
 import type { ProjectLimits } from "../project/projectLimitsSchema.js"
@@ -23,18 +24,18 @@ import { providerDelegationToolLoopCreate } from "../providers/runtime/providerD
 import type { ProviderModelDiscoveryOptions } from "../providers/runtime/providerModelDiscovery.js"
 import { providerRuntimeAdapterCreate } from "../providers/runtime/providerRuntimeAdapterCreate.js"
 import type { ProviderCatalog } from "../providers/schema/providerCatalogSchema.js"
+import { runActiveListLoad } from "../run/actions/runActiveListLoad.js"
 import { runActiveRegistryCreate } from "../run/actions/runActiveRegistryCreate.js"
+import { runActiveSnapshotLoad } from "../run/actions/runActiveSnapshotLoad.js"
 import { runCancel } from "../run/actions/runCancel.js"
 import { runCancellationCoordinatorCreate } from "../run/actions/runCancellationCoordinatorCreate.js"
 import { runChildCreate } from "../run/actions/runChildCreate.js"
-import { runChildStreamResolve } from "../run/actions/runChildStreamResolve.js"
 import { runCreate } from "../run/actions/runCreate.js"
 import { runDelegationExecute } from "../run/actions/runDelegationExecute.js"
 import { runDelegationFinalize } from "../run/actions/runDelegationFinalize.js"
 import { runExecutionSnapshotResolve } from "../run/actions/runExecutionSnapshotResolve.js"
 import { runLoad } from "../run/actions/runLoad.js"
 import { runRetryAttemptCreate } from "../run/actions/runRetryAttemptCreate.js"
-import { runSessionStreamSnapshotLoad } from "../run/actions/runSessionStreamSnapshotLoad.js"
 import { runTransition } from "../run/actions/runTransition.js"
 import { apiRunRoutesAdd } from "../run/api/apiRunRoutesAdd.js"
 import { apiServerRoutesAdd } from "../servers/api/apiServerRoutesAdd.js"
@@ -43,10 +44,9 @@ import { apiSessionBranchRoutesAdd } from "../session/api/apiSessionBranchRoutes
 import { apiSessionRenameRoutesAdd } from "../session/api/apiSessionRenameRoutesAdd.js"
 import { apiSessionRoutesAdd } from "../session/api/apiSessionRoutesAdd.js"
 import { streamLiveSubscriptionCreate } from "../stream/actions/streamLiveSubscriptionCreate.js"
-import { streamReplayServiceCreate } from "../stream/actions/streamReplayServiceCreate.js"
 import { streamSseConnectionWriterCreate } from "../stream/actions/streamSseConnectionWriterCreate.js"
-import { apiStreamRoutesAdd } from "../stream/api/apiStreamRoutesAdd.js"
 import type { AppEnvironment } from "./appEnvironment.js"
+import { apiMetricsRoutesAdd } from "./diagnostics/apiMetricsRoutesAdd.js"
 import type { HealthResponse } from "./health/healthResponseSchema.js"
 import { apiReadinessRoutesAdd } from "./readiness/apiReadinessRoutesAdd.js"
 import { apiTestingRoutesAdd } from "./testing/apiTestingRoutesAdd.js"
@@ -57,25 +57,24 @@ type ApiRoutesAddOptions = {
   database?: DatabaseClient
   projectLimits?: ProjectLimits
   projectRootDirs?: readonly string[]
-  projectRootDir?: string
   providerConfiguration?: unknown
   providerAgentCatalog?: ProviderCatalog
   providerEnvironment?: Readonly<Record<string, string | undefined>>
   providerDelegationToolLoopCreate?: typeof providerDelegationToolLoopCreate
   providerFetch?: NonNullable<ProviderModelDiscoveryOptions["fetch"]>
   providerRuntimeAdapterCreate?: typeof providerRuntimeAdapterCreate
+  runActiveListLoad?: typeof runActiveListLoad
   runActiveRegistry?: ReturnType<typeof runActiveRegistryCreate>
+  runActiveSnapshotLoad?: typeof runActiveSnapshotLoad
   runCreate?: typeof runCreate
   runCancel?: typeof runCancel
   runCancellationCoordinator?: ReturnType<typeof runCancellationCoordinatorCreate>
   runChildCreate?: typeof runChildCreate
-  runChildStreamResolve?: typeof runChildStreamResolve
   runDelegationExecute?: typeof runDelegationExecute
   runDelegationFinalize?: typeof runDelegationFinalize
   runExecutionSnapshotResolve?: typeof runExecutionSnapshotResolve
   runLoad?: typeof runLoad
   runRetryAttemptCreate?: typeof runRetryAttemptCreate
-  runSessionStreamSnapshotLoad?: typeof runSessionStreamSnapshotLoad
   runTransition?: typeof runTransition
   identitySessionRevoke?: typeof identitySessionRevoke
   identitySessionCreate?: typeof import("../identity/actions/identitySessionCreate.js").identitySessionCreate
@@ -93,8 +92,6 @@ type ApiRoutesAddOptions = {
   oidcReturnToPathIsKnown?: typeof appKnownRouteResolve
   authCallbackRoute?: Hono<AppEnvironment>
   sessionChatAdapter?: typeof sessionChatAdapterCreate
-  streamInactivityTimeoutMs?: number
-  streamReplayServiceCreate?: typeof streamReplayServiceCreate
   journalBacklogRead?: typeof journalBacklogRead
   journalCursorCodec?: JournalCursorCodec
   journalPostCommitPublish?: ReturnType<typeof journalPostCommitPublishCreate>
@@ -102,6 +99,7 @@ type ApiRoutesAddOptions = {
   streamSseConnectionWriterCreate?: typeof streamSseConnectionWriterCreate
   streamSseNow?: () => number
   streamSseScheduler?: Parameters<typeof streamSseConnectionWriterCreate>[0]["scheduler"]
+  metricsCollector?: ReturnType<typeof metricsCollectorCreate>
 }
 
 export function apiRoutesAdd(
@@ -111,6 +109,7 @@ export function apiRoutesAdd(
 ): void {
   const api = new Hono<AppEnvironment>()
   const streamLiveSubscription = options.streamLiveSubscription ?? streamLiveSubscriptionCreate()
+  const metricsCollector = options.metricsCollector ?? metricsCollectorCreate()
   const journalPostCommitPublish =
     options.journalPostCommitPublish ??
     (options.journalCursorCodec === undefined
@@ -135,6 +134,7 @@ export function apiRoutesAdd(
   })
 
   apiReadinessRoutesAdd(api, databaseReadyCheck)
+  apiMetricsRoutesAdd(api, metricsCollector)
   apiAuthRoutesAdd(api, {
     configuration: options.configuration,
     database: options.database,
@@ -171,14 +171,18 @@ export function apiRoutesAdd(
       database: options.database,
       journalCursorCodec: options.journalCursorCodec,
       journalPostCommitPublish,
+      metricsCollector,
     })
   }
   apiRunRoutesAdd(api, {
+    metricsCollector,
+    ...(options.journalCursorCodec === undefined ? {} : { journalCursorCodec: options.journalCursorCodec }),
     runCancel: options.runCancel,
+    runActiveListLoad: options.runActiveListLoad,
     runActiveRegistry: options.runActiveRegistry,
+    runActiveSnapshotLoad: options.runActiveSnapshotLoad,
     runCancellationCoordinator: options.runCancellationCoordinator,
     runLoad: options.runLoad,
-    runSessionStreamSnapshotLoad: options.runSessionStreamSnapshotLoad,
   })
   if (
     options.configuration !== undefined &&
@@ -201,23 +205,12 @@ export function apiRoutesAdd(
       journalPostCommitPublish,
     })
   }
-  if (options.projectRootDir !== undefined) {
-    apiProjectRoutesAdd(api, { limits: options.projectLimits, rootDir: options.projectRootDir })
-  } else if (options.projectRootDirs !== undefined) {
-    apiProjectRoutesAdd(api, { limits: options.projectLimits, rootDirs: options.projectRootDirs })
-  } else {
-    apiProjectRoutesAdd(api, { limits: options.projectLimits, rootDirs: [] })
-  }
+  apiProjectRoutesAdd(api, { limits: options.projectLimits, rootDirs: options.projectRootDirs ?? [] })
   apiProviderRoutesAdd(api, {
     configuration: options.providerConfiguration ?? { model: "development-default", provider: "deterministic" },
     environment: options.providerEnvironment ?? Bun.env,
     fetch: options.providerFetch ?? globalThis.fetch,
     providerAgentCatalog: options.providerAgentCatalog,
-  })
-  apiStreamRoutesAdd(api, {
-    childStreamResolve: options.runChildStreamResolve,
-    inactivityTimeoutMs: options.streamInactivityTimeoutMs,
-    replayServiceCreate: options.streamReplayServiceCreate,
   })
   // The authenticated feed is only constructed when both its auth middleware and
   // opaque cursor codec are present. It must not be exposed as a route that can
@@ -234,6 +227,7 @@ export function apiRoutesAdd(
       liveSubscription: streamLiveSubscription,
       now: options.streamSseNow,
       scheduler: options.streamSseScheduler,
+      metricsCollector,
     })
   }
   apiTestingRoutesAdd(api)

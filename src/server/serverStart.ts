@@ -15,6 +15,7 @@ import { databaseUrl } from "../database/databaseUrl.js"
 import type { JournalCursorCodec } from "../journal/actions/journalCursorCodecCreate.js"
 import { journalCursorCodecCreate } from "../journal/actions/journalCursorCodecCreate.js"
 import { journalPostCommitPublishCreate } from "../journal/actions/journalPostCommitPublishCreate.js"
+import { metricsCollectorCreate } from "../metrics/metricsCollectorCreate.js"
 import { providerAgentCatalogLoad } from "../providers/catalog/providerAgentCatalogLoad.js"
 import type { ProviderCatalog } from "../providers/schema/providerCatalogSchema.js"
 import { runStartupInterruptionReconcile } from "../run/actions/runStartupInterruptionReconcile.js"
@@ -43,22 +44,22 @@ type ServerStartOptions = {
     configurationStore?: ConfigurationStore
     database: DatabaseConnection["db"]
     projectRootDirs: readonly string[]
-    projectRootDir?: string
     providerAgentCatalog?: ProviderCatalog
     journalCursorCodec?: JournalCursorCodec
     journalPostCommitPublish?: ReturnType<typeof journalPostCommitPublishCreate>
     streamLiveSubscription?: ReturnType<typeof streamLiveSubscriptionCreate>
+    metricsCollector?: ReturnType<typeof metricsCollectorCreate>
   }) => App
   configuration?: RuntimeConfiguration
   configurationStore?: ConfigurationStore
   database?: DatabaseConnection
   projectRootDirs?: readonly string[]
-  projectRootDir?: string
   providerAgentCatalog?: ProviderCatalog
   journalCursorCodec?: JournalCursorCodec
   runStartupInterruptionReconcile?: typeof runStartupInterruptionReconcile
   serve?: Serve
   signalSource?: SignalSource
+  metricsCollector?: ReturnType<typeof metricsCollectorCreate>
 }
 
 export async function serverStart(options: ServerStartOptions = {}): Promise<Server> {
@@ -94,10 +95,7 @@ export async function serverStart(options: ServerStartOptions = {}): Promise<Ser
       : { success: true as const, data: options.configuration }
   if (!configuration.success) throw new Error(configuration.errorMessage)
 
-  const projectRootDirs =
-    options.projectRootDir === undefined
-      ? (options.projectRootDirs ?? projectRootConfigurationRead())
-      : [options.projectRootDir]
+  const projectRootDirs = options.projectRootDirs ?? projectRootConfigurationRead()
 
   const configurationStore = await managedConfigurationStoreResolve(options.configurationStore, configuration.data)
 
@@ -122,16 +120,17 @@ export async function serverStart(options: ServerStartOptions = {}): Promise<Ser
     cursorCodec: journalCursorCodec,
     liveSubscription: streamLiveSubscription,
   })
+  const metricsCollector = options.metricsCollector ?? metricsCollectorCreate()
   const application = createApp({
     configuration: configuration.data,
     configurationStore,
     database: database.data.db,
-    ...(options.projectRootDir === undefined ? {} : { projectRootDir: options.projectRootDir }),
     projectRootDirs,
     providerAgentCatalog: providerAgentCatalogResult.data,
     journalCursorCodec,
     journalPostCommitPublish,
     streamLiveSubscription,
+    metricsCollector,
   })
   const reconciled = await (options.runStartupInterruptionReconcile ?? runStartupInterruptionReconcile)({
     database: database.data.db,

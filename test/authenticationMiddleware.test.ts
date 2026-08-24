@@ -3,8 +3,8 @@ import { createResult } from "@adaptive-ds/result"
 import { Hono } from "hono"
 import type { AppEnvironment } from "../src/api/appEnvironment.js"
 import type { RuntimeConfiguration } from "../src/configuration/runtimeConfigurationSchema.js"
-import { authenticationMiddleware } from "../src/identity/api/authenticationMiddleware.js"
 import { identitySessionLoad } from "../src/identity/actions/identitySessionLoad.js"
+import { authenticationMiddleware } from "../src/identity/api/authenticationMiddleware.js"
 import { identitySessionTable } from "../src/identity/db/identitySessionTable.js"
 
 const configuredOrganizationExternalId = "configured-organization"
@@ -77,7 +77,35 @@ test("authentication accepts the valid configured organization membership", asyn
   expect(await response.json()).toMatchObject({ organizationId: configuredOrganizationId, userId })
 })
 
-function authenticationApp(memberships: readonly Membership[]): Hono<AppEnvironment> {
+test("authentication rejects the event-feed reconnect after the injected session clock reaches expiry", async () => {
+  let now = new Date("2026-08-14T12:00:00.000Z")
+  const app = authenticationApp([membership(configuredOrganizationId, configuredIssuer)], {
+    now: () => now,
+    identitySessionLoad: async (_database, _token, sessionNow) =>
+      (sessionNow ?? new Date()) < session.expiresAt ? createResult(session) : createResult(undefined),
+  })
+  const request = {
+    headers: { Cookie: "__Host-codeline-session=opaque-session" },
+  }
+
+  const connected = await app.request("https://codeline.test/protected", request)
+  expect(connected.status).toBe(200)
+
+  now = session.expiresAt
+  const reconnect = await app.request("https://codeline.test/protected", request)
+  expect(reconnect.status).toBe(401)
+  expect(reconnect.headers.get("Cache-Control")).toBe("no-store")
+})
+
+type AuthenticationAppOptions = {
+  identitySessionLoad?: typeof identitySessionLoad
+  now?: () => Date
+}
+
+function authenticationApp(
+  memberships: readonly Membership[],
+  options: AuthenticationAppOptions = {},
+): Hono<AppEnvironment> {
   const database = {
     query: {
       organizationMemberTable: {
@@ -104,7 +132,9 @@ function authenticationApp(memberships: readonly Membership[]): Hono<AppEnvironm
   app.use(
     "*",
     authenticationMiddleware(configuration, database as never, {
-      identitySessionLoad: (async () => createResult(session)) as typeof identitySessionLoad,
+      identitySessionLoad:
+        options.identitySessionLoad ?? ((async () => createResult(session)) as typeof identitySessionLoad),
+      now: options.now,
     }),
   )
   app.get("/protected", (context) => context.json(context.var.requestIdentity))

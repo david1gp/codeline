@@ -22,6 +22,7 @@ import type { OidcProviderFetch } from "../identity/oidc/oidcProviderFetch.js"
 import { journalBacklogRead } from "../journal/actions/journalBacklogRead.js"
 import type { JournalCursorCodec } from "../journal/actions/journalCursorCodecCreate.js"
 import { journalPostCommitPublishCreate } from "../journal/actions/journalPostCommitPublishCreate.js"
+import { metricsCollectorCreate } from "../metrics/metricsCollectorCreate.js"
 import type { ProjectLimits } from "../project/projectLimitsSchema.js"
 import { providerDelegationToolLoopCreate } from "../providers/runtime/providerDelegationToolLoopCreate.js"
 import type { ProviderModelDiscoveryOptions } from "../providers/runtime/providerModelDiscovery.js"
@@ -37,11 +38,9 @@ import { runDelegationFinalize } from "../run/actions/runDelegationFinalize.js"
 import { runExecutionSnapshotResolve } from "../run/actions/runExecutionSnapshotResolve.js"
 import { runLoad } from "../run/actions/runLoad.js"
 import { runRetryAttemptCreate } from "../run/actions/runRetryAttemptCreate.js"
-import { runSessionStreamSnapshotLoad } from "../run/actions/runSessionStreamSnapshotLoad.js"
 import { runTransition } from "../run/actions/runTransition.js"
 import { sessionChatAdapterCreate } from "../session/actions/sessionChatAdapterCreate.js"
 import { streamLiveSubscriptionCreate } from "../stream/actions/streamLiveSubscriptionCreate.js"
-import { streamReplayServiceCreate } from "../stream/actions/streamReplayServiceCreate.js"
 import { streamSseConnectionWriterCreate } from "../stream/actions/streamSseConnectionWriterCreate.js"
 import { appKnownRouteResolve } from "./appKnownRouteResolve.js"
 import { appUiShellFallbackAdd } from "./appUiShellFallbackAdd.js"
@@ -69,7 +68,6 @@ export type AppCreateOptions = {
   oidcReturnToPathIsKnown?: typeof appKnownRouteResolve
   projectLimits?: ProjectLimits
   projectRootDirs?: readonly string[]
-  projectRootDir?: string
   providerConfiguration?: unknown
   providerAgentCatalog?: ProviderCatalog
   providerEnvironment?: Readonly<Record<string, string | undefined>>
@@ -86,11 +84,8 @@ export type AppCreateOptions = {
   runExecutionSnapshotResolve?: typeof runExecutionSnapshotResolve
   runLoad?: typeof runLoad
   runRetryAttemptCreate?: typeof runRetryAttemptCreate
-  runSessionStreamSnapshotLoad?: typeof runSessionStreamSnapshotLoad
   runTransition?: typeof runTransition
   sessionChatAdapter?: typeof sessionChatAdapterCreate
-  streamInactivityTimeoutMs?: number
-  streamReplayServiceCreate?: typeof streamReplayServiceCreate
   journalCursorCodec?: JournalCursorCodec
   journalBacklogRead?: typeof journalBacklogRead
   journalPostCommitPublish?: ReturnType<typeof journalPostCommitPublishCreate>
@@ -98,6 +93,7 @@ export type AppCreateOptions = {
   streamSseConnectionWriterCreate?: typeof streamSseConnectionWriterCreate
   streamSseNow?: () => number
   streamSseScheduler?: Parameters<typeof streamSseConnectionWriterCreate>[0]["scheduler"]
+  metricsCollector?: ReturnType<typeof metricsCollectorCreate>
   uiShellPath?: string
 }
 
@@ -105,6 +101,7 @@ export function appCreate(options: AppCreateOptions = {}): App {
   const app = new Hono<AppEnvironment>()
   const runActiveRegistry = options.runActiveRegistry ?? runActiveRegistryCreate()
   const streamLiveSubscription = options.streamLiveSubscription ?? streamLiveSubscriptionCreate()
+  const metricsCollector = options.metricsCollector ?? metricsCollectorCreate()
   const journalPostCommitPublish =
     options.journalPostCommitPublish ??
     (options.journalCursorCodec === undefined
@@ -163,7 +160,6 @@ export function appCreate(options: AppCreateOptions = {}): App {
     configuration: options.configuration,
     database: options.database,
     projectLimits: options.projectLimits,
-    projectRootDir: options.projectRootDir,
     projectRootDirs: options.projectRootDirs,
     providerConfiguration: options.providerConfiguration,
     providerAgentCatalog: options.providerAgentCatalog,
@@ -180,7 +176,6 @@ export function appCreate(options: AppCreateOptions = {}): App {
     runExecutionSnapshotResolve: options.runExecutionSnapshotResolve,
     runLoad: options.runLoad,
     runRetryAttemptCreate: options.runRetryAttemptCreate,
-    runSessionStreamSnapshotLoad: options.runSessionStreamSnapshotLoad,
     runTransition: options.runTransition,
     identitySessionRevoke: options.identitySessionRevoke,
     identitySessionCreate: options.identitySessionCreate,
@@ -200,8 +195,6 @@ export function appCreate(options: AppCreateOptions = {}): App {
     runDelegationExecute: options.runDelegationExecute,
     runDelegationFinalize: options.runDelegationFinalize,
     sessionChatAdapter: options.sessionChatAdapter,
-    streamInactivityTimeoutMs: options.streamInactivityTimeoutMs,
-    streamReplayServiceCreate: options.streamReplayServiceCreate,
     journalCursorCodec: options.journalCursorCodec,
     journalBacklogRead: options.journalBacklogRead,
     journalPostCommitPublish,
@@ -209,6 +202,7 @@ export function appCreate(options: AppCreateOptions = {}): App {
     streamSseConnectionWriterCreate: options.streamSseConnectionWriterCreate,
     streamSseNow: options.streamSseNow,
     streamSseScheduler: options.streamSseScheduler,
+    metricsCollector,
   })
 
   const uiShellPath = options.uiShellPath ?? "./dist/ui/index.html"

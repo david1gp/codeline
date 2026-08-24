@@ -47,6 +47,7 @@ export function authSessionStateCreate(options: AuthSessionStateOptions = {}) {
       if (response.status === 401 || response.status === 403) {
         displayNameSet(undefined)
         organizationIdSet(undefined)
+        tokenSet(undefined)
         userIdSet(undefined)
         statusSet("signed-out")
         return

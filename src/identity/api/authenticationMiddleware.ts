@@ -13,6 +13,7 @@ const developmentIdentityIssuer = "urn:codeline:development"
 
 type AuthenticationMiddlewareOptions = {
   developmentIdentityUpsert?: typeof developmentIdentityUpsert
+  now?: () => Date
   organizationMemberLoad?: typeof organizationMemberLoad
   identitySessionLoad?: typeof identitySessionLoad
 }
@@ -62,7 +63,7 @@ export function authenticationMiddleware(
 
     const token = identitySessionCookieRead(context)
     if (token === undefined) return authenticationUnauthorized(context)
-    const session = await sessionLoad(database, token)
+    const session = await sessionLoad(database, token, options.now?.() ?? new Date())
     if (!session.success || session.data === undefined) return authenticationUnauthorized(context)
 
     let organizationId: string | undefined
