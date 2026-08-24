@@ -40,7 +40,6 @@ test("runtime migration configuration uses SQLite and an absolute file URL", asy
       "./src/message/db/*Table.ts",
       "./src/note/db/*Table.ts",
       "./src/run/db/*Table.ts",
-      "./src/stream/db/*Table.ts",
       "./src/journal/db/*Table.ts",
     ],
     out: "./src/database/migrations",

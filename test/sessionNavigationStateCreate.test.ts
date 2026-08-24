@@ -38,7 +38,7 @@ function navigationCreate(initialUrl: string) {
 }
 
 test("session navigation parses, pushes, clears, and reloads from the session URL", () => {
-  const navigation = navigationCreate("https://codeline.test/sessions/recent?mode=active&session=first#chat")
+  const navigation = navigationCreate("https://codeline.test/sessions/first?tab=recent&mode=active#chat")
   const dispose = createRoot((rootDispose) => {
     const state = sessionNavigationStateCreate(navigation)
 
@@ -69,16 +69,16 @@ test("session navigation parses, pushes, clears, and reloads from the session UR
 })
 
 test("session navigation follows browser back and forward popstate changes", () => {
-  const navigation = navigationCreate("https://codeline.test/sessions/pinned?session=first")
+  const navigation = navigationCreate("https://codeline.test/sessions/first?tab=pinned")
   const dispose = createRoot((rootDispose) => {
     const state = sessionNavigationStateCreate(navigation)
     expect(navigation.listenerCount()).toBe(1)
 
-    navigation.history.pushState(null, "", "https://codeline.test/sessions/projects?session=second")
+    navigation.history.pushState(null, "", "https://codeline.test/sessions/second?tab=projects")
     navigation.emitPopstate()
     expect(state.selectedSessionId()).toBe("second")
 
-    navigation.history.pushState(null, "", "https://codeline.test/sessions/search")
+    navigation.history.pushState(null, "", "https://codeline.test/sessions?tab=search")
     navigation.emitPopstate()
     expect(state.selectedSessionId()).toBeNull()
 

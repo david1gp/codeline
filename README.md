@@ -24,7 +24,7 @@ Codeline is a runnable AI coding workspace. It provides synchronized session nav
 
 The Hono API persists durable state in SQLite through Drizzle. Typed HTTP synchronizes authorized reads and mutations with the browser, while the replayable SSE event feed carries server-to-client changes. The chat runtime supports deterministic fixtures and the configured local CLIProxyAPI/Codex-LB provider targets.
 
-SQLite/libSQL with Drizzle, typed HTTP, and authenticated SSE are the sole current data and operations architecture. PostgreSQL, Zero, and Convex appear only in dated migration or feature-plan records and are not active services or data authorities.
+SQLite/libSQL with Drizzle, typed HTTP, and authenticated SSE are the sole current data and operations architecture. Former migration systems appear only in dated migration or feature-plan records and are not active services or data authorities.
 
 Local development uses a pinned git-store checkout through a Bun link. `bun run release` runs the local format, test, and build preflight; `bun run build` runs the build directly. GitHub release artifacts, clean-clone/CI reproducibility, and deployment automation are deferred and are not current priorities.
 
@@ -191,7 +191,7 @@ Verify the immutable release inputs without network access:
 bun run release:inputs:verify
 ```
 
-This checks the pinned Bun version and the linked git-store target, including its Git revision, cleanliness, package identity, exports, and required build outputs. It reports a blocker when a provisioned source directory cannot prove its Git provenance.
+This checks the linked git-store target, including its Git revision, cleanliness, package identity, exports, and required build outputs. It reports a blocker when a provisioned source directory cannot prove its Git provenance.
 
 GitHub release artifacts and clean-clone/CI dependency reproducibility are deferred. Typecheck, tests, build, database checks, and release-input verification remain local commands after the git-store link is established.
 

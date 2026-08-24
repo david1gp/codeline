@@ -9,11 +9,9 @@ export function sessionRouteResolve(url: Pick<URL, "pathname" | "search">) {
   const searchParams = new URLSearchParams(url.search)
   const parsedQueryTab = v.safeParse(sessionSidebarTabSchema, searchParams.get("tab") ?? "")
   const queryTab: SessionSidebarTab | null = parsedQueryTab.success ? parsedQueryTab.output : null
-  const parsedLegacySessionId = v.safeParse(sessionIdSchema, searchParams.get("session") ?? "")
-  const legacySessionId = parsedLegacySessionId.success ? parsedLegacySessionId.output : null
 
   if (normalizedPathname === "/sessions") {
-    return { kind: "base" as const, sessionId: legacySessionId, tab: queryTab }
+    return { kind: "base" as const, sessionId: null, tab: queryTab }
   }
   if (!normalizedPathname.startsWith("/sessions/")) {
     return { kind: "invalid" as const, sessionId: null, tab: null }
@@ -22,16 +20,6 @@ export function sessionRouteResolve(url: Pick<URL, "pathname" | "search">) {
   const routeSegment = normalizedPathname.slice("/sessions/".length)
   if (routeSegment === "new") return { kind: "new" as const, sessionId: null, tab: queryTab }
   const parsedSessionId = v.safeParse(sessionIdSchema, routeSegment)
-  const parsedSidebarTab = v.safeParse(sessionSidebarTabSchema, routeSegment)
-  if (parsedSidebarTab.success && legacySessionId !== null) {
-    return { kind: "legacy-tab" as const, sessionId: legacySessionId, tab: queryTab ?? parsedSidebarTab.output }
-  }
-  if (parsedQueryTab.success && parsedSessionId.success && !routeSegment.includes("/")) {
-    return { kind: "selected" as const, sessionId: parsedSessionId.output, tab: queryTab }
-  }
-  if (parsedSidebarTab.success) {
-    return { kind: "legacy-tab" as const, sessionId: legacySessionId, tab: queryTab ?? parsedSidebarTab.output }
-  }
 
   if (!parsedSessionId.success || routeSegment.includes("/")) {
     return { kind: "invalid" as const, sessionId: null, tab: null }

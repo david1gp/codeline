@@ -19,7 +19,6 @@ const releaseInputSchema = v.object({
 
 const releaseInputManifestSchema = v.object({
   schemaVersion: v.literal(1),
-  bun: v.object({ version: v.string() }),
   inputs: v.object({
     gitStore: releaseInputSchema,
   }),
@@ -34,7 +33,6 @@ interface ReleaseInputsVerifyOptions {
   manifestPath?: string
   inputNames?: ReleaseInputName[]
   checkoutPaths?: Partial<Record<ReleaseInputName, string>>
-  bunVersion?: string
 }
 
 interface GitCommandResult {
@@ -271,11 +269,6 @@ export async function releaseInputsVerify(options: ReleaseInputsVerifyOptions): 
   const root = resolve(options.root)
   const manifest = await releaseInputManifestRead(options.manifestPath ?? join(root, "release-inputs.json"))
   if (!manifest.success) return manifest
-
-  const bunVersion = options.bunVersion ?? Bun.version
-  if (bunVersion !== manifest.data.bun.version) {
-    return createResultError(op, `Bun version is ${bunVersion}, expected pinned version ${manifest.data.bun.version}`)
-  }
 
   const inputNames = options.inputNames ?? (["gitStore"] satisfies ReleaseInputName[])
   const verifiedInputs: string[] = []

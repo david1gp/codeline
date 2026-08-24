@@ -36,7 +36,7 @@ function routeCreate(initialHref: string, initialStoredTab?: string) {
 }
 
 test("session sidebar routes normalize base and invalid paths with validated storage", async () => {
-  const restoredRoute = routeCreate("https://codeline.test/sessions?session=selected#chat", "pinned")
+  const restoredRoute = routeCreate("https://codeline.test/sessions/selected#chat", "pinned")
   const restoredRoot = createRoot((dispose) => ({
     dispose,
     state: sessionSidebarRouteStateCreate(restoredRoute),
@@ -64,7 +64,7 @@ test("session sidebar routes normalize base and invalid paths with validated sto
 })
 
 test("session sidebar tab selection changes paths and preserves query and hash state", async () => {
-  const route = routeCreate("https://codeline.test/sessions/recent?session=selected&search=term#chat")
+  const route = routeCreate("https://codeline.test/sessions/selected?tab=recent&search=term#chat")
   const root = createRoot((dispose) => ({ dispose, state: sessionSidebarRouteStateCreate(route) }))
 
   await tick()
@@ -76,7 +76,7 @@ test("session sidebar tab selection changes paths and preserves query and hash s
   })
   expect(route.storage.value()).toBe("projects")
 
-  route.visit("/sessions/search/?session=selected&search=next")
+  route.visit("/sessions/selected/?tab=search&search=next")
   await tick()
   expect(root.state.activeTab()).toBe("search")
   expect(route.navigations.at(-1)).toEqual({
@@ -88,23 +88,12 @@ test("session sidebar tab selection changes paths and preserves query and hash s
 })
 
 test("session sidebar removes search state from non-search routes during normalization", async () => {
-  const route = routeCreate("https://codeline.test/sessions/recent?session=selected&search=term#chat")
+  const route = routeCreate("https://codeline.test/sessions/selected?tab=recent&search=term#chat")
   const root = createRoot((dispose) => ({ dispose, state: sessionSidebarRouteStateCreate(route) }))
 
   await tick()
   expect(route.navigations).toEqual([
     { href: "https://codeline.test/sessions/selected?tab=recent#chat", replace: true },
-  ])
-  root.dispose()
-})
-
-test("session sidebar redirects legacy tabs to canonical selected-session URLs", async () => {
-  const route = routeCreate("https://codeline.test/sessions/projects?session=selected&tab=pinned&search=term#chat")
-  const root = createRoot((dispose) => ({ dispose, state: sessionSidebarRouteStateCreate(route) }))
-
-  await tick()
-  expect(route.navigations).toEqual([
-    { href: "https://codeline.test/sessions/selected?tab=pinned#chat", replace: true },
   ])
   root.dispose()
 })
@@ -130,7 +119,7 @@ test("session sidebar keeps unknown canonical session IDs and reserves new-sessi
 })
 
 test("session sidebar restores the last valid route choice across reloads", async () => {
-  const firstRoute = routeCreate("https://codeline.test/sessions/projects")
+  const firstRoute = routeCreate("https://codeline.test/sessions?tab=projects")
   const firstRoot = createRoot((dispose) => ({ dispose, state: sessionSidebarRouteStateCreate(firstRoute) }))
   await tick()
   expect(firstRoute.storage.value()).toBe("projects")

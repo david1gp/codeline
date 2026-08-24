@@ -51,37 +51,6 @@ test("server startup parses and forwards configured project roots", async () => 
   expect(receivedProjectRootDirs).toEqual([firstRoot, secondRoot])
 })
 
-test("explicit single-root startup configuration overrides configured roots", async () => {
-  Bun.env.CODELINE_PROJECT_ROOTS = JSON.stringify(["./configured-projects"])
-  let receivedProjectRootDirs: readonly string[] | undefined
-  let receivedProjectRootDir: string | undefined
-
-  await serverStart({
-    appCreate: (options) => {
-      receivedProjectRootDirs = options.projectRootDirs
-      receivedProjectRootDir = options.projectRootDir
-      return appCreate()
-    },
-    configuration,
-    configurationStore: {} as never,
-    database,
-    projectRootDirs: [path.resolve("injected-projects")],
-    projectRootDir: path.resolve("single-project"),
-    runStartupInterruptionReconcile: async () => ({ success: true as const, data: { interruptedRunIds: [] } }),
-    serve: () => ({
-      stop: async () => undefined,
-      url: new URL("http://codeline.test"),
-    }),
-    signalSource: {
-      once: () => undefined,
-      removeListener: () => undefined,
-    },
-  })
-
-  expect(receivedProjectRootDirs).toEqual([path.resolve("single-project")])
-  expect(receivedProjectRootDir).toBe(path.resolve("single-project"))
-})
-
 test("managed startup opens the configured configuration store", async () => {
   const configurationStoreDir = await fs.mkdtemp(path.join(os.tmpdir(), "codeline-startup-configuration-"))
   Bun.env.CONFIG_STORE_DIR = configurationStoreDir
@@ -112,16 +81,14 @@ test("managed startup opens the configured configuration store", async () => {
   }
 })
 
-test("app and API composition preserve project root ordering and adapter precedence", async () => {
+test("app and API composition preserve project root ordering", async () => {
   const firstRoot = await fs.mkdtemp(path.join(os.tmpdir(), "project-root-first-"))
   const secondRoot = await fs.mkdtemp(path.join(os.tmpdir(), "project-root-second-"))
-  const singleRoot = await fs.mkdtemp(path.join(os.tmpdir(), "project-root-single-"))
   try {
     await fs.mkdir(path.join(firstRoot, "first-project"))
     await fs.mkdir(path.join(secondRoot, "second-project"))
     await fs.writeFile(path.join(firstRoot, "first-project", "README.md"), "first\n", "utf8")
     await fs.writeFile(path.join(secondRoot, "second-project", "README.md"), "second\n", "utf8")
-    await fs.writeFile(path.join(singleRoot, "README.md"), "single\n", "utf8")
 
     const app = appCreate({ projectRootDirs: [firstRoot, secondRoot] })
     const list = await app.request("http://codeline.test/api/project/list")
@@ -141,12 +108,6 @@ test("app and API composition preserve project root ordering and adapter precede
     )
     expect(scopedResponse.status).toBe(200)
     expect(await scopedResponse.json()).toMatchObject({ content: "first\n" })
-
-    const singleRootApp = appCreate({ projectRootDirs: [firstRoot, secondRoot], projectRootDir: singleRoot })
-    const singleRootResponse = await singleRootApp.request("http://codeline.test/api/project/text?path=README.md")
-
-    expect(singleRootResponse.status).toBe(200)
-    expect(await singleRootResponse.json()).toMatchObject({ content: "single\n" })
 
     const api = new Hono<AppEnvironment>()
     apiRoutesAdd(api, async () => ({ success: true, data: undefined }), {
@@ -168,7 +129,6 @@ test("app and API composition preserve project root ordering and adapter precede
     await Promise.all([
       fs.rm(firstRoot, { force: true, recursive: true }),
       fs.rm(secondRoot, { force: true, recursive: true }),
-      fs.rm(singleRoot, { force: true, recursive: true }),
     ])
   }
 })
@@ -191,7 +151,6 @@ test("unconfigured app composition exposes no broad working-directory fallback",
   const list = await app.request("http://codeline.test/api/project/list")
   expect(list.status).toBe(200)
   expect(await list.json()).toEqual({ projects: [], truncated: false })
-  expect(list.headers.get("X-Codeline-Project-Mode")).toBeNull()
 
   const response = await app.request("http://codeline.test/api/project/text?path=README.md")
   expect(response.status).toBe(400)

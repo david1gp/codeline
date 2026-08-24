@@ -22,8 +22,6 @@ const expectedTables = [
   "run_delegation",
   "server",
   "session",
-  "stream_checkpoint",
-  "stream_event",
 ] as const
 
 test("SQLite exposes all durable tables with flattened identity names", () => {

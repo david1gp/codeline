@@ -140,7 +140,7 @@ The SQLite/libSQL migration is active: Drizzle owns the durable runtime, typed H
 
 Establish the SQLite/libSQL runtime and fresh baseline before the remaining domain cutovers. Keep each domain on SQLite/libSQL with Drizzle plus the typed HTTP/SSE layer in one pass. Do not introduce dual writes. Keep the application runnable after each domain cutover, and retain legacy migration references only as cleanup history.
 
-Current context: SQLite/libSQL and the typed HTTP/SSE foundation are authoritative. Session/message HTTP and settled snapshots are complete. Provider execution and cancellation use the app-owned active-run registry rather than the request signal, and startup reconciliation interrupts abandoned runs transactionally. The keyed producer coalescer exists but is not yet journal-integrated. Typed account-scoped IndexedDB storage and cached settled-session rendering/revalidation are complete, including signed-out/offline read-only browsing. API/SSE are explicitly network-only in the service worker. Server-list HTTP revision/ETag support is complete. Next increments are coalescer/journal integration, the run-specific active snapshot, old stream retirement, and remaining domain/cache cutovers. Zero and Convex are historical migration inputs, not active runtime dependencies.
+Current context: The HTTP/SSE migration is complete. SQLite/libSQL with Drizzle is authoritative; typed HTTP handles reads and mutations; the authenticated per-tab SSE feed carries journal-backed changes; complete settled sessions use account-scoped IndexedDB for read-only offline access; and historical synchronization/runtime compatibility paths are removed.
 
 ## Tasks
 
@@ -161,13 +161,13 @@ Current context: SQLite/libSQL and the typed HTTP/SSE foundation are authoritati
 
 - [x] 8. Complete sessions and messages on SQLite/libSQL with Drizzle behind typed HTTP endpoints, including keyset-paginated lists and one complete conditional settled-session snapshot response with atomic `asOfSequence`.
 - [x] 9. Move execution to the process-owned run registry so disconnect no longer aborts providers; add explicit cancellation and startup interruption reconciliation.
-- [ ] 10. Move provider output to independently keyed 500ms producer coalescing and the per-user journal; flush first/size/lifecycle boundaries and retire `streamEventTable`, `streamCheckpointTable`, and the old replay client.
-- [ ] 11. Add the consistent active-run snapshot endpoint returning `{status, partialText, lastSequence}` and implement snapshot-then-attach reload behavior.
+- [x] 10. Move provider output to independently keyed 500ms producer coalescing and the per-user journal; flush first/size/lifecycle boundaries and retire `streamEventTable`, `streamCheckpointTable`, and the old replay client.
+- [x] 11. Add the consistent active-run snapshot endpoint returning `{status, partialText, lastSequence}` and implement snapshot-then-attach reload behavior.
 
 ### Phase D — remaining domains and UI
 
-- [ ] 12. Complete servers, agents, notes, and remaining run operations on SQLite/libSQL with Drizzle plus typed HTTP endpoints, one mutation family at a time.
-- [ ] 13. Remove remaining legacy synchronization consumers in favor of fetch-based state modules and the in-memory revision/ETag cache. Expose explicit offline, reconnecting, reconciling, and stale states.
+- [x] 12. Complete servers, agents, notes, and remaining run operations on SQLite/libSQL with Drizzle plus typed HTTP endpoints, one mutation family at a time.
+- [x] 13. Remove remaining legacy synchronization consumers in favor of fetch-based state modules and the in-memory revision/ETag cache. Expose explicit offline, reconnecting, reconciling, and stale states.
 
 ### Phase E — IndexedDB and offline access
 
@@ -177,9 +177,9 @@ Current context: SQLite/libSQL and the typed HTTP/SSE foundation are authoritati
 
 ### Phase F — cleanup and verification
 
-- [ ] 17. Add unit, integration, and browser coverage for consistent snapshot/feed bootstrap, `200`/`304`, complete session responses, mutation deduplication and conflicts, independent 500ms coalescing, first/size/lifecycle flushes, per-user sequence ordering, shared-resource fan-out, cross-user cursor rejection, finalized-delta compaction, 12-hour/count/size pruning, reconnect through completion checkpoints, cursor reset, multiple tabs and parallel runs, slow clients, active-run reload, process-restart interruption, atomic IndexedDB replacement, account isolation, retained sign-out data, and signed-out/offline reads.
-- [ ] 18. Remove remaining historical Zero/Convex runtime references, compatibility branches, generated files, schemas, seeds, fixtures, tests, environment variables, build/release tooling, operations units, persistent service data/volumes, and obsolete active operational documentation after all domains have cut over; preserve dated feature-plan records as historical records.
-- [ ] 19. Verify proxy buffering, compression, auth expiry, disconnect cleanup, metrics, deterministic seeding, managed services, build/type checks, and end-to-end behavior before declaring the migration complete.
+- [x] 17. Add unit, integration, and browser coverage for consistent snapshot/feed bootstrap, `200`/`304`, complete session responses, mutation deduplication and conflicts, independent 500ms coalescing, first/size/lifecycle flushes, per-user sequence ordering, shared-resource fan-out, cross-user cursor rejection, finalized-delta compaction, 12-hour/count/size pruning, reconnect through completion checkpoints, cursor reset, multiple tabs and parallel runs, slow clients, active-run reload, process-restart interruption, atomic IndexedDB replacement, account isolation, retained sign-out data, and signed-out/offline reads.
+- [x] 18. Remove remaining historical Zero/Convex runtime references, compatibility branches, generated files, schemas, seeds, fixtures, tests, environment variables, build/release tooling, operations units, persistent service data/volumes, and obsolete active operational documentation after all domains have cut over; preserve dated feature-plan records as historical records.
+- [x] 19. Verify proxy buffering, compression, auth expiry, disconnect cleanup, metrics, deterministic seeding, managed services, build/type checks, and end-to-end behavior before declaring the migration complete.
 
 ## Main paths
 

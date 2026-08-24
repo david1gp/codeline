@@ -15,15 +15,15 @@ test("session routes distinguish canonical selection, base, and new-session URLs
   expect(routeCreate("/sessions/new", "?tab=search")).toEqual({ kind: "new", sessionId: null, tab: "search" })
 })
 
-test("session routes preserve legacy tab precedence and leave unknown IDs to session state", () => {
-  expect(routeCreate("/sessions/projects", "?session=selected")).toEqual({
-    kind: "legacy-tab",
-    sessionId: "selected",
-    tab: "projects",
+test("session routes treat every path segment as a session ID and leave unknown IDs to session state", () => {
+  expect(routeCreate("/sessions/projects")).toEqual({
+    kind: "selected",
+    sessionId: "projects",
+    tab: null,
   })
-  expect(routeCreate("/sessions/projects", "?tab=pinned&session=selected")).toEqual({
-    kind: "legacy-tab",
-    sessionId: "selected",
+  expect(routeCreate("/sessions/projects", "?tab=pinned")).toEqual({
+    kind: "selected",
+    sessionId: "projects",
     tab: "pinned",
   })
   expect(routeCreate("/sessions/unknown-id", "?tab=recent")).toEqual({

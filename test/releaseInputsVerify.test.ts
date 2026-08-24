@@ -24,7 +24,6 @@ async function gitAssert(rootDir: string, args: readonly string[]): Promise<void
 interface ReleaseInputFixture {
   checkout: string
   manifest: {
-    bun: { version: string }
     inputs: {
       gitStore: {
         buildExports: Record<string, unknown>
@@ -78,7 +77,6 @@ async function releaseInputFixtureCreate(): Promise<ReleaseInputFixture> {
     checkout,
     manifest: {
       schemaVersion: 1,
-      bun: { version: Bun.version },
       inputs: {
         gitStore: {
           label: "git-store fixture",
@@ -147,12 +145,6 @@ describe("release input provenance verification", () => {
     await fs.writeFile(path.join(fixture.rootDir, "release-inputs.json"), JSON.stringify(fixture.manifest))
     const result = await releaseInputsVerify({ root: fixture.rootDir, inputNames: ["gitStore"] })
     expect(result.success).toBe(true)
-  })
-
-  test("rejects an unsupported Bun version", async () => {
-    fixture.manifest.bun.version = "0.0.0"
-    const result = await releaseInputFixtureVerify(fixture)
-    expect(resultErrorMessage(result)).toContain("Bun version")
   })
 
   test("rejects a package version mismatch", async () => {

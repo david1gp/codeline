@@ -9,7 +9,7 @@ export function sessionSidebarRouteHrefResolve(
   const sourceSearchParams = new URLSearchParams(url.search)
   const searchParams = new URLSearchParams({ tab })
   sourceSearchParams.forEach((value, key) => {
-    if (key === "session" || key === "tab" || (key === "search" && tab !== "search")) return
+    if (key === "tab" || (key === "search" && tab !== "search")) return
     searchParams.append(key, value)
   })
   const search = searchParams.toString()

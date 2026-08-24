@@ -6,11 +6,13 @@ function storageCreate(value: string | null) {
 }
 
 test("session navigation resolves the current or remembered validated sidebar tab", () => {
-  expect(sessionSidebarDestinationResolve("/sessions/projects", storageCreate("pinned"))).toBe("/sessions?tab=projects")
+  expect(sessionSidebarDestinationResolve("/sessions?tab=projects", storageCreate("pinned"))).toBe(
+    "/sessions?tab=projects",
+  )
   expect(
-    sessionSidebarDestinationResolve("/sessions/projects?session=selected&search=term#chat", storageCreate("pinned")),
+    sessionSidebarDestinationResolve("/sessions/selected?tab=projects&search=term#chat", storageCreate("pinned")),
   ).toBe("/sessions/selected?tab=projects#chat")
-  expect(sessionSidebarDestinationResolve("/sessions/search?search=term#chat", storageCreate("pinned"))).toBe(
+  expect(sessionSidebarDestinationResolve("/sessions?tab=search&search=term#chat", storageCreate("pinned"))).toBe(
     "/sessions?tab=search&search=term#chat",
   )
   expect(sessionSidebarDestinationResolve("/sessions/session-1?tab=pinned", storageCreate("recent"))).toBe(
@@ -31,7 +33,7 @@ test("session navigation resolves the current or remembered validated sidebar ta
   expect(sessionSidebarDestinationResolve("/sessions/selected?tab=projects", storageCreate("pinned"))).toBe(
     "/sessions/selected?tab=projects",
   )
-  expect(sessionSidebarDestinationResolve("/sessions/search?session=selected&search=term#chat", null)).toBe(
+  expect(sessionSidebarDestinationResolve("/sessions/selected?tab=search&search=term#chat", null)).toBe(
     "/sessions/selected?tab=search&search=term#chat",
   )
   expect(sessionSidebarDestinationResolve("/", storageCreate("pinned"))).toBe("/sessions?tab=pinned")
