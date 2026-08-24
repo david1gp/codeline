@@ -5,11 +5,11 @@ import * as v from "valibot"
 import type { AppEnvironment } from "../../api/appEnvironment.js"
 import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.js"
 import { journalBacklogCursorSelect } from "../../journal/actions/journalBacklogCursorSelect.js"
-import { journalBacklogRead } from "../../journal/actions/journalBacklogRead.js"
+import type { journalBacklogRead } from "../../journal/actions/journalBacklogRead.js"
 import type { JournalCursorCodec } from "../../journal/actions/journalCursorCodecCreate.js"
 import type { metricsCollectorCreate } from "../../metrics/metricsCollectorCreate.js"
 import { streamLiveSubscriptionCreate } from "../../stream/actions/streamLiveSubscriptionCreate.js"
-import { streamSseConnectionWriterCreate } from "../../stream/actions/streamSseConnectionWriterCreate.js"
+import type { streamSseConnectionWriterCreate } from "../../stream/actions/streamSseConnectionWriterCreate.js"
 import type { StreamSseFrame } from "../../stream/api/streamSseFrameSchema.js"
 import { streamSseFrameSchema } from "../../stream/api/streamSseFrameSchema.js"
 import type { JournalEvent } from "../../stream/schema/journalEventSchema.js"
@@ -30,13 +30,13 @@ type ApiEventsBacklogRead = (
 ) => Promise<Result<ApiEventsBacklogData>>
 
 type ApiEventsRoutesOptions = {
-  backlogRead?: ApiEventsBacklogRead
-  connectionWriterCreate?: typeof streamSseConnectionWriterCreate
+  backlogRead: ApiEventsBacklogRead
+  connectionWriterCreate: typeof streamSseConnectionWriterCreate
   cursorCodec: JournalCursorCodec
   liveSubscription: ReturnType<typeof streamLiveSubscriptionCreate>
-  now?: () => number
-  scheduler?: ApiEventsRoutesScheduler
-  metricsCollector?: ReturnType<typeof metricsCollectorCreate>
+  now: () => number
+  scheduler: ApiEventsRoutesScheduler
+  metricsCollector: ReturnType<typeof metricsCollectorCreate>
 }
 
 type ApiEventsContext = Context<AppEnvironment>
@@ -171,16 +171,10 @@ function apiEventsConnectionWriterCreate(
   const subscription = apiEventsSubscriptionCreate(options.liveSubscription, cursorCodec, baselineSequence, () => {
     void connection.current?.disconnect("connection-frame-invalid")
   })
-  const writerCreate = options.connectionWriterCreate ?? streamSseConnectionWriterCreate
-  return writerCreate({
+  return options.connectionWriterCreate({
     baselineSequence,
-    now: options.now ?? Date.now,
-    scheduler: options.scheduler ?? {
-      clearInterval: (handle) => clearInterval(handle as ReturnType<typeof setInterval>),
-      clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
-      setInterval: (handler, timeoutMs) => setInterval(handler, timeoutMs),
-      setTimeout: (handler, timeoutMs) => setTimeout(handler, timeoutMs),
-    },
+    now: options.now,
+    scheduler: options.scheduler,
     subscription,
     userId: context.var.requestIdentity.userId,
     writer: {
@@ -273,7 +267,7 @@ export function apiEventsRoutesAdd(api: Hono<AppEnvironment>, options: ApiEvents
 
     let backlog: Awaited<ReturnType<ApiEventsBacklogRead>>
     try {
-      backlog = await (options.backlogRead ?? journalBacklogRead)(
+      backlog = await options.backlogRead(
         { cursorCodec, database: context.var.database },
         {
           after: context.req.query("after"),
@@ -291,14 +285,14 @@ export function apiEventsRoutesAdd(api: Hono<AppEnvironment>, options: ApiEvents
     }
 
     if (backlog.data.mode === "replay") {
-      options.metricsCollector?.increment("sse_replay_total")
+      options.metricsCollector.increment("sse_replay_total")
       const upperBoundSet = connection.setReplayUpperBound(backlog.data.replayUpperBound)
       if (!upperBoundSet.success) {
         await connection.disconnect("backlog-upper-bound-failed")
         return apiEventsInternalError(context)
       }
     } else {
-      options.metricsCollector?.increment("sse_reset_total")
+      options.metricsCollector.increment("sse_reset_total")
     }
 
     void apiEventsBacklogPump(connection, backlog.data.pages)

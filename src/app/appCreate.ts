@@ -19,10 +19,10 @@ import { oidcLoginTransactionConsume } from "../identity/db/oidcLoginTransaction
 import { oidcLoginTransactionCreate } from "../identity/db/oidcLoginTransactionCreate.js"
 import { oidcProviderDiscoveryCreate } from "../identity/oidc/oidcProviderDiscoveryCreate.js"
 import type { OidcProviderFetch } from "../identity/oidc/oidcProviderFetch.js"
-import { journalBacklogRead } from "../journal/actions/journalBacklogRead.js"
+import type { journalBacklogRead } from "../journal/actions/journalBacklogRead.js"
 import type { JournalCursorCodec } from "../journal/actions/journalCursorCodecCreate.js"
-import { journalPostCommitPublishCreate } from "../journal/actions/journalPostCommitPublishCreate.js"
-import { metricsCollectorCreate } from "../metrics/metricsCollectorCreate.js"
+import type { journalPostCommitPublishCreate } from "../journal/actions/journalPostCommitPublishCreate.js"
+import type { metricsCollectorCreate } from "../metrics/metricsCollectorCreate.js"
 import type { ProjectLimits } from "../project/projectLimitsSchema.js"
 import { providerDelegationToolLoopCreate } from "../providers/runtime/providerDelegationToolLoopCreate.js"
 import type { ProviderModelDiscoveryOptions } from "../providers/runtime/providerModelDiscovery.js"
@@ -40,8 +40,8 @@ import { runLoad } from "../run/actions/runLoad.js"
 import { runRetryAttemptCreate } from "../run/actions/runRetryAttemptCreate.js"
 import { runTransition } from "../run/actions/runTransition.js"
 import { sessionChatAdapterCreate } from "../session/actions/sessionChatAdapterCreate.js"
-import { streamLiveSubscriptionCreate } from "../stream/actions/streamLiveSubscriptionCreate.js"
-import { streamSseConnectionWriterCreate } from "../stream/actions/streamSseConnectionWriterCreate.js"
+import type { streamLiveSubscriptionCreate } from "../stream/actions/streamLiveSubscriptionCreate.js"
+import type { streamSseConnectionWriterCreate } from "../stream/actions/streamSseConnectionWriterCreate.js"
 import { appKnownRouteResolve } from "./appKnownRouteResolve.js"
 import { appUiShellFallbackAdd } from "./appUiShellFallbackAdd.js"
 
@@ -100,16 +100,6 @@ export type AppCreateOptions = {
 export function appCreate(options: AppCreateOptions = {}): App {
   const app = new Hono<AppEnvironment>()
   const runActiveRegistry = options.runActiveRegistry ?? runActiveRegistryCreate()
-  const streamLiveSubscription = options.streamLiveSubscription ?? streamLiveSubscriptionCreate()
-  const metricsCollector = options.metricsCollector ?? metricsCollectorCreate()
-  const journalPostCommitPublish =
-    options.journalPostCommitPublish ??
-    (options.journalCursorCodec === undefined
-      ? undefined
-      : journalPostCommitPublishCreate({
-          cursorCodec: options.journalCursorCodec,
-          liveSubscription: streamLiveSubscription,
-        }))
 
   app.get("/health", (context) => {
     const response = {
@@ -152,7 +142,7 @@ export function appCreate(options: AppCreateOptions = {}): App {
   }
 
   app.use("/api/*", async (context, next) => {
-    context.set("streamLiveSubscription", streamLiveSubscription)
+    context.set("streamLiveSubscription", options.streamLiveSubscription)
     await next()
   })
 
@@ -197,12 +187,12 @@ export function appCreate(options: AppCreateOptions = {}): App {
     sessionChatAdapter: options.sessionChatAdapter,
     journalCursorCodec: options.journalCursorCodec,
     journalBacklogRead: options.journalBacklogRead,
-    journalPostCommitPublish,
-    streamLiveSubscription,
+    journalPostCommitPublish: options.journalPostCommitPublish,
+    streamLiveSubscription: options.streamLiveSubscription,
     streamSseConnectionWriterCreate: options.streamSseConnectionWriterCreate,
     streamSseNow: options.streamSseNow,
     streamSseScheduler: options.streamSseScheduler,
-    metricsCollector,
+    metricsCollector: options.metricsCollector,
   })
 
   const uiShellPath = options.uiShellPath ?? "./dist/ui/index.html"

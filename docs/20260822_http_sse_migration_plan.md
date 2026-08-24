@@ -140,7 +140,7 @@ The SQLite/libSQL migration is active: Drizzle owns the durable runtime, typed H
 
 Establish the SQLite/libSQL runtime and fresh baseline before the remaining domain cutovers. Keep each domain on SQLite/libSQL with Drizzle plus the typed HTTP/SSE layer in one pass. Do not introduce dual writes. Keep the application runnable after each domain cutover, and retain legacy migration references only as cleanup history.
 
-Current context: The HTTP/SSE migration is complete. SQLite/libSQL with Drizzle is authoritative; typed HTTP handles reads and mutations; the authenticated per-tab SSE feed carries journal-backed changes; complete settled sessions use account-scoped IndexedDB for read-only offline access; and historical synchronization/runtime compatibility paths are removed.
+Current context: The HTTP/SSE migration is complete. Root transaction ordering is database-native without an in-process commit queue; transaction-owned connections close deterministically; SSE dependencies are explicit from composition root to route; aggregate connection limits cover replay, live, and heartbeat frames; and static, unit, integration, managed-service, and browser validation pass.
 
 ## Tasks
 

@@ -12,6 +12,7 @@ import type { DatabaseConnection } from "../database/databaseClient.js"
 import { databaseConnectionClose } from "../database/databaseConnectionClose.js"
 import { databaseCreate } from "../database/databaseCreate.js"
 import { databaseUrl } from "../database/databaseUrl.js"
+import { journalBacklogRead } from "../journal/actions/journalBacklogRead.js"
 import type { JournalCursorCodec } from "../journal/actions/journalCursorCodecCreate.js"
 import { journalCursorCodecCreate } from "../journal/actions/journalCursorCodecCreate.js"
 import { journalPostCommitPublishCreate } from "../journal/actions/journalPostCommitPublishCreate.js"
@@ -20,6 +21,8 @@ import { providerAgentCatalogLoad } from "../providers/catalog/providerAgentCata
 import type { ProviderCatalog } from "../providers/schema/providerCatalogSchema.js"
 import { runStartupInterruptionReconcile } from "../run/actions/runStartupInterruptionReconcile.js"
 import { streamLiveSubscriptionCreate } from "../stream/actions/streamLiveSubscriptionCreate.js"
+import { streamSseConnectionWriterCreate } from "../stream/actions/streamSseConnectionWriterCreate.js"
+import { streamSseSchedulerCreate } from "../stream/actions/streamSseSchedulerCreate.js"
 
 type Server = {
   stop: (closeActiveConnections?: boolean) => Promise<void>
@@ -45,10 +48,14 @@ type ServerStartOptions = {
     database: DatabaseConnection["db"]
     projectRootDirs: readonly string[]
     providerAgentCatalog?: ProviderCatalog
-    journalCursorCodec?: JournalCursorCodec
-    journalPostCommitPublish?: ReturnType<typeof journalPostCommitPublishCreate>
-    streamLiveSubscription?: ReturnType<typeof streamLiveSubscriptionCreate>
-    metricsCollector?: ReturnType<typeof metricsCollectorCreate>
+    journalCursorCodec: JournalCursorCodec
+    journalBacklogRead: typeof journalBacklogRead
+    journalPostCommitPublish: ReturnType<typeof journalPostCommitPublishCreate>
+    streamLiveSubscription: ReturnType<typeof streamLiveSubscriptionCreate>
+    streamSseConnectionWriterCreate: typeof streamSseConnectionWriterCreate
+    streamSseNow: () => number
+    streamSseScheduler: Parameters<typeof streamSseConnectionWriterCreate>[0]["scheduler"]
+    metricsCollector: ReturnType<typeof metricsCollectorCreate>
   }) => App
   configuration?: RuntimeConfiguration
   configurationStore?: ConfigurationStore
@@ -116,6 +123,7 @@ export async function serverStart(options: ServerStartOptions = {}): Promise<Ser
   const createApp = options.appCreate ?? appCreate
   const journalCursorCodec = options.journalCursorCodec ?? serverJournalCursorCodecCreate()
   const streamLiveSubscription = streamLiveSubscriptionCreate()
+  const streamSseScheduler = streamSseSchedulerCreate()
   const journalPostCommitPublish = journalPostCommitPublishCreate({
     cursorCodec: journalCursorCodec,
     liveSubscription: streamLiveSubscription,
@@ -128,8 +136,12 @@ export async function serverStart(options: ServerStartOptions = {}): Promise<Ser
     projectRootDirs,
     providerAgentCatalog: providerAgentCatalogResult.data,
     journalCursorCodec,
+    journalBacklogRead,
     journalPostCommitPublish,
     streamLiveSubscription,
+    streamSseConnectionWriterCreate,
+    streamSseNow: Date.now,
+    streamSseScheduler,
     metricsCollector,
   })
   const reconciled = await (options.runStartupInterruptionReconcile ?? runStartupInterruptionReconcile)({

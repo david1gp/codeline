@@ -20,6 +20,7 @@ import { serverRepositoryLoad } from "../src/servers/db/serverRepositoryLoad.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
+import { appSseTestDependenciesCreate } from "./appSseTestDependenciesCreate.js"
 import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
 
 const connection = databaseTestConnectionCreate()
@@ -100,6 +101,7 @@ function appForUser(userId: string, organizationId: string) {
   if (!journalCursorCodec.success) throw new Error(journalCursorCodec.errorMessage)
 
   return appCreate({
+    ...appSseTestDependenciesCreate(journalCursorCodec.data),
     configuration: {
       authMode: "development",
       databaseUrl,

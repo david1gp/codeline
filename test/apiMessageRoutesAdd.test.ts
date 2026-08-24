@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
 import { randomBytes } from "node:crypto"
+import { createResult } from "@adaptive-ds/result"
 import { eq } from "drizzle-orm"
 import { agentTable } from "../src/agents/db/agentTable.js"
 import { appCreate } from "../src/app/appCreate.js"
@@ -14,6 +15,7 @@ import { journalCursorCodecCreate } from "../src/journal/actions/journalCursorCo
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionCreate } from "../src/session/actions/sessionCreate.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
+import { appSseTestDependenciesCreate } from "./appSseTestDependenciesCreate.js"
 import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
 
 const connection = databaseTestConnectionCreate()
@@ -33,7 +35,14 @@ const configuration = {
 }
 const journalCursorCodec = journalCursorCodecCreate({ randomBytes, secret: `message-api-${uuidv7()}` })
 if (!journalCursorCodec.success) throw new Error(journalCursorCodec.errorMessage)
-const app = appCreate({ configuration, database, journalCursorCodec: journalCursorCodec.data })
+const app = appCreate({
+  ...appSseTestDependenciesCreate(journalCursorCodec.data),
+  configuration,
+  database,
+  developmentIdentityUpsert: async () =>
+    createResult({ displayName: "Message API User", id: `development:${fixture.userKey}` } as never),
+  journalCursorCodec: journalCursorCodec.data,
+})
 let userId: string | undefined
 
 beforeAll(async () => {

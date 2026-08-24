@@ -14,6 +14,7 @@ import { journalCursorCodecCreate } from "../src/journal/actions/journalCursorCo
 import { journalEventTable } from "../src/journal/db/journalEventTable.js"
 import { noteTable } from "../src/note/db/noteTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
+import { appSseTestDependenciesCreate } from "./appSseTestDependenciesCreate.js"
 import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
 
 const connection = databaseTestConnectionCreate()
@@ -40,6 +41,7 @@ const configuration = {
 }
 
 const app = appCreate({
+  ...appSseTestDependenciesCreate(journalCursorCodec.data),
   configuration,
   database,
   journalCursorCodec: journalCursorCodec.data,

@@ -18,6 +18,7 @@ import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionTargetCreateResponseSchema } from "../src/session/api/sessionTargetCreateResponseSchema.js"
 import { sessionTargetLoadResponseSchema } from "../src/session/api/sessionTargetLoadResponseSchema.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
+import { appSseTestDependenciesCreate } from "./appSseTestDependenciesCreate.js"
 import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
 
 const connection = databaseTestConnectionCreate()
@@ -33,6 +34,7 @@ const secondaryAgentId = `switching-agent-b1-${uuidv7()}`
 const journalCursorCodec = journalCursorCodecCreate({ randomBytes, secret: `session-switching-${uuidv7()}` })
 if (!journalCursorCodec.success) throw new Error(journalCursorCodec.errorMessage)
 const app = appCreate({
+  ...appSseTestDependenciesCreate(journalCursorCodec.data),
   configuration: {
     authMode: "development" as const,
     databaseUrl,

@@ -236,12 +236,16 @@ test("event route records replay and reset outcomes", async () => {
   const pages = async function* () {
     yield createResult([])
   }
+  const scheduler = new TestScheduler()
   apiEventsRoutesAdd(app, {
     backlogRead: async () =>
       createResult({ afterSequence: 0, mode, pages: pages(), replayUpperBound: 0, selectedCursor: undefined }),
+    connectionWriterCreate: streamSseConnectionWriterCreate,
     cursorCodec,
     liveSubscription: subscription,
     metricsCollector: metrics,
+    now: () => scheduler.currentTime,
+    scheduler,
   })
 
   const replay = await app.request("http://codeline.test/events")

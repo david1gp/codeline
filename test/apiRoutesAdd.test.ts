@@ -7,7 +7,11 @@ import { Hono } from "hono"
 import { apiRoutesAdd } from "../src/api/apiRoutesAdd.js"
 import type { AppEnvironment } from "../src/api/appEnvironment.js"
 import { appCreate } from "../src/app/appCreate.js"
+import { metricsCollectorCreate } from "../src/metrics/metricsCollectorCreate.js"
 import { providerAgentCatalogLoad } from "../src/providers/catalog/providerAgentCatalogLoad.js"
+import { streamLiveSubscriptionCreate } from "../src/stream/actions/streamLiveSubscriptionCreate.js"
+import { streamSseConnectionWriterCreate } from "../src/stream/actions/streamSseConnectionWriterCreate.js"
+import { streamSseSchedulerCreate } from "../src/stream/actions/streamSseSchedulerCreate.js"
 
 let rootDir: string
 let projectId: string
@@ -46,10 +50,70 @@ test("shared API composition mounts scoped project routes", async () => {
   expect(await response.json()).toMatchObject({ content: "Codeline\n", path: "README.md" })
 })
 
-test("does not mount the authenticated events route without auth and cursor construction dependencies", async () => {
-  const response = await app.request("http://codeline.test/api/events")
+test("fails fast when authenticated event route dependencies are incomplete", () => {
+  const partialApp = new Hono<AppEnvironment>()
 
-  expect(response.status).toBe(404)
+  expect(() =>
+    apiRoutesAdd(partialApp, async () => ({ success: true, data: undefined }), {
+      configuration: {} as never,
+      database: {} as never,
+      journalCursorCodec: {} as never,
+    }),
+  ).toThrow("The authenticated event feed dependencies are required.")
+})
+
+test("app composition wires the complete authenticated event route", async () => {
+  const user = {
+    displayName: "Events Composition User",
+    id: "development:events-composition",
+    identityKey: "events-composition",
+  }
+  const app = appCreate({
+    configuration: {
+      authMode: "development",
+      databaseUrl: "file:./data/db.sqlite",
+      developmentIdentity: { displayName: user.displayName, identityKey: user.identityKey },
+      nodeEnv: "development",
+      oidcOrganizationId: "events-composition-organization",
+    },
+    database: {
+      transaction: async (operation: (transaction: unknown) => Promise<unknown>) => operation({}),
+    } as never,
+    developmentIdentityUpsert: async () => createResult(user as never),
+    journalBacklogRead: async () => {
+      const pages = async function* () {
+        yield createResult([])
+      }
+      return createResult({
+        afterSequence: 0,
+        mode: "replay" as const,
+        pages: pages(),
+        replayUpperBound: 0,
+        selectedCursor: undefined,
+      } as never)
+    },
+    journalCursorCodec: {} as never,
+    metricsCollector: metricsCollectorCreate(),
+    organizationMemberLoad: async () =>
+      createResult({
+        issuer: "urn:codeline:development",
+        organizationId: "events-composition-organization",
+        subject: user.identityKey,
+        userId: user.id,
+      } as never),
+    streamLiveSubscription: streamLiveSubscriptionCreate(),
+    streamSseConnectionWriterCreate: streamSseConnectionWriterCreate,
+    streamSseNow: Date.now,
+    streamSseScheduler: streamSseSchedulerCreate(),
+  })
+
+  const controller = new AbortController()
+  const response = await app.request("http://codeline.test/api/events", { signal: controller.signal })
+
+  expect(response.status).toBe(200)
+  expect(response.headers.get("content-type")).toContain("text/event-stream")
+  controller.abort()
+  await response.body?.cancel()
 })
 
 test("does not mount migrated session routes without authenticated Drizzle journal dependencies", async () => {

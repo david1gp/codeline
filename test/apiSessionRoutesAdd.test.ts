@@ -25,6 +25,7 @@ import { apiSessionRoutesAdd } from "../src/session/api/apiSessionRoutesAdd.js"
 import { sessionChatCommandResponseSchema } from "../src/session/api/sessionChatCommandResponseSchema.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
+import { appSseTestDependenciesCreate } from "./appSseTestDependenciesCreate.js"
 import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
 
 const connection = databaseTestConnectionCreate()
@@ -46,9 +47,13 @@ const configuration = {
 }
 const journalCursorCodec = journalCursorCodecCreate({ randomBytes, secret: `session-http-${uuidv7()}` })
 if (!journalCursorCodec.success) throw new Error(journalCursorCodec.errorMessage)
+const testDevelopmentIdentityUpsert = async () =>
+  createResult({ displayName: configuration.developmentIdentity.displayName, id: userId } as never)
 const app = appCreate({
+  ...appSseTestDependenciesCreate(journalCursorCodec.data),
   configuration,
   database,
+  developmentIdentityUpsert: testDevelopmentIdentityUpsert,
   journalCursorCodec: journalCursorCodec.data,
   sessionChatAdapter: sessionChatAdapterCreate,
 })
@@ -68,9 +73,11 @@ const runConfigurationStore = {
   },
 } satisfies ConfigurationStore
 const runApp = appCreate({
+  ...appSseTestDependenciesCreate(journalCursorCodec.data),
   configuration,
   configurationStore: runConfigurationStore,
   database,
+  developmentIdentityUpsert: testDevelopmentIdentityUpsert,
   journalCursorCodec: journalCursorCodec.data,
 })
 

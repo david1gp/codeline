@@ -8,6 +8,7 @@ import { authenticationMiddleware } from "../src/identity/api/authenticationMidd
 import { journalBacklogRead } from "../src/journal/actions/journalBacklogRead.js"
 import type { JournalCursorCodec } from "../src/journal/actions/journalCursorCodecCreate.js"
 import { journalPostCommitPublishCreate } from "../src/journal/actions/journalPostCommitPublishCreate.js"
+import { metricsCollectorCreate } from "../src/metrics/metricsCollectorCreate.js"
 import { streamLiveSubscriptionCreate } from "../src/stream/actions/streamLiveSubscriptionCreate.js"
 import { streamSseConnectionWriterCreate } from "../src/stream/actions/streamSseConnectionWriterCreate.js"
 import type { StreamSseFrame } from "../src/stream/api/streamSseFrameSchema.js"
@@ -147,6 +148,7 @@ function appForEvents(options: {
   scheduler?: TestScheduler
   connectionWriterCreate?: typeof streamSseConnectionWriterCreate
 }) {
+  const scheduler = options.scheduler ?? schedulerCreate()
   const app = new Hono<AppEnvironment>()
   const api = new Hono<AppEnvironment>()
   const configuration = {
@@ -176,11 +178,12 @@ function appForEvents(options: {
   )
   apiEventsRoutesAdd(api, {
     backlogRead: options.backlogRead,
-    connectionWriterCreate: options.connectionWriterCreate,
+    connectionWriterCreate: options.connectionWriterCreate ?? streamSseConnectionWriterCreate,
     cursorCodec,
     liveSubscription: options.liveSubscription ?? streamLiveSubscriptionCreate(),
-    now: () => options.scheduler?.currentTime ?? Date.now(),
-    scheduler: options.scheduler,
+    metricsCollector: metricsCollectorCreate(),
+    now: () => scheduler.currentTime,
+    scheduler,
   })
   app.route("/api", api)
   return app
@@ -511,8 +514,13 @@ test("requires the cursor dependency when constructing the authenticated events 
   const api = new Hono<AppEnvironment>()
   expect(() =>
     apiEventsRoutesAdd(api, {
+      backlogRead: async () => emptyBacklog(),
+      connectionWriterCreate: streamSseConnectionWriterCreate,
       cursorCodec: undefined as never,
       liveSubscription: streamLiveSubscriptionCreate(),
+      metricsCollector: metricsCollectorCreate(),
+      now: Date.now,
+      scheduler: schedulerCreate(),
     }),
   ).toThrow("cursor codec is required")
 })

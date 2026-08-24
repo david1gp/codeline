@@ -215,6 +215,15 @@ export function streamSseConnectionWriterCreate(dependencies: StreamSseConnectio
     return replay.sequence < live.sequence ? replay : live
   }
 
+  const queueOverflowReason = (additionalBytes: number): "events" | "bytes" | undefined => {
+    if (eventQueue.size + replayQueue.size + 1 > streamSseConnectionWriterMaximumQueueEvents) return "events"
+    if (queuedBytes + additionalBytes > streamSseConnectionWriterMaximumQueueBytes) return "bytes"
+    return undefined
+  }
+
+  const queueOverflowDisconnectReason = (reason: "events" | "bytes"): string =>
+    reason === "events" ? "connection-queue-event-overflow" : "connection-queue-byte-overflow"
+
   const writeWithTimeout = async (bytes: Uint8Array): Promise<"disconnected" | "failed" | "written"> => {
     try {
       if (!Number.isFinite(dependencies.now())) return "failed"
@@ -353,18 +362,12 @@ export function streamSseConnectionWriterCreate(dependencies: StreamSseConnectio
       void disconnect("connection-frame-invalid")
       return frame
     }
-    if (
-      eventQueue.size + 1 > streamSseConnectionWriterMaximumQueueEvents ||
-      liveQueuedBytes + frame.data.byteLength > streamSseConnectionWriterMaximumQueueBytes
-    ) {
-      const reason =
-        eventQueue.size + 1 > streamSseConnectionWriterMaximumQueueEvents
-          ? "connection-queue-event-overflow"
-          : "connection-queue-byte-overflow"
+    const overflowReason = queueOverflowReason(frame.data.byteLength)
+    if (overflowReason !== undefined) {
       dependencies.metricsCollector?.increment("sse_queue_overflow_total", 1, {
-        reason: eventQueue.size + 1 > streamSseConnectionWriterMaximumQueueEvents ? "events" : "bytes",
+        reason: overflowReason,
       })
-      void disconnect(reason)
+      void disconnect(queueOverflowDisconnectReason(overflowReason))
       return createResultError(op, "The SSE connection queue limit was exceeded.")
     }
 
@@ -457,6 +460,14 @@ export function streamSseConnectionWriterCreate(dependencies: StreamSseConnectio
       if (disconnected) return createResultError(op, "The SSE connection is disconnected.")
       if (lastWrittenSequence !== undefined && sequence <= lastWrittenSequence && !isReset) continue
       if (replayQueue.has(sequence) || (!isReset && eventQueue.has(sequence))) continue
+      const overflowReason = queueOverflowReason(frame.data.byteLength)
+      if (overflowReason !== undefined) {
+        dependencies.metricsCollector?.increment("sse_queue_overflow_total", 1, {
+          reason: overflowReason,
+        })
+        void disconnect(queueOverflowDisconnectReason(overflowReason))
+        return createResultError(op, "The SSE connection queue limit was exceeded.")
+      }
       replayQueue.set(sequence, { allowBaseline: isReset, bytes: frame.data, sequence })
       queuedBytes += frame.data.byteLength
       replayQueuedBytes += frame.data.byteLength

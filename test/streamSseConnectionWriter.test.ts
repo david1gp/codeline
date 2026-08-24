@@ -296,6 +296,68 @@ test("disconnects and cleans up when queued frame bytes overflow", () => {
   expect(writer.abortReasons).toEqual(["connection-queue-byte-overflow"])
 })
 
+test("disconnects when replay admission exceeds the aggregate event queue limit", async () => {
+  const subscription = streamLiveSubscriptionCreate()
+  const scheduler = new TestScheduler()
+  const writer = new TestWriter()
+  writer.blocked = true
+  const connection = connectionCreate(subscription, scheduler, writer)
+
+  expect(connection.connect().success).toBe(true)
+  for (let sequence = 1; sequence <= 1_023; sequence += 1) subscription.publish("user-1", event(sequence))
+  expect((await connection.enqueueBacklog([event(1_024)])).success).toBe(true)
+  expect(connection.isDisconnected()).toBe(false)
+
+  const overflow = await connection.enqueueBacklog([event(1_025)])
+
+  expect(overflow.success).toBe(false)
+  expect(connection.isDisconnected()).toBe(true)
+  expect(writer.abortReasons).toEqual(["connection-queue-event-overflow"])
+})
+
+test("disconnects when replay admission exceeds the aggregate byte queue limit", async () => {
+  const subscription = streamLiveSubscriptionCreate()
+  const scheduler = new TestScheduler()
+  const writer = new TestWriter()
+  writer.blocked = true
+  const connection = connectionCreate(subscription, scheduler, writer)
+  const delta = "x".repeat(100_000)
+
+  expect(connection.connect().success).toBe(true)
+  for (let sequence = 1; sequence <= 5; sequence += 1) subscription.publish("user-1", event(sequence, delta))
+  expect(
+    (await connection.enqueueBacklog(Array.from({ length: 5 }, (_, index) => event(index + 6, delta)))).success,
+  ).toBe(true)
+  expect(connection.isDisconnected()).toBe(false)
+
+  const overflow = await connection.enqueueBacklog([event(11, delta)])
+
+  expect(overflow.success).toBe(false)
+  expect(connection.isDisconnected()).toBe(true)
+  expect(writer.abortReasons).toEqual(["connection-queue-byte-overflow"])
+})
+
+test("counts queued heartbeat bytes toward the aggregate byte queue limit", () => {
+  const subscription = streamLiveSubscriptionCreate()
+  const scheduler = new TestScheduler()
+  const writer = new TestWriter()
+  writer.blocked = true
+  const connection = connectionCreate(subscription, scheduler, writer)
+  const delta = "x".repeat(104_671)
+
+  expect(connection.connect().success).toBe(true)
+  expect(connection.completeBacklog().success).toBe(true)
+  scheduler.advance(15_000)
+
+  for (let sequence = 1; sequence <= 10; sequence += 1) subscription.publish("user-1", event(sequence, delta))
+  expect(connection.queuedByteCount()).toBe(1_048_416)
+
+  subscription.publish("user-1", event(11, "x"))
+
+  expect(connection.isDisconnected()).toBe(true)
+  expect(writer.abortReasons).toEqual(["connection-queue-byte-overflow"])
+})
+
 test("disconnects a write that remains blocked for fifteen seconds", async () => {
   const subscription = streamLiveSubscriptionCreate()
   const scheduler = new TestScheduler()

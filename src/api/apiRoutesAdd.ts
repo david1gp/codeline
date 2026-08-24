@@ -11,11 +11,11 @@ import { apiAuthRoutesAdd } from "../identity/api/apiAuthRoutesAdd.js"
 import { oidcLoginTransactionCreate } from "../identity/db/oidcLoginTransactionCreate.js"
 import { oidcProviderDiscoveryCreate } from "../identity/oidc/oidcProviderDiscoveryCreate.js"
 import type { OidcProviderFetch } from "../identity/oidc/oidcProviderFetch.js"
-import { journalBacklogRead } from "../journal/actions/journalBacklogRead.js"
+import type { journalBacklogRead } from "../journal/actions/journalBacklogRead.js"
 import type { JournalCursorCodec } from "../journal/actions/journalCursorCodecCreate.js"
-import { journalPostCommitPublishCreate } from "../journal/actions/journalPostCommitPublishCreate.js"
+import type { journalPostCommitPublishCreate } from "../journal/actions/journalPostCommitPublishCreate.js"
 import { apiMessageRoutesAdd } from "../message/api/apiMessageRoutesAdd.js"
-import { metricsCollectorCreate } from "../metrics/metricsCollectorCreate.js"
+import type { metricsCollectorCreate } from "../metrics/metricsCollectorCreate.js"
 import { apiNoteRoutesAdd } from "../note/api/apiNoteRoutesAdd.js"
 import { apiProjectRoutesAdd } from "../project/api/apiProjectRoutesAdd.js"
 import type { ProjectLimits } from "../project/projectLimitsSchema.js"
@@ -43,8 +43,8 @@ import { sessionChatAdapterCreate } from "../session/actions/sessionChatAdapterC
 import { apiSessionBranchRoutesAdd } from "../session/api/apiSessionBranchRoutesAdd.js"
 import { apiSessionRenameRoutesAdd } from "../session/api/apiSessionRenameRoutesAdd.js"
 import { apiSessionRoutesAdd } from "../session/api/apiSessionRoutesAdd.js"
-import { streamLiveSubscriptionCreate } from "../stream/actions/streamLiveSubscriptionCreate.js"
-import { streamSseConnectionWriterCreate } from "../stream/actions/streamSseConnectionWriterCreate.js"
+import type { streamLiveSubscriptionCreate } from "../stream/actions/streamLiveSubscriptionCreate.js"
+import type { streamSseConnectionWriterCreate } from "../stream/actions/streamSseConnectionWriterCreate.js"
 import type { AppEnvironment } from "./appEnvironment.js"
 import { apiMetricsRoutesAdd } from "./diagnostics/apiMetricsRoutesAdd.js"
 import type { HealthResponse } from "./health/healthResponseSchema.js"
@@ -108,19 +108,9 @@ export function apiRoutesAdd(
   options: ApiRoutesAddOptions = {},
 ): void {
   const api = new Hono<AppEnvironment>()
-  const streamLiveSubscription = options.streamLiveSubscription ?? streamLiveSubscriptionCreate()
-  const metricsCollector = options.metricsCollector ?? metricsCollectorCreate()
-  const journalPostCommitPublish =
-    options.journalPostCommitPublish ??
-    (options.journalCursorCodec === undefined
-      ? undefined
-      : journalPostCommitPublishCreate({
-          cursorCodec: options.journalCursorCodec,
-          liveSubscription: streamLiveSubscription,
-        }))
 
   api.use("*", async (context, next) => {
-    context.set("streamLiveSubscription", streamLiveSubscription)
+    context.set("streamLiveSubscription", options.streamLiveSubscription)
     await next()
   })
 
@@ -134,7 +124,7 @@ export function apiRoutesAdd(
   })
 
   apiReadinessRoutesAdd(api, databaseReadyCheck)
-  apiMetricsRoutesAdd(api, metricsCollector)
+  if (options.metricsCollector !== undefined) apiMetricsRoutesAdd(api, options.metricsCollector)
   apiAuthRoutesAdd(api, {
     configuration: options.configuration,
     database: options.database,
@@ -164,18 +154,18 @@ export function apiRoutesAdd(
     options.configuration !== undefined &&
     options.database !== undefined &&
     options.journalCursorCodec !== undefined &&
-    journalPostCommitPublish !== undefined
+    options.journalPostCommitPublish !== undefined
   ) {
     apiSessionRoutesAdd(api, {
       ...options,
       database: options.database,
       journalCursorCodec: options.journalCursorCodec,
-      journalPostCommitPublish,
-      metricsCollector,
+      journalPostCommitPublish: options.journalPostCommitPublish,
+      metricsCollector: options.metricsCollector,
     })
   }
   apiRunRoutesAdd(api, {
-    metricsCollector,
+    metricsCollector: options.metricsCollector,
     ...(options.journalCursorCodec === undefined ? {} : { journalCursorCodec: options.journalCursorCodec }),
     runCancel: options.runCancel,
     runActiveListLoad: options.runActiveListLoad,
@@ -188,21 +178,24 @@ export function apiRoutesAdd(
     options.configuration !== undefined &&
     options.database !== undefined &&
     options.journalCursorCodec !== undefined &&
-    journalPostCommitPublish !== undefined
+    options.journalPostCommitPublish !== undefined
   ) {
-    apiSessionBranchRoutesAdd(api, { database: options.database, journalPostCommitPublish })
+    apiSessionBranchRoutesAdd(api, {
+      database: options.database,
+      journalPostCommitPublish: options.journalPostCommitPublish,
+    })
     apiSessionRenameRoutesAdd(api, {
       database: options.database,
       journalCursorCodec: options.journalCursorCodec,
-      journalPostCommitPublish,
+      journalPostCommitPublish: options.journalPostCommitPublish,
     })
     apiMessageRoutesAdd(api, {
       journalCursorCodec: options.journalCursorCodec,
-      journalPostCommitPublish,
+      journalPostCommitPublish: options.journalPostCommitPublish,
     })
     apiNoteRoutesAdd(api, {
       database: options.database,
-      journalPostCommitPublish,
+      journalPostCommitPublish: options.journalPostCommitPublish,
     })
   }
   apiProjectRoutesAdd(api, { limits: options.projectLimits, rootDirs: options.projectRootDirs ?? [] })
@@ -213,9 +206,24 @@ export function apiRoutesAdd(
     providerAgentCatalog: options.providerAgentCatalog,
   })
   // The authenticated feed is only constructed when both its auth middleware and
-  // opaque cursor codec are present. It must not be exposed as a route that can
-  // discover a missing production dependency with a runtime 503.
+  // opaque cursor codec are present. Partial API composition is allowed only
+  // when the authenticated event route cannot be configured at all.
   if (
+    options.journalBacklogRead === undefined ||
+    options.streamSseConnectionWriterCreate === undefined ||
+    options.streamSseNow === undefined ||
+    options.streamSseScheduler === undefined ||
+    options.streamLiveSubscription === undefined ||
+    options.metricsCollector === undefined
+  ) {
+    if (
+      options.configuration !== undefined &&
+      options.database !== undefined &&
+      options.journalCursorCodec !== undefined
+    ) {
+      throw new Error("The authenticated event feed dependencies are required.")
+    }
+  } else if (
     options.configuration !== undefined &&
     options.database !== undefined &&
     options.journalCursorCodec !== undefined
@@ -224,10 +232,10 @@ export function apiRoutesAdd(
       backlogRead: options.journalBacklogRead,
       connectionWriterCreate: options.streamSseConnectionWriterCreate,
       cursorCodec: options.journalCursorCodec,
-      liveSubscription: streamLiveSubscription,
+      liveSubscription: options.streamLiveSubscription,
       now: options.streamSseNow,
       scheduler: options.streamSseScheduler,
-      metricsCollector,
+      metricsCollector: options.metricsCollector,
     })
   }
   apiTestingRoutesAdd(api)

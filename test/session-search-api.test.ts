@@ -15,6 +15,7 @@ import { messageTable } from "../src/message/db/messageTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
+import { appSseTestDependenciesCreate } from "./appSseTestDependenciesCreate.js"
 import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
 
 const connection = databaseTestConnectionCreate()
@@ -33,7 +34,12 @@ const configuration = {
 }
 const journalCursorCodec = journalCursorCodecCreate({ randomBytes, secret: `session-search-${uuidv7()}` })
 if (!journalCursorCodec.success) throw new Error(journalCursorCodec.errorMessage)
-const app = appCreate({ configuration, database, journalCursorCodec: journalCursorCodec.data })
+const app = appCreate({
+  ...appSseTestDependenciesCreate(journalCursorCodec.data),
+  configuration,
+  database,
+  journalCursorCodec: journalCursorCodec.data,
+})
 
 beforeAll(async () => {
   if (!databaseAvailable) return

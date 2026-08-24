@@ -4,28 +4,32 @@ import { createResult } from "@adaptive-ds/result"
 import { eq } from "drizzle-orm"
 import { Hono } from "hono"
 import * as v from "valibot"
+import { agentTable } from "../src/agents/db/agentTable.js"
 import type { AppEnvironment } from "../src/api/appEnvironment.js"
 import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
 import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
+import { apiEventsRoutesAdd } from "../src/events/api/apiEventsRoutesAdd.js"
+import { identitySessionCreate } from "../src/identity/actions/identitySessionCreate.js"
 import { authenticationMiddleware } from "../src/identity/api/authenticationMiddleware.js"
 import { identitySessionCookieName } from "../src/identity/api/identitySessionCookieName.js"
-import { identitySessionCreate } from "../src/identity/actions/identitySessionCreate.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { identitySessionTable } from "../src/identity/db/identitySessionTable.js"
 import { organizationMemberTable } from "../src/identity/db/organizationMemberTable.js"
 import { organizationTable } from "../src/identity/db/organizationTable.js"
-import { apiEventsRoutesAdd } from "../src/events/api/apiEventsRoutesAdd.js"
+import { journalBacklogRead } from "../src/journal/actions/journalBacklogRead.js"
 import { journalCursorCodecCreate } from "../src/journal/actions/journalCursorCodecCreate.js"
+import { journalPostCommitPublishCreate } from "../src/journal/actions/journalPostCommitPublishCreate.js"
 import { journalWriteCreate } from "../src/journal/actions/journalWriteCreate.js"
 import { journalEventTable } from "../src/journal/db/journalEventTable.js"
 import { journalSequenceCounterTable } from "../src/journal/db/journalSequenceCounterTable.js"
-import { journalPostCommitPublishCreate } from "../src/journal/actions/journalPostCommitPublishCreate.js"
-import { streamLiveSubscriptionCreate } from "../src/stream/actions/streamLiveSubscriptionCreate.js"
-import { agentTable } from "../src/agents/db/agentTable.js"
+import { metricsCollectorCreate } from "../src/metrics/metricsCollectorCreate.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { apiSessionRoutesAdd } from "../src/session/api/apiSessionRoutesAdd.js"
 import { sessionListSnapshotResponseSchema } from "../src/session/api/sessionListSnapshotResponseSchema.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
+import { streamLiveSubscriptionCreate } from "../src/stream/actions/streamLiveSubscriptionCreate.js"
+import { streamSseConnectionWriterCreate } from "../src/stream/actions/streamSseConnectionWriterCreate.js"
+import { streamSseSchedulerCreate } from "../src/stream/actions/streamSseSchedulerCreate.js"
 import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
 
 const connection = databaseTestConnectionCreate()
@@ -69,8 +73,13 @@ apiSessionRoutesAdd(api, {
   journalPostCommitPublish: postCommitPublish,
 })
 apiEventsRoutesAdd(api, {
+  backlogRead: journalBacklogRead,
+  connectionWriterCreate: streamSseConnectionWriterCreate,
   cursorCodec,
   liveSubscription,
+  metricsCollector: metricsCollectorCreate(),
+  now: Date.now,
+  scheduler: streamSseSchedulerCreate(),
 })
 app.route("/api", api)
 
