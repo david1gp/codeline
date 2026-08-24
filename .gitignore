@@ -40,3 +40,5 @@ data/db.sqlite*
 .turbo/
 *.tsbuildinfo
 .wrangler/
+.codeline-deploy.lock
+.codeline-deploy.*/

@@ -26,7 +26,7 @@ The Hono API persists durable state in SQLite through Drizzle. Typed HTTP synchr
 
 SQLite/libSQL with Drizzle, typed HTTP, and authenticated SSE are the sole current data and operations architecture. Former migration systems appear only in dated migration or feature-plan records and are not active services or data authorities.
 
-Local development uses a pinned git-store checkout through a Bun link. `bun run release` runs the local format, test, and build preflight; `bun run build` runs the build directly. GitHub release artifacts, clean-clone/CI reproducibility, and deployment automation are deferred and are not current priorities.
+Local development uses a pinned git-store checkout through a Bun link. `bun run release` runs the local format, test, and build preflight; `bun run build` runs the build directly; and `bun run deploy` stages a build, swaps it into the managed preview checkout, restarts the repository-managed target, and verifies readiness with guarded prior-build rollback on failure. GitHub release artifacts and clean-clone/CI reproducibility remain deferred.
 
 Provider OAuth, Pi ecosystem integrations, MCP, full-text web search, custom scrollbar behavior, trusted folders / project trust, editing or limiting AI capabilities, and AI permission management are out of scope.
 
@@ -154,7 +154,7 @@ chmod 600 .env
 ./ops/dev/codeline-dev.sh validate
 ```
 
-The managed development stack includes the SQLite-backed API and UI services. Use the wrapper below for lifecycle and database operations; do not start replacement services outside the managed units.
+The managed preview stack includes one compiled Bun service serving the SQLite-backed API, SSE, and built UI. Use the wrapper below for lifecycle and database operations; do not start replacement services outside the managed unit.
 
 ### ZITADEL organization access
 
@@ -170,9 +170,9 @@ For example, configure multiple roots with:
 CODELINE_PROJECT_ROOTS=["./projects","../shared-projects"]
 ```
 
-The managed services use host-local listeners: UI `127.0.0.1:6000` and API `127.0.0.1:6001`. The API owns the repository-local `data/db.sqlite` file; the Vite server proxies typed HTTP and `/api/events` SSE to `http://127.0.0.1:6001`.
+The managed preview service listens at `127.0.0.1:6001`, owns the repository-local `data/db.sqlite` file, and serves the compiled UI alongside typed HTTP and `/api/events` SSE. Vite remains the local UI development and build tool.
 
-`ops/dev/caddy/Caddyfile` contains the single preview route for the UI and its same-origin HTTP/SSE proxying. Register that route through the host project-registry during cutover; this repository does not reload Caddy.
+`ops/dev/caddy/Caddyfile` contains the single preview route directly to the combined service. Register that route through the host project-registry during cutover; this repository does not reload Caddy.
 
 Set up or verify the local git-store link:
 
@@ -200,9 +200,8 @@ Service lifecycle:
 ```bash
 ./ops/dev/codeline-dev.sh validate
 ./ops/dev/codeline-dev.sh install
-./ops/dev/codeline-dev.sh start
+bun run deploy
 ./ops/dev/codeline-dev.sh wait api
-./ops/dev/codeline-dev.sh wait ui
 ./ops/dev/codeline-dev.sh status
 ./ops/dev/codeline-dev.sh logs codeline-dev-api.service
 ./ops/dev/codeline-dev.sh stop
@@ -210,7 +209,7 @@ Service lifecycle:
 ./ops/dev/codeline-dev.sh remove
 ```
 
-`install` only links the repository-managed user units and reloads user systemd; it does not enable or start anything. `start` starts the managed target. `stop`/`down` stop the target while retaining data. `db-reset-seed` stops the managed API/UI consumers, resets the SQLite file, runs Drizzle migrations, and seeds deterministic fixtures. `reset` is an alias for that full SQLite reset workflow.
+`install` only links the repository-managed user units, removes the stale Vite unit link, and reloads user systemd; it does not enable or start anything. `bun run deploy` is the managed build-and-restart workflow: it works when no `dist` exists, keeps the prior build until the staged build is ready, restores a prior build only after successfully stopping the target and then confirms target/API readiness, and leaves a failed first deployment with no prior build stopped after removing the failed build. If the target cannot be stopped for recovery, the deploy fails without claiming restoration and does not confirm the build or service state. `start` starts that target when a compiled build already exists. `stop`/`down` stop the target while retaining data. `db-reset-seed` stops the managed API consumer, resets the SQLite file, runs Drizzle migrations, and seeds deterministic fixtures. `reset` is an alias for that full SQLite reset workflow.
 
 ```bash
 bun run db:migrate
@@ -225,13 +224,13 @@ bun run db:seed
 bun run db:seed -- --reset
 ```
 
-The target starts the Bun/Hono API and Vite UI. It waits for API readiness at `/api/ready` and the UI root; Vite's strict port check makes a UI port conflict fail the managed UI unit. The services load the ignored `.env` file, run from the stable `~/codeline` checkout link, and restart on failure.
+The target starts the compiled Bun/Hono preview service and waits for readiness at `/api/ready`. The service loads the ignored `.env` file, runs from the stable `~/codeline` checkout link, and restarts on failure. `bun run start` runs the compiled API directly without a watch process; use `bun run deploy` for the managed preview lifecycle.
 
 Troubleshooting:
 
 - If configuration validation reports a missing variable, ensure `.env` exists and contains the required names from `.env.example`. The wrapper reports names only, never values.
-- If a managed host port is busy, fix the conflicting service before cutover. Preview routing expects `preview.codeline.work` to map to the UI in `ops/dev/caddy/Caddyfile`.
-- Inspect `./ops/dev/codeline-dev.sh logs codeline-dev-api.service` or `codeline-dev-ui.service` for diagnostics.
+- If the managed host port is busy, fix the conflicting service before cutover. Preview routing expects `preview.codeline.work` to map to the combined service on port `6001` in `ops/dev/caddy/Caddyfile`.
+- Inspect `./ops/dev/codeline-dev.sh logs codeline-dev-api.service` for diagnostics.
 
 Example route checks:
 
@@ -274,7 +273,7 @@ Copy `.env.example` to `.env` only when configuring local application work. The 
 
 Near-term work is release-readiness verification: documentation, local package validation, and automated end-to-end checks for the managed development services and protected application flows.
 
-GitHub release artifacts, clean-clone/CI reproducibility for the local git-store link, and production deployment automation are intentionally deferred. Pi-web exclusions remain out of scope.
+GitHub release artifacts, clean-clone/CI reproducibility for the local git-store link, and production deployment workflows remain future work. The repository-managed local preview deployment is implemented by `bun run deploy`. Pi-web exclusions remain out of scope.
 
 ## License
 

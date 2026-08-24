@@ -42,6 +42,15 @@ require_loaded() {
   [[ -n "${loaded_env[$name]:-}" ]] || fail "$name is required in $2"
 }
 
+require_any_loaded() {
+  local description=$1 name
+  shift
+  for name in "$@"; do
+    [[ -n "${loaded_env[$name]:-}" ]] && return 0
+  done
+  fail "$description is required in $env_file"
+}
+
 validate_database_environment() {
   load_env_file "$env_file"
   local name
@@ -61,13 +70,21 @@ validate_public_origin() {
 validate_environment() {
   load_env_file "$env_file"
   local name
-  for name in NODE_ENV AUTH_MODE HOST PORT PUBLIC_ORIGIN UI_PORT; do
+  for name in NODE_ENV AUTH_MODE HOST PORT PUBLIC_ORIGIN CONFIG_STORE_DIR SESSION_SECRET \
+    DEVELOPMENT_IDENTITY_KEY DEVELOPMENT_IDENTITY_DISPLAY_NAME; do
     require_loaded "$name" "$env_file"
   done
   [[ "${loaded_env[NODE_ENV]}" == development ]] || fail "NODE_ENV must be development"
+  [[ "${loaded_env[AUTH_MODE]}" == development || "${loaded_env[AUTH_MODE]}" == oidc ]] ||
+    fail "AUTH_MODE must be development or oidc"
   [[ "${loaded_env[PORT]}" == 6001 ]] || fail "PORT must equal 6001 for the managed preview stack"
-  [[ "${loaded_env[UI_PORT]}" == 6000 ]] || fail "UI_PORT must equal 6000 for the managed preview stack"
   validate_public_origin
+  if [[ "${loaded_env[AUTH_MODE]}" == oidc ]]; then
+    require_any_loaded 'OIDC_ISSUER or ZITADEL_ISSUER' OIDC_ISSUER ZITADEL_ISSUER
+    require_any_loaded 'OIDC_CLIENT_ID or ZITADEL_CLIENT_ID' OIDC_CLIENT_ID ZITADEL_CLIENT_ID
+    require_any_loaded 'an OIDC organization ID' \
+      OIDC_ORGANIZATION_ID OIDC_ALLOWED_ORGANIZATION_ID ZITADEL_ORGANIZATION_ID ZITADEL_ALLOWED_ORGANIZATION_ID
+  fi
   load_env_file "$env_file"
 }
 
@@ -79,10 +96,25 @@ systemctl_user() {
 curl_wait() {
   local service=$1 url=$2
   command -v curl >/dev/null 2>&1 || fail "curl is required to wait for $service"
-  local deadline=$((SECONDS + 180))
+  local timeout_seconds=${CODELINE_WAIT_TIMEOUT_SECONDS:-180}
+  [[ "$timeout_seconds" =~ ^[1-9][0-9]*$ ]] || fail 'CODELINE_WAIT_TIMEOUT_SECONDS must be a positive integer'
+  local deadline=$((SECONDS + timeout_seconds)) response http_code response_body remaining curl_timeout connect_timeout sleep_seconds
+  local expected_response='{"database":"ready","service":"codeline","status":"ready"}'
   while (( SECONDS < deadline )); do
-    if curl --fail --silent --show-error "$url" >/dev/null 2>&1; then exit 0; fi
-    sleep 2
+    remaining=$((deadline - SECONDS))
+    curl_timeout=$remaining
+    if (( curl_timeout > 5 )); then curl_timeout=5; fi
+    connect_timeout=$curl_timeout
+    if (( connect_timeout > 2 )); then connect_timeout=2; fi
+    response=$(curl --connect-timeout "$connect_timeout" --max-time "$curl_timeout" --silent --show-error --write-out $'\n%{http_code}' "$url" 2>/dev/null) || response=
+    if (( SECONDS >= deadline )); then break; fi
+    http_code=${response##*$'\n'}
+    response_body=${response%$'\n'*}
+    if [[ "$http_code" == 200 && "$response_body" == "$expected_response" ]]; then exit 0; fi
+    remaining=$((deadline - SECONDS))
+    sleep_seconds=$remaining
+    if (( sleep_seconds > 2 )); then sleep_seconds=2; fi
+    sleep "$sleep_seconds"
   done
   fail "$service did not become available"
 }
@@ -102,11 +134,11 @@ Commands:
   remove            Remove repository-managed user-unit links only.
   reset             Stop the target and reset, migrate, and seed SQLite.
   start             Start the managed development target.
-  status            Show target, API, and UI status.
+  status            Show target and API status.
   stop              Stop the managed development target.
   up                Alias for start.
   validate          Validate environment without contacting a service.
-  wait <service>    Wait for api or ui.
+  wait <service>    Wait for api.
 EOF
 }
 
@@ -143,22 +175,20 @@ case "${1:-help}" in
   start|up)
     validate_environment
     systemctl_user start "$target_unit"
+    systemctl_user is-active --quiet "$target_unit"
     ;;
   status)
     validate_environment
-    systemctl_user status "$target_unit" codeline-dev-api.service codeline-dev-ui.service --no-pager
+    systemctl_user status "$target_unit" codeline-dev-api.service --no-pager
     ;;
   wait)
     service=${2:-}
     case "$service" in
-      api|ui)
+      api)
         validate_environment
-        case "$service" in
-          api) curl_wait "$service" "http://127.0.0.1:${loaded_env[PORT]}/api/ready" ;;
-          ui) curl_wait "$service" "http://127.0.0.1:${loaded_env[UI_PORT]}/" ;;
-        esac
+        curl_wait "$service" "http://127.0.0.1:${loaded_env[PORT]}/api/ready"
         ;;
-      *) fail 'usage: ops/dev/codeline-dev.sh wait {api|ui}' ;;
+      *) fail 'usage: ops/dev/codeline-dev.sh wait api' ;;
     esac
     ;;
   *) usage >&2; exit 2 ;;

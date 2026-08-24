@@ -8,12 +8,13 @@ After a failure, run only the failing file/test name.
 - Use only the repository-managed systemd user services defined under `ops/dev/` for Codeline development dependencies and application services.
 - Do not start ad-hoc processes, replacement servers, or unrelated services to work around the managed services. In particular, do not launch a second API or development server outside the managed service workflow.
 - If a managed service fails, diagnose and repair that service. Check its systemd user status and journal, inspect the relevant `ops/dev/` scripts and configuration, fix the root cause, and restart the managed service. Do not bypass it with a substitute service.
+- After making changes, you must test them with the combined repository-managed preview service.
 
 ## Example Data and SQLite
 
 - Seed example data deterministically through a repository-owned script or command using checked-in fixture data. Do not use one-off SQL, manual inserts, or undocumented local data generation as a substitute.
 - The managed API owns the embedded SQLite file at `data/db.sqlite`; use the repository-owned `db:reset-seed` workflow for resets and deterministic fixture data.
-- The browser reaches the managed UI at `PUBLIC_ORIGIN` (`https://preview.codeline.work`). Typed HTTP and `/api/events` SSE are same-origin routes proxied by the UI service to the API.
+- The browser reaches the managed UI at `PUBLIC_ORIGIN` (`https://preview.codeline.work`). Typed HTTP and `/api/events` SSE are served by the combined preview service.
 - Inspect Solid Router internals in `/home/david/opensource/solid-router` when needed.
 
 ## solid-ui

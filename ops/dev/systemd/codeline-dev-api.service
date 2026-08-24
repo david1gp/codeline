@@ -1,5 +1,5 @@
 [Unit]
-Description=Codeline development API
+Description=Codeline combined preview service
 After=network-online.target
 Wants=network-online.target
 PartOf=codeline-dev.target
@@ -9,7 +9,7 @@ Type=simple
 WorkingDirectory=%h/codeline
 EnvironmentFile=%h/codeline/.env
 Environment=PATH=%h/.local/bin:%h/.bun/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=/usr/bin/env bun run dev:api
+ExecStart=/usr/bin/env bun ./dist/server/index.js
 ExecStartPost=%h/codeline/ops/dev/codeline-dev.sh wait api
 Restart=on-failure
 RestartSec=2s

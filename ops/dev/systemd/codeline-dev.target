@@ -1,7 +1,7 @@
 [Unit]
 Description=Codeline development stack
-Requires=codeline-dev-api.service codeline-dev-ui.service
-After=network-online.target codeline-dev-api.service codeline-dev-ui.service
+Requires=codeline-dev-api.service
+After=network-online.target codeline-dev-api.service
 Wants=network-online.target
 
 [Install]
