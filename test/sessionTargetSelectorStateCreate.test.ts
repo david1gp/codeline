@@ -1,17 +1,60 @@
-import { expect, test } from "bun:test"
+import { expect, mock, test } from "bun:test"
+import * as solidRuntime from "solid-js/dist/solid.js"
 import { createRoot, createSignal } from "solid-js/dist/solid.js"
-import { sessionTargetSelectorStateCreate } from "../src/ui/sessionTargetSelectorStateCreate.js"
+
+mock.module("solid-js", () => solidRuntime)
+
+const { sessionTargetSelectorStateCreate } = await import("../src/ui/sessionTargetSelectorStateCreate.js")
+
+/** Every representation is returned with the revision/ETag metadata the typed clients require. */
+const representation = <T extends object>(body: T, revision = 1) => ({
+  ...body,
+  etag: `"${revision}"`,
+  revision,
+  schemaVersion: "v2",
+})
 
 const response = (body: unknown, init?: ResponseInit) => new Response(JSON.stringify(body), init)
 
-const servers = {
+let accountSequence = 0
+/** Each test uses its own account so the shared revision/ETag cache never leaks between cases. */
+const accountIdCreate = () => {
+  accountSequence += 1
+  return () => `example-account-${accountSequence}`
+}
+
+/** The typed session shell read returns the complete `GET /api/sessions/:sessionId` representation. */
+const sessionDetail = (sessionId: string, target: { primaryAgentId: string; serverId: string }, revision = 1) =>
+  representation(
+    {
+      agent: { id: target.primaryAgentId },
+      server: { id: target.serverId },
+      session: {
+        archivedAt: null,
+        createdAt: "2026-08-22T10:00:00.000Z",
+        id: sessionId,
+        metadata: {},
+        parentSessionId: null,
+        pinned: false,
+        primaryAgentId: target.primaryAgentId,
+        projectPath: "~",
+        revision,
+        serverId: target.serverId,
+        title: "Example session",
+        updatedAt: "2026-08-22T10:00:00.000Z",
+      },
+    },
+    revision,
+  )
+
+const servers = representation({
   servers: [
     { id: "example-server-local", name: "Example Local Server" },
     { id: "example-server-remote", name: "Example Remote Server" },
   ],
-}
+})
 const agentsByServer: Record<string, unknown> = {
-  "example-server-local": {
+  "example-server-local": representation({
     agents: [
       {
         id: "example-agent-local",
@@ -35,8 +78,8 @@ const agentsByServer: Record<string, unknown> = {
         serverId: "example-server-local",
       },
     ],
-  },
-  "example-server-remote": {
+  }),
+  "example-server-remote": representation({
     agents: [
       {
         id: "example-agent-remote",
@@ -46,10 +89,10 @@ const agentsByServer: Record<string, unknown> = {
         serverId: "example-server-remote",
       },
     ],
-  },
+  }),
 }
 const agentDetails: Record<string, unknown> = {
-  "example-agent-local": {
+  "example-agent-local": representation({
     agent: {
       configuration: {
         apiKey: "$CODEX_LB_API_TOKEN",
@@ -62,8 +105,8 @@ const agentDetails: Record<string, unknown> = {
       role: "primary",
       serverId: "example-server-local",
     },
-  },
-  "example-agent-local-review": {
+  }),
+  "example-agent-local-review": representation({
     agent: {
       configuration: {
         apiKey: "$CLIPROXYAPI_API_KEY",
@@ -76,8 +119,8 @@ const agentDetails: Record<string, unknown> = {
       role: "primary",
       serverId: "example-server-local",
     },
-  },
-  "example-agent-remote": {
+  }),
+  "example-agent-remote": representation({
     agent: {
       configuration: {
         apiKey: "$CODEX_LB_API_TOKEN",
@@ -90,7 +133,7 @@ const agentDetails: Record<string, unknown> = {
       role: "primary",
       serverId: "example-server-remote",
     },
-  },
+  }),
 }
 
 async function effectsSettle() {
@@ -106,7 +149,7 @@ function fetchDefaultCreate(requests: string[], overrides: Record<string, () => 
     if (url === "/api/servers") return response(servers)
     const agentMatch = /^\/api\/servers\/([^/]+)\/agents$/.exec(url)
     if (agentMatch?.[1] !== undefined) {
-      return response(agentsByServer[decodeURIComponent(agentMatch[1])] ?? { agents: [] })
+      return response(agentsByServer[decodeURIComponent(agentMatch[1])] ?? representation({ agents: [] }))
     }
     const agentDetailMatch = /^\/api\/servers\/[^/]+\/agents\/([^/]+)$/.exec(url)
     if (agentDetailMatch?.[1] !== undefined) {
@@ -114,8 +157,14 @@ function fetchDefaultCreate(requests: string[], overrides: Record<string, () => 
         status: agentDetails[decodeURIComponent(agentDetailMatch[1])] === undefined ? 404 : 200,
       })
     }
-    if (url.startsWith("/api/sessions/")) {
-      return response({ session: { primaryAgentId: "example-agent-remote", serverId: "example-server-remote" } })
+    const sessionMatch = /^\/api\/sessions\/([^/]+)$/.exec(url)
+    if (sessionMatch?.[1] !== undefined) {
+      return response(
+        sessionDetail(decodeURIComponent(sessionMatch[1]), {
+          primaryAgentId: "example-agent-remote",
+          serverId: "example-server-remote",
+        }),
+      )
     }
     return response({ created: true, session: { id: "created-session" } }, { status: 201 })
   }
@@ -126,6 +175,7 @@ test("state loads agents from the deterministic default server", async () => {
   let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
   const dispose = createRoot((rootDispose) => {
     state = sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(),
       fetch: fetchDefaultCreate(requests),
       selectedSessionId: () => null,
       sessionSelect: () => undefined,
@@ -166,6 +216,7 @@ test("state restores and persists the last used agent", async () => {
   let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
   const dispose = createRoot((rootDispose) => {
     state = sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(),
       fetch: fetchDefaultCreate([]),
       selectedSessionId: () => null,
       sessionSelect: () => undefined,
@@ -188,6 +239,7 @@ test("hidden server selection remains available for session creation", async () 
   let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
   const dispose = createRoot((rootDispose) => {
     state = sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(),
       fetch: fetchDefaultCreate(requests),
       selectedSessionId: () => null,
       sessionSelect: () => undefined,
@@ -218,6 +270,7 @@ test("selecting another server reloads its agents without creating a session", a
   let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
   const dispose = createRoot((rootDispose) => {
     state = sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(),
       fetch: fetchDefaultCreate(requests),
       selectedSessionId: () => null,
       sessionSelect: () => undefined,
@@ -239,6 +292,7 @@ test("an unknown server or agent selection is rejected", async () => {
   let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
   const dispose = createRoot((rootDispose) => {
     state = sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(),
       fetch: fetchDefaultCreate([]),
       selectedSessionId: () => null,
       sessionSelect: () => undefined,
@@ -262,6 +316,7 @@ test("creating a session posts the selected target once and navigates", async ()
   let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
   const dispose = createRoot((rootDispose) => {
     state = sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(),
       clientRequestIdCreate: () => "deterministic-request",
       fetch: async (input, init) => {
         if (init?.method === "POST") bodies.push(String(init.body))
@@ -304,6 +359,7 @@ test("the new-session route automatically creates and selects a blank session", 
   let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
   const dispose = createRoot((rootDispose) => {
     state = sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(),
       fetch: fetchDefaultCreate(requests),
       isNewSessionRoute: () => true,
       selectedSessionId,
@@ -326,6 +382,7 @@ test("automatic creation and first-message fallback share one in-flight request"
   let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
   const dispose = createRoot((rootDispose) => {
     state = sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(),
       fetch: async (input, init) => {
         requests.push(`${init?.method ?? "GET"} ${String(input)}`)
         if (String(input) === "/api/sessions" && init?.method === "POST") {
@@ -360,6 +417,7 @@ test("a stale automatic result cannot select a session after the target changes"
   let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
   const dispose = createRoot((rootDispose) => {
     state = sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(),
       fetch: async (input, init) => {
         if (String(input) === "/api/sessions" && init?.method === "POST") {
           const gate = deferredCreate<void>()
@@ -404,6 +462,7 @@ test("session creation requires and sends the active project", async () => {
   let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
   const dispose = createRoot((rootDispose) => {
     state = sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(),
       activeProjectPath: () => projectPath,
       fetch: async (input, init) => {
         if (String(input) === "/api/sessions" && init?.method === "POST") bodies.push(JSON.parse(String(init.body)))
@@ -433,6 +492,7 @@ test("a failed create reports an error without navigating", async () => {
   let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
   const dispose = createRoot((rootDispose) => {
     state = sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(),
       fetch: fetchDefaultCreate([], {
         "/api/sessions": () => response({ error: { code: "not_found", message: "missing" } }, { status: 404 }),
       }),
@@ -455,6 +515,7 @@ test("server errors surface a retry that reloads the list", async () => {
   let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
   const dispose = createRoot((rootDispose) => {
     state = sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(),
       fetch: async (input, init) => {
         const url = String(input)
         requests.push(url)
@@ -490,6 +551,7 @@ test("agent errors surface a readiness retry that restores the executable target
   let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
   const dispose = createRoot((rootDispose) => {
     state = sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(),
       fetch: async (input, init) => {
         const url = String(input)
         requests.push(url)
@@ -525,6 +587,7 @@ test("the readiness contract owns agent choice and rejects unknown agents", asyn
   let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
   const dispose = createRoot((rootDispose) => {
     state = sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(),
       fetch: fetchDefaultCreate([]),
       selectedSessionId: () => null,
       sessionSelect: () => undefined,
@@ -552,7 +615,8 @@ test("an empty server list keeps the selector empty and blocks creation", async 
   let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
   const dispose = createRoot((rootDispose) => {
     state = sessionTargetSelectorStateCreate({
-      fetch: fetchDefaultCreate([], { "/api/servers": () => response({ servers: [] }) }),
+      accountId: accountIdCreate(),
+      fetch: fetchDefaultCreate([], { "/api/servers": () => response(representation({ servers: [] })) }),
       selectedSessionId: () => null,
       sessionSelect: () => undefined,
     })
@@ -572,6 +636,7 @@ test("an invalid response body is rejected as an error", async () => {
   let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
   const dispose = createRoot((rootDispose) => {
     state = sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(),
       fetch: fetchDefaultCreate([], { "/api/servers": () => response({ servers: [{ id: "" }] }) }),
       selectedSessionId: () => null,
       sessionSelect: () => undefined,
@@ -589,6 +654,7 @@ test("workspace configuration loads an editable agent and uses persisted-agent p
   let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
   const dispose = createRoot((rootDispose) => {
     state = sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(),
       fetch: async (input, init) => {
         const url = String(input)
         requests.push(`${init?.method ?? "GET"} ${url}`)
@@ -636,24 +702,27 @@ test("workspace configuration updates an agent with only the fixed provider secr
   let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
   const dispose = createRoot((rootDispose) => {
     state = sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(),
       fetch: async (input, init) => {
         const url = String(input)
         if (url === "/api/servers/example-server-local/agents/example-agent-local" && init?.method === "PATCH") {
           updateBody = JSON.parse(String(init.body))
-          return response({
-            agent: {
-              configuration: {
-                apiKey: "$CLIPROXYAPI_API_KEY",
-                baseUrl: "https://cli-updated.example.com/v1",
-                model: "cli-model",
-                provider: "cliproxyapi",
+          return response(
+            representation({
+              agent: {
+                configuration: {
+                  apiKey: "$CLIPROXYAPI_API_KEY",
+                  baseUrl: "https://cli-updated.example.com/v1",
+                  model: "cli-model",
+                  provider: "cliproxyapi",
+                },
+                id: "example-agent-local",
+                name: "Updated agent",
+                role: "review",
+                serverId: "example-server-local",
               },
-              id: "example-agent-local",
-              name: "Updated agent",
-              role: "review",
-              serverId: "example-server-local",
-            },
-          })
+            }),
+          )
         }
         return fetchDefaultCreate([])(input, init)
       },
@@ -692,23 +761,27 @@ test("an agent-less server exposes creation and surfaces provider API errors", a
   let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
   const dispose = createRoot((rootDispose) => {
     state = sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(),
       fetch: async (input, init) => {
         const url = String(input)
         if (url === "/api/servers/example-server-local/agents" && (init?.method ?? "GET") === "GET") {
           return response(
             created
-              ? {
-                  agents: [
-                    {
-                      id: "created-agent",
-                      name: "Created agent",
-                      parentAgentId: null,
-                      role: "primary",
-                      serverId: "example-server-local",
-                    },
-                  ],
-                }
-              : { agents: [] },
+              ? representation(
+                  {
+                    agents: [
+                      {
+                        id: "created-agent",
+                        name: "Created agent",
+                        parentAgentId: null,
+                        role: "primary",
+                        serverId: "example-server-local",
+                      },
+                    ],
+                  },
+                  2,
+                )
+              : representation({ agents: [] }),
           )
         }
         if (url === "/api/servers/example-server-local/agents/models") {
@@ -721,26 +794,28 @@ test("an agent-less server exposes creation and surfaces provider API errors", a
           createBody = JSON.parse(String(init.body))
           created = true
           return response(
-            {
+            representation({
               agent: {
                 ...(createBody as { name: string; role: string }),
                 configuration: (createBody as { configuration: unknown }).configuration,
                 id: "created-agent",
                 serverId: "example-server-local",
               },
-            },
+            }),
             { status: 201 },
           )
         }
         if (url === "/api/servers/example-server-local/agents/created-agent") {
-          return response({
-            agent: {
-              ...(createBody as { name: string; role: string }),
-              configuration: (createBody as { configuration: unknown }).configuration,
-              id: "created-agent",
-              serverId: "example-server-local",
-            },
-          })
+          return response(
+            representation({
+              agent: {
+                ...(createBody as { name: string; role: string }),
+                configuration: (createBody as { configuration: unknown }).configuration,
+                id: "created-agent",
+                serverId: "example-server-local",
+              },
+            }),
+          )
         }
         return fetchDefaultCreate([])(input, init)
       },
@@ -780,6 +855,7 @@ test("a late agent response for a superseded server cannot overwrite the current
   let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
   const dispose = createRoot((rootDispose) => {
     state = sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(),
       fetch: async (input, init) => {
         const url = String(input)
         const agentMatch = /^\/api\/servers\/([^/]+)\/agents$/.exec(url)
@@ -829,6 +905,7 @@ test("a late server response from a superseded reload cannot overwrite the curre
   let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
   const dispose = createRoot((rootDispose) => {
     state = sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(),
       fetch: async (input, init) => {
         const url = String(input)
         if (url === "/api/servers") {
@@ -870,6 +947,7 @@ test("the agent state mirrors the server state while servers are loading or fail
   let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
   const dispose = createRoot((rootDispose) => {
     state = sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(),
       fetch: fetchDefaultCreate([], {
         "/api/servers": () => response({ error: { code: "internal_server_error", message: "no" } }, { status: 500 }),
       }),
@@ -896,6 +974,7 @@ test("a retry after an ambiguous failure reuses the client request id until the 
   let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
   const dispose = createRoot((rootDispose) => {
     state = sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(),
       clientRequestIdCreate: () => `request-${(created += 1)}`,
       fetch: async (input, init) => {
         if (String(input) === "/api/sessions" && init?.method === "POST") {
@@ -935,6 +1014,7 @@ test("a create that settles after disposal neither navigates nor updates state",
   let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
   const dispose = createRoot((rootDispose) => {
     state = sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(),
       fetch: async (input, init) => {
         if (String(input) === "/api/sessions" && init?.method === "POST") {
           await gate.promise
@@ -964,6 +1044,7 @@ test("navigating to a session loads its persisted target without mutating the se
   let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
   const dispose = createRoot((rootDispose) => {
     state = sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(),
       fetch: fetchDefaultCreate(requests),
       selectedSessionId: () => "example-session-remote-1",
       sessionSelect: () => undefined,
@@ -976,5 +1057,133 @@ test("navigating to a session loads its persisted target without mutating the se
   expect(state?.selectedAgentId()).toBe("example-agent-remote")
   expect(requests.filter((request) => request.startsWith("POST"))).toEqual([])
   expect(requests).toContain("GET /api/sessions/example-session-remote-1")
+  dispose()
+})
+
+test("the shared account-scoped cache serves a second selector without a repeated request", async () => {
+  const accountId = accountIdCreate()
+  const requests: string[] = []
+  const fetcher = fetchDefaultCreate(requests)
+  let first: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
+  const disposeFirst = createRoot((rootDispose) => {
+    first = sessionTargetSelectorStateCreate({
+      accountId,
+      fetch: fetcher,
+      selectedSessionId: () => null,
+      sessionSelect: () => undefined,
+    })
+    return rootDispose
+  })
+  await effectsSettle()
+  expect(first?.serverStatus()).toBe("ready")
+  disposeFirst()
+
+  let second: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
+  const disposeSecond = createRoot((rootDispose) => {
+    second = sessionTargetSelectorStateCreate({
+      accountId,
+      fetch: fetcher,
+      selectedSessionId: () => null,
+      sessionSelect: () => undefined,
+    })
+    return rootDispose
+  })
+
+  // The cached representation renders before the revalidation settles.
+  expect(second?.servers().map((server) => server.id)).toEqual(["example-server-local", "example-server-remote"])
+  await effectsSettle()
+  expect(second?.serverStatus()).toBe("ready")
+  disposeSecond()
+})
+
+test("a different account never reuses another account's cached servers", async () => {
+  const requests: string[] = []
+  const fetcher = fetchDefaultCreate(requests)
+  const disposeFirst = createRoot((rootDispose) => {
+    sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(),
+      fetch: fetcher,
+      selectedSessionId: () => null,
+      sessionSelect: () => undefined,
+    })
+    return rootDispose
+  })
+  await effectsSettle()
+  disposeFirst()
+
+  let second: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
+  const disposeSecond = createRoot((rootDispose) => {
+    second = sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(),
+      fetch: fetcher,
+      selectedSessionId: () => null,
+      sessionSelect: () => undefined,
+    })
+    return rootDispose
+  })
+  expect(second?.servers()).toEqual([])
+  await effectsSettle()
+  expect(second?.serverStatus()).toBe("ready")
+  disposeSecond()
+})
+
+test("a failed revalidation retains the cached servers and reports the stale data status", async () => {
+  const accountId = accountIdCreate()
+  let failing = false
+  const fetcher = async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input) === "/api/servers" && failing) {
+      return response({ error: { code: "internal_server_error", message: "no" } }, { status: 500 })
+    }
+    return fetchDefaultCreate([])(input, init)
+  }
+  let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
+  const dispose = createRoot((rootDispose) => {
+    state = sessionTargetSelectorStateCreate({
+      accountId,
+      fetch: fetcher,
+      selectedSessionId: () => null,
+      sessionSelect: () => undefined,
+    })
+    return rootDispose
+  })
+  await effectsSettle()
+  expect(state?.dataStatus()).toBe("ready")
+
+  failing = true
+  state?.targetRevalidate()
+  await effectsSettle()
+
+  expect(state?.servers().map((server) => server.id)).toEqual(["example-server-local", "example-server-remote"])
+  expect(state?.serverStatus()).toBe("ready")
+  expect(state?.dataStatus()).toBe("stale")
+  dispose()
+})
+
+test("the data status reports reconciling while a first load is in flight and offline when the tab is offline", async () => {
+  const gate = deferredCreate<void>()
+  let isOnline = true
+  let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
+  const dispose = createRoot((rootDispose) => {
+    state = sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(),
+      fetch: async (input, init) => {
+        if (String(input) === "/api/servers") await gate.promise
+        return fetchDefaultCreate([])(input, init)
+      },
+      isOnline: () => isOnline,
+      selectedSessionId: () => null,
+      sessionSelect: () => undefined,
+    })
+    return rootDispose
+  })
+
+  expect(state?.dataStatus()).toBe("reconciling")
+  isOnline = false
+  expect(state?.dataStatus()).toBe("offline")
+
+  isOnline = true
+  gate.resolve()
+  await effectsSettle()
+  expect(state?.dataStatus()).toBe("ready")
   dispose()
 })

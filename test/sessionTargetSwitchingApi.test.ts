@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test"
 import { randomBytes } from "node:crypto"
 import { eq } from "drizzle-orm"
 import * as v from "valibot"
-import { agentListResponseSchema } from "../src/agents/api/agentListResponseSchema.js"
+import { agentListResponseV2Schema } from "../src/agents/api/agentListResponseV2Schema.js"
 import { agentTable } from "../src/agents/db/agentTable.js"
 import { appCreate } from "../src/app/appCreate.js"
 import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
@@ -13,7 +13,7 @@ import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentit
 import { organizationMemberTable } from "../src/identity/db/organizationMemberTable.js"
 import { organizationTable } from "../src/identity/db/organizationTable.js"
 import { journalCursorCodecCreate } from "../src/journal/actions/journalCursorCodecCreate.js"
-import { serverListResponseSchema } from "../src/servers/api/serverListResponseSchema.js"
+import { serverListResponseV2Schema } from "../src/servers/api/serverListResponseV2Schema.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionTargetCreateResponseSchema } from "../src/session/api/sessionTargetCreateResponseSchema.js"
 import { sessionTargetLoadResponseSchema } from "../src/session/api/sessionTargetLoadResponseSchema.js"
@@ -83,7 +83,7 @@ test.skipIf(!databaseAvailable)("the server list validates and contains both swi
   expect(response.status).toBe(200)
 
   const body = (await response.json()) as { servers: Array<Record<string, unknown>> }
-  const parsed = v.safeParse(serverListResponseSchema, body)
+  const parsed = v.safeParse(serverListResponseV2Schema, body)
   expect(parsed.issues).toBeUndefined()
   expect(parsed.success).toBe(true)
   const ids = parsed.success ? parsed.output.servers.map((server) => server.id) : []
@@ -99,8 +99,8 @@ test.skipIf(!databaseAvailable)("each server exposes its own validated agent lis
   expect([primary.status, secondary.status]).toEqual([200, 200])
 
   const primaryBody = (await primary.json()) as { agents: Array<Record<string, unknown>> }
-  const parsedPrimary = v.safeParse(agentListResponseSchema, primaryBody)
-  const parsedSecondary = v.safeParse(agentListResponseSchema, await secondary.json())
+  const parsedPrimary = v.safeParse(agentListResponseV2Schema, primaryBody)
+  const parsedSecondary = v.safeParse(agentListResponseV2Schema, await secondary.json())
   expect(parsedPrimary.issues).toBeUndefined()
   for (const agent of primaryBody.agents) {
     expect(Object.keys(agent).sort()).toEqual(["id", "name", "parentAgentId", "role", "serverId"])

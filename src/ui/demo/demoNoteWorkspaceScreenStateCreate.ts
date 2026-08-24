@@ -28,6 +28,7 @@ export function demoNoteWorkspaceScreenStateCreate(variant: () => DemoSessionScr
       activeProjectPath: () => demoActiveNote.projectPath,
       canMoveDown: () => bounds().canMoveDown,
       canMoveUp: () => bounds().canMoveUp,
+      dataStatus: () => (variant() === "loading" ? ("reconciling" as const) : ("ready" as const)),
       groups,
       isError: () => variant() === "error",
       isLoading: () => variant() === "loading",

@@ -32,9 +32,9 @@ export function providerRuntimeAdapterCreate(options: ProviderRuntimeAdapterOpti
     settings: {
       apiKey: options.configuration.apiKey,
       baseUrl: options.configuration.baseUrl,
-      ...(options.configuration.generation?.maxTokens === undefined && options.configuration.modelMetadata !== undefined
+      ...(options.configuration.generation?.maxTokens === undefined
         ? {}
-        : { maxTokens: options.configuration.generation?.maxTokens ?? 4096 }),
+        : { maxTokens: options.configuration.generation.maxTokens }),
       model: options.configuration.model,
       ...(options.configuration.modelOptions === undefined ? {} : { modelOptions: options.configuration.modelOptions }),
       ...(options.configuration.providerOptions === undefined
@@ -43,10 +43,9 @@ export function providerRuntimeAdapterCreate(options: ProviderRuntimeAdapterOpti
       ...(options.configuration.generation?.reasoningEffort === undefined
         ? {}
         : { reasoningEffort: options.configuration.generation.reasoningEffort }),
-      ...(options.configuration.generation?.temperature === undefined &&
-      options.configuration.modelMetadata !== undefined
+      ...(options.configuration.generation?.temperature === undefined
         ? {}
-        : { temperature: options.configuration.generation?.temperature ?? 0.7 }),
+        : { temperature: options.configuration.generation.temperature }),
       ...(transport === "openai/completions" || transport === "openai/responses" ? { transport } : {}),
     },
     ...(options.systemPrompt === undefined ? {} : { systemPrompt: options.systemPrompt }),

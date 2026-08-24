@@ -8,6 +8,7 @@ export function demoNotesScreenStateCreate(variant: () => DemoSessionScreenVaria
   const notes = () => (variant() === "empty" ? [] : demoNotesFixture)
 
   return {
+    dataStatus: () => (variant() === "loading" ? ("reconciling" as const) : ("ready" as const)),
     groups: () => noteGroupsDerive(notes(), demoNoteProjectsFixture),
     isEmpty: () => notes().length === 0,
     isError: () => variant() === "error",

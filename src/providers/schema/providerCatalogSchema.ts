@@ -101,9 +101,6 @@ const providerCatalogVariantSchema = v.strictObject({
 })
 
 const providerCatalogModelSchema = v.strictObject({
-  // Kept optional so configurations written before exact filename IDs remain readable.
-  // New catalogs never populate this legacy field; execution uses `id`.
-  apiId: v.optional(catalogIdSchema),
   capabilities: providerCatalogCapabilitiesSchema,
   connection: providerCatalogConnectionSchema,
   cost: v.array(providerCatalogCostTierSchema),

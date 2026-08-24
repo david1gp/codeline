@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test"
 import { sessionFinalizedMessagesFetch } from "../src/message/ui/sessionFinalizedMessagesFetch.js"
 import { sessionDelegationsFetch } from "../src/run/ui/sessionDelegationsFetch.js"
-import { sessionStreamSnapshotFetch } from "../src/run/ui/sessionStreamSnapshotFetch.js"
 import { sessionDetailFetch } from "../src/session/ui/sessionDetailFetch.js"
 import { sessionPinRequest } from "../src/session/ui/sessionPinRequest.js"
 import { sessionRenameRequest } from "../src/session/ui/sessionRenameRequest.js"
@@ -139,6 +138,9 @@ test("session delegation read uses the typed endpoint and preserves server order
             task: "first task",
           },
         ],
+        etag: '"delegations:4"',
+        revision: 4,
+        schemaVersion: "run-delegations.v1",
       })
     },
   })
@@ -146,46 +148,36 @@ test("session delegation read uses the typed endpoint and preserves server order
   expect(requests).toEqual(["/api/sessions/session%2F1/delegations"])
   expect(result.success).toBe(true)
   if (!result.success) return
-  expect(result.data.delegations.map((delegation) => delegation.id)).toEqual(["delegation-2", "delegation-1"])
+  if (result.data.status === 304) return
+  expect(result.data.data.delegations.map((delegation) => delegation.id)).toEqual(["delegation-2", "delegation-1"])
+  expect(result.data.revision).toBe(4)
 })
 
-test("session stream snapshot read parses the durable runs and events contract", async () => {
-  const requests: string[] = []
-  const result = await sessionStreamSnapshotFetch("session/1", {
-    fetch: async (input) => {
-      requests.push(String(input))
-      return Response.json({
-        events: [
-          {
-            createdAt: 1,
-            eventType: "text_delta",
-            id: "event-1",
-            payload: { delta: "hello" },
-            sequence: 1,
-            streamId: "stream-1",
-          },
-        ],
-        runs: [
-          {
-            attempts: [{ id: "attempt-1", ordinal: 1, status: "succeeded", streamId: "stream-1" }],
-            cancellationKind: null,
-            clientRunId: "client-run-1",
-            createdAt: 1,
-            id: "run-1",
-            snapshot: { target: { agentId: "agent-1" } },
-            status: "succeeded",
-            streamId: "stream-1",
-          },
-        ],
-      })
-    },
+test("session delegation read sends a cached ETag and preserves a typed 304 result", async () => {
+  const seen: Array<{ headers: Headers; url: string }> = []
+  const fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    seen.push({ headers: new Headers(init?.headers), url: String(input) })
+    if (seen.length === 1)
+      return Response.json(
+        { delegations: [], etag: '"delegations:1"', revision: 1, schemaVersion: "run-delegations.v1" },
+        { headers: { ETag: '"delegations:1"' } },
+      )
+    return new Response(null, { headers: { ETag: '"delegations:1"' }, status: 304 })
+  }
+
+  const first = await sessionDelegationsFetch("session-1", { fetch })
+  expect(first.success).toBe(true)
+  if (!first.success) return
+  if (first.data.status === 304) return
+  const second = await sessionDelegationsFetch("session-1", {
+    cached: { etag: first.data.etag },
+    fetch,
   })
 
-  expect(requests).toEqual(["/api/sessions/session%2F1/stream-snapshot"])
-  expect(result.success).toBe(true)
-  if (!result.success) return
-  expect(result.data.runs[0]?.attempts[0]?.streamId).toBe("stream-1")
-  expect(result.data.events[0]?.payload).toEqual({ delta: "hello" })
+  expect(seen[0]?.url).toBe("/api/sessions/session-1/delegations")
+  expect(seen[0]?.headers.get("If-None-Match")).toBeNull()
+  expect(seen[1]?.headers.get("If-None-Match")).toBe('"delegations:1"')
+  expect(second).toEqual({ success: true, data: { status: 304 } })
 })
 
 test("selected-session state reads delegations through the HTTP client", async () => {
@@ -193,16 +185,6 @@ test("selected-session state reads delegations through the HTTP client", async (
 
   expect(source).toContain("sessionDelegationsFetch")
   expect(source).toContain("httpQueryStateCreate")
-})
-
-test("selected-session and simulation state wire the durable stream snapshot helper", async () => {
-  const selectedSource = await Bun.file(new URL("../src/ui/selectedSessionStateCreate.ts", import.meta.url)).text()
-  const simulateSource = await Bun.file(new URL("../src/ui/simulate/simulateAppStateCreate.ts", import.meta.url)).text()
-
-  expect(selectedSource).toContain("sessionStreamSnapshotFetch")
-  expect(selectedSource).toContain("load: (sessionId, signal) => sessionStreamSnapshotFetch(sessionId, { signal })")
-  expect(simulateSource).toContain("sessionStreamSnapshotFetch")
-  expect(simulateSource).toContain("load: (sessionId, signal) => sessionStreamSnapshotFetch(sessionId, { signal })")
 })
 
 test("session delegation read rejects an empty session identifier without fetching", async () => {

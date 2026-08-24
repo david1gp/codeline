@@ -1,30 +1,34 @@
 import { onCleanup, useContext } from "solid-js"
 import { markdownHtmlRender } from "../../markdown/markdownHtmlRender.js"
 import { eventFeedCoordinatorContext } from "../../ui/eventFeedCoordinatorContext.js"
-import { httpQueryStateCreate } from "../../ui/httpQueryStateCreate.js"
+import { httpQueryDataStatusResolve } from "../../ui/httpQueryDataStatusResolve.js"
 import { noteRepresentationEtagCreate } from "../api/noteRepresentationEtagCreate.js"
-import { noteListFetch } from "../client/noteListFetch.js"
 import { noteReorderRequest } from "../client/noteReorderRequest.js"
 import { noteGroupsDerive } from "./noteGroupsDerive.js"
+import { noteListQueryStateCreate } from "./noteListQueryStateCreate.js"
 import { noteMoveBoundsResolve } from "./noteMoveBoundsResolve.js"
 import { noteProjectListStateCreate } from "./noteProjectListStateCreate.js"
 import type { NoteWorkspaceSidebarView } from "./noteWorkspaceScreenView.js"
 
 type NoteWorkspacePageStateOptions = {
+  accountId?: () => string | null
   apiBase?: string
   fetcher?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+  isOnline?: () => boolean
   noteId: () => string
 }
 
 export function noteWorkspacePageStateCreate(options: NoteWorkspacePageStateOptions): NoteWorkspaceSidebarView {
   const eventFeed = useContext(eventFeedCoordinatorContext)
   const fetcher = options.fetcher ?? fetch
-  const notesQuery = httpQueryStateCreate({
-    key: () => "notes",
-    load: (_key, signal) => noteListFetch({ fetch: fetcher, signal }),
+  const noteList = noteListQueryStateCreate({
+    fetcher,
+    ...(options.accountId === undefined ? {} : { accountId: options.accountId }),
+    ...(options.isOnline === undefined ? {} : { isOnline: options.isOnline }),
   })
+  const notesQuery = noteList.query
   const projectList = noteProjectListStateCreate({ apiBase: options.apiBase, fetcher })
-  const notes = () => notesQuery.data() ?? []
+  const notes = noteList.notes
   const groups = () => noteGroupsDerive(notes(), projectList.projects())
   const revalidate = () => {
     notesQuery.refresh()
@@ -53,9 +57,10 @@ export function noteWorkspacePageStateCreate(options: NoteWorkspacePageStateOpti
     activeProjectPath,
     canMoveDown: () => bounds().canMoveDown,
     canMoveUp: () => bounds().canMoveUp,
+    dataStatus: () => httpQueryDataStatusResolve({ isOnline: noteList.isOnline(), queries: [notesQuery] }),
     groups,
-    isError: notesQuery.isError,
-    isLoading: () => notesQuery.isLoading() && notes().length === 0,
+    isError: () => notesQuery.isError() && notesQuery.data() === undefined,
+    isLoading: () => notesQuery.isLoading() && notesQuery.data() === undefined,
     noteMoveDown: () => void noteMove("down"),
     noteMoveUp: () => void noteMove("up"),
     previewHtml: () => markdownHtmlRender(activeNote()?.content ?? ""),

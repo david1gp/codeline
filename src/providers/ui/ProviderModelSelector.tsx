@@ -1,4 +1,5 @@
 import { For, Match, Show, Switch } from "solid-js"
+import { providerModelDataStatusNoticeResolve } from "./providerModelDataStatusNoticeResolve.js"
 import type { ProviderModelSelectorState } from "./providerModelSelectorStateCreate.js"
 
 const selectClass =
@@ -61,6 +62,13 @@ export function ProviderModelSelector(props: { state: ProviderModelSelectorState
           <Match when={true}>Loading available models.</Match>
         </Switch>
       </p>
+      <Show when={providerModelDataStatusNoticeResolve(props.state.dataStatus())} keyed>
+        {(notice) => (
+          <p class="sr-only m-0" role="status">
+            {notice}
+          </p>
+        )}
+      </Show>
     </div>
   )
 }

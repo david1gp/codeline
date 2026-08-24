@@ -17,36 +17,47 @@ import { projectApiTextResponseSchema } from "../src/project/api/projectApiTextR
 import { projectDiscoveryEntriesRead } from "../src/project/projectDiscoveryEntriesRead.js"
 
 describe("project HTTP routes", () => {
+  let projectsRoot: string
   let rootDir: string
+  let projectId: string
   let app: Hono<AppEnvironment>
 
   beforeAll(async () => {
-    rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "project-api-test-"))
+    projectsRoot = await fs.mkdtemp(path.join(os.tmpdir(), "project-api-roots-test-"))
+    rootDir = path.join(projectsRoot, "example-project")
+    await fs.mkdir(rootDir)
     await fs.mkdir(path.join(rootDir, "src"))
     await fs.writeFile(path.join(rootDir, "src/example.ts"), "export const example = true\n", "utf8")
     await fs.writeFile(path.join(rootDir, "image.png"), Buffer.from([1, 2, 3, 4]))
     await fs.writeFile(path.join(rootDir, "file.pdf"), Buffer.from("pdf bytes"))
 
     app = new Hono<AppEnvironment>()
-    apiProjectRoutesAdd(app, { rootDir, limits: { maxTextFileSizeBytes: 1024 } })
+    apiProjectRoutesAdd(app, { rootDirs: [projectsRoot], limits: { maxTextFileSizeBytes: 1024 } })
+    const list = await app.request("http://codeline.test/project/list")
+    projectId = (await list.json()).projects[0].id
   })
 
   afterAll(async () => {
-    await fs.rm(rootDir, { force: true, recursive: true })
+    await fs.rm(projectsRoot, { force: true, recursive: true })
   })
 
+  const projectRequest = (requestPath: string, init?: RequestInit) => {
+    const separator = requestPath.includes("?") ? "&" : "?"
+    return app.request(`http://codeline.test${requestPath}${separator}project=${projectId}`, init)
+  }
+
   test("registers directory, metadata, and text reads independently", async () => {
-    const directory = await app.request("http://codeline.test/project/directory?path=src")
+    const directory = await projectRequest("/project/directory?path=src")
     expect(directory.status).toBe(200)
     const directoryBody = await directory.json()
     expect(v.safeParse(projectApiDirectoryResponseSchema, directoryBody).success).toBe(true)
     expect(directoryBody).toMatchObject({ entries: [{ name: "example.ts", path: "src/example.ts", type: "file" }] })
 
-    const metadata = await app.request("http://codeline.test/project/metadata?path=src/example.ts")
+    const metadata = await projectRequest("/project/metadata?path=src/example.ts")
     expect(metadata.status).toBe(200)
     expect(v.safeParse(projectApiMetadataResponseSchema, await metadata.json()).success).toBe(true)
 
-    const text = await app.request("http://codeline.test/project/text?path=src/example.ts")
+    const text = await projectRequest("/project/text?path=src/example.ts")
     expect(text.status).toBe(200)
     const textBody = await text.json()
     expect(v.safeParse(projectApiTextResponseSchema, textBody).success).toBe(true)
@@ -54,7 +65,9 @@ describe("project HTTP routes", () => {
   })
 
   test("suggests configured directories and confirms a canonical project folder", async () => {
-    const suggestions = await app.request("http://codeline.test/project/suggestions?path=s")
+    const suggestions = await app.request(
+      `http://codeline.test/project/suggestions?path=${encodeURIComponent(path.join(rootDir, "s"))}`,
+    )
     expect(suggestions.status).toBe(200)
     const suggestionsBody = await suggestions.json()
     expect(v.safeParse(projectApiDirectorySuggestionsResponseSchema, suggestionsBody).success).toBe(true)
@@ -79,19 +92,18 @@ describe("project HTTP routes", () => {
     expect(JSON.stringify(await outside.json())).not.toContain(rootDir)
   })
 
-  test("marks the legacy single-root list without changing the direct-route contract", async () => {
+  test("lists configured projects and scopes direct routes", async () => {
     const list = await app.request("http://codeline.test/project/list")
 
     expect(list.status).toBe(200)
-    expect(list.headers.get("X-Codeline-Project-Mode")).toBe("legacy-single-root")
-    expect(await list.json()).toEqual({ projects: [], truncated: false })
+    expect((await list.json()).projects).toHaveLength(1)
 
-    const directory = await app.request("http://codeline.test/project/directory?path=src")
+    const directory = await projectRequest("/project/directory?path=src")
     expect(directory.status).toBe(200)
   })
 
   test("downloads a bounded regular file without exposing the root", async () => {
-    const response = await app.request("http://codeline.test/project/download?path=src/example.ts")
+    const response = await projectRequest("/project/download?path=src/example.ts")
 
     expect(response.status).toBe(200)
     expect(response.headers.get("Content-Disposition")).toBe('attachment; filename="example.ts"')
@@ -102,7 +114,7 @@ describe("project HTTP routes", () => {
   })
 
   test("returns text content and browser-safe image/PDF preview URLs", async () => {
-    const text = await app.request("http://codeline.test/project/preview?path=src/example.ts")
+    const text = await projectRequest("/project/preview?path=src/example.ts")
     expect(text.status).toBe(200)
     const textBody = await text.json()
     expect(v.safeParse(projectApiPreviewResponseSchema, textBody).success).toBe(true)
@@ -116,7 +128,7 @@ describe("project HTTP routes", () => {
       ["image.png", "image", "image/png"],
       ["file.pdf", "pdf", "application/pdf"],
     ] as const) {
-      const preview = await app.request(`http://codeline.test/project/preview?path=${encodeURIComponent(filePath)}`)
+      const preview = await projectRequest(`/project/preview?path=${encodeURIComponent(filePath)}`)
       expect(preview.status).toBe(200)
       const body = await preview.json()
       expect(v.safeParse(projectApiPreviewResponseSchema, body).success).toBe(true)
@@ -124,7 +136,7 @@ describe("project HTTP routes", () => {
         path: filePath,
         kind,
         mimeType,
-        url: `/project/preview/content?path=${encodeURIComponent(filePath)}`,
+        url: `/project/preview/content?path=${encodeURIComponent(filePath)}&project=${projectId}`,
       })
 
       const content = await app.request(`http://codeline.test${body.url}`)
@@ -139,7 +151,7 @@ describe("project HTTP routes", () => {
 
   test("keeps unsupported files as metadata without serving them as previews", async () => {
     await fs.writeFile(path.join(rootDir, "archive.bin"), Buffer.from([0, 1, 2]))
-    const response = await app.request("http://codeline.test/project/preview?path=archive.bin")
+    const response = await projectRequest("/project/preview?path=archive.bin")
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({
       path: "archive.bin",
@@ -148,22 +160,22 @@ describe("project HTTP routes", () => {
       size: 3,
     })
 
-    const content = await app.request("http://codeline.test/project/preview/content?path=archive.bin")
+    const content = await projectRequest("/project/preview/content?path=archive.bin")
     expect(content.status).toBe(400)
   })
 
   test("rejects malformed public paths and hides filesystem details", async () => {
-    const invalid = await app.request("http://codeline.test/project/text?path=../secret")
+    const invalid = await projectRequest("/project/text?path=../secret")
     expect(invalid.status).toBe(400)
     expect(v.safeParse(apiErrorResponseSchema, await invalid.json()).success).toBe(true)
 
-    const missing = await app.request("http://codeline.test/project/text?path=missing.txt")
+    const missing = await projectRequest("/project/text?path=missing.txt")
     expect(missing.status).toBe(404)
     const missingBody = await missing.json()
     expect(v.safeParse(apiErrorResponseSchema, missingBody).success).toBe(true)
     expect(JSON.stringify(missingBody)).not.toContain(rootDir)
 
-    const extraQuery = await app.request("http://codeline.test/project/text?path=src/example.ts&root=/etc")
+    const extraQuery = await projectRequest("/project/text?path=src/example.ts&root=/etc")
     expect(extraQuery.status).toBe(400)
   })
 

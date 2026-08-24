@@ -1,6 +1,12 @@
 import type { ProviderApiCatalogResponse } from "../api/providerApiCatalogResponseSchema.js"
 import type { ProviderCatalog } from "../schema/providerCatalogSchema.js"
 
+function providerCatalogApiRevision(catalog: ProviderCatalog): number {
+  let revision = 2_166_136_261
+  for (const character of catalog.revision) revision = Math.imul(revision ^ character.charCodeAt(0), 16_777_619)
+  return revision >>> 0
+}
+
 export function providerAgentCatalogRedact(catalog: ProviderCatalog): ProviderApiCatalogResponse {
   return {
     providers: [...catalog.providers]
@@ -31,6 +37,6 @@ export function providerAgentCatalogRedact(catalog: ProviderCatalog): ProviderAp
           })),
         name: provider.name,
       })),
-    revision: catalog.revision,
+    revision: providerCatalogApiRevision(catalog),
   }
 }

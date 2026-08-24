@@ -14,10 +14,14 @@ async function gitRun(rootDir: string, args: readonly string[]): Promise<void> {
 
 describe("project Git HTTP routes", () => {
   let app: Hono<AppEnvironment>
+  let projectsRoot: string
   let rootDir: string
+  let projectId: string
 
   beforeAll(async () => {
-    rootDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "project-git-api-test-")))
+    projectsRoot = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "project-git-api-roots-test-")))
+    rootDir = path.join(projectsRoot, "example-project")
+    await fs.mkdir(rootDir)
     await gitRun(rootDir, ["init", "--initial-branch=main"])
     await gitRun(rootDir, ["config", "user.email", "test@example.test"])
     await gitRun(rootDir, ["config", "user.name", "Codeline Test"])
@@ -26,17 +30,24 @@ describe("project Git HTTP routes", () => {
     await gitRun(rootDir, ["commit", "-m", "initial"])
     await gitRun(rootDir, ["branch", "feature/one"])
     app = new Hono<AppEnvironment>()
-    apiProjectRoutesAdd(app, { rootDir })
+    apiProjectRoutesAdd(app, { rootDirs: [projectsRoot] })
+    const list = await app.request("http://codeline.test/project/list")
+    projectId = (await list.json()).projects[0].id
   })
 
-  afterAll(async () => fs.rm(rootDir, { force: true, recursive: true }))
+  afterAll(async () => fs.rm(projectsRoot, { force: true, recursive: true }))
+
+  const projectRequest = (requestPath: string, init?: RequestInit) => {
+    const separator = requestPath.includes("?") ? "&" : "?"
+    return app.request(`http://codeline.test${requestPath}${separator}project=${projectId}`, init)
+  }
 
   test("returns project status, summary, and local branches without host paths", async () => {
     await fs.writeFile(path.join(rootDir, "tracked.txt"), "changed\n")
     const responses = await Promise.all([
-      app.request("http://codeline.test/project/git/status"),
-      app.request("http://codeline.test/project/git/diff-summary"),
-      app.request("http://codeline.test/project/git/branches"),
+      projectRequest("/project/git/status"),
+      projectRequest("/project/git/diff-summary"),
+      projectRequest("/project/git/branches"),
     ])
     const bodies = await Promise.all(responses.map((response) => response.json()))
 
@@ -48,7 +59,7 @@ describe("project Git HTTP routes", () => {
   })
 
   test("rejects dirty switching and permits validated rename and delete operations", async () => {
-    const dirtySwitch = await app.request("http://codeline.test/project/git/branches/switch", {
+    const dirtySwitch = await projectRequest("/project/git/branches/switch", {
       body: JSON.stringify({ branch: "feature/one" }),
       headers: { "Content-Type": "application/json" },
       method: "POST",
@@ -58,13 +69,13 @@ describe("project Git HTTP routes", () => {
       error: { code: "conflict", message: "Switching branches requires a clean working tree." },
     })
 
-    const rename = await app.request("http://codeline.test/project/git/branches/rename", {
+    const rename = await projectRequest("/project/git/branches/rename", {
       body: JSON.stringify({ branch: "feature/one", newBranch: "feature/two" }),
       headers: { "Content-Type": "application/json" },
       method: "POST",
     })
     expect(rename.status).toBe(200)
-    const remove = await app.request("http://codeline.test/project/git/branches/delete", {
+    const remove = await projectRequest("/project/git/branches/delete", {
       body: JSON.stringify({ branch: "feature/two" }),
       headers: { "Content-Type": "application/json" },
       method: "POST",

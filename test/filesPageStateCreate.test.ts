@@ -55,16 +55,14 @@ test("Files page exposes empty, error, and retry states", async () => {
   root.dispose()
 })
 
-test("Files page does not expose the legacy no-project root", async () => {
+test("Files page does not expose an empty project list as a root", async () => {
   const calls: string[] = []
   const root = createRoot((dispose) => ({
     dispose,
     state: filesScreenViewCreate({
       fetcher: async (input) => {
         calls.push(String(input))
-        return new Response(JSON.stringify({ projects: [], truncated: false }), {
-          headers: { "Content-Type": "application/json", "X-Codeline-Project-Mode": "legacy-single-root" },
-        })
+        return Response.json({ projects: [], truncated: false })
       },
     }),
   }))

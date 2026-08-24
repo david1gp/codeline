@@ -24,6 +24,7 @@ test("notes page state loads typed notes, project labels, and refreshes after re
   const root = createRoot((dispose) => ({
     dispose,
     state: notesPageStateCreate({
+      accountId: () => "notes-page-state",
       fetcher: async (input) => {
         if (String(input) === "/api/notes") {
           noteListCalls += 1

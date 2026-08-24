@@ -1,3 +1,4 @@
+import type { HttpQueryDataStatus } from "../../ui/httpQueryDataStatusResolve.js"
 import type { NoteScreenView } from "./noteScreenView.js"
 import type { NotesScreenGroup } from "./notesScreenView.js"
 
@@ -6,6 +7,8 @@ export type NoteWorkspaceSidebarView = {
   activeProjectPath: () => string | null
   canMoveDown: () => boolean
   canMoveUp: () => boolean
+  /** Retained-data lifecycle of the note list backing this sidebar. */
+  dataStatus: () => HttpQueryDataStatus
   groups: () => readonly NotesScreenGroup[]
   isError: () => boolean
   isLoading: () => boolean

@@ -88,6 +88,7 @@ export function demoSessionTargetSelectorStateCreate(
     agentSelect,
     agentsReload: () => undefined,
     agentStatus: status,
+    dataStatus: () => (status() === "loading" ? ("reconciling" as const) : ("ready" as const)),
     canCreateSession: () => status() === "ready",
     configurationReadiness,
     isCreatingSession: () => false,
@@ -106,6 +107,7 @@ export function demoSessionTargetSelectorStateCreate(
     },
     serversReload: () => undefined,
     serverStatus: status,
+    targetRevalidate: () => undefined,
     sessionCreateErrorMessage: () =>
       variant() === "error" ? "The demo conversation could not be created." : undefined,
     sessionCreateStart: () => Promise.resolve(null),

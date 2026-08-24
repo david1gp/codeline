@@ -1,26 +1,37 @@
+import { createResultError, type Result } from "@adaptive-ds/result"
 import type { Accessor } from "solid-js"
-import { batch, createEffect, onCleanup } from "solid-js/dist/solid.js"
+import { batch, createEffect, onCleanup, untrack } from "solid-js/dist/solid.js"
 import * as v from "valibot"
-import { type AgentDetailResponse, agentDetailResponseSchema } from "../agents/api/agentDetailResponseSchema.js"
-import { agentListResponseSchema } from "../agents/api/agentListResponseSchema.js"
+import { agentDetailResponseSchema } from "../agents/api/agentDetailResponseSchema.js"
+import type { AgentDetailResponseV2 } from "../agents/api/agentDetailResponseV2Schema.js"
+import type { AgentListResponseV2 } from "../agents/api/agentListResponseV2Schema.js"
+import { agentDetailFetch } from "../agents/client/agentDetailFetch.js"
+import { agentListFetch } from "../agents/client/agentListFetch.js"
 import { type AgentConfiguration, agentConfigurationSchema } from "../agents/schema/agentConfigurationSchema.js"
 import { agentCreateRequestSchema } from "../agents/schema/agentCreateRequestSchema.js"
 import { agentExecutionTargetSchema } from "../agents/schema/agentExecutionTargetSchema.js"
 import { apiErrorResponseSchema } from "../api/errors/apiErrorResponseSchema.js"
 import { providerApiConnectionTestResponseSchema } from "../providers/api/providerApiConnectionTestResponseSchema.js"
 import { providerApiModelsResponseSchema } from "../providers/api/providerApiModelsResponseSchema.js"
-import { serverListResponseSchema } from "../servers/api/serverListResponseSchema.js"
+import type { ServerListResponseV2 } from "../servers/api/serverListResponseV2Schema.js"
+import { serverListFetch } from "../servers/client/serverListFetch.js"
+import type { SessionDetailResponse } from "../session/api/sessionDetailResponseSchema.js"
 import { sessionTargetCreateResponseSchema } from "../session/api/sessionTargetCreateResponseSchema.js"
-import { sessionTargetLoadResponseSchema } from "../session/api/sessionTargetLoadResponseSchema.js"
+import { sessionDetailFetch } from "../session/ui/sessionDetailFetch.js"
+import { httpQueryAccountCacheCreate } from "./httpQueryAccountCacheCreate.js"
+import { httpQueryRepresentationResolve } from "./httpQueryRepresentationResolve.js"
+import { httpQueryStateCreate } from "./httpQueryStateCreate.js"
 import type { SessionTargetConfigurationView } from "./sessionTargetConfigurationView.js"
 import { signalObjectCreate } from "./signalObjectCreate.js"
 
 type SessionTargetSelectorStatus = "loading" | "ready" | "empty" | "error"
+/** Retained-data lifecycle of the server/agent representations backing this selector. */
+type SessionTargetSelectorDataStatus = "offline" | "reconciling" | "ready" | "stale"
 type SessionTargetSelectorFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
-type SessionTargetServer = v.InferOutput<typeof serverListResponseSchema>["servers"][number]
-type SessionTargetAgent = v.InferOutput<typeof agentListResponseSchema>["agents"][number]
+type SessionTargetServer = ServerListResponseV2["servers"][number]
+type SessionTargetAgent = AgentListResponseV2["agents"][number]
 type ConfigurableProvider = "cliproxyapi" | "codex-lb"
-type AgentDetail = AgentDetailResponse["agent"]
+type AgentDetail = AgentDetailResponseV2["agent"]
 type AgentDraft = {
   baseUrl: string
   generation?: AgentConfiguration["generation"]
@@ -32,10 +43,13 @@ type AgentDraft = {
 }
 
 type SessionTargetSelectorStateOptions = {
+  /** Scopes the shared revision/ETag cache to the signed-in application user. */
+  accountId?: Accessor<string | null>
   activeProjectPath?: Accessor<string | null>
   clientRequestIdCreate?: () => string
   fetch?: SessionTargetSelectorFetch
   isNewSessionRoute?: Accessor<boolean>
+  isOnline?: Accessor<boolean>
   selectedSessionId: Accessor<string | null>
   sessionNew?: () => void
   sessionSelect: (sessionId: string) => void
@@ -132,8 +146,6 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
   const selectedAgentId = signalObjectCreate<string | null>(null)
   const sessionCreateStatus = signalObjectCreate<"idle" | "creating" | "error">("idle")
   const sessionCreateErrorMessage = signalObjectCreate<string | undefined>(undefined)
-  const serverReloadToken = signalObjectCreate(0)
-  const agentReloadToken = signalObjectCreate(0)
   const agentDetail = signalObjectCreate<AgentDetail | null>(null)
   const agentDetailStatus = signalObjectCreate<"idle" | "loading" | "ready" | "error">("idle")
   const agentDraft = signalObjectCreate<AgentDraft>(agentDraftEmpty())
@@ -182,172 +194,188 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
     isDisposed = true
   })
 
-  createEffect(() => {
-    serverReloadToken.get()
-    const controller = new AbortController()
-    serverStatus.set("loading")
-    void (async () => {
-      try {
-        const response = await fetchImplementation("/api/servers", { signal: controller.signal })
-        const body: unknown = await response.json()
-        if (controller.signal.aborted || isDisposed) return
-        const parsed = v.safeParse(serverListResponseSchema, body)
-        if (!response.ok || !parsed.success) {
-          configurationErrorMessage.set(apiErrorMessageResolve(body, "Servers could not be loaded."))
-          serverStatus.set("error")
-          return
-        }
-        configurationErrorMessage.set(null)
-        servers.set(parsed.output.servers)
-        if (parsed.output.servers.length === 0) {
-          selectedServerIdSet(null)
-          serverStatus.set("empty")
-          return
-        }
-        const current = selectedServerId.get()
-        if (current === null || !parsed.output.servers.some((server) => server.id === current)) {
-          selectedServerIdSet(parsed.output.servers[0]?.id ?? null)
-        }
-        serverStatus.set("ready")
-      } catch (_error) {
-        if (!controller.signal.aborted && !isDisposed) {
-          configurationErrorMessage.set("Servers could not be loaded. Check the connection and try again.")
-          serverStatus.set("error")
-        }
+  // Reads go through the typed clients and the shared account-scoped revision/ETag cache so a
+  // retained representation stays rendered while a revalidation or a failure is reported separately.
+  const accountCache = httpQueryAccountCacheCreate(() => options.accountId?.() ?? null)
+
+  const serverQuery = httpQueryStateCreate<ServerListResponseV2>({
+    cache: accountCache.cache,
+    key: () => accountCache.keyCreate("/api/servers"),
+    load: async (_key, signal) =>
+      httpQueryRepresentationResolve(await serverListFetch({ fetch: fetchImplementation, signal })),
+  })
+
+  const agentListQuery = httpQueryStateCreate<AgentListResponseV2>({
+    cache: accountCache.cache,
+    key: () => {
+      const serverId = selectedServerId.get()
+      return serverId === null
+        ? undefined
+        : accountCache.keyCreate(`/api/servers/${encodeURIComponent(serverId)}/agents`)
+    },
+    load: async (_key, signal) => {
+      const serverId = untrack(() => selectedServerId.get()) ?? ""
+      return httpQueryRepresentationResolve(await agentListFetch(serverId, { fetch: fetchImplementation, signal }))
+    },
+  })
+
+  const agentDetailQuery = httpQueryStateCreate<AgentDetailResponseV2>({
+    cache: accountCache.cache,
+    key: () => {
+      const serverId = selectedServerId.get()
+      const agentId = selectedAgentId.get()
+      if (serverId === null || agentId === null || agentCreateMode.get()) return undefined
+      return accountCache.keyCreate(
+        `/api/servers/${encodeURIComponent(serverId)}/agents/${encodeURIComponent(agentId)}`,
+      )
+    },
+    load: async (_key, signal) => {
+      const serverId = untrack(() => selectedServerId.get()) ?? ""
+      const agentId = untrack(() => selectedAgentId.get()) ?? ""
+      const result = await agentDetailFetch(serverId, agentId, { fetch: fetchImplementation, signal })
+      if (result.success && result.data === undefined) {
+        return createResultError("agentDetailFetch", "The selected agent could not be loaded.")
       }
-    })()
-    onCleanup(() => controller.abort())
+      return httpQueryRepresentationResolve(result as Result<AgentDetailResponseV2>)
+    },
   })
 
   createEffect(() => {
-    agentReloadToken.get()
+    const list = serverQuery.data()?.servers
+    const isError = serverQuery.isError()
+    if (list === undefined) {
+      servers.set([])
+      if (!isError) {
+        serverStatus.set("loading")
+        return
+      }
+      configurationErrorMessage.set(serverQuery.errorMessage() ?? "Servers could not be loaded.")
+      serverStatus.set("error")
+      return
+    }
+
+    // A retained list stays selectable while its revalidation fails; the stale data status reports it.
+    configurationErrorMessage.set(isError ? (serverQuery.errorMessage() ?? "Servers could not be loaded.") : null)
+    servers.set([...list])
+    if (list.length === 0) {
+      untrack(() => selectedServerIdSet(null))
+      serverStatus.set("empty")
+      return
+    }
+    untrack(() => {
+      const current = selectedServerId.get()
+      if (current === null || !list.some((server) => server.id === current)) {
+        selectedServerIdSet(list[0]?.id ?? null)
+      }
+    })
+    serverStatus.set("ready")
+  })
+
+  createEffect(() => {
     const serverId = selectedServerId.get()
-    agents.set([])
-    agentDetail.set(null)
-    agentDetailStatus.set("idle")
     if (serverId === null) {
-      selectedAgentIdSet(null)
+      agents.set([])
+      untrack(() => selectedAgentIdSet(null))
       // Without a usable server the agent list mirrors the server outcome instead of
       // claiming an independent empty state while the servers are loading or failing.
       const serverOutcome = serverStatus.get()
       agentStatus.set(serverOutcome === "loading" || serverOutcome === "error" ? serverOutcome : "empty")
       return
     }
-    configurationErrorMessage.set(null)
 
-    const controller = new AbortController()
-    agentStatus.set("loading")
-    void (async () => {
-      try {
-        const response = await fetchImplementation(`/api/servers/${encodeURIComponent(serverId)}/agents`, {
-          signal: controller.signal,
-        })
-        const body: unknown = await response.json()
-        if (controller.signal.aborted || isDisposed) return
-        const parsed = v.safeParse(agentListResponseSchema, body)
-        if (!response.ok || !parsed.success) {
-          configurationErrorMessage.set(apiErrorMessageResolve(body, "Execution agents could not be loaded."))
-          agentStatus.set("error")
-          return
-        }
-        configurationErrorMessage.set(null)
-        const primaryAgents = parsed.output.agents.filter(
-          (agent) => agent.parentAgentId === null && agent.role === "primary",
-        )
-        agents.set(primaryAgents)
-        if (primaryAgents.length === 0) {
-          selectedAgentIdSet(null)
-          agentCreateMode.set(true)
-          agentDraft.set(agentDraftEmpty())
-          agentStatus.set("empty")
-          return
-        }
-        const current = selectedAgentId.get()
-        const saved = savedSelections[serverId]
-        if (current === null || !primaryAgents.some((agent) => agent.id === current)) {
-          selectedAgentIdSet(
-            (saved !== undefined && primaryAgents.some((agent) => agent.id === saved) ? saved : primaryAgents[0]?.id) ??
-              null,
-          )
-        }
-        agentCreateMode.set(false)
-        agentStatus.set("ready")
-      } catch (_error) {
-        if (!controller.signal.aborted && !isDisposed) {
-          configurationErrorMessage.set("Execution agents could not be loaded. Check the connection and try again.")
-          agentStatus.set("error")
-        }
+    const list = agentListQuery.data()?.agents
+    const isError = agentListQuery.isError()
+    if (list === undefined) {
+      agents.set([])
+      if (!isError) {
+        agentStatus.set("loading")
+        return
       }
-    })()
-    onCleanup(() => controller.abort())
+      configurationErrorMessage.set(agentListQuery.errorMessage() ?? "Execution agents could not be loaded.")
+      agentStatus.set("error")
+      return
+    }
+
+    configurationErrorMessage.set(
+      isError ? (agentListQuery.errorMessage() ?? "Execution agents could not be loaded.") : null,
+    )
+    const primaryAgents = list.filter((agent) => agent.parentAgentId === null && agent.role === "primary")
+    agents.set(primaryAgents)
+    if (primaryAgents.length === 0) {
+      untrack(() => selectedAgentIdSet(null))
+      agentCreateMode.set(true)
+      agentDraft.set(agentDraftEmpty())
+      agentStatus.set("empty")
+      return
+    }
+    untrack(() => {
+      const current = selectedAgentId.get()
+      const saved = savedSelections[serverId]
+      if (current === null || !primaryAgents.some((agent) => agent.id === current)) {
+        selectedAgentIdSet(
+          (saved !== undefined && primaryAgents.some((agent) => agent.id === saved) ? saved : primaryAgents[0]?.id) ??
+            null,
+        )
+      }
+      agentCreateMode.set(false)
+    })
+    agentStatus.set("ready")
   })
 
   createEffect(() => {
-    const serverId = selectedServerId.get()
-    const agentId = selectedAgentId.get()
-    if (serverId === null || agentId === null || agentCreateMode.get()) {
+    if (selectedServerId.get() === null || selectedAgentId.get() === null || agentCreateMode.get()) {
       agentDetail.set(null)
       agentDetailStatus.set("idle")
       return
     }
 
-    const controller = new AbortController()
-    agentDetailStatus.set("loading")
-    configurationErrorMessage.set(null)
-    void (async () => {
-      try {
-        const response = await fetchImplementation(
-          `/api/servers/${encodeURIComponent(serverId)}/agents/${encodeURIComponent(agentId)}`,
-          { signal: controller.signal },
-        )
-        const body: unknown = await response.json()
-        if (controller.signal.aborted || isDisposed) return
-        const parsed = v.safeParse(agentDetailResponseSchema, body)
-        if (!response.ok || !parsed.success) {
-          configurationErrorMessage.set(apiErrorMessageResolve(body, "The selected agent could not be loaded."))
-          agentDetailStatus.set("error")
-          return
-        }
-        agentDetail.set(parsed.output.agent)
-        const draft = agentDraftFromDetail(parsed.output.agent)
-        if (draft !== null) agentDraft.set(draft)
-        configurationErrorMessage.set(
-          draft === null
-            ? "Deterministic agents can be selected, but only Codex-LB and CLIProxyAPI agents can be edited here."
-            : null,
-        )
-        agentDetailStatus.set("ready")
-      } catch (_error) {
-        if (!controller.signal.aborted && !isDisposed) {
-          configurationErrorMessage.set("The selected agent could not be loaded. Check the connection and try again.")
-          agentDetailStatus.set("error")
-        }
+    const detail = agentDetailQuery.data()?.agent
+    if (detail === undefined) {
+      if (!agentDetailQuery.isError()) {
+        agentDetailStatus.set("loading")
+        return
       }
-    })()
-    onCleanup(() => controller.abort())
+      configurationErrorMessage.set(agentDetailQuery.errorMessage() ?? "The selected agent could not be loaded.")
+      agentDetailStatus.set("error")
+      return
+    }
+
+    agentDetail.set(detail)
+    const draft = agentDraftFromDetail(detail)
+    if (draft !== null) agentDraft.set(draft)
+    configurationErrorMessage.set(
+      draft === null
+        ? "Deterministic agents can be selected, but only Codex-LB and CLIProxyAPI agents can be edited here."
+        : null,
+    )
+    agentDetailStatus.set("ready")
+  })
+
+  // The persisted target of an opened session is read through the typed session client and the
+  // shared account-scoped revision/ETag cache, so a retained shell restores the selection at once.
+  const sessionDetailQuery = httpQueryStateCreate<SessionDetailResponse>({
+    cache: accountCache.cache,
+    key: () => {
+      const sessionId = options.selectedSessionId()
+      return sessionId === null ? undefined : accountCache.keyCreate(`/api/sessions/${encodeURIComponent(sessionId)}`)
+    },
+    load: async (_key, signal) =>
+      httpQueryRepresentationResolve(
+        await sessionDetailFetch(untrack(() => options.selectedSessionId()) ?? "", {
+          fetch: fetchImplementation,
+          signal,
+        }),
+      ),
   })
 
   createEffect(() => {
-    const sessionId = options.selectedSessionId()
-    if (sessionId === null) return
-
-    const controller = new AbortController()
-    void (async () => {
-      try {
-        const response = await fetchImplementation(`/api/sessions/${encodeURIComponent(sessionId)}`, {
-          signal: controller.signal,
-        })
-        const body: unknown = await response.json()
-        if (controller.signal.aborted || isDisposed) return
-        const parsed = v.safeParse(sessionTargetLoadResponseSchema, body)
-        if (!response.ok || !parsed.success) return
-        selectedServerIdSet(parsed.output.session.serverId)
-        selectedAgentIdSet(parsed.output.session.primaryAgentId)
-      } catch (_error) {
-        // The pending selection stays usable when the persisted target cannot be loaded.
-      }
-    })()
-    onCleanup(() => controller.abort())
+    // A failed or pending read leaves the pending selection usable instead of clearing it.
+    const detail = sessionDetailQuery.data()
+    if (detail === undefined || isDisposed) return
+    untrack(() => {
+      selectedServerIdSet(detail.session.serverId)
+      selectedAgentIdSet(detail.session.primaryAgentId)
+    })
   })
 
   const pendingTarget = () => {
@@ -502,13 +530,35 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
       const savedDraft = agentDraftFromDetail(parsed.output.agent)
       if (savedDraft !== null) agentDraft.set(savedDraft)
       saveStatus.set("success")
-      agentReloadToken.set(agentReloadToken.get() + 1)
+      agentListQuery.refresh()
+      agentDetailQuery.refresh()
     } catch (_error) {
       if (!isDisposed) {
         configurationErrorMessage.set("The agent configuration could not be saved. Check the connection and try again.")
         saveStatus.set("error")
       }
     }
+  }
+
+  const targetQueries = [serverQuery, agentListQuery, agentDetailQuery] as const
+
+  const targetRevalidate = () => {
+    for (const query of targetQueries) query.refresh()
+  }
+
+  /**
+   * Retained-data lifecycle of the selector representations. Retained rows stay rendered while a
+   * revalidation is in flight (`reconciling`) or failed (`stale`); offline wins over both because
+   * no revalidation can settle without a network.
+   */
+  const dataStatus = (): SessionTargetSelectorDataStatus => {
+    if (options.isOnline?.() === false) return "offline"
+    const hasRetained = servers.get().length > 0 || agents.get().length > 0
+    if (targetQueries.some((query) => query.isError())) return hasRetained ? "stale" : "reconciling"
+    if (hasRetained && targetQueries.some((query) => query.isLoading() && query.data() !== undefined))
+      return "reconciling"
+    if (!hasRetained && targetQueries.some((query) => query.isLoading())) return "reconciling"
+    return "ready"
   }
 
   const configurationReadiness = (): SessionTargetConfigurationView => {
@@ -530,14 +580,14 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
                   : "ready"
     const retry = () => {
       if (serverStatus.get() === "error" || serverStatus.get() === "empty") {
-        serverReloadToken.set(serverReloadToken.get() + 1)
+        serverQuery.retry()
         return
       }
       if (agentStatus.get() === "error" || agentStatus.get() === "empty") {
-        agentReloadToken.set(agentReloadToken.get() + 1)
+        agentListQuery.retry()
         return
       }
-      if (agentDetailStatus.get() === "error") agentReloadToken.set(agentReloadToken.get() + 1)
+      if (agentDetailStatus.get() === "error") agentDetailQuery.retry()
     }
 
     return {
@@ -710,9 +760,10 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
       sessionCreateErrorClear()
     },
     agentsReload: () => {
-      agentReloadToken.set(agentReloadToken.get() + 1)
+      agentListQuery.refresh()
     },
     agentStatus: agentStatus.get,
+    dataStatus,
     canCreateSession: () =>
       pendingTarget() !== null && activeProjectPath() !== null && sessionCreateStatus.get() !== "creating",
     configurationReadiness,
@@ -730,9 +781,10 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
       sessionCreateErrorClear()
     },
     serversReload: () => {
-      serverReloadToken.set(serverReloadToken.get() + 1)
+      serverQuery.refresh()
     },
     serverStatus: serverStatus.get,
+    targetRevalidate,
     sessionCreateStart,
     sessionCreateErrorMessage: sessionCreateErrorMessage.get,
     sessionCreateStatus: sessionCreateStatus.get,

@@ -1,4 +1,5 @@
 import * as v from "valibot"
+import { apiRevisionSchema } from "../../api/schema/apiRevisionSchema.js"
 import { providerCatalogSchema } from "../schema/providerCatalogSchema.js"
 
 const providerSchema = providerCatalogSchema.entries.providers.item
@@ -34,7 +35,7 @@ export const providerApiCatalogResponseSchema = v.strictObject({
       name: providerSchema.entries.name,
     }),
   ),
-  revision: providerCatalogSchema.entries.revision,
+  revision: apiRevisionSchema,
 })
 
 export type ProviderApiCatalogResponse = v.InferOutput<typeof providerApiCatalogResponseSchema>

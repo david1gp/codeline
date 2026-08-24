@@ -1,18 +1,23 @@
 import type { Accessor } from "solid-js"
-import { createEffect, createSignal, onCleanup } from "solid-js/dist/solid.js"
-import * as v from "valibot"
+import { useContext } from "solid-js"
+import { createMemo, untrack } from "solid-js/dist/solid.js"
+import type { AgentDetailResponseV2 } from "../../agents/api/agentDetailResponseV2Schema.js"
+import { agentDetailFetch } from "../../agents/client/agentDetailFetch.js"
 import type { AgentConfiguration } from "../../agents/schema/agentConfigurationSchema.js"
-import { agentConfigurationSchema } from "../../agents/schema/agentConfigurationSchema.js"
+import type { SessionDetailResponse } from "../../session/api/sessionDetailResponseSchema.js"
+import { sessionDetailFetch } from "../../session/ui/sessionDetailFetch.js"
+import { applicationAccountContext } from "../../ui/applicationAccountContext.js"
+import { appShellContext } from "../../ui/appShellContext.js"
+import { httpQueryAccountCacheCreate } from "../../ui/httpQueryAccountCacheCreate.js"
+import { httpQueryDataStatusResolve } from "../../ui/httpQueryDataStatusResolve.js"
+import { httpQueryRepresentationResolve } from "../../ui/httpQueryRepresentationResolve.js"
+import { httpQueryStateCreate } from "../../ui/httpQueryStateCreate.js"
+import type { ProviderApiCatalogResponse } from "../api/providerApiCatalogResponseSchema.js"
+import { providerCatalogFetch } from "../client/providerCatalogFetch.js"
 import { providerModelSelectionStateCreate } from "../providerModelSelectionStateCreate.js"
 import type { ProviderModelSelection } from "../schema/providerModelSelectionSchema.js"
-import { providerApiCatalogResponseSchema } from "../api/providerApiCatalogResponseSchema.js"
-import { providerApiConnectionTestResponseSchema } from "../api/providerApiConnectionTestResponseSchema.js"
-import { providerApiModelsResponseSchema } from "../api/providerApiModelsResponseSchema.js"
 
 const providerModelSelectionStorageKey = "codeline.provider-model-selection"
-const sessionProviderResponseSchema = v.object({
-  agent: v.object({ configuration: agentConfigurationSchema }),
-})
 const placeholderConfiguration: AgentConfiguration = { model: "unavailable", provider: "deterministic" }
 const supportedProviders = new Set<ProviderModelSelection["provider"]>(["cliproxyapi", "codex-lb", "deterministic"])
 type ProviderModelSelectorEffort = NonNullable<ProviderModelSelection["reasoningEffort"]>
@@ -34,15 +39,13 @@ type ProviderModelSelectorGroup = {
 }
 
 type ProviderModelSelectorStateOptions = {
+  /** Scopes the shared revision/ETag cache; defaults to the signed-in application user. */
+  accountId?: Accessor<string | null>
   agentId?: Accessor<string | null>
   fetch?: ProviderModelSelectorFetch
+  isOnline?: Accessor<boolean>
   sessionId: Accessor<string | null>
   storage?: Pick<Storage, "getItem" | "setItem">
-}
-
-function createSignalObject<T>(value: T) {
-  const [get, set] = createSignal(value)
-  return { get, set }
 }
 
 function providerModelSelectionPersistenceRead(storage: ProviderModelSelectorStateOptions["storage"]): unknown {
@@ -60,9 +63,7 @@ function providerModelSelectorValueCreate(provider: string, model: string): stri
   return `${encodeURIComponent(provider)}/${encodeURIComponent(model)}`
 }
 
-function providerModelSelectorGroupsCreate(
-  catalog: v.InferOutput<typeof providerApiCatalogResponseSchema>,
-): ProviderModelSelectorGroup[] {
+function providerModelSelectorGroupsCreate(catalog: ProviderApiCatalogResponse): ProviderModelSelectorGroup[] {
   return [...catalog.providers]
     .sort((left, right) => left.id.localeCompare(right.id))
     .flatMap((provider) => {
@@ -95,117 +96,80 @@ function providerModelSelectorGroupsCreate(
 export function providerModelSelectorStateCreate(options: ProviderModelSelectorStateOptions) {
   const fetchImplementation = options.fetch ?? globalThis.fetch
   const storage = options.storage ?? globalThis.localStorage
-  const configuration = createSignalObject<AgentConfiguration>(placeholderConfiguration)
-  const groups = createSignalObject<ProviderModelSelectorGroup[]>([])
-  const status = createSignalObject<ProviderModelSelectorStatus>("idle")
-  let statusIsReady = false
-  const statusSet = (value: ProviderModelSelectorStatus) => {
-    statusIsReady = value === "ready"
-    status.set(value)
+  const account = useContext(applicationAccountContext)
+  const shell = useContext(appShellContext)
+  const isOnline = options.isOnline ?? (() => shell === undefined || shell.pwa.status() !== "offline")
+  const accountCache = httpQueryAccountCacheCreate(() => options.accountId?.() ?? account?.userId() ?? null)
+
+  // Reads go through the shared typed clients and the account-scoped revision/ETag cache, so a
+  // retained catalog or session target stays selectable while a revalidation is in flight or failing.
+  const catalogQuery = httpQueryStateCreate<ProviderApiCatalogResponse>({
+    cache: accountCache.cache,
+    key: () => accountCache.keyCreate("/api/providers/catalog"),
+    load: (_key, signal, cached) =>
+      providerCatalogFetch({
+        fetch: fetchImplementation,
+        signal,
+        ...(cached?.etag === undefined ? {} : { etag: cached.etag }),
+      }),
+  })
+
+  const sessionQuery = httpQueryStateCreate<SessionDetailResponse>({
+    cache: accountCache.cache,
+    key: () => {
+      const sessionId = options.sessionId()
+      return sessionId === null ? undefined : accountCache.keyCreate(`/api/sessions/${encodeURIComponent(sessionId)}`)
+    },
+    load: async (_key, signal) =>
+      httpQueryRepresentationResolve(
+        await sessionDetailFetch(untrack(() => options.sessionId()) ?? "", { fetch: fetchImplementation, signal }),
+      ),
+  })
+
+  // The session shell names its execution target; the agent representation carries the
+  // configured provider and model that the selector highlights and falls back to.
+  const sessionTarget = () => {
+    const detail = sessionQuery.data()
+    return detail === undefined ? undefined : { agentId: detail.agent.id, serverId: detail.session.serverId }
   }
-  const models = () => groups.get().flatMap((group) => group.models)
+  const agentQuery = httpQueryStateCreate<AgentDetailResponseV2>({
+    cache: accountCache.cache,
+    key: () => {
+      const target = sessionTarget()
+      if (target === undefined) return undefined
+      return accountCache.keyCreate(
+        `/api/servers/${encodeURIComponent(target.serverId)}/agents/${encodeURIComponent(target.agentId)}`,
+      )
+    },
+    load: async (_key, signal) => {
+      const target = untrack(sessionTarget)
+      const result = await agentDetailFetch(target?.serverId ?? "", target?.agentId ?? "", {
+        fetch: fetchImplementation,
+        signal,
+      })
+      if (result.success && result.data === undefined)
+        return { success: false as const, op: "agentDetailFetch", errorMessage: "The session agent is unavailable." }
+      return httpQueryRepresentationResolve(result as typeof result & { success: true; data: AgentDetailResponseV2 })
+    },
+  })
+
+  const configuration = (): AgentConfiguration => agentQuery.data()?.agent.configuration ?? placeholderConfiguration
+  const catalogGroups = createMemo(() => {
+    const catalog = catalogQuery.data()
+    return catalog === undefined ? undefined : providerModelSelectorGroupsCreate(catalog)
+  })
+  const groups = () => catalogGroups() ?? []
+  const models = () => groups().flatMap((group) => group.models)
+  const status = (): ProviderModelSelectorStatus => {
+    const catalog = catalogGroups()
+    if (catalog !== undefined) return catalog.length === 0 ? "error" : "ready"
+    return catalogQuery.isError() ? "error" : "loading"
+  }
   const selection = providerModelSelectionStateCreate(
-    configuration.get,
+    configuration,
     models,
     providerModelSelectionPersistenceRead(storage),
   )
-
-  createEffect(() => {
-    const sessionId = options.sessionId()
-    const controller = new AbortController()
-    if (!statusIsReady) statusSet("loading")
-    void (async () => {
-      try {
-        const catalogResult = await fetchImplementation("/api/providers/catalog", {
-          credentials: "same-origin",
-          signal: controller.signal,
-        })
-          .then(async (response) => ({ body: await response.json(), response }))
-          .catch(() => undefined)
-
-        let sessionConfiguration = configuration.get()
-        if (sessionId !== null) {
-          const sessionResponse = await fetchImplementation(`/api/sessions/${encodeURIComponent(sessionId)}`, {
-            signal: controller.signal,
-          })
-          const sessionBody: unknown = await sessionResponse.json()
-          const parsedSession = v.safeParse(sessionProviderResponseSchema, sessionBody)
-          if (!sessionResponse.ok || !parsedSession.success) {
-            statusSet("error")
-            return
-          }
-          sessionConfiguration = parsedSession.output.agent.configuration
-          configuration.set(sessionConfiguration)
-        }
-
-        const parsedCatalog = v.safeParse(providerApiCatalogResponseSchema, catalogResult?.body)
-        if (catalogResult?.response.ok && parsedCatalog.success) {
-          const catalogGroups = providerModelSelectorGroupsCreate(parsedCatalog.output)
-          groups.set(catalogGroups)
-          statusSet(catalogGroups.length === 0 ? "error" : "ready")
-          return
-        }
-
-        if (sessionId === null) {
-          statusSet("error")
-          return
-        }
-
-        const [modelsResponse, connectionResponse] = await Promise.all([
-          fetchImplementation("/api/providers/models", {
-            body: "{}",
-            headers: { "content-type": "application/json" },
-            method: "POST",
-            signal: controller.signal,
-          }),
-          fetchImplementation("/api/providers/connection-test", {
-            body: "{}",
-            headers: { "content-type": "application/json" },
-            method: "POST",
-            signal: controller.signal,
-          }),
-        ])
-        const [modelsBody, connectionBody]: unknown[] = await Promise.all([
-          modelsResponse.json(),
-          connectionResponse.json(),
-        ])
-        const parsedModels = v.safeParse(providerApiModelsResponseSchema, modelsBody)
-        const parsedConnection = v.safeParse(providerApiConnectionTestResponseSchema, connectionBody)
-        const currentConfiguration = sessionConfiguration
-        if (
-          !modelsResponse.ok ||
-          !connectionResponse.ok ||
-          !parsedModels.success ||
-          !parsedConnection.success ||
-          parsedConnection.output.provider !== currentConfiguration.provider ||
-          parsedConnection.output.model !== currentConfiguration.model ||
-          parsedModels.output.models.length === 0
-        ) {
-          statusSet("error")
-          return
-        }
-
-        const legacyEfforts = [...supportedEfforts]
-        groups.set([
-          {
-            id: currentConfiguration.provider,
-            models: parsedModels.output.models.map((model) => ({
-              efforts: legacyEfforts,
-              id: model.id,
-              name: model.name ?? model.id,
-              providerId: currentConfiguration.provider,
-              value: providerModelSelectorValueCreate(currentConfiguration.provider, model.id),
-            })),
-            name: currentConfiguration.provider,
-          },
-        ])
-        statusSet("ready")
-      } catch (_error) {
-        if (!controller.signal.aborted) statusSet("error")
-      }
-    })()
-    onCleanup(() => controller.abort())
-  })
 
   const persistenceWrite = () => {
     try {
@@ -239,11 +203,11 @@ export function providerModelSelectorStateCreate(options: ProviderModelSelectorS
 
   return {
     codelineExecution: () => {
-      const persisted = status.get() === "ready" ? selection.persistedSelection() : null
+      const persisted = status() === "ready" ? selection.persistedSelection() : null
       const currentSelection = selection.selection()
-      const configured = configuration.get()
+      const configured = configuration()
       const fallback =
-        status.get() === "ready" &&
+        status() === "ready" &&
         currentSelection !== null &&
         (currentSelection.provider !== configured.provider || currentSelection.model !== configured.model)
           ? currentSelection
@@ -251,22 +215,43 @@ export function providerModelSelectorStateCreate(options: ProviderModelSelectorS
       const execution = persisted ?? fallback
       if (execution === null) return null
       const agentId = options.agentId?.() ?? null
-      return agentId === null ? execution : { ...execution, agentId }
+      if (agentId === null) return execution
+      // An open session executes against its own agent, not the sidebar selection that
+      // only names the agent for a new session. Naming the wrong agent makes the server
+      // reject the run as a mismatched execution override.
+      const sessionAgentId = sessionTarget()?.agentId ?? null
+      if (sessionAgentId === null) return { ...execution, agentId }
+      // An agent whose configured provider is absent from the catalog is not switchable:
+      // the server keeps such an agent on its own runtime and rejects a cross-provider
+      // override, so the session must run with no override at all.
+      if (!groups().some((group) => group.id === configured.provider)) return null
+      return { ...execution, agentId: sessionAgentId }
     },
-    configuredModel: () => configuration.get().model,
+    configuredModel: () => configuration().model,
+    /** Retained-data lifecycle of the catalog and session-target representations. */
+    dataStatus: () =>
+      httpQueryDataStatusResolve({
+        isOnline: isOnline(),
+        queries: options.sessionId() === null ? [catalogQuery] : [catalogQuery, sessionQuery, agentQuery],
+      }),
     effortOptions: () => selectedModelEntry()?.efforts ?? [],
-    groups: groups.get,
+    groups,
     modelSelect,
     modelValueSelect,
     models,
-    provider: () => configuration.get().provider,
+    provider: () => configuration().provider,
     reasoningEffortSelect,
     reasoningEffortValueSelect,
+    refresh: () => {
+      catalogQuery.refresh()
+      sessionQuery.refresh()
+      agentQuery.refresh()
+    },
     selectedModel: selection.selectedModel,
     selectedModelValue: () => selectedModelEntry()?.value ?? "",
     selectedProvider: () => selection.selection()?.provider ?? null,
     selectedReasoningEffort: () => selection.selection()?.reasoningEffort ?? null,
-    status: status.get,
+    status,
   }
 }
 

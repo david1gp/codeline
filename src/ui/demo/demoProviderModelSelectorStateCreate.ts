@@ -33,6 +33,7 @@ export function demoProviderModelSelectorStateCreate(
   return {
     codelineExecution: () => null,
     configuredModel: () => "deterministic-large",
+    dataStatus: () => (variant() === "loading" ? ("reconciling" as const) : ("ready" as const)),
     effortOptions: () => [...demoModels[0]!.efforts],
     groups: () => [{ id: "deterministic", models: [...demoModels], name: "Deterministic" }],
     modelSelect: (_provider, model: string) => {
@@ -46,6 +47,7 @@ export function demoProviderModelSelectorStateCreate(
     provider: () => "deterministic",
     reasoningEffortSelect: () => undefined,
     reasoningEffortValueSelect: () => undefined,
+    refresh: () => undefined,
     selectedModelValue: () => demoModels.find((model) => model.id === selectedModel.get())?.value ?? "",
     selectedProvider: () => "deterministic",
     selectedReasoningEffort: () => "medium" as const,

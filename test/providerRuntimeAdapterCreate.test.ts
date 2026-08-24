@@ -140,18 +140,6 @@ test("catalog CLIProxyAPI completion models retain the compatible payload withou
   expect(captured.body).not.toHaveProperty("reasoning")
 })
 
-test("legacy provider configurations retain compatible fallback request defaults", async () => {
-  const captured = await runtimeRequestCapture({
-    apiKey: "$CODEX_LB_API_TOKEN",
-    baseUrl: "https://legacy.example.test/v1",
-    model: "legacy-model",
-    provider: "codex-lb",
-  })
-
-  expect(String(captured.request.input)).toBe("https://legacy.example.test/v1/chat/completions")
-  expect(captured.body).toMatchObject({ max_tokens: 4096, model: "legacy-model", temperature: 0.7 })
-})
-
 test("deterministic provider runtime adapters preserve injected failure behavior", async () => {
   const adapter = providerRuntimeAdapterCreate({
     chunks: ["chunk-0", "chunk-1"],

@@ -1,4 +1,5 @@
 import type { ProjectApiListResponse } from "../../project/api/projectApiListResponseSchema.js"
+import type { HttpQueryDataStatus } from "../../ui/httpQueryDataStatusResolve.js"
 import type { NoteViewMode } from "./noteViewModeSchema.js"
 import type { noteContentFieldStateCreate } from "./noteContentFieldStateCreate.js"
 
@@ -10,6 +11,8 @@ export type NoteScreenView = {
   content: () => string
   contentUpdate: (event: InputEvent & { currentTarget: HTMLTextAreaElement }) => void
   contentField: ReturnType<typeof noteContentFieldStateCreate>
+  /** Retained-data lifecycle of the note representation backing this screen. */
+  dataStatus: () => HttpQueryDataStatus
   deleteConfirm: () => void
   deleteConfirmClose: () => void
   deleteConfirmOpen: () => void

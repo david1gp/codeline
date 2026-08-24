@@ -1,8 +1,10 @@
 import { A } from "@solidjs/router"
 import { For, Show } from "solid-js"
+import { Badge } from "#ui/static/badge/Badge.jsx"
 import { ProjectAvatar } from "../../project/ui/ProjectAvatar.js"
 import { NotePage } from "./NotePage.js"
 import { noteContentSummarize } from "./noteContentSummarize.js"
+import { noteDataStatusNoticeResolve } from "./noteDataStatusNoticeResolve.js"
 import type { NoteWorkspaceScreenView } from "./noteWorkspaceScreenView.js"
 
 export function NoteWorkspacePage(props: { state: NoteWorkspaceScreenView }) {
@@ -20,6 +22,14 @@ export function NoteWorkspacePage(props: { state: NoteWorkspaceScreenView }) {
             New
           </A>
         </div>
+
+        <Show when={noteDataStatusNoticeResolve(state.dataStatus())} keyed>
+          {(notice) => (
+            <Badge class="mb-3" variant={notice.variant} role="status">
+              {notice.label}
+            </Badge>
+          )}
+        </Show>
 
         <Show when={state.isError()}>
           <div class="flex items-center gap-3 text-sm text-danger" role="alert">

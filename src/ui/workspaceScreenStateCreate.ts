@@ -1,6 +1,7 @@
 import { onCleanup, useContext } from "solid-js"
 import { providerModelSelectorStateCreate } from "../providers/ui/providerModelSelectorStateCreate.js"
 import { activeProjectStateCreate } from "./activeProjectStateCreate.js"
+import { applicationAccountContext } from "./applicationAccountContext.js"
 import { applicationShellContext } from "./applicationShellContext.js"
 import { applicationShellStateCreate } from "./applicationShellStateCreate.js"
 import { appShellContext } from "./appShellContext.js"
@@ -26,15 +27,21 @@ export function workspaceScreenStateCreate(
   const shell = useContext(applicationShellContext) ?? applicationShellStateCreate()
   const activeProject = useContext(appShellContext)?.activeProject ?? activeProjectStateCreate()
   const drawer = useContext(sessionDrawerContext) ?? workspacePageStateCreate()
+  const account = useContext(applicationAccountContext)
+  const pwa = useContext(appShellContext)?.pwa
   const sessionTargetSelector = sessionTargetSelectorStateCreate({
+    accountId: () => account?.userId() ?? null,
     activeProjectPath: () => activeProject.project().path,
+    isOnline: () => pwa?.status() !== "offline",
     isNewSessionRoute: navigation.isNewSessionRoute,
     selectedSessionId: navigation.selectedSessionId,
     sessionNew: navigation.startNewSession,
     sessionSelect: navigation.selectSession,
   })
   const providerModelSelector = providerModelSelectorStateCreate({
+    accountId: () => account?.userId() ?? null,
     agentId: sessionTargetSelector.selectedAgentId,
+    isOnline: () => pwa?.status() !== "offline",
     sessionId: navigation.selectedSessionId,
   })
   shell.rightPanelEnable()

@@ -84,9 +84,13 @@ test("catalog route returns the real catalog in stable grouped order with redact
 
   const response = await authorizedApp(loaded.data).request("http://codeline.test/providers/catalog")
   expect(response.status).toBe(200)
-  expect(response.headers.get("cache-control")).toBe("no-store")
+  expect(response.headers.get("cache-control")).toBe("private, no-cache")
+  expect(response.headers.get("vary")).toBe("Cookie, Accept-Encoding")
+  const etag = response.headers.get("etag")
+  expect(etag).toMatch(/^"[^"\r\n]+"$/)
 
   const body = v.parse(providerApiCatalogResponseSchema, await response.json())
+  expect(body.revision).toBeInteger()
   expect(body.providers.map((provider) => provider.id)).toEqual(["cliproxyapi", "codex-lb"])
   expect(body.providers[0]?.models.map((model) => model.id)).toEqual([
     "claude-fable-5",
@@ -131,6 +135,13 @@ test("catalog route returns the real catalog in stable grouped order with redact
   for (const forbidden of ["connection", "options", "agents", "prompt", "permission", "CODEX_LB_API_TOKEN"]) {
     expect(serialized).not.toContain(forbidden)
   }
+
+  const notModified = await authorizedApp(loaded.data).request("http://codeline.test/providers/catalog", {
+    headers: { "If-None-Match": etag ?? "" },
+  })
+  expect(notModified.status).toBe(304)
+  expect(notModified.headers.get("etag")).toBe(etag)
+  expect(notModified.headers.get("cache-control")).toBe("private, no-cache")
 })
 
 test("provider routes reject extra request fields and redact provider failures", async () => {

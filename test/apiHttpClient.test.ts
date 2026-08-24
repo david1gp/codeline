@@ -3,7 +3,7 @@ import * as v from "valibot"
 import { apiHttpClientCreate } from "../src/api/client/apiHttpClientCreate.js"
 import { apiQueryKeyCreate } from "../src/api/client/apiQueryKeyCreate.js"
 import { healthResponseSchema } from "../src/api/health/healthResponseSchema.js"
-import { noteListFetch } from "../src/note/client/noteListFetch.js"
+import { noteListConditionalFetch } from "../src/note/client/noteListConditionalFetch.js"
 import { sessionListPageLoad } from "../src/session/client/sessionListPageLoad.js"
 
 test("canonical query keys sort names and retain repeated-value order", () => {
@@ -61,7 +61,7 @@ test("session and note reads invoke a browser-shaped fetch dependency", async ()
 
   const [sessions, notes] = await Promise.all([
     sessionListPageLoad(client, { limit: 25 }),
-    noteListFetch({ fetch: fetcher }),
+    noteListConditionalFetch({ fetch: fetcher }),
   ])
 
   expect(sessions.success).toBe(true)

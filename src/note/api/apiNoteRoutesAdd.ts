@@ -20,6 +20,7 @@ import { noteUpdate } from "../actions/noteUpdate.js"
 import { noteJournalRecipientResolverCreate } from "../db/noteJournalRecipientResolverCreate.js"
 import { noteDetailResponseSchema } from "./noteDetailResponseSchema.js"
 import { noteListResponseSchema } from "./noteListResponseSchema.js"
+import { noteListRevisionDerive } from "./noteListRevisionDerive.js"
 import { noteMutationResponseSchema } from "./noteMutationResponseSchema.js"
 import { notePreconditionFailedResponseCreate } from "./notePreconditionFailedResponseCreate.js"
 import { noteRepresentationEtagCreate } from "./noteRepresentationEtagCreate.js"
@@ -110,8 +111,7 @@ export function apiNoteRoutesAdd(
     if (!result.success) return readError(context, result)
     const response = v.safeParse(noteListResponseSchema, result.data)
     if (!response.success) return internalServerError(context)
-    const revision = result.data.reduce((total, note) => total + note.revision, result.data.length)
-    const etag = noteRepresentationEtagCreate("list", revision, true)
+    const etag = noteRepresentationEtagCreate("list", noteListRevisionDerive(result.data), true)
     const headers = apiRepresentationHeadersCreate(etag)
     if (apiIfNoneMatchMatches(context.req.header("If-None-Match"), etag))
       return new Response(null, { headers, status: 304 })

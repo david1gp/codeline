@@ -42,7 +42,6 @@ test("keeps rich model metadata and secret references without runtime secret val
   expect(v.safeParse(agentConfigurationSchema, configuration).success).toBe(true)
   expect(configuration.apiKey).toBe("$CODEX_LB_API_TOKEN")
   expect(configuration.model).toBe("gpt-5.6-sol")
-  expect(configuration.modelMetadata).not.toHaveProperty("apiId")
   expect(configuration.modelMetadata?.limit).toEqual({ context: 272000, output: 128000 })
   expect(configuration.modelMetadata?.cost[1]?.tier).toEqual({ type: "context", size: 200000 })
   expect(configuration.modelMetadata?.capabilities.input).toContain("image")

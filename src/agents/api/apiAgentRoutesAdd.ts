@@ -20,7 +20,6 @@ import { agentCreateRequestSchema } from "../schema/agentCreateRequestSchema.js"
 import { agentProviderRequestSchema } from "../schema/agentProviderRequestSchema.js"
 import { agentQuerySchema } from "../schema/agentQuerySchema.js"
 import { agentUpdateRequestSchema } from "../schema/agentUpdateRequestSchema.js"
-import type { AgentDetailResponse } from "./agentDetailResponseSchema.js"
 import { agentDetailResponseCreate } from "./agentDetailResponseCreate.js"
 import { agentListResponseCreate } from "./agentListResponseCreate.js"
 
@@ -81,10 +80,6 @@ function agentError(context: ApiContext, errorMessage: string, operation: "load"
         ? "The agent could not be created."
         : "The agent could not be updated.",
   )
-}
-
-function agentResponse(agent: AgentDetailResponse["agent"]): AgentDetailResponse {
-  return { agent }
 }
 
 function headersApply(context: ApiContext, headers: Headers): void {
@@ -195,14 +190,18 @@ export function apiAgentRoutesAdd(api: Hono<AppEnvironment>, options: ApiAgentRo
     const result = await agentCreate(databaseResolve(context), organizationId, context.req.param("serverId"), body.data)
     if (!result.success) return agentError(context, result.errorMessage, "create")
 
-    const response = agentResponse({
-      configuration: result.data.configuration,
-      id: result.data.id,
-      name: result.data.name,
-      role: result.data.role,
-      serverId: result.data.serverId,
+    const response = agentDetailResponseCreate({
+      agent: {
+        configuration: result.data.configuration,
+        id: result.data.id,
+        name: result.data.name,
+        role: result.data.role,
+        serverId: result.data.serverId,
+      },
+      organizationId,
     })
-    return context.json(response, 201)
+    if (!response.success) return internalServerError(context)
+    return context.json(response.data, 201)
   })
 
   api.patch("/servers/:serverId/agents/:agentId", async (context) => {
@@ -221,14 +220,18 @@ export function apiAgentRoutesAdd(api: Hono<AppEnvironment>, options: ApiAgentRo
     )
     if (!result.success) return agentError(context, result.errorMessage, "update")
 
-    const response = agentResponse({
-      configuration: result.data.configuration,
-      id: result.data.id,
-      name: result.data.name,
-      role: result.data.role,
-      serverId: result.data.serverId,
+    const response = agentDetailResponseCreate({
+      agent: {
+        configuration: result.data.configuration,
+        id: result.data.id,
+        name: result.data.name,
+        role: result.data.role,
+        serverId: result.data.serverId,
+      },
+      organizationId,
     })
-    return context.json(response)
+    if (!response.success) return internalServerError(context)
+    return context.json(response.data)
   })
 
   api.post("/servers/:serverId/agents/models", async (context) => {

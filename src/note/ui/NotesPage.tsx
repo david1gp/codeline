@@ -1,6 +1,8 @@
 import { A } from "@solidjs/router"
-import { For, Match, Switch } from "solid-js"
+import { For, Match, Show, Switch } from "solid-js"
+import { Badge } from "#ui/static/badge/Badge.jsx"
 import { noteContentSummarize } from "./noteContentSummarize.js"
+import { noteDataStatusNoticeResolve } from "./noteDataStatusNoticeResolve.js"
 import type { NotesScreenView } from "./notesScreenView.js"
 
 export function NotesPage(props: { state: NotesScreenView }) {
@@ -24,6 +26,13 @@ export function NotesPage(props: { state: NotesScreenView }) {
       </header>
 
       <div class="mx-auto max-w-[96rem]">
+        <Show when={noteDataStatusNoticeResolve(state.dataStatus())} keyed>
+          {(notice) => (
+            <Badge class="mb-4" variant={notice.variant} role="status">
+              {notice.label}
+            </Badge>
+          )}
+        </Show>
         <Switch>
           <Match when={state.isLoading()}>
             <p class="text-sm text-faint" role="status">

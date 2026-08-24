@@ -3,7 +3,9 @@ import { Hono } from "hono"
 import * as v from "valibot"
 import { apiRequestParse } from "../../api/apiRequestParse.js"
 import type { AppEnvironment } from "../../api/appEnvironment.js"
+import { apiIfNoneMatchMatches } from "../../api/conditional/apiIfNoneMatchMatches.js"
 import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.js"
+import { apiRepresentationHeadersCreate } from "../../api/representation/apiRepresentationHeadersCreate.js"
 import { providerAgentCatalogRedact } from "../catalog/providerAgentCatalogRedact.js"
 import { providerConnectionTest } from "../runtime/providerConnectionTest.js"
 import { type ProviderModelDiscoveryOptions, providerModelDiscovery } from "../runtime/providerModelDiscovery.js"
@@ -12,6 +14,7 @@ import { providerApiCatalogResponseSchema } from "./providerApiCatalogResponseSc
 import { type ProviderApiConnectionTestResponse } from "./providerApiConnectionTestResponseSchema.js"
 import { type ProviderApiModelsResponse } from "./providerApiModelsResponseSchema.js"
 import { providerApiRequestSchema } from "./providerApiRequestSchema.js"
+import { providerCatalogRepresentationEtagCreate } from "./providerCatalogRepresentationEtagCreate.js"
 
 type ApiContext = Context<AppEnvironment>
 
@@ -60,6 +63,10 @@ async function requestBodyRead(context: ApiContext): Promise<unknown> {
   return context.req.json<unknown>().catch(() => undefined)
 }
 
+function headersApply(context: ApiContext, headers: Headers): void {
+  for (const [name, value] of headers.entries()) context.header(name, value)
+}
+
 export function apiProviderRoutesAdd(api: Hono<AppEnvironment>, options: ApiProviderRoutesOptions): void {
   api.get("/providers/catalog", (context) => {
     if (!requestAuthorized(context)) return unauthorized(context)
@@ -68,7 +75,11 @@ export function apiProviderRoutesAdd(api: Hono<AppEnvironment>, options: ApiProv
     const response = providerAgentCatalogRedact(options.providerAgentCatalog)
     if (!v.safeParse(providerApiCatalogResponseSchema, response).success) return catalogUnavailable(context)
 
-    context.header("Cache-Control", "no-store")
+    const etag = providerCatalogRepresentationEtagCreate(options.providerAgentCatalog.revision, response.revision)
+    const headers = apiRepresentationHeadersCreate(etag)
+    if (apiIfNoneMatchMatches(context.req.header("If-None-Match"), etag))
+      return new Response(null, { headers, status: 304 })
+    headersApply(context, headers)
     return context.json(response)
   })
 

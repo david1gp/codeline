@@ -2,7 +2,6 @@ import { afterAll, beforeAll, expect, test } from "bun:test"
 import { eq } from "drizzle-orm"
 import { Hono } from "hono"
 import * as v from "valibot"
-import { agentDetailResponseSchema } from "../src/agents/api/agentDetailResponseSchema.js"
 import { agentDetailResponseV2Schema } from "../src/agents/api/agentDetailResponseV2Schema.js"
 import { apiAgentRoutesAdd } from "../src/agents/api/apiAgentRoutesAdd.js"
 import { agentListResponseV2Schema } from "../src/agents/api/agentListResponseV2Schema.js"
@@ -124,7 +123,7 @@ test.skipIf(!databaseAvailable)(
     const detail = await app.request(`http://codeline.test/servers/${serverId}/agents/${existingAgentId}`)
     expect(detail.status).toBe(200)
     const detailBody = await detail.json()
-    expect(v.safeParse(agentDetailResponseSchema, detailBody).success).toBe(true)
+    expect(v.safeParse(agentDetailResponseV2Schema, detailBody).success).toBe(true)
     expect(detailBody).toMatchObject({
       agent: {
         configuration: deterministicConfiguration,
@@ -163,6 +162,7 @@ test.skipIf(!databaseAvailable)(
     })
     expect(created.status).toBe(201)
     const createdBody = await created.json()
+    expect(v.safeParse(agentDetailResponseV2Schema, createdBody).success).toBe(true)
     expect(createdBody.agent.configuration).toEqual(cliproxyConfiguration)
     expect(JSON.stringify(createdBody)).not.toContain("cliproxy-secret")
     const createdAgentId = createdBody.agent.id as string
@@ -190,7 +190,9 @@ test.skipIf(!databaseAvailable)(
       method: "PATCH",
     })
     expect(updated.status).toBe(200)
-    expect((await updated.json()).agent.configuration).toEqual(codexConfiguration)
+    const updatedBody = await updated.json()
+    expect(v.safeParse(agentDetailResponseV2Schema, updatedBody).success).toBe(true)
+    expect(updatedBody.agent.configuration).toEqual(codexConfiguration)
 
     const persistedModels = await app.request(
       `http://codeline.test/servers/${serverId}/agents/${createdAgentId}/models`,

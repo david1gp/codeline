@@ -25,6 +25,7 @@ export function demoNoteScreenStateCreate(variant: () => DemoSessionScreenVarian
     contentField,
     content: content.get,
     contentUpdate: (event) => content.set(event.currentTarget.value),
+    dataStatus: () => (variant() === "loading" ? ("reconciling" as const) : ("ready" as const)),
     deleteConfirm: () => isDeleteConfirmOpen.set(false),
     deleteConfirmClose: () => isDeleteConfirmOpen.set(false),
     deleteConfirmOpen: () => isDeleteConfirmOpen.set(true),
