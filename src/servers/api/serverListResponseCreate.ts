@@ -1,7 +1,7 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
 import { apiRepresentationEtagCreate } from "../../api/representation/apiRepresentationEtagCreate.js"
-import { type ServerListResponseV2, serverListResponseV2Schema } from "./serverListResponseV2Schema.js"
+import { type ServerListResponse, serverListResponseSchema } from "./serverListResponseSchema.js"
 import { serverListSchemaVersion } from "./serverListSchemaVersion.js"
 
 type ServerListResponseCreateInput = {
@@ -17,7 +17,7 @@ function serverListRepresentationRevision(servers: ReadonlyArray<{ id: string; n
   return hash >>> 0
 }
 
-export function serverListResponseCreate(input: ServerListResponseCreateInput): Result<ServerListResponseV2> {
+export function serverListResponseCreate(input: ServerListResponseCreateInput): Result<ServerListResponse> {
   const op = "serverListResponseCreate"
   const servers = input.servers.map((server) => ({ id: server.id, name: server.name }))
   const revision = serverListRepresentationRevision(servers)
@@ -26,7 +26,7 @@ export function serverListResponseCreate(input: ServerListResponseCreateInput): 
     serverListSchemaVersion,
     revision,
   )
-  const parsed = v.safeParse(serverListResponseV2Schema, {
+  const parsed = v.safeParse(serverListResponseSchema, {
     etag,
     revision,
     schemaVersion: serverListSchemaVersion,

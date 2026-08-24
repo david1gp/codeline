@@ -1,6 +1,19 @@
-import type * as v from "valibot"
-import { serverListResponseV2Schema } from "./serverListResponseV2Schema.js"
+import * as v from "valibot"
+import { apiEtagSchema } from "../../api/schema/apiEtagSchema.js"
+import { apiRevisionSchema } from "../../api/schema/apiRevisionSchema.js"
 
-export const serverListResponseSchema = serverListResponseV2Schema
+const serverFieldSchema = v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(200))
+
+export const serverListResponseSchema = v.strictObject({
+  etag: apiEtagSchema,
+  revision: apiRevisionSchema,
+  schemaVersion: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(64)),
+  servers: v.array(
+    v.strictObject({
+      id: serverFieldSchema,
+      name: serverFieldSchema,
+    }),
+  ),
+})
 
 export type ServerListResponse = v.InferOutput<typeof serverListResponseSchema>

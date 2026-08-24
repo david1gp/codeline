@@ -1,18 +1,18 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
 import { apiRepresentationEtagCreate } from "../../api/representation/apiRepresentationEtagCreate.js"
-import { agentListResponseV2Schema, type AgentListResponseV2 } from "./agentListResponseV2Schema.js"
+import { agentListResponseSchema, type AgentListResponse } from "./agentListResponseSchema.js"
 import { agentListSchemaVersion } from "./agentListSchemaVersion.js"
 import { agentRepresentationRevisionCreate } from "./agentRepresentationRevisionCreate.js"
 
 type AgentListResponseCreateInput = {
-  agents: AgentListResponseV2["agents"]
+  agents: AgentListResponse["agents"]
   organizationId: string
   search?: string
   serverId: string
 }
 
-export function agentListResponseCreate(input: AgentListResponseCreateInput): Result<AgentListResponseV2> {
+export function agentListResponseCreate(input: AgentListResponseCreateInput): Result<AgentListResponse> {
   const op = "agentListResponseCreate"
   const agents = input.agents.map((agent) => ({ ...agent }))
   const revision = agentRepresentationRevisionCreate(JSON.stringify(agents))
@@ -21,7 +21,7 @@ export function agentListResponseCreate(input: AgentListResponseCreateInput): Re
     agentListSchemaVersion,
     revision,
   )
-  const parsed = v.safeParse(agentListResponseV2Schema, {
+  const parsed = v.safeParse(agentListResponseSchema, {
     agents,
     etag,
     revision,

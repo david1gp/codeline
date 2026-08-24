@@ -1,7 +1,7 @@
 import type { Accessor } from "solid-js"
 import { useContext } from "solid-js"
 import { createMemo, untrack } from "solid-js/dist/solid.js"
-import type { AgentDetailResponseV2 } from "../../agents/api/agentDetailResponseV2Schema.js"
+import type { AgentDetailResponse } from "../../agents/api/agentDetailResponseSchema.js"
 import { agentDetailFetch } from "../../agents/client/agentDetailFetch.js"
 import type { AgentConfiguration } from "../../agents/schema/agentConfigurationSchema.js"
 import type { SessionDetailResponse } from "../../session/api/sessionDetailResponseSchema.js"
@@ -132,7 +132,7 @@ export function providerModelSelectorStateCreate(options: ProviderModelSelectorS
     const detail = sessionQuery.data()
     return detail === undefined ? undefined : { agentId: detail.agent.id, serverId: detail.session.serverId }
   }
-  const agentQuery = httpQueryStateCreate<AgentDetailResponseV2>({
+  const agentQuery = httpQueryStateCreate<AgentDetailResponse>({
     cache: accountCache.cache,
     key: () => {
       const target = sessionTarget()
@@ -149,7 +149,7 @@ export function providerModelSelectorStateCreate(options: ProviderModelSelectorS
       })
       if (result.success && result.data === undefined)
         return { success: false as const, op: "agentDetailFetch", errorMessage: "The session agent is unavailable." }
-      return httpQueryRepresentationResolve(result as typeof result & { success: true; data: AgentDetailResponseV2 })
+      return httpQueryRepresentationResolve(result as typeof result & { success: true; data: AgentDetailResponse })
     },
   })
 

@@ -1,6 +1,6 @@
 import { createResultError, type Result } from "@adaptive-ds/result"
 import { apiHttpClientCreate } from "../../api/client/apiHttpClientCreate.js"
-import { type AgentListResponseV2, agentListResponseV2Schema } from "../api/agentListResponseV2Schema.js"
+import { type AgentListResponse, agentListResponseSchema } from "../api/agentListResponseSchema.js"
 
 type AgentListFetchDependencies = {
   fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
@@ -11,7 +11,7 @@ type AgentListFetchDependencies = {
 export function agentListFetch(
   serverId: string,
   dependencies: AgentListFetchDependencies = {},
-): Promise<Result<AgentListResponseV2>> {
+): Promise<Result<AgentListResponse>> {
   const op = "agentListFetch"
   if (serverId.trim().length === 0) {
     return Promise.resolve(createResultError(op, "The server identifier is required."))
@@ -23,7 +23,7 @@ export function agentListFetch(
     op,
     path: `/api/servers/${encodeURIComponent(serverId)}/agents`,
     query: dependencies.search === undefined ? undefined : { search: dependencies.search },
-    responseSchema: agentListResponseV2Schema,
+    responseSchema: agentListResponseSchema,
     ...(dependencies.signal === undefined ? {} : { signal: dependencies.signal }),
   })
 }

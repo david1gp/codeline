@@ -2,9 +2,9 @@ import { afterAll, beforeAll, expect, test } from "bun:test"
 import { eq } from "drizzle-orm"
 import { Hono } from "hono"
 import * as v from "valibot"
-import { agentDetailResponseV2Schema } from "../src/agents/api/agentDetailResponseV2Schema.js"
+import { agentDetailResponseSchema } from "../src/agents/api/agentDetailResponseSchema.js"
 import { apiAgentRoutesAdd } from "../src/agents/api/apiAgentRoutesAdd.js"
-import { agentListResponseV2Schema } from "../src/agents/api/agentListResponseV2Schema.js"
+import { agentListResponseSchema } from "../src/agents/api/agentListResponseSchema.js"
 import { agentTable } from "../src/agents/db/agentTable.js"
 import type { AppEnvironment } from "../src/api/appEnvironment.js"
 import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
@@ -123,7 +123,7 @@ test.skipIf(!databaseAvailable)(
     const detail = await app.request(`http://codeline.test/servers/${serverId}/agents/${existingAgentId}`)
     expect(detail.status).toBe(200)
     const detailBody = await detail.json()
-    expect(v.safeParse(agentDetailResponseV2Schema, detailBody).success).toBe(true)
+    expect(v.safeParse(agentDetailResponseSchema, detailBody).success).toBe(true)
     expect(detailBody).toMatchObject({
       agent: {
         configuration: deterministicConfiguration,
@@ -133,12 +133,12 @@ test.skipIf(!databaseAvailable)(
         serverId,
       },
     })
-    expect(v.safeParse(agentDetailResponseV2Schema, detailBody).success).toBe(true)
+    expect(v.safeParse(agentDetailResponseSchema, detailBody).success).toBe(true)
 
     const list = await app.request(`http://codeline.test/servers/${serverId}/agents`)
     expect(list.status).toBe(200)
     const listBody = await list.json()
-    expect(v.safeParse(agentListResponseV2Schema, listBody).success).toBe(true)
+    expect(v.safeParse(agentListResponseSchema, listBody).success).toBe(true)
     expect(list.headers.get("Cache-Control")).toBe("private, no-cache")
     expect(list.headers.get("Vary")).toBe("Cookie, Accept-Encoding")
     expect(list.headers.get("ETag")).toBe(listBody.etag)
@@ -162,7 +162,7 @@ test.skipIf(!databaseAvailable)(
     })
     expect(created.status).toBe(201)
     const createdBody = await created.json()
-    expect(v.safeParse(agentDetailResponseV2Schema, createdBody).success).toBe(true)
+    expect(v.safeParse(agentDetailResponseSchema, createdBody).success).toBe(true)
     expect(createdBody.agent.configuration).toEqual(cliproxyConfiguration)
     expect(JSON.stringify(createdBody)).not.toContain("cliproxy-secret")
     const createdAgentId = createdBody.agent.id as string
@@ -191,7 +191,7 @@ test.skipIf(!databaseAvailable)(
     })
     expect(updated.status).toBe(200)
     const updatedBody = await updated.json()
-    expect(v.safeParse(agentDetailResponseV2Schema, updatedBody).success).toBe(true)
+    expect(v.safeParse(agentDetailResponseSchema, updatedBody).success).toBe(true)
     expect(updatedBody.agent.configuration).toEqual(codexConfiguration)
 
     const persistedModels = await app.request(

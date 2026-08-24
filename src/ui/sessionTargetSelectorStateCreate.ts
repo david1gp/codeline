@@ -2,9 +2,8 @@ import { createResultError, type Result } from "@adaptive-ds/result"
 import type { Accessor } from "solid-js"
 import { batch, createEffect, onCleanup, untrack } from "solid-js/dist/solid.js"
 import * as v from "valibot"
-import { agentDetailResponseSchema } from "../agents/api/agentDetailResponseSchema.js"
-import type { AgentDetailResponseV2 } from "../agents/api/agentDetailResponseV2Schema.js"
-import type { AgentListResponseV2 } from "../agents/api/agentListResponseV2Schema.js"
+import { agentDetailResponseSchema, type AgentDetailResponse } from "../agents/api/agentDetailResponseSchema.js"
+import type { AgentListResponse } from "../agents/api/agentListResponseSchema.js"
 import { agentDetailFetch } from "../agents/client/agentDetailFetch.js"
 import { agentListFetch } from "../agents/client/agentListFetch.js"
 import { type AgentConfiguration, agentConfigurationSchema } from "../agents/schema/agentConfigurationSchema.js"
@@ -13,7 +12,7 @@ import { agentExecutionTargetSchema } from "../agents/schema/agentExecutionTarge
 import { apiErrorResponseSchema } from "../api/errors/apiErrorResponseSchema.js"
 import { providerApiConnectionTestResponseSchema } from "../providers/api/providerApiConnectionTestResponseSchema.js"
 import { providerApiModelsResponseSchema } from "../providers/api/providerApiModelsResponseSchema.js"
-import type { ServerListResponseV2 } from "../servers/api/serverListResponseV2Schema.js"
+import type { ServerListResponse } from "../servers/api/serverListResponseSchema.js"
 import { serverListFetch } from "../servers/client/serverListFetch.js"
 import type { SessionDetailResponse } from "../session/api/sessionDetailResponseSchema.js"
 import { sessionTargetCreateResponseSchema } from "../session/api/sessionTargetCreateResponseSchema.js"
@@ -28,10 +27,10 @@ type SessionTargetSelectorStatus = "loading" | "ready" | "empty" | "error"
 /** Retained-data lifecycle of the server/agent representations backing this selector. */
 type SessionTargetSelectorDataStatus = "offline" | "reconciling" | "ready" | "stale"
 type SessionTargetSelectorFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
-type SessionTargetServer = ServerListResponseV2["servers"][number]
-type SessionTargetAgent = AgentListResponseV2["agents"][number]
+type SessionTargetServer = ServerListResponse["servers"][number]
+type SessionTargetAgent = AgentListResponse["agents"][number]
 type ConfigurableProvider = "cliproxyapi" | "codex-lb"
-type AgentDetail = AgentDetailResponseV2["agent"]
+type AgentDetail = AgentDetailResponse["agent"]
 type AgentDraft = {
   baseUrl: string
   generation?: AgentConfiguration["generation"]
@@ -198,14 +197,14 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
   // retained representation stays rendered while a revalidation or a failure is reported separately.
   const accountCache = httpQueryAccountCacheCreate(() => options.accountId?.() ?? null)
 
-  const serverQuery = httpQueryStateCreate<ServerListResponseV2>({
+  const serverQuery = httpQueryStateCreate<ServerListResponse>({
     cache: accountCache.cache,
     key: () => accountCache.keyCreate("/api/servers"),
     load: async (_key, signal) =>
       httpQueryRepresentationResolve(await serverListFetch({ fetch: fetchImplementation, signal })),
   })
 
-  const agentListQuery = httpQueryStateCreate<AgentListResponseV2>({
+  const agentListQuery = httpQueryStateCreate<AgentListResponse>({
     cache: accountCache.cache,
     key: () => {
       const serverId = selectedServerId.get()
@@ -219,7 +218,7 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
     },
   })
 
-  const agentDetailQuery = httpQueryStateCreate<AgentDetailResponseV2>({
+  const agentDetailQuery = httpQueryStateCreate<AgentDetailResponse>({
     cache: accountCache.cache,
     key: () => {
       const serverId = selectedServerId.get()
@@ -236,7 +235,7 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
       if (result.success && result.data === undefined) {
         return createResultError("agentDetailFetch", "The selected agent could not be loaded.")
       }
-      return httpQueryRepresentationResolve(result as Result<AgentDetailResponseV2>)
+      return httpQueryRepresentationResolve(result as Result<AgentDetailResponse>)
     },
   })
 

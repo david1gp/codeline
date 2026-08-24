@@ -9,7 +9,7 @@ import { applicationUserTable } from "../src/identity/db/applicationUserTable.js
 import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
 import { organizationMemberTable } from "../src/identity/db/organizationMemberTable.js"
 import { organizationTable } from "../src/identity/db/organizationTable.js"
-import { serverListResponseV2Schema } from "../src/servers/api/serverListResponseV2Schema.js"
+import { serverListResponseSchema } from "../src/servers/api/serverListResponseSchema.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
 import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
@@ -90,7 +90,7 @@ test.skipIf(!databaseAvailable)("server list responses are typed and conditional
   expect(first.headers.get("Vary")).toBe("Cookie, Accept-Encoding")
 
   const body: unknown = await first.json()
-  const parsed = v.safeParse(serverListResponseV2Schema, body)
+  const parsed = v.safeParse(serverListResponseSchema, body)
   expect(parsed.success).toBe(true)
   if (!parsed.success) return
   expect(first.headers.get("ETag")).toBe(parsed.output.etag)
