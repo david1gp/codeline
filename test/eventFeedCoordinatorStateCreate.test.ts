@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import { createResult } from "@adaptive-ds/result"
 import type { RunActiveSummary } from "../src/run/api/runActiveSummarySchema.js"
-import type { SessionSnapshotResponse } from "../src/session/api/sessionSnapshotResponseSchema.js"
+import type { SessionSettledSnapshotResponse } from "../src/session/api/sessionSettledSnapshotResponseSchema.js"
 import type { StreamSseFrame } from "../src/stream/api/streamSseFrameSchema.js"
 import { eventFeedCoordinatorStateCreate } from "../src/ui/eventFeedCoordinatorStateCreate.js"
 
@@ -51,9 +51,10 @@ class FakeEventSource {
   }
 }
 
-function sessionSnapshot(sessionId: string): SessionSnapshotResponse {
+function sessionSnapshot(sessionId: string): SessionSettledSnapshotResponse {
   const timestamp = "2026-01-01T00:00:00.000Z"
   return {
+    asOfCursor: "cursor-1",
     asOfSequence: 1,
     etag: '"session-1"',
     messages: [],

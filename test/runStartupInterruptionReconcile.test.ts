@@ -1,12 +1,13 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
 import { createResult } from "@adaptive-ds/result"
-import { and, asc, eq, inArray } from "drizzle-orm"
+import { asc, eq, inArray } from "drizzle-orm"
 import { agentTable } from "../src/agents/db/agentTable.js"
 import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
 import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { organizationTable } from "../src/identity/db/organizationTable.js"
 import { journalEventTable } from "../src/journal/db/journalEventTable.js"
+import { journalSequenceCounterTable } from "../src/journal/db/journalSequenceCounterTable.js"
 import { runCreate } from "../src/run/actions/runCreate.js"
 import { runStartupInterruptionReconcile } from "../src/run/actions/runStartupInterruptionReconcile.js"
 import { runTransition } from "../src/run/actions/runTransition.js"
@@ -14,7 +15,6 @@ import { attemptTable } from "../src/run/db/attemptTable.js"
 import { runTable } from "../src/run/db/runTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
-import { streamEventTable } from "../src/stream/db/streamEventTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
 import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
 
@@ -95,14 +95,24 @@ test.skipIf(!databaseAvailable)("interrupts active runs atomically and retains t
     await runTransition(database, fixture.userId, fixture.sessionId, running.data.run.id, { status: "running" }),
   ).toMatchObject({ success: true })
 
-  await database.insert(streamEventTable).values({
-    eventType: "TEXT_MESSAGE_CONTENT",
+  await database.insert(journalSequenceCounterTable).values({
+    nextSequence: 2,
+    userId: fixture.userId,
+  })
+  await database.insert(journalEventTable).values({
+    eventType: "delta",
     id: uuidv7(),
-    idempotencyKey: `partial-${uuidv7()}`,
-    payload: { delta: "partial output" },
+    payload: {
+      delta: "partial output",
+      deltaKind: "text",
+      messageId: null,
+      runId: running.data.run.id,
+      sessionId: fixture.sessionId,
+    },
+    runId: running.data.run.id,
     sequence: 1,
-    sessionId: fixture.sessionId,
-    streamId: running.data.run.streamId,
+    serializedBytes: 100,
+    userId: fixture.userId,
   })
 
   const published: Array<typeof journalEventTable.$inferSelect> = []
@@ -145,25 +155,16 @@ test.skipIf(!databaseAvailable)("interrupts active runs atomically and retains t
       .from(attemptTable)
       .where(inArray(attemptTable.runId, [accepted.data.run.id, running.data.run.id])),
   ).toMatchObject([{ status: "aborted" }, { status: "aborted" }])
-  expect(
-    await database
-      .select()
-      .from(streamEventTable)
-      .where(
-        and(
-          eq(streamEventTable.sessionId, fixture.sessionId),
-          eq(streamEventTable.streamId, running.data.run.streamId),
-        ),
-      ),
-  ).toHaveLength(1)
-
   const journalEvents = await database
     .select()
     .from(journalEventTable)
     .where(eq(journalEventTable.userId, fixture.userId))
     .orderBy(asc(journalEventTable.sequence))
-  expect(journalEvents.map((event) => event.eventType)).toEqual(["run-interrupted", "run-interrupted"])
-  expect(journalEvents.map((event) => (event.payload as { sessionRevision: number }).sessionRevision)).toEqual([2, 2])
+  const interruptionEvents = journalEvents.filter((event) => event.eventType === "run-interrupted")
+  expect(interruptionEvents).toHaveLength(2)
+  expect(interruptionEvents.map((event) => (event.payload as { sessionRevision: number }).sessionRevision)).toEqual([
+    2, 2,
+  ])
   expect(published.map((event) => event.eventType)).toEqual(["run-interrupted", "run-interrupted"])
 
   const repeated = await runStartupInterruptionReconcile({

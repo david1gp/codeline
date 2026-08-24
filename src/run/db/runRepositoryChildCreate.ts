@@ -1,8 +1,9 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
-import { and, count, desc, eq, max } from "drizzle-orm"
+import { and, count, desc, eq, max, sql } from "drizzle-orm"
 import * as v from "valibot"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { databaseExecutorTransactionRun } from "../../database/databaseExecutorTransactionRun.js"
+import { sessionTable } from "../../session/db/sessionTable.js"
 import { uuidv7 } from "../../uuid/uuidv7.js"
 import { runChildAdmissionResolve } from "../actions/runChildAdmissionResolve.js"
 import { runBudgetSchema } from "../schema/runBudgetSchema.js"
@@ -316,6 +317,13 @@ export async function runRepositoryChildCreate(
         })
         .returning()
       if (delegation === undefined) return createResultError(op, "The child delegation could not be created.")
+
+      const [updatedSession] = await transaction
+        .update(sessionTable)
+        .set({ revision: sql`${sessionTable.revision} + 1`, updatedAt: now })
+        .where(and(eq(sessionTable.id, sessionId), eq(sessionTable.userId, userId)))
+        .returning({ id: sessionTable.id })
+      if (updatedSession === undefined) return createResultError(op, "The session revision could not be updated.")
 
       return createResult({
         admission: admission.data,

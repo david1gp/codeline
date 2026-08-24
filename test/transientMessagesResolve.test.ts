@@ -28,6 +28,45 @@ test("transient entries are removed as matching durable messages synchronize", (
   ).toEqual([])
 })
 
+test("a partially observed assistant turn is superseded by its authoritative message", () => {
+  const resolved = transientMessagesResolve(
+    [
+      { content: "hello", id: "u1", role: "user" },
+      { content: "Deterministic response:", id: "a1", role: "assistant" },
+    ],
+    [
+      { content: "hello", role: "user" },
+      { content: "Deterministic response: hello", role: "assistant" },
+    ],
+  )
+
+  expect(resolved).toEqual([])
+})
+
+test("a partial assistant turn does not claim an unrelated assistant message", () => {
+  const resolved = transientMessagesResolve(
+    [{ content: "Deterministic response: goodbye", id: "a1", role: "assistant" }],
+    [{ content: "Deterministic response: hello", role: "assistant" }],
+  )
+
+  expect(resolved.map((message) => message.id)).toEqual(["a1"])
+})
+
+test("an exact assistant match is preferred over a shorter prefix match", () => {
+  const resolved = transientMessagesResolve(
+    [
+      { content: "Deterministic response:", id: "a1", role: "assistant" },
+      { content: "Deterministic response: hello", id: "a2", role: "assistant" },
+    ],
+    [
+      { content: "Deterministic response: hello", role: "assistant" },
+      { content: "Deterministic response: goodbye", role: "assistant" },
+    ],
+  )
+
+  expect(resolved).toEqual([])
+})
+
 test("repeated identical prompts reconcile one durable message at a time", () => {
   const resolved = transientMessagesResolve(
     [

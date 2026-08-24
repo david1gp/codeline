@@ -235,7 +235,7 @@ export function eventFeedStateCreate(options: EventFeedStateCreateOptions) {
       checkpoint: null,
       deltaTextByKind: eventFeedStateDeltaTextCreate(),
       deltas: [],
-      lastSequence: event.sequence,
+      lastSequence: 0,
       phase: "active",
       partialText: "",
       runId: event.runId,
@@ -281,6 +281,9 @@ export function eventFeedStateCreate(options: EventFeedStateCreateOptions) {
       if (!ensured.success) return ensured
       const run = ensured.data
       if (run.phase !== "active" || run.superseded) return createResult({ ignored: "terminal-run", instruction: null })
+      // The run-specific snapshot already folded every delta up to lastSequence,
+      // so the reattached feed contributes only strictly newer fragments.
+      if (event.sequence <= run.lastSequence) return createResult({ ignored: "stale-event", instruction: null })
 
       run.deltas.push({
         delta: event.delta,

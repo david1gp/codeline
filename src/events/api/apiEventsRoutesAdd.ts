@@ -7,6 +7,7 @@ import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.j
 import { journalBacklogCursorSelect } from "../../journal/actions/journalBacklogCursorSelect.js"
 import { journalBacklogRead } from "../../journal/actions/journalBacklogRead.js"
 import type { JournalCursorCodec } from "../../journal/actions/journalCursorCodecCreate.js"
+import type { metricsCollectorCreate } from "../../metrics/metricsCollectorCreate.js"
 import { streamLiveSubscriptionCreate } from "../../stream/actions/streamLiveSubscriptionCreate.js"
 import { streamSseConnectionWriterCreate } from "../../stream/actions/streamSseConnectionWriterCreate.js"
 import type { StreamSseFrame } from "../../stream/api/streamSseFrameSchema.js"
@@ -35,6 +36,7 @@ type ApiEventsRoutesOptions = {
   liveSubscription: ReturnType<typeof streamLiveSubscriptionCreate>
   now?: () => number
   scheduler?: ApiEventsRoutesScheduler
+  metricsCollector?: ReturnType<typeof metricsCollectorCreate>
 }
 
 type ApiEventsContext = Context<AppEnvironment>
@@ -186,6 +188,7 @@ function apiEventsConnectionWriterCreate(
       close: () => outputWriter.close().catch(() => undefined),
       write: (chunk) => outputWriter.write(chunk),
     },
+    metricsCollector: options.metricsCollector,
   })
 }
 
@@ -288,11 +291,14 @@ export function apiEventsRoutesAdd(api: Hono<AppEnvironment>, options: ApiEvents
     }
 
     if (backlog.data.mode === "replay") {
+      options.metricsCollector?.increment("sse_replay_total")
       const upperBoundSet = connection.setReplayUpperBound(backlog.data.replayUpperBound)
       if (!upperBoundSet.success) {
         await connection.disconnect("backlog-upper-bound-failed")
         return apiEventsInternalError(context)
       }
+    } else {
+      options.metricsCollector?.increment("sse_reset_total")
     }
 
     void apiEventsBacklogPump(connection, backlog.data.pages)

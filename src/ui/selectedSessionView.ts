@@ -1,6 +1,7 @@
 import type { finalizedMessageCopyStateCreate } from "../message/ui/finalizedMessageCopyStateCreate.js"
 import type { SessionReadOnlyReason } from "../session/client/sessionReadOnlyReasonResolve.js"
 import type { sessionRenameControlStateCreate } from "../session/ui/sessionRenameControlStateCreate.js"
+import type { SessionActiveRunReattachStatus } from "./sessionActiveRunReattachStateCreate.js"
 import type { SessionChatState } from "./sessionChatStateCreate.js"
 import type { sessionDisplayModeStateCreate } from "./sessionDisplayModeStateCreate.js"
 import type { sessionPinToggleStateCreate } from "./sessionPinToggleStateCreate.js"
@@ -23,6 +24,8 @@ export type SelectedSessionViewSession = {
  * demo fixtures can supply the same shape without the view knowing the source.
  */
 export type SelectedSessionView = {
+  /** Reload reattachment progress for a detached run of the open session. */
+  activeRunReattachStatus?: () => SessionActiveRunReattachStatus
   chatCreate: (sessionId: string) => SessionChatState
   hasSelection: () => boolean
   initialChat: SessionChatState

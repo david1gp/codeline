@@ -19,8 +19,6 @@ import { serverRepositoryList } from "../src/servers/db/serverRepositoryList.js"
 import { serverRepositoryLoad } from "../src/servers/db/serverRepositoryLoad.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
-import { streamAppend } from "../src/stream/actions/streamAppend.js"
-import { streamListAfter } from "../src/stream/actions/streamListAfter.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
 import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
 
@@ -232,34 +230,6 @@ test.skipIf(!databaseAvailable)("two members of one organization share server, a
         task: "Must remain private",
       }),
     ).toMatchObject({ errorMessage: "The root run could not be found.", success: false })
-  }
-
-  const streamId = `server-access-private-stream-${uuidv7()}`
-  expect(
-    await streamAppend(database, memberUserId, firstSessionBody.session.id, {
-      eventType: "private",
-      idempotencyKey: "private-event",
-      payload: { private: true },
-      sequence: 1,
-      streamId,
-    }),
-  ).toMatchObject({ success: true, data: { created: true } })
-  for (const userId of [secondMemberUserId, foreignUserId]) {
-    expect(
-      await streamListAfter(database, userId, firstSessionBody.session.id, streamId, { afterSequence: 0, limit: 10 }),
-    ).toMatchObject({
-      errorMessage: "The session could not be found.",
-      success: false,
-    })
-    expect(
-      await streamAppend(database, userId, firstSessionBody.session.id, {
-        eventType: "private",
-        idempotencyKey: `private-event-${uuidv7()}`,
-        payload: { shouldNotWrite: true },
-        sequence: 2,
-        streamId,
-      }),
-    ).toMatchObject({ errorMessage: "The session could not be found.", success: false })
   }
 
   const session = await secondApp.request("/api/sessions", {

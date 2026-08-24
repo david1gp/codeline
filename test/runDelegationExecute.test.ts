@@ -179,10 +179,17 @@ function harnessCreate(
       childAttempt.failure = childRun.failure
       return createResult({})
     },
-    streamAppend: async (input) => {
-      events.push({ eventType: input.eventType, payload: input.payload, streamId: input.streamId })
-      return createResult({})
-    },
+    providerOutputCreate: () => ({
+      append: async (input: unknown) => {
+        if (typeof input === "object" && input !== null && "eventType" in input && "payload" in input) {
+          const event = input as { eventType: string; payload: unknown }
+          events.push({ eventType: event.eventType, payload: event.payload, streamId: childAttempt.streamId })
+        }
+        return createResult(undefined)
+      },
+      finalize: async () => createResult(undefined),
+      flush: async () => createResult(undefined),
+    }),
     setTimeout: (handler, timeout) => globalThis.setTimeout(handler, timeout),
   }
 

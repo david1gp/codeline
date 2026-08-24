@@ -1,9 +1,7 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
-import * as v from "valibot"
 import { apiHttpClientCreate } from "../api/client/apiHttpClientCreate.js"
 import type { EventFeedReconciliationCallbacks, EventFeedResetBootstrap } from "../events/client/eventFeedCreate.js"
-import { runStatusSchema } from "../run/schema/runStatusSchema.js"
-import { sessionStreamSnapshotFetch } from "../run/ui/sessionStreamSnapshotFetch.js"
+import { runActiveSnapshotFetch } from "../run/ui/runActiveSnapshotFetch.js"
 import {
   type SessionSnapshotResponse,
   sessionSnapshotResponseSchema,
@@ -24,42 +22,23 @@ function eventFeedResourceRevisionCreate(input: EventFeedStaleResource): EventFe
   }
 }
 
-function eventFeedActiveRunPartialTextResolve(
-  events: readonly { payload: unknown; sequence: number; streamId: string }[],
-  streamId: string,
-): { lastSequence: number; partialText: string } {
-  let lastSequence = 1
-  let partialText = ""
-  for (const event of events) {
-    if (event.streamId !== streamId) continue
-    lastSequence = Math.max(lastSequence, event.sequence)
-    if (typeof event.payload !== "object" || event.payload === null) continue
-    const delta = (event.payload as { delta?: unknown }).delta
-    if (typeof delta === "string") partialText += delta
-  }
-  return { lastSequence, partialText }
-}
-
+/**
+ * Reload and reset reconciliation read the run-specific active snapshot so
+ * partial output comes from one consistent server snapshot. The feed is then
+ * attached after the returned `lastSequence` rather than an arbitrary cursor.
+ */
 async function eventFeedActiveRunSnapshotLoad(
   input: Parameters<EventFeedReconciliationCallbacks["activeRunSnapshotLoad"]>[0],
   dependencies: EventFeedReconciliationCreateOptions,
 ) {
-  const loaded = await sessionStreamSnapshotFetch(input.sessionId, { fetch: dependencies.fetch })
+  const loaded = await runActiveSnapshotFetch(input.sessionId, input.runId, { fetch: dependencies.fetch })
   if (!loaded.success) return createResultError("eventFeedActiveRunSnapshotLoad", loaded.errorMessage)
-  const run = loaded.data.runs.find(
-    (candidate) => candidate.id === input.runId || candidate.clientRunId === input.runId,
-  )
-  if (run === undefined)
-    return createResultError("eventFeedActiveRunSnapshotLoad", "The active run could not be found.")
-  const status = v.safeParse(runStatusSchema, run.status)
-  if (!status.success) return createResultError("eventFeedActiveRunSnapshotLoad", "The active run status is invalid.")
-  const partial = eventFeedActiveRunPartialTextResolve(loaded.data.events, run.streamId)
   return createResult({
-    lastSequence: partial.lastSequence,
-    partialText: partial.partialText,
+    lastSequence: loaded.data.lastSequence,
+    partialText: loaded.data.partialText,
     runId: input.runId,
     sessionId: input.sessionId,
-    status: status.output,
+    status: loaded.data.status,
   })
 }
 

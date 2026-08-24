@@ -20,6 +20,7 @@ type RunProviderOutputScheduler = {
 type RunProviderOutputCreateOptions = {
   database: DatabaseClient
   journalPostCommitPublish: ReturnType<typeof journalPostCommitPublishCreate>
+  requestId: string
   runId: string
   scheduler: RunProviderOutputScheduler
   sessionId: string
@@ -74,6 +75,28 @@ function runProviderOutputDeltaResolve(
   }
 
   const type = candidate.type
+  const eventType = candidate.eventType
+  const eventPayload = candidate.payload
+  if (typeof eventType === "string" && typeof eventPayload === "object" && eventPayload !== null) {
+    const payload = eventPayload as Record<string, unknown>
+    const deltaKind =
+      eventType === "text_delta"
+        ? "text"
+        : eventType === "thinking_status"
+          ? "thinking"
+          : eventType === "tool_start" || eventType === "tool_output" || eventType === "tool_result"
+            ? "tool"
+            : null
+    if (deltaKind === null) return createResult(null)
+    const delta =
+      typeof payload.delta === "string"
+        ? payload.delta
+        : typeof payload.status === "string"
+          ? payload.status
+          : JSON.stringify(payload)
+    if (delta === undefined) return createResult(null)
+    return createResult({ delta, deltaKind, messageId: null, runId, sessionId })
+  }
   const delta = candidate.delta
   if (typeof delta !== "string") return createResult(null)
 
@@ -82,7 +105,9 @@ function runProviderOutputDeltaResolve(
       ? "text"
       : type === "TOOL_CALL_ARGS"
         ? "tool"
-        : type === "REASONING_MESSAGE_CONTENT" || type === "REASONING_MESSAGE_CHUNK"
+        : type === "THINKING_TEXT_MESSAGE_CONTENT" ||
+            type === "REASONING_MESSAGE_CONTENT" ||
+            type === "REASONING_MESSAGE_CHUNK"
           ? "thinking"
           : null
   if (deltaKind === null) return createResult(null)
@@ -247,7 +272,7 @@ export function runProviderOutputCreate(options: RunProviderOutputCreateOptions)
     const finalized = await finalizer.finalize({ runId: options.runId, terminalEvent }, async (transaction) => {
       if (input.status === "succeeded" && input.assistantText !== undefined) {
         const message = await messageAppend(transaction, options.userId, options.sessionId, {
-          clientRequestId: `${options.runId}:assistant`,
+          clientRequestId: `${options.requestId}:assistant`,
           content: input.assistantText,
           role: "assistant",
         })

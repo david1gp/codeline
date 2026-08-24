@@ -1,17 +1,14 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
 import { apiRepresentationEtagCreate } from "../../api/representation/apiRepresentationEtagCreate.js"
-import {
-  type SessionListSnapshotResponse,
-  sessionListSnapshotResponseV3Schema,
-} from "./sessionListSnapshotResponseSchema.js"
+import { sessionListSnapshotResponseV3Schema } from "./sessionListSnapshotResponseSchema.js"
 import { sessionListSnapshotSchemaVersion } from "./sessionListSnapshotSchemaVersion.js"
 import { sessionShellCreate } from "./sessionShellCreate.js"
 
 type SessionListSnapshotRow = {
   session: Parameters<typeof sessionShellCreate>[0]
 }
-type CurrentSessionListSnapshotResponse = Extract<SessionListSnapshotResponse, { etag: string }>
+type CurrentSessionListSnapshotResponse = v.InferOutput<typeof sessionListSnapshotResponseV3Schema>
 
 export function sessionListSnapshotResponseCreate(input: {
   asOfCursor: string

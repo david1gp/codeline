@@ -3,6 +3,7 @@ import { createResult, createResultErrorCode, type Result } from "@adaptive-ds/r
 import { Hono } from "hono"
 import type { AppEnvironment } from "../src/api/appEnvironment.js"
 import { apiEventsRoutesAdd } from "../src/events/api/apiEventsRoutesAdd.js"
+import { identitySessionLoad } from "../src/identity/actions/identitySessionLoad.js"
 import { authenticationMiddleware } from "../src/identity/api/authenticationMiddleware.js"
 import { journalBacklogRead } from "../src/journal/actions/journalBacklogRead.js"
 import type { JournalCursorCodec } from "../src/journal/actions/journalCursorCodecCreate.js"
@@ -52,6 +53,8 @@ class TestScheduler {
       timer.callback()
     }
   }
+
+  timerCount = (): number => this.timers.size
 }
 
 const userId = "events-user"
@@ -108,6 +111,22 @@ function schedulerCreate(): TestScheduler {
   return new TestScheduler()
 }
 
+function trackedLiveSubscriptionCreate() {
+  const liveSubscription = streamLiveSubscriptionCreate()
+  let unsubscribeCount = 0
+  return {
+    ...liveSubscription,
+    subscribe: (subscriberUserId: string, subscriber: Parameters<typeof liveSubscription.subscribe>[1]) => {
+      const unsubscribe = liveSubscription.subscribe(subscriberUserId, subscriber)
+      return () => {
+        unsubscribeCount += 1
+        unsubscribe()
+      }
+    },
+    unsubscribeCount: () => unsubscribeCount,
+  }
+}
+
 async function flush(): Promise<void> {
   for (let index = 0; index < 20; index += 1) await Promise.resolve()
 }
@@ -122,6 +141,8 @@ function parseFrame(chunk: Uint8Array): StreamSseFrame {
 
 function appForEvents(options: {
   backlogRead: typeof journalBacklogRead
+  authenticationNow?: () => Date
+  identitySessionLoad?: typeof identitySessionLoad
   liveSubscription?: ReturnType<typeof streamLiveSubscriptionCreate>
   scheduler?: TestScheduler
   connectionWriterCreate?: typeof streamSseConnectionWriterCreate
@@ -138,16 +159,19 @@ function appForEvents(options: {
   app.use(
     "/api/*",
     authenticationMiddleware(configuration, database, {
-      identitySessionLoad: async () =>
-        createResult({
-          createdAt: new Date(),
-          expiresAt: new Date(Date.now() + 60_000),
-          id: "session-1",
-          lastUsedAt: null,
-          revokedAt: null,
-          tokenHash: "token-hash",
-          userId,
-        } as never),
+      identitySessionLoad:
+        options.identitySessionLoad ??
+        (async () =>
+          createResult({
+            createdAt: new Date(),
+            expiresAt: new Date(Date.now() + 60_000),
+            id: "session-1",
+            lastUsedAt: null,
+            revokedAt: null,
+            tokenHash: "token-hash",
+            userId,
+          } as never)),
+      now: options.authenticationNow,
     }),
   )
   apiEventsRoutesAdd(api, {
@@ -192,6 +216,41 @@ test("requires the existing session cookie and sends the generalized SSE headers
   expect(liveSubscription.subscriberCount(userId)).toBe(1)
   await response.body?.cancel()
   await flush()
+  expect(liveSubscription.subscriberCount(userId)).toBe(0)
+})
+
+test("returns 401 when an authenticated event-feed reconnect reaches the injected session expiry", async () => {
+  let now = new Date("2026-08-23T00:00:00.000Z")
+  const expiresAt = new Date(now.getTime() + 1_000)
+  const liveSubscription = streamLiveSubscriptionCreate()
+  const app = appForEvents({
+    authenticationNow: () => now,
+    backlogRead: async () => emptyBacklog(),
+    identitySessionLoad: async (_database, _token, sessionNow) =>
+      (sessionNow ?? new Date()) < expiresAt
+        ? createResult({
+            createdAt: new Date("2026-08-22T00:00:00.000Z"),
+            expiresAt,
+            id: "session-1",
+            lastUsedAt: null,
+            revokedAt: null,
+            tokenHash: "token-hash",
+            userId,
+          } as never)
+        : createResult(undefined),
+    liveSubscription,
+  })
+  const headers = { Cookie: "__Host-codeline-session=session-token" }
+
+  const connected = await app.request("https://events.test/api/events", { headers })
+  expect(connected.status).toBe(200)
+  await connected.body?.cancel()
+  await flush()
+
+  now = expiresAt
+  const reconnect = await app.request("https://events.test/api/events", { headers })
+  expect(reconnect.status).toBe(401)
+  expect(reconnect.headers.get("Cache-Control")).toBe("no-store")
   expect(liveSubscription.subscriberCount(userId)).toBe(0)
 })
 
@@ -302,6 +361,76 @@ test("emits a fifteen-second heartbeat and removes the subscription on request a
   abortController.abort()
   await flush()
   expect(liveSubscription.subscriberCount(userId)).toBe(0)
+})
+
+test("aborting /api/events unsubscribes once, clears blocked work, and closes output idempotently", async () => {
+  const scheduler = schedulerCreate()
+  const liveSubscription = trackedLiveSubscriptionCreate()
+  const abortController = new AbortController()
+  const pendingWrite = new Promise<void>(() => undefined)
+  const abortReasons: unknown[] = []
+  let outputAbortCount = 0
+  let outputCloseCount = 0
+  let outputClosed = false
+  let writeCount = 0
+  const app = appForEvents({
+    backlogRead: async () => emptyBacklog(),
+    connectionWriterCreate: (dependencies) =>
+      streamSseConnectionWriterCreate({
+        ...dependencies,
+        writer: {
+          ...dependencies.writer,
+          abort: (reason) => {
+            outputAbortCount += 1
+            abortReasons.push(reason)
+            return Promise.resolve(dependencies.writer.abort(reason)).finally(() => {
+              outputClosed = true
+            })
+          },
+          close: () => {
+            outputCloseCount += 1
+            return Promise.resolve(dependencies.writer.close()).finally(() => {
+              outputClosed = true
+            })
+          },
+          write: () => {
+            writeCount += 1
+            return pendingWrite
+          },
+        },
+      }),
+    liveSubscription,
+    scheduler,
+  })
+
+  const response = await app.request("https://events.test/api/events", {
+    headers: { Cookie: "__Host-codeline-session=session-token" },
+    signal: abortController.signal,
+  })
+  expect(response.status).toBe(200)
+  await flush()
+
+  liveSubscription.publish(userId, frame(1))
+  await flush()
+  expect(writeCount).toBe(1)
+  expect(scheduler.timerCount()).toBe(2)
+
+  abortController.abort()
+  await flush()
+  await response.body?.cancel().catch(() => undefined)
+  abortController.abort()
+  liveSubscription.publish(userId, frame(2))
+  scheduler.advance(15_000)
+  await flush()
+
+  expect(liveSubscription.unsubscribeCount()).toBe(1)
+  expect(liveSubscription.subscriberCount(userId)).toBe(0)
+  expect(scheduler.timerCount()).toBe(0)
+  expect(outputAbortCount).toBe(1)
+  expect(outputCloseCount).toBe(0)
+  expect(outputClosed).toBe(true)
+  expect(abortReasons).toEqual(["request-aborted"])
+  expect(writeCount).toBe(1)
 })
 
 test("publishes committed journal events into the authenticated feed with opaque cursors", async () => {

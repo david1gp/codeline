@@ -1,9 +1,11 @@
 import { expect, test } from "bun:test"
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
+import { createRoot } from "solid-js/dist/solid.js"
 import { eventFeedCreate } from "../src/events/client/eventFeedCreate.js"
 import { eventFeedOwnerRegistryCreate } from "../src/events/client/eventFeedOwnerRegistryCreate.js"
+import { authSessionStateCreate } from "../src/identity/ui/authSessionStateCreate.js"
 import type { RunActiveSummary } from "../src/run/api/runActiveSummarySchema.js"
-import type { SessionSnapshotResponse } from "../src/session/api/sessionSnapshotResponseSchema.js"
+import type { SessionSettledSnapshotResponse } from "../src/session/api/sessionSettledSnapshotResponseSchema.js"
 import type { StreamSseFrame } from "../src/stream/api/streamSseFrameSchema.js"
 import type { EventFeedResourceRevision } from "../src/stream/client/eventFeedStateCreate.js"
 
@@ -45,6 +47,15 @@ class FakeEventSource {
   error(): void {
     this.readyState = 0
     this.onerror?.(new Event("error"))
+  }
+
+  reconnect(responseStatus: number): void {
+    if (responseStatus === 401) {
+      this.readyState = 2
+      this.onerror?.(new Event("error"))
+      return
+    }
+    this.error()
   }
 
   open(): void {
@@ -108,9 +119,10 @@ type ResetBootstrap = {
   resourceRevisions: EventFeedResourceRevision[]
 }
 
-function sessionSnapshot(sessionId: string, revision: number): SessionSnapshotResponse {
+function sessionSnapshot(sessionId: string, revision: number): SessionSettledSnapshotResponse {
   const timestamp = "2026-01-01T00:00:00.000Z"
   return {
+    asOfCursor: `cursor-${revision}`,
     asOfSequence: revision,
     etag: `"session-${revision}"`,
     messages: [],
@@ -230,6 +242,74 @@ test("requires an opaque bootstrap cursor and only opens a cursorless feed expli
   fresh.close()
 })
 
+test("a reload attach folds the run-specific snapshot and reopens the feed after its cursor", () => {
+  const sources: FakeEventSource[] = []
+  const feed = eventFeedCreate({
+    bootstrap: { fresh: true },
+    eventSourceFactory: (url, sourceOptions) => {
+      const source = new FakeEventSource(url, sourceOptions)
+      sources.push(source)
+      return source
+    },
+    ownershipRegistry: eventFeedOwnerRegistryCreate(),
+    reconciliation: callbacks(),
+  })
+
+  // A fresh reload starts cursorless; the run snapshot supplies the attach point.
+  expect(sources[0]?.url).toBe("/api/events")
+
+  expect(
+    feed.activeRunAttach({
+      lastCursor: "cursor-12",
+      lastSequence: 12,
+      partialText: "hello world",
+      runId: "run-a",
+      sessionId: "session-a",
+      status: "running",
+    }),
+  ).toMatchObject({ success: true })
+
+  expect(sources).toHaveLength(2)
+  expect(sources[0]?.closeCount).toBe(1)
+  expect(sources[1]?.url).toBe("/api/events?after=cursor-12")
+  expect(feed.dataState.activeRuns.get("run-a")).toMatchObject({
+    lastSequence: 12,
+    partialText: "hello world",
+    phase: "active",
+  })
+
+  // Fragments the snapshot already folded are not applied twice.
+  const reattached = sources[1]
+  if (reattached === undefined) throw new Error("The reattached event source is missing.")
+  reattached.open()
+  reattached.emit(frame("delta", 12, { runId: "run-a", sessionId: "session-a", delta: "duplicate" }))
+  expect(feed.dataState.activeRuns.get("run-a")?.partialText).toBe("hello world")
+
+  reattached.emit(frame("delta", 13, { runId: "run-a", sessionId: "session-a", delta: "!" }))
+  expect(feed.dataState.activeRuns.get("run-a")).toMatchObject({ lastSequence: 13, partialText: "hello world!" })
+  feed.close()
+})
+
+test("an attach without a snapshot cursor keeps the existing feed connection", () => {
+  const { feed, sources } = createFakeFeed()
+
+  expect(
+    feed.activeRunAttach({
+      lastCursor: null,
+      lastSequence: 0,
+      partialText: "",
+      runId: "run-a",
+      sessionId: "session-a",
+      status: "accepted",
+    }),
+  ).toMatchObject({ success: true })
+
+  expect(sources).toHaveLength(1)
+  expect(feed.getUrl()).toBe("/api/events?after=cursor-0")
+  expect(feed.dataState.activeRuns.get("run-a")).toMatchObject({ lastSequence: 0, phase: "active" })
+  feed.close()
+})
+
 test("keeps one EventSource through reconnecting errors and closes it exactly once", () => {
   const states: string[] = []
   const { feed, source, sources } = createFakeFeed(undefined, { onStateChange: (state) => states.push(state.status) })
@@ -247,9 +327,66 @@ test("keeps one EventSource through reconnecting errors and closes it exactly on
   expect(feed.dataState.status.status).toBe("offline")
 })
 
+test("closes the transport on offline and reopens after the retained cursor when online", () => {
+  const { feed, source, sources } = createFakeFeed()
+
+  source.open()
+  source.emit(frame("invalidate", 4))
+  expect(feed.getUrl()).toBe("/api/events?after=cursor-4")
+
+  feed.offline()
+  expect(source.closeCount).toBe(1)
+  expect(feed.getUrl()).toBe("/api/events?after=cursor-4")
+  expect(feed.getState().status).toBe("offline")
+
+  feed.online()
+  expect(sources).toHaveLength(2)
+  expect(sources[1]?.url).toBe("/api/events?after=cursor-4")
+  feed.online()
+  expect(sources).toHaveLength(2)
+  feed.close()
+})
+
+test("signs out after an expired authenticated EventSource reconnect receives 401", async () => {
+  let currentTime = new Date("2026-08-23T00:00:00.000Z")
+  const expiresAt = new Date(currentTime.getTime() + 1_000)
+  const authRoot = createRoot((dispose) => ({
+    dispose,
+    state: authSessionStateCreate({
+      fetcher: async () =>
+        currentTime < expiresAt
+          ? Response.json({
+              authenticated: true,
+              displayName: "Expired User",
+              organizationId: "organization-1",
+              token: "stale-token",
+              userId: "user-1",
+            })
+          : Response.json({ error: { code: "unauthorized", message: "Authentication is required." } }, { status: 401 }),
+    }),
+  }))
+  await flush()
+  expect(authRoot.state.status()).toBe("signed-in")
+
+  const { feed, source } = createFakeFeed(undefined, {
+    onAuthenticationError: authRoot.state.signOut,
+  })
+  source.open()
+  currentTime = expiresAt
+  source.reconnect(401)
+
+  expect(feed.getState().status).toBe("offline")
+  expect(authRoot.state.status()).toBe("signed-out")
+  expect(authRoot.state.displayName()).toBeUndefined()
+  expect(authRoot.state.organizationId()).toBeUndefined()
+  expect(authRoot.state.token()).toBeUndefined()
+  expect(authRoot.state.userId()).toBeUndefined()
+  authRoot.dispose()
+})
+
 test("replaces a completed session authoritatively and removes the live run", async () => {
   const calls: string[] = []
-  const replacements: SessionSnapshotResponse[] = []
+  const replacements: SessionSettledSnapshotResponse[] = []
   const { feed, source } = createFakeFeed(
     callbacks({
       sessionSnapshotLoad: async (input) => {
@@ -687,8 +824,8 @@ test("does not duplicate reset work for repeated reset frames", async () => {
 })
 
 test("close during a reset snapshot prevents replacement and reopen", async () => {
-  let resolveSnapshot: ((result: Result<SessionSnapshotResponse>) => void) | undefined
-  const snapshot = new Promise<Result<SessionSnapshotResponse>>((resolve) => {
+  let resolveSnapshot: ((result: Result<SessionSettledSnapshotResponse>) => void) | undefined
+  const snapshot = new Promise<Result<SessionSettledSnapshotResponse>>((resolve) => {
     resolveSnapshot = resolve
   })
   let replaceCalls = 0

@@ -1,7 +1,7 @@
-import { createResult, createResultError, type Result } from "@adaptive-ds/result"
-import * as v from "valibot"
-import { apiErrorResponseSchema } from "../../api/errors/apiErrorResponseSchema.js"
-import { runCancelResponseSchema, type RunCancelResponse } from "./runCancelResponseSchema.js"
+import { createResultError, type Result } from "@adaptive-ds/result"
+import { apiHttpClientCreate } from "../../api/client/apiHttpClientCreate.js"
+import { type RunCancelResponse, runCancelResponseSchema } from "../api/runCancelResponseSchema.js"
+import { runCancelInputSchema } from "../schema/runCancelInputSchema.js"
 
 type RunCancelCommandOptions = {
   clientRunId: string
@@ -15,39 +15,12 @@ export async function runCancelCommand(options: RunCancelCommandOptions): Promis
     return createResultError(op, "The run cancellation identifiers are required.")
   }
 
-  let response: Response
-  try {
-    response = await (options.fetcher ?? globalThis.fetch)(
-      `/api/sessions/${encodeURIComponent(options.sessionId)}/runs/${encodeURIComponent(options.clientRunId)}/cancel`,
-      {
-        body: JSON.stringify({}),
-        headers: { "Content-Type": "application/json" },
-        method: "POST",
-      },
-    )
-  } catch (_error) {
-    return createResultError(
-      op,
-      "The run cancellation request could not be completed. Check your connection and try again.",
-    )
-  }
-
-  let body: unknown
-  try {
-    body = await response.json()
-  } catch (_error) {
-    return createResultError(op, "The run cancellation response is invalid.")
-  }
-
-  if (!response.ok) {
-    const parsedError = v.safeParse(apiErrorResponseSchema, body)
-    return createResultError(
-      op,
-      parsedError.success ? parsedError.output.error.message : "The run cancellation request could not be completed.",
-    )
-  }
-
-  const parsed = v.safeParse(runCancelResponseSchema, body)
-  if (!parsed.success) return createResultError(op, "The run cancellation response is invalid.")
-  return createResult(parsed.output)
+  const client = apiHttpClientCreate({ fetch: options.fetcher ?? globalThis.fetch })
+  return client.post({
+    body: {},
+    op,
+    path: `/api/sessions/${encodeURIComponent(options.sessionId)}/runs/${encodeURIComponent(options.clientRunId)}/cancel`,
+    requestSchema: runCancelInputSchema,
+    responseSchema: runCancelResponseSchema,
+  })
 }

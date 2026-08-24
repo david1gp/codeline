@@ -33,6 +33,16 @@ type RunDelegationTransition = {
   run?: typeof runTable.$inferSelect
 }
 
+type RunDelegationProviderOutput = {
+  append: (input: unknown) => Promise<Result<void>>
+  finalize: (input: {
+    failure?: { code: string; message: string }
+    reason?: string
+    status: "aborted" | "failed" | "succeeded"
+  }) => Promise<Result<unknown>>
+  flush: () => Promise<Result<void>>
+}
+
 type RunDelegationExecuteOptions = {
   attemptStreamCreate: (input: {
     attempt: typeof attemptTable.$inferSelect
@@ -56,13 +66,7 @@ type RunDelegationExecuteOptions = {
   delegationFinalize: (delegationId: string, result: RunDelegationResult) => Promise<Result<unknown>>
   retryAttemptCreate: (runId: string, options: { now: () => Date }) => Promise<Result<RunDelegationRetry>>
   runTransition: (runId: string, input: RunTransitionInput) => Promise<Result<RunDelegationTransition>>
-  streamAppend: (input: {
-    eventType: string
-    idempotencyKey: string
-    payload: unknown
-    sequence: number
-    streamId: string
-  }) => Promise<Result<unknown>>
+  providerOutputCreate?: (input: { requestId: string; runId: string; sessionId: string }) => RunDelegationProviderOutput
   clearTimeout?: (handle: ReturnType<typeof setTimeout>) => void
   now?: () => Date
   setTimeout?: (handler: () => void, timeout: number) => ReturnType<typeof setTimeout>
@@ -168,15 +172,13 @@ async function runDelegationAttemptExecute(
   task: string,
   controller: AbortController,
   deadlineTriggered: () => boolean,
+  providerOutput: RunDelegationProviderOutput | undefined,
 ): Promise<Result<RunDelegationAttemptOutcome>> {
   const op = "runDelegationExecute"
-  let sequence = 0
   let text = ""
   let outcome: RunDelegationAttemptOutcome | undefined
-  let appendFailure: string | undefined
 
   const append = async (event: ExecutionStreamEvent): Promise<boolean> => {
-    sequence += 1
     const persistedEvent: ExecutionStreamEvent =
       event.eventType === "terminal"
         ? {
@@ -188,22 +190,9 @@ async function runDelegationAttemptExecute(
             },
           }
         : event
-    let persisted: Result<unknown>
-    try {
-      persisted = await options.streamAppend({
-        eventType: persistedEvent.eventType,
-        idempotencyKey: `${attempt.id}:${sequence}`,
-        payload: persistedEvent.payload,
-        sequence,
-        streamId: attempt.streamId,
-      })
-    } catch (_error) {
-      appendFailure = "The child attempt event could not be persisted."
-      return false
-    }
-    if (!persisted.success) {
-      appendFailure = persisted.errorMessage
-      return false
+    if (providerOutput !== undefined) {
+      const persisted = await providerOutput.append(persistedEvent)
+      if (!persisted.success) return false
     }
     if (persistedEvent.eventType === "text_delta") {
       const remaining = PRIVATE_RESULT_LIMIT - text.length
@@ -233,7 +222,7 @@ async function runDelegationAttemptExecute(
         "provider_failed",
         error instanceof Error ? error.message : "The delegated child attempt failed.",
       )
-      if (!(await terminalAppend("error", failure))) return createResultError(op, appendFailure ?? failure.message)
+      if (!(await terminalAppend("error", failure))) return createResultError(op, failure.message)
       outcome = { failure, status: "failed", text }
     }
 
@@ -244,8 +233,7 @@ async function runDelegationAttemptExecute(
         if (!aborted.success) return aborted
         if (aborted.data !== null) {
           const failure = runDelegationAbortFailureCreate(aborted.data)
-          if (!(await terminalAppend("aborted", failure)))
-            return createResultError(op, appendFailure ?? failure.message)
+          if (!(await terminalAppend("aborted", failure))) return createResultError(op, failure.message)
           outcome = { failure, status: "aborted", text }
           break
         }
@@ -256,8 +244,7 @@ async function runDelegationAttemptExecute(
           if (!kind.success) return kind
           const abortKind = kind.data ?? "cancelled"
           const failure = runDelegationAbortFailureCreate(abortKind)
-          if (!(await terminalAppend("aborted", failure)))
-            return createResultError(op, appendFailure ?? failure.message)
+          if (!(await terminalAppend("aborted", failure))) return createResultError(op, failure.message)
           outcome = { failure, status: "aborted", text }
           break
         }
@@ -269,12 +256,11 @@ async function runDelegationAttemptExecute(
             "child_event_invalid",
             "The child attempt emitted an invalid event.",
           )
-          if (!(await terminalAppend("error", failure))) return createResultError(op, appendFailure ?? failure.message)
+          if (!(await terminalAppend("error", failure))) return createResultError(op, failure.message)
           outcome = { failure, status: "failed", text }
           break
         }
-        if (!(await append(parsedEvent.output)))
-          return createResultError(op, appendFailure ?? "The child event could not be persisted.")
+        if (!(await append(parsedEvent.output))) return createResultError(op, "The child event could not be persisted.")
 
         if (parsedEvent.output.eventType !== "terminal") continue
         const terminal = parsedEvent.output.payload
@@ -308,7 +294,7 @@ async function runDelegationAttemptExecute(
     if (!aborted.success) return aborted
     if (aborted.data !== null) {
       const failure = runDelegationAbortFailureCreate(aborted.data)
-      if (!(await terminalAppend("aborted", failure))) return createResultError(op, appendFailure ?? failure.message)
+      if (!(await terminalAppend("aborted", failure))) return createResultError(op, failure.message)
       return createResult({ failure, status: "aborted", text })
     }
 
@@ -316,7 +302,7 @@ async function runDelegationAttemptExecute(
       "provider_failed",
       "The delegated child attempt ended before completion.",
     )
-    if (!(await terminalAppend("error", failure))) return createResultError(op, appendFailure ?? failure.message)
+    if (!(await terminalAppend("error", failure))) return createResultError(op, failure.message)
     return createResult({ failure, status: "failed", text })
   } catch (_error) {
     return createResultError(op, "The delegated child attempt could not be executed.")
@@ -436,12 +422,31 @@ export async function runDelegationExecute(
 
   let currentRun = child.data.run
   let currentAttempt = child.data.attempt
+  const providerOutput = options.providerOutputCreate?.({
+    requestId: input.delegationKey,
+    runId: child.data.run.id,
+    sessionId: input.parentRun.sessionId,
+  })
+
+  const providerOutputFinalize = async (input: {
+    failure?: RunFailureMetadata
+    reason?: string
+    status: "aborted" | "failed" | "succeeded"
+  }): Promise<Result<void>> => {
+    if (providerOutput === undefined) return createResult(undefined)
+    const finalized = await providerOutput.finalize(input)
+    if (!finalized.success) return createResultError(op, finalized.errorMessage)
+    return createResult(undefined)
+  }
+
   try {
     while (true) {
       const abortKind = runDelegationAbortKindResolve(controller, currentRun.deadlineAt, deadlineTriggered, options)
       if (!abortKind.success) return abortKind
       if (abortKind.data !== null) {
         const failure = runDelegationAbortFailureCreate(abortKind.data)
+        const outputFinalized = await providerOutputFinalize({ failure, status: "aborted" })
+        if (!outputFinalized.success) return outputFinalized
         const finalized = await options.delegationFinalize(child.data.delegation.id, {
           failure,
           status: "aborted",
@@ -463,6 +468,7 @@ export async function runDelegationExecute(
         parsedInput.output.task,
         controller,
         () => deadlineTriggered,
+        providerOutput,
       )
       if (!attempt.success) return attempt
 
@@ -475,6 +481,8 @@ export async function runDelegationExecute(
       if (!postAttemptAbort.success) return postAttemptAbort
       if (postAttemptAbort.data !== null && attempt.data.status !== "aborted") {
         const failure = runDelegationAbortFailureCreate(postAttemptAbort.data)
+        const outputFinalized = await providerOutputFinalize({ failure, status: "aborted" })
+        if (!outputFinalized.success) return outputFinalized
         const finalized = await options.delegationFinalize(child.data.delegation.id, {
           failure,
           status: "aborted",
@@ -485,19 +493,24 @@ export async function runDelegationExecute(
       }
 
       if (attempt.data.status === "aborted") {
+        const failure = attempt.data.failure ?? runDelegationAbortFailureCreate("cancelled")
+        const outputFinalized = await providerOutputFinalize({ failure, status: "aborted" })
+        if (!outputFinalized.success) return outputFinalized
         const finalized = await options.delegationFinalize(child.data.delegation.id, {
-          failure: attempt.data.failure ?? runDelegationAbortFailureCreate("cancelled"),
+          failure,
           status: "aborted",
           text: attempt.data.text,
         })
         if (!finalized.success) return createResultError(op, finalized.errorMessage)
         return createResult({
-          failure: attempt.data.failure ?? runDelegationAbortFailureCreate("cancelled"),
+          failure,
           status: "aborted",
           text: attempt.data.text,
         })
       }
       if (attempt.data.status === "succeeded") {
+        const outputFinalized = await providerOutputFinalize({ status: "succeeded" })
+        if (!outputFinalized.success) return outputFinalized
         const succeeded = runDelegationResultCreate("succeeded", attempt.data.text)
         if (!succeeded.success) return succeeded
         const finalized = await options.delegationFinalize(child.data.delegation.id, succeeded.data)
@@ -514,6 +527,8 @@ export async function runDelegationExecute(
       })
       if (!retryAdmission.success) return retryAdmission
       if (retryAdmission.data.decision !== "retry") {
+        const outputFinalized = await providerOutputFinalize({ failure, status: "failed" })
+        if (!outputFinalized.success) return outputFinalized
         const failed = runDelegationResultCreate("failed", attempt.data.text, failure)
         if (!failed.success) return failed
         const finalized = await options.delegationFinalize(child.data.delegation.id, failed.data)
@@ -527,6 +542,8 @@ export async function runDelegationExecute(
       if (transitioned.data.attempt !== undefined) currentAttempt = transitioned.data.attempt
       const retry = await options.retryAttemptCreate(currentRun.id, { now: options.now ?? (() => new Date()) })
       if (!retry.success) {
+        const outputFinalized = await providerOutputFinalize({ failure, status: "failed" })
+        if (!outputFinalized.success) return outputFinalized
         const failed = runDelegationResultCreate("failed", attempt.data.text, failure)
         if (!failed.success) return failed
         const finalized = await options.delegationFinalize(child.data.delegation.id, failed.data)

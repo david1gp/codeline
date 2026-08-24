@@ -218,6 +218,34 @@ export const providerDeterministicScenarioFixture = {
     ],
     maxAttempts: 1,
   },
+  /**
+   * Long enough for a browser reload to happen mid-run, so reload reattachment
+   * observes a still-active detached run and then its authoritative completion.
+   * The first fragment flushes immediately, so partial output is persisted and
+   * readable through the run-specific active snapshot before the reload.
+   */
+  "detached-reload": {
+    attempts: [
+      {
+        ordinal: 1,
+        steps: [
+          {
+            delayMs: 20,
+            event: { eventType: "text_delta", payload: { delta: "The detached deterministic run started. " } },
+          },
+          {
+            delayMs: 8_000,
+            event: {
+              eventType: "text_delta",
+              payload: { delta: "The detached deterministic run finished after the reload." },
+            },
+          },
+          { delayMs: 20, event: { eventType: "terminal", payload: { status: "completed" } } },
+        ],
+      },
+    ],
+    maxAttempts: 1,
+  },
   cancellation: {
     attempts: [
       {

@@ -60,29 +60,31 @@ export function SelectedSession(props: {
                     <div class="mt-1 flex min-w-0 items-start justify-between gap-2 text-lg font-semibold tracking-[-0.02em]">
                       <div class="min-w-0 flex-1">
                         <Show
-                          when={props.state.readOnlyReason() === null}
+                          when={props.state.readOnlyReason() === null ? props.state.renameState() : undefined}
                           fallback={
                             <h2 class="m-0 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
                               {props.state.session()?.title}
                             </h2>
                           }
                         >
-                          <SessionRenameControl state={props.state.renameState()!} />
+                          {(rename) => <SessionRenameControl state={rename()} />}
                         </Show>
                       </div>
                       <div class="mt-0.5 flex shrink-0 items-center gap-1.5">
                         <SessionDisplayModeSwitcher state={props.state.displayMode} />
-                        <Show when={props.state.readOnlyReason() === null}>
-                          <ButtonIconOnly
-                            class="size-8 text-faint hover:bg-surface-hover hover:text-accent"
-                            icon={props.state.pinState()!.pinned() ? mdiPinOutline : mdiPinOffOutline}
-                            iconClass="size-4"
-                            isLoading={props.state.pinState()!.isSaving()}
-                            title={props.state.pinState()!.pinned() ? "Unpin session" : "Pin session"}
-                            aria-label={props.state.pinState()!.pinned() ? "Unpin session" : "Pin session"}
-                            aria-pressed={props.state.pinState()!.pinned()}
-                            onClick={props.state.pinState()!.toggle}
-                          />
+                        <Show when={props.state.readOnlyReason() === null ? props.state.pinState() : undefined}>
+                          {(pin) => (
+                            <ButtonIconOnly
+                              class="size-8 text-faint hover:bg-surface-hover hover:text-accent"
+                              icon={pin().pinned() ? mdiPinOutline : mdiPinOffOutline}
+                              iconClass="size-4"
+                              isLoading={pin().isSaving()}
+                              title={pin().pinned() ? "Unpin session" : "Pin session"}
+                              aria-label={pin().pinned() ? "Unpin session" : "Pin session"}
+                              aria-pressed={pin().pinned()}
+                              onClick={pin().toggle}
+                            />
+                          )}
                         </Show>
                       </div>
                     </div>
@@ -93,7 +95,7 @@ export function SelectedSession(props: {
                         </p>
                       )}
                     </Show>
-                    <Show when={props.state.pinState()!.errorMessage()}>
+                    <Show when={props.state.pinState()?.errorMessage()}>
                       {(message) => (
                         <p class="mt-1 mb-0 text-xs font-normal text-danger" role="alert">
                           {message()}

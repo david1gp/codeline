@@ -1,15 +1,15 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import {
-  eventFeedCreate,
   type EventFeedCreateOptions,
   type EventFeedReconciliationCallbacks,
+  eventFeedCreate,
 } from "../events/client/eventFeedCreate.js"
 import {
-  eventFeedOwnerRegistryCreate,
   type EventFeedOwnerRegistry,
+  eventFeedOwnerRegistryCreate,
 } from "../events/client/eventFeedOwnerRegistryCreate.js"
-import type { UiDataLayerStatus } from "./uiDataLayerStatusSchema.js"
 import type { EventFeedStaleResource } from "../stream/client/eventFeedStateCreate.js"
+import type { UiDataLayerStatus } from "./uiDataLayerStatusSchema.js"
 
 const tabEventFeedOwnerRegistry = eventFeedOwnerRegistryCreate()
 
@@ -184,6 +184,27 @@ export function eventFeedCoordinatorStateCreate(options: EventFeedCoordinatorOpt
       }
       return options.reconciliation.resourceRevalidate(resource)
     },
+    sessionSnapshotReplace: async (snapshot) => {
+      const replaced = await options.reconciliation.sessionSnapshotReplace(snapshot)
+      if (!replaced.success) return replaced
+      // A completion checkpoint replaces assembled live state with the authoritative
+      // HTTP snapshot. The settled cache alone is not what the workspace renders, so the
+      // session's registered HTTP queries must be refreshed or the finalized transcript
+      // never appears and the in-flight turn is never superseded.
+      if (resetRefreshPending) return replaced
+      const refreshed = await eventFeedRefreshCallbacksRun(
+        "eventFeedCoordinatorSessionSnapshotRefresh",
+        resourceRefreshCallbacksResolve({
+          cachedRevision: null,
+          resourceId: snapshot.session.id,
+          resourceType: "session",
+          serverRevision: snapshot.revision,
+        }),
+      )
+      if (!refreshed.success)
+        return createResultError("eventFeedCoordinatorSessionSnapshotRefresh", refreshed.errorMessage)
+      return replaced
+    },
     shellListBootstrap: async (instruction) => {
       const bootstrap = await options.reconciliation.shellListBootstrap(instruction)
       if (!bootstrap.success) return bootstrap
@@ -310,6 +331,7 @@ export function eventFeedCoordinatorStateCreate(options: EventFeedCoordinatorOpt
   }
 
   const feedApi = {
+    activeRunAttach: feed.activeRunAttach,
     cleanup: close,
     close,
     get dataState() {
@@ -317,6 +339,8 @@ export function eventFeedCoordinatorStateCreate(options: EventFeedCoordinatorOpt
     },
     getState: feed.getState,
     getUrl: feed.getUrl,
+    offline: feed.offline,
+    online: feed.online,
     retryReconciliation: feed.retryReconciliation,
     get state() {
       return feed.state

@@ -6,17 +6,19 @@ import { sessionTable } from "../../session/db/sessionTable.js"
 import type { RunDelegationsResponse } from "../api/runDelegationsResponseSchema.js"
 import { runDelegationTable } from "./runDelegationTable.js"
 
+type RunDelegationsLoadResult = Pick<RunDelegationsResponse, "delegations" | "revision">
+
 export async function runRepositoryDelegationsLoad(
   database: DatabaseExecutor,
   userId: string,
   organizationId: string,
   sessionId: string,
-): Promise<Result<RunDelegationsResponse>> {
+): Promise<Result<RunDelegationsLoadResult>> {
   const op = "runRepositoryDelegationsLoad"
 
   try {
     const [authorizedSession] = await database
-      .select({ id: sessionTable.id })
+      .select({ id: sessionTable.id, revision: sessionTable.revision })
       .from(sessionTable)
       .innerJoin(
         serverTable,
@@ -39,7 +41,7 @@ export async function runRepositoryDelegationsLoad(
       .where(and(eq(runDelegationTable.sessionId, sessionId), eq(runDelegationTable.userId, userId)))
       .orderBy(asc(runDelegationTable.createdAt), asc(runDelegationTable.id))
 
-    return createResult({ delegations })
+    return createResult({ delegations, revision: authorizedSession.revision })
   } catch (_error) {
     return createResultError(op, "The delegations could not be loaded.")
   }

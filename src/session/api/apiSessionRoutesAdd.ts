@@ -1,5 +1,4 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
-import type { StreamChunk } from "@tanstack/ai"
 import type { Context } from "hono"
 import { Hono } from "hono"
 import * as v from "valibot"
@@ -18,6 +17,7 @@ import type { ConfigurationStore } from "../../configuration/configurationStore.
 import type { DatabaseClient } from "../../database/databaseClient.js"
 import type { JournalCursorCodec } from "../../journal/actions/journalCursorCodecCreate.js"
 import type { journalPostCommitPublishCreate } from "../../journal/actions/journalPostCommitPublishCreate.js"
+import type { metricsCollectorCreate } from "../../metrics/metricsCollectorCreate.js"
 import { providerAgentCatalogExecutionResolve } from "../../providers/catalog/providerAgentCatalogExecutionResolve.js"
 import type { CliProxyApiAdapter } from "../../providers/runtime/cliProxyApiAdapterCreate.js"
 import { providerDelegationAdapterCreate } from "../../providers/runtime/providerDelegationAdapterCreate.js"
@@ -45,15 +45,12 @@ import type { runTable } from "../../run/db/runTable.js"
 import type { RunExecutionSnapshot } from "../../run/schema/runExecutionSnapshotSchema.js"
 import { runExecutionSnapshotSchema } from "../../run/schema/runExecutionSnapshotSchema.js"
 import { executionStreamEventNormalize } from "../../stream/actions/executionStreamEventNormalize.js"
-import { streamAppend } from "../../stream/actions/streamAppend.js"
-import { streamReplayServiceCreate } from "../../stream/actions/streamReplayServiceCreate.js"
 import type { ExecutionStreamEvent } from "../../stream/schema/executionStreamEventSchema.js"
 import { sessionArchive } from "../actions/sessionArchive.js"
 import type { sessionChatAdapterCreate } from "../actions/sessionChatAdapterCreate.js"
 import { sessionChatLunaPingAdapterCreate } from "../actions/sessionChatLunaPingAdapterCreate.js"
 import { sessionChatLunaPingDetect } from "../actions/sessionChatLunaPingDetect.js"
 import { sessionChatPrepare } from "../actions/sessionChatPrepare.js"
-import { sessionChatSseStreamCreate } from "../actions/sessionChatSseStreamCreate.js"
 import { sessionChatStreamCreate } from "../actions/sessionChatStreamCreate.js"
 import { sessionCreate } from "../actions/sessionCreate.js"
 import { sessionDelete } from "../actions/sessionDelete.js"
@@ -67,6 +64,10 @@ import { sessionChatRequestSchema } from "../schema/sessionChatRequestSchema.js"
 import { sessionCreateRequestSchema } from "../schema/sessionCreateRequestSchema.js"
 import { sessionPinRequestSchema } from "../schema/sessionPinRequestSchema.js"
 import { sessionQuerySchema } from "../schema/sessionQuerySchema.js"
+import {
+  type SessionChatCommandResponse,
+  sessionChatCommandResponseSchema,
+} from "./sessionChatCommandResponseSchema.js"
 import { sessionCreateMutationResponseCreate } from "./sessionCreateMutationResponseCreate.js"
 import { sessionMutationEtagResolve } from "./sessionMutationEtagResolve.js"
 import { sessionPreconditionFailedResponseCreate } from "./sessionPreconditionFailedResponseCreate.js"
@@ -109,11 +110,17 @@ function idempotencyConflict(context: ApiContext) {
   return context.json(response, 409)
 }
 
-async function completeJsonResponse(context: ApiContext, body: unknown, headers: Headers): Promise<Response> {
+async function completeJsonResponse(
+  context: ApiContext,
+  body: unknown,
+  headers: Headers,
+  metricsCollector?: ReturnType<typeof metricsCollectorCreate>,
+): Promise<Response> {
   const complete = await apiCompleteSnapshotResponseCreate(body, {
     acceptEncoding: context.req.header("Accept-Encoding"),
     dependencies: { compressionStreamCreate: (encoding) => new CompressionStream(encoding) },
     headers,
+    metricsCollector,
   })
   if (!complete.success) {
     if (complete.code === "not_acceptable") return new Response(null, { headers, status: 406 })
@@ -138,7 +145,6 @@ type ApiSessionRoutesOptions = {
   providerAgentCatalog?: ProviderCatalog
   providerEnvironment?: Readonly<Record<string, string | undefined>>
   providerFetch?: NonNullable<ProviderModelDiscoveryOptions["fetch"]>
-  projectRootDir?: string
   projectRootDirs?: readonly string[]
   providerDelegationToolLoopCreate?: typeof providerDelegationToolLoopCreate
   providerRuntimeAdapterCreate?: typeof providerRuntimeAdapterCreate
@@ -155,11 +161,9 @@ type ApiSessionRoutesOptions = {
   sessionChatAdapter?: typeof sessionChatAdapterCreate
   journalPostCommitPublish: ReturnType<typeof journalPostCommitPublishCreate>
   journalCursorCodec: JournalCursorCodec
-  streamInactivityTimeoutMs?: number
-  streamReplayServiceCreate?: typeof streamReplayServiceCreate
+  metricsCollector?: ReturnType<typeof metricsCollectorCreate>
 }
 
-const sessionChatDefaultInactivityTimeoutMs = 120_000
 const sessionChatRootBudget = { maxChildDepth: 1, maxChildRuns: 1 } as const
 
 function sessionChatRootBudgetResolve(configuration: AgentConfiguration) {
@@ -170,19 +174,6 @@ function sessionChatRootBudgetResolve(configuration: AgentConfiguration) {
 
 function sessionChatStreamIdCreate(sessionId: string, runId: string): string {
   return `session-chat:${sessionId}:${runId}`
-}
-
-async function* sessionChatStreamReplay(
-  events: Array<{ id: string; payload: unknown }>,
-  eventIds: Array<string | undefined>,
-): AsyncGenerator<StreamChunk> {
-  let delivered = 0
-  for (const event of events) {
-    const chunk = event.payload as StreamChunk
-    eventIds[delivered] = event.id
-    delivered += 1
-    yield chunk
-  }
 }
 
 function sessionChatChildExecutionErrorCreate(code: string, message: string): ExecutionStreamEvent {
@@ -241,7 +232,6 @@ async function* sessionChatChildExecutionStreamGenerate(input: {
 
 type SessionChatAdmission = {
   attempt?: typeof attemptTable.$inferSelect
-  attempts?: Array<typeof attemptTable.$inferSelect>
   run?: typeof runTable.$inferSelect
   runtimeConfiguration?: AgentConfiguration
   agentPrompt?: string
@@ -264,7 +254,6 @@ async function sessionChatAdmissionResolve(
     if (!parsedSnapshot.success) return createResultError(op, "The persisted run snapshot is invalid.")
     return createResult({
       attempt: loaded.data.attempt,
-      attempts: loaded.data.attempts,
       runtimeConfiguration: options.sessionChatAdapter === undefined ? parsedSnapshot.output.configuration : undefined,
       agentPrompt: parsedSnapshot.output.agentPrompt,
       run: loaded.data.run,
@@ -290,35 +279,11 @@ async function sessionChatAdmissionResolve(
   })
 }
 
-async function sessionChatReplayEventsLoad(
-  attempts: ReadonlyArray<typeof attemptTable.$inferSelect>,
-  options: {
-    database: DatabaseClient
-    inactivityTimeoutMs: number
-    sessionId: string
-    streamReplayServiceCreate: typeof streamReplayServiceCreate
-    userId: string
-  },
-): Promise<Result<Array<{ id: string; payload: unknown }>>> {
-  const op = "sessionChatReplayEventsLoad"
-  const events: Array<{ id: string; payload: unknown }> = []
-
-  for (const attempt of attempts) {
-    const replayService = options.streamReplayServiceCreate({
-      database: options.database,
-      inactivityTimeoutMs: options.inactivityTimeoutMs,
-      sessionId: options.sessionId,
-      streamId: attempt.streamId,
-      userId: options.userId,
-    })
-    const started = await replayService.start()
-    if (!started.success) return createResultError(op, started.errorMessage)
-    const replay = await replayService.replay({ limit: 100 })
-    if (!replay.success) return createResultError(op, replay.errorMessage)
-    events.push(...replay.data.events.map((event) => ({ id: event.id, payload: event.payload })))
-  }
-
-  return createResult(events)
+function sessionChatCommandResponseCreate(runId: string, sessionId: string): Result<SessionChatCommandResponse> {
+  const parsed = v.safeParse(sessionChatCommandResponseSchema, { runId, sessionId })
+  if (!parsed.success)
+    return createResultError("sessionChatCommandResponseCreate", "The chat command response is invalid.")
+  return createResult(parsed.output)
 }
 
 export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessionRoutesOptions): void {
@@ -390,7 +355,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
         }),
       },
       organizationId,
-      projectRootDirs: options.projectRootDir === undefined ? options.projectRootDirs : [options.projectRootDir],
+      projectRootDirs: options.projectRootDirs,
       requestHash,
     })
     if (!result.success) {
@@ -431,7 +396,6 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     let runtimeConfiguration: AgentConfiguration | undefined
     let admittedRun: typeof runTable.$inferSelect | undefined
     let admittedAttempt: typeof attemptTable.$inferSelect | undefined
-    let admittedAttempts: Array<typeof attemptTable.$inferSelect> = []
     let activeRun: typeof runTable.$inferSelect | undefined
     let activeAttempt: typeof attemptTable.$inferSelect | undefined
     let runtimeAgentPrompt: string | undefined
@@ -445,7 +409,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     })
     if (lunaPing) adapter = sessionChatLunaPingAdapterCreate
 
-    if (options.configurationStore !== undefined && !lunaPing) {
+    if (options.configurationStore !== undefined) {
       const admission = await sessionChatAdmissionResolve(
         userId,
         sessionId,
@@ -477,12 +441,6 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
       }
       admittedRun = created.data.run
       admittedAttempt = created.data.attempt
-      if (admission.data.attempts !== undefined) {
-        admittedAttempts = admission.data.attempts
-      } else {
-        const persisted = await runLoadAction(options.database, userId, sessionId, parsed.data.runId)
-        admittedAttempts = persisted.success ? persisted.data.attempts : [created.data.attempt]
-      }
       activeRun = admittedRun
       activeAttempt = admittedAttempt
     } else if (adapter === undefined) {
@@ -580,7 +538,19 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
             runRetryAttemptCreateAction(options.database, userId, sessionId, runId, retryOptions),
           runTransition: (runId, transition) =>
             runTransitionAction(options.database, userId, sessionId, runId, transition),
-          streamAppend: (event) => streamAppend(options.database, userId, sessionId, event),
+          providerOutputCreate: ({ runId }) =>
+            runProviderOutputCreate({
+              database: options.database,
+              journalPostCommitPublish: options.journalPostCommitPublish,
+              requestId: `${parsed.data.runId}:child:${runId}`,
+              runId,
+              scheduler: {
+                clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+                setTimeout: (handler, timeoutMs) => setTimeout(handler, timeoutMs),
+              },
+              sessionId,
+              userId,
+            }),
         },
       )
       if (!childExecute.success) throw new Error(childExecute.errorMessage)
@@ -599,24 +569,6 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
       return internalServerError(context)
     }
 
-    const requestSignal = context.req.raw.signal
-
-    const eventIds: Array<string | undefined> = []
-    const replayServiceCreate = options.streamReplayServiceCreate ?? streamReplayServiceCreate
-    const inactivityTimeoutMs = options.streamInactivityTimeoutMs ?? sessionChatDefaultInactivityTimeoutMs
-    let stream: AsyncIterable<StreamChunk>
-    const pendingEventIds: Array<string> = []
-    const initialStreamId = admittedAttempt?.streamId ?? sessionChatStreamIdCreate(sessionId, parsed.data.runId)
-    const initialReplayService = replayServiceCreate({
-      database: options.database,
-      inactivityTimeoutMs,
-      sessionId,
-      streamId: initialStreamId,
-      userId,
-    })
-    const started = await initialReplayService.start()
-    if (!started.success) return internalServerError(context)
-
     let executionClaimed = admittedRun === undefined
     if (admittedRun !== undefined && admittedAttempt !== undefined && admittedRun.status === "accepted") {
       const claimed = await runTransitionAction(options.database, userId, sessionId, admittedRun.id, {
@@ -630,224 +582,184 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
       executionClaimed = claimed.data.changed
     }
 
-    if (admittedRun !== undefined && !executionClaimed) {
-      const replay = await sessionChatReplayEventsLoad(admittedAttempts, {
-        database: options.database,
-        inactivityTimeoutMs,
+    const commandRunId = admittedRun?.id ?? parsed.data.runId
+    const commandResponse = sessionChatCommandResponseCreate(commandRunId, sessionId)
+    if (!commandResponse.success) return internalServerError(context)
+    if (admittedRun !== undefined && !executionClaimed) return context.json(commandResponse.data)
+
+    if (adapter === undefined) {
+      if (runtimeConfiguration === undefined) return internalServerError(context)
+      const resolved = providerRuntimeAdapterResolve(runtimeConfiguration, {
+        environment: options.providerEnvironment ?? Bun.env,
+        ...(options.providerFetch === undefined ? {} : { fetch: options.providerFetch }),
+        runtimeAdapterCreate: options.providerRuntimeAdapterCreate,
+        ...(runtimeAgentPrompt === undefined ? {} : { systemPrompt: runtimeAgentPrompt }),
+      })
+      if (!resolved.success) return internalServerError(context)
+      const deterministicScenario =
+        runtimeConfiguration.provider === "deterministic"
+          ? providerDeterministicScenarioResolve(runtimeConfiguration.model)
+          : null
+      adapter =
+        activeRun !== undefined && deterministicScenario === null
+          ? providerDelegationAdapterCreate({
+              adapter: resolved.data,
+              delegateTask: delegatedTaskExecute,
+              model: runtimeConfiguration.model,
+              toolLoopCreate: options.providerDelegationToolLoopCreate,
+            })
+          : resolved.data
+    }
+
+    let executionSignal: AbortSignal
+    let unregisterCancellation: (() => void) | undefined
+    const createdProviderOutput =
+      admittedRun === undefined
+        ? undefined
+        : runProviderOutputCreate({
+            database: options.database,
+            journalPostCommitPublish: options.journalPostCommitPublish,
+            requestId: parsed.data.runId,
+            runId: admittedRun.id,
+            scheduler: {
+              clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+              setTimeout: (handler, timeoutMs) => setTimeout(handler, timeoutMs),
+            },
+            sessionId,
+            userId,
+          })
+    let providerOutput = createdProviderOutput
+    if (options.runActiveRegistry !== undefined) {
+      const registered = options.runActiveRegistry.register({
+        ...(createdProviderOutput === undefined ? {} : { providerOutput: createdProviderOutput }),
+        runId: commandRunId,
         sessionId,
-        streamReplayServiceCreate: replayServiceCreate,
         userId,
       })
-      if (!replay.success) return internalServerError(context)
-      stream = sessionChatStreamReplay(replay.data, eventIds)
-    } else if (started.data.checkpoint.lastSequence > 0) {
-      const replay = await initialReplayService.replay({ limit: 100 })
-      if (!replay.success) return internalServerError(context)
-      stream = sessionChatStreamReplay(replay.data.events, eventIds)
+      if (!registered.success) return internalServerError(context)
+      providerOutput = registered.data.lifecycle.providerOutput
+      executionSignal = registered.data.lifecycle.signal
+      unregisterCancellation = registered.data.cleanup
     } else {
-      if (adapter === undefined) {
-        if (runtimeConfiguration === undefined) return internalServerError(context)
-        const resolved = providerRuntimeAdapterResolve(runtimeConfiguration, {
-          environment: options.providerEnvironment ?? Bun.env,
-          ...(options.providerFetch === undefined ? {} : { fetch: options.providerFetch }),
-          runtimeAdapterCreate: options.providerRuntimeAdapterCreate,
-          ...(runtimeAgentPrompt === undefined ? {} : { systemPrompt: runtimeAgentPrompt }),
-        })
-        if (!resolved.success) return internalServerError(context)
-        const deterministicScenario =
-          runtimeConfiguration.provider === "deterministic"
-            ? providerDeterministicScenarioResolve(runtimeConfiguration.model)
-            : null
-        adapter =
-          activeRun !== undefined && deterministicScenario === null
-            ? providerDelegationAdapterCreate({
-                adapter: resolved.data,
-                delegateTask: delegatedTaskExecute,
-                model: runtimeConfiguration.model,
-                toolLoopCreate: options.providerDelegationToolLoopCreate,
-              })
-            : resolved.data
-      }
+      const executionAbortController = new AbortController()
+      executionSignal = executionAbortController.signal
+      unregisterCancellation = options.runCancellationCoordinator?.register({
+        controller: executionAbortController,
+        runId: commandRunId,
+        sessionId,
+        userId,
+      })
+    }
 
-      let executionSignal: AbortSignal
-      let unregisterCancellation: (() => void) | undefined
-      const executionRunId = admittedRun?.id ?? parsed.data.runId
-      const createdProviderOutput =
-        admittedRun === undefined
-          ? undefined
-          : runProviderOutputCreate({
-              database: options.database,
-              journalPostCommitPublish: options.journalPostCommitPublish,
-              runId: admittedRun.id,
-              scheduler: {
-                clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
-                setTimeout: (handler, timeoutMs) => setTimeout(handler, timeoutMs),
-              },
-              sessionId,
-              userId,
-            })
-      let providerOutput = createdProviderOutput
-      if (options.runActiveRegistry !== undefined) {
-        const registered = options.runActiveRegistry.register({
-          ...(createdProviderOutput === undefined ? {} : { providerOutput: createdProviderOutput }),
-          runId: executionRunId,
-          sessionId,
-          userId,
-        })
-        if (!registered.success) return internalServerError(context)
-        providerOutput = registered.data.lifecycle.providerOutput
-        executionSignal = registered.data.lifecycle.signal
-        unregisterCancellation = registered.data.cleanup
-      } else {
-        const executionAbortController = new AbortController()
-        executionSignal = executionAbortController.signal
-        unregisterCancellation = options.runCancellationCoordinator?.register({
-          controller: executionAbortController,
-          runId: executionRunId,
-          sessionId,
-          userId,
-        })
-      }
-      stream = (async function* () {
-        let currentAttempt = admittedAttempt
-        let replayService = initialReplayService
+    const execute = async (): Promise<void> => {
+      let currentAttempt = admittedAttempt
 
-        try {
-          while (true) {
-            let nextAttempt: typeof attemptTable.$inferSelect | undefined
-            const attemptStream = sessionChatStreamCreate({
-              adapter: adapter as NonNullable<typeof adapter>,
-              attemptOrdinal: currentAttempt?.ordinal,
-              database: options.database,
-              history: prepared.data.history,
-              onEventId: (_sequence, eventId) => {
-                pendingEventIds.push(eventId)
-              },
-              onTerminal: async (terminal) => {
-                if (activeRun === undefined || currentAttempt === undefined) return
-                const providerFailureFinalize = async (): Promise<void> => {
-                  if (providerOutput === undefined || terminal.failure === undefined) return
-                  const finalized = await providerOutput.finalize({
-                    failure: terminal.failure,
-                    messageId: terminal.messageId,
-                    status: "failed",
-                  })
-                  if (!finalized.success) throw new Error(finalized.errorMessage)
-                  activeRun = finalized.data.run
-                  activeAttempt = finalized.data.attempt
-                }
-                if (providerOutput !== undefined && terminal.status === "failed" && terminal.failure !== undefined) {
-                  if (runFailureClassResolve(terminal.failure) !== "retryable") {
-                    await providerFailureFinalize()
-                    return
-                  }
-                }
-                if (providerOutput !== undefined && terminal.status === "succeeded") {
-                  const finalized = await providerOutput.finalize({
-                    assistantText: terminal.assistantText,
-                    messageId: terminal.messageId,
-                    status: terminal.status,
-                  })
-                  if (!finalized.success) throw new Error(finalized.errorMessage)
-                  activeRun = finalized.data.run
-                  activeAttempt = finalized.data.attempt
-                  return
-                }
-                if (providerOutput !== undefined && terminal.status === "aborted") {
-                  const finalized = await providerOutput.finalize({
-                    messageId: terminal.messageId,
-                    reason: "The chat run was aborted.",
-                    status: terminal.status,
-                  })
-                  if (!finalized.success) throw new Error(finalized.errorMessage)
-                  activeRun = finalized.data.run
-                  activeAttempt = finalized.data.attempt
-                  return
-                }
-                const transitioned = await runTransitionAction(options.database, userId, sessionId, activeRun.id, {
+      try {
+        while (true) {
+          let nextAttempt: typeof attemptTable.$inferSelect | undefined
+          const attemptStream = sessionChatStreamCreate({
+            adapter: adapter as NonNullable<typeof adapter>,
+            attemptOrdinal: currentAttempt?.ordinal,
+            database: options.database,
+            history: prepared.data.history,
+            onTerminal: async (terminal) => {
+              if (activeRun === undefined || currentAttempt === undefined) return
+              const providerFailureFinalize = async (): Promise<void> => {
+                if (providerOutput === undefined || terminal.failure === undefined) return
+                const finalized = await providerOutput.finalize({
                   failure: terminal.failure,
-                  status: terminal.status,
+                  messageId: terminal.messageId,
+                  status: "failed",
                 })
-                if (!transitioned.success) throw new Error(transitioned.errorMessage)
-                activeRun = transitioned.data.run
-                activeAttempt = transitioned.data.attempt
-                if (terminal.status !== "failed" || terminal.failure === undefined) return
-                if (runFailureClassResolve(terminal.failure) !== "retryable") return
-
-                const retry = await runRetryAttemptCreateAction(options.database, userId, sessionId, activeRun.id)
-                if (!retry.success) {
-                  if (retry.errorMessage.includes("The run retry was not admitted:")) {
-                    await providerFailureFinalize()
-                    return
-                  }
-                  throw new Error(retry.errorMessage)
-                }
-                if (retry.data.attempt.status !== "accepted") {
+                if (!finalized.success) throw new Error(finalized.errorMessage)
+                activeRun = finalized.data.run
+                activeAttempt = finalized.data.attempt
+              }
+              if (providerOutput !== undefined && terminal.status === "failed" && terminal.failure !== undefined) {
+                if (runFailureClassResolve(terminal.failure) !== "retryable") {
                   await providerFailureFinalize()
                   return
                 }
-                nextAttempt = retry.data.attempt
-                activeRun = retry.data.run
-                activeAttempt = retry.data.attempt
-                if (!admittedAttempts.some(({ id }) => id === retry.data.attempt.id)) {
-                  admittedAttempts.push(retry.data.attempt)
-                }
-              },
-              prompt,
-              providerOutput,
-              replayService,
-              requestId: parsed.data.runId,
-              runId: parsed.data.runId,
-              sessionId,
-              signal: executionSignal,
-              userId,
-            })
-
-            for await (const chunk of attemptStream) {
-              const eventId = pendingEventIds.shift()
-              eventIds[eventIds.length] = eventId
-              yield chunk
-            }
-            if (nextAttempt === undefined) return
-
-            currentAttempt = nextAttempt
-            const nextReplayService = replayServiceCreate({
-              database: options.database,
-              inactivityTimeoutMs,
-              sessionId,
-              streamId: nextAttempt.streamId,
-              userId,
-            })
-            const nextStarted = await nextReplayService.start()
-            if (!nextStarted.success) throw new Error(nextStarted.errorMessage)
-            replayService = nextReplayService
-
-            if (activeRun !== undefined) {
+              }
+              if (providerOutput !== undefined && terminal.status === "succeeded") {
+                const finalized = await providerOutput.finalize({
+                  assistantText: terminal.assistantText,
+                  messageId: terminal.messageId,
+                  status: terminal.status,
+                })
+                if (!finalized.success) throw new Error(finalized.errorMessage)
+                activeRun = finalized.data.run
+                activeAttempt = finalized.data.attempt
+                return
+              }
+              if (providerOutput !== undefined && terminal.status === "aborted") {
+                const finalized = await providerOutput.finalize({
+                  messageId: terminal.messageId,
+                  reason: "The chat run was aborted.",
+                  status: terminal.status,
+                })
+                if (!finalized.success) throw new Error(finalized.errorMessage)
+                activeRun = finalized.data.run
+                activeAttempt = finalized.data.attempt
+                return
+              }
               const transitioned = await runTransitionAction(options.database, userId, sessionId, activeRun.id, {
-                status: "running",
+                failure: terminal.failure,
+                status: terminal.status,
               })
               if (!transitioned.success) throw new Error(transitioned.errorMessage)
               activeRun = transitioned.data.run
               activeAttempt = transitioned.data.attempt
-            }
-          }
-        } finally {
-          unregisterCancellation?.()
-        }
-      })()
-    }
-    const sse = sessionChatSseStreamCreate(stream, {
-      getId: (_chunk, index) => eventIds[index],
-      requestSignal,
-    })
+              if (terminal.status !== "failed" || terminal.failure === undefined) return
+              if (runFailureClassResolve(terminal.failure) !== "retryable") return
 
-    return new Response(sse, {
-      headers: {
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-        "Content-Type": "text/event-stream",
-      },
-    })
+              const retry = await runRetryAttemptCreateAction(options.database, userId, sessionId, activeRun.id)
+              if (!retry.success) {
+                if (retry.errorMessage.includes("The run retry was not admitted:")) {
+                  await providerFailureFinalize()
+                  return
+                }
+                throw new Error(retry.errorMessage)
+              }
+              if (retry.data.attempt.status !== "accepted") {
+                await providerFailureFinalize()
+                return
+              }
+              nextAttempt = retry.data.attempt
+              activeRun = retry.data.run
+              activeAttempt = retry.data.attempt
+            },
+            prompt,
+            providerOutput,
+            requestId: parsed.data.runId,
+            runId: parsed.data.runId,
+            sessionId,
+            signal: executionSignal,
+            userId,
+          })
+
+          for await (const _chunk of attemptStream) {
+            // Provider output is persisted and published by the journal-backed output handle.
+          }
+          if (nextAttempt === undefined) return
+
+          currentAttempt = nextAttempt
+          if (activeRun !== undefined) {
+            const transitioned = await runTransitionAction(options.database, userId, sessionId, activeRun.id, {
+              status: "running",
+            })
+            if (!transitioned.success) throw new Error(transitioned.errorMessage)
+            activeRun = transitioned.data.run
+            activeAttempt = transitioned.data.attempt
+          }
+        }
+      } finally {
+        unregisterCancellation?.()
+      }
+    }
+
+    void execute().catch(() => undefined)
+    return context.json(commandResponse.data)
   })
 
   api.get("/sessions/:sessionId/snapshot", async (context) => {
@@ -872,9 +784,13 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     }
 
     const headers = apiRepresentationHeadersCreate(result.data.etag)
-    if (apiIfNoneMatchMatches(context.req.header("If-None-Match"), result.data.etag))
+    if (apiIfNoneMatchMatches(context.req.header("If-None-Match"), result.data.etag)) {
+      options.metricsCollector?.increment("snapshot_response_total", 1, { status: "304" })
       return new Response(null, { headers, status: 304 })
-    return completeJsonResponse(context, result.data, headers)
+    }
+    const response = await completeJsonResponse(context, result.data, headers, options.metricsCollector)
+    if (response.status === 200) options.metricsCollector?.increment("snapshot_response_total", 1, { status: "200" })
+    return response
   })
 
   api.get("/sessions/:sessionId", async (context) => {

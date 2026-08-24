@@ -1,6 +1,5 @@
 import { useLocation, useNavigate } from "@solidjs/router"
 import { createMemo } from "solid-js"
-import { sessionStreamSnapshotFetch } from "../../run/ui/sessionStreamSnapshotFetch.js"
 import { simulationScenarioSessionMetadata } from "../../simulation/simulationScenarioSessionMetadata.js"
 import { simulationScenarioSessionResolve } from "../../simulation/simulationScenarioSessionResolve.js"
 import type { SessionNavigationState } from "../sessionNavigationStateCreate.js"
@@ -30,7 +29,6 @@ export function simulateAppStateCreate() {
   return {
     inspector: simulateInspectorStateCreate({
       chat: () => workspace.selectedSession.chatCreate(scenario().sessionId),
-      load: (sessionId, signal) => sessionStreamSnapshotFetch(sessionId, { signal }),
       sessionId: () => scenario().sessionId,
     }),
     scenario,

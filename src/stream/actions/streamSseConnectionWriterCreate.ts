@@ -1,5 +1,6 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
+import type { metricsCollectorCreate } from "../../metrics/metricsCollectorCreate.js"
 import type { StreamSseFrame } from "../api/streamSseFrameSchema.js"
 import { streamSseFrameSchema } from "../api/streamSseFrameSchema.js"
 import { streamSseFrameSerialize } from "../api/streamSseFrameSerialize.js"
@@ -27,6 +28,7 @@ type StreamSseConnectionWriterDependencies = {
   }
   userId: string
   writer: StreamSseConnectionWriterSink
+  metricsCollector?: ReturnType<typeof metricsCollectorCreate>
 }
 
 type StreamSseConnectionQueueEvent = {
@@ -81,6 +83,7 @@ export function streamSseConnectionWriterCreate(dependencies: StreamSseConnectio
   let heartbeatTimer: unknown
   let blockedWriteTimer: unknown
   let subscriptionUnsubscribe: (() => void) | undefined
+  let metricsConnectionOpened = false
   let queuedBytes = 0
   let liveQueuedBytes = 0
   let replayQueuedBytes = 0
@@ -140,6 +143,15 @@ export function streamSseConnectionWriterCreate(dependencies: StreamSseConnectio
     replayQueuedBytes = 0
     for (const resolve of replayCapacityWaiters.splice(0)) resolve()
     resolveDisconnected()
+
+    if (metricsConnectionOpened) {
+      dependencies.metricsCollector?.increment("sse_connections_active", -1)
+      if (mode === "close") dependencies.metricsCollector?.increment("sse_connections_close_total")
+      else
+        dependencies.metricsCollector?.increment("sse_connections_disconnect_total", 1, {
+          reason: typeof reason === "string" ? reason : "unknown",
+        })
+    }
 
     let operation: Promise<void> | void
     try {
@@ -220,6 +232,7 @@ export function streamSseConnectionWriterCreate(dependencies: StreamSseConnectio
     try {
       blockedWriteTimer = dependencies.scheduler.setTimeout(() => {
         blockedWriteTimer = undefined
+        dependencies.metricsCollector?.increment("sse_blocked_write_timeout_total")
         void disconnect("blocked-or-failed-write")
       }, streamSseConnectionWriterBlockedWriteTimeoutMs)
     } catch (_error) {
@@ -261,6 +274,7 @@ export function streamSseConnectionWriterCreate(dependencies: StreamSseConnectio
         if (bytes === undefined) return
         const outcome = await writeWithTimeout(bytes)
         if (outcome !== "written") {
+          if (outcome === "failed") dependencies.metricsCollector?.increment("sse_write_failure_total")
           if (!disconnected)
             await disconnect(outcome === "failed" ? "blocked-or-failed-write" : "connection-disconnected")
           return
@@ -289,6 +303,7 @@ export function streamSseConnectionWriterCreate(dependencies: StreamSseConnectio
         }
       }
     } catch (_error) {
+      dependencies.metricsCollector?.increment("sse_write_failure_total")
       if (!disconnected) await disconnect("connection-write-failed")
     }
   }
@@ -307,6 +322,7 @@ export function streamSseConnectionWriterCreate(dependencies: StreamSseConnectio
       () => {
         if (drainPromise !== currentDrain) return
         draining = false
+        dependencies.metricsCollector?.increment("sse_write_failure_total")
         if (!disconnected) void disconnect("connection-write-failed")
       },
     )
@@ -315,6 +331,7 @@ export function streamSseConnectionWriterCreate(dependencies: StreamSseConnectio
   const enqueueHeartbeat = (): void => {
     if (!connected || disconnected) return
     if (queuedBytes + streamSseConnectionWriterHeartbeat.byteLength > streamSseConnectionWriterMaximumQueueBytes) {
+      dependencies.metricsCollector?.increment("sse_queue_overflow_total", 1, { reason: "bytes" })
       void disconnect("connection-queue-byte-overflow")
       return
     }
@@ -344,6 +361,9 @@ export function streamSseConnectionWriterCreate(dependencies: StreamSseConnectio
         eventQueue.size + 1 > streamSseConnectionWriterMaximumQueueEvents
           ? "connection-queue-event-overflow"
           : "connection-queue-byte-overflow"
+      dependencies.metricsCollector?.increment("sse_queue_overflow_total", 1, {
+        reason: eventQueue.size + 1 > streamSseConnectionWriterMaximumQueueEvents ? "events" : "bytes",
+      })
       void disconnect(reason)
       return createResultError(op, "The SSE connection queue limit was exceeded.")
     }
@@ -380,6 +400,9 @@ export function streamSseConnectionWriterCreate(dependencies: StreamSseConnectio
         enqueueHeartbeat,
         streamSseConnectionWriterHeartbeatIntervalMs,
       )
+      metricsConnectionOpened = true
+      dependencies.metricsCollector?.increment("sse_connections_open_total")
+      dependencies.metricsCollector?.increment("sse_connections_active")
       return createResult(undefined)
     } catch (_error) {
       void disconnect("connection-subscription-failed")

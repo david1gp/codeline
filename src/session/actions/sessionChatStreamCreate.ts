@@ -4,7 +4,6 @@ import type { DatabaseClient } from "../../database/databaseClient.js"
 import { databaseTransactionRun } from "../../database/databaseTransactionRun.js"
 import { messageAppend } from "../../message/actions/messageAppend.js"
 import type { messageTable } from "../../message/db/messageTable.js"
-import type { streamReplayServiceCreate } from "../../stream/actions/streamReplayServiceCreate.js"
 import { sessionChatAdapterCreate } from "./sessionChatAdapterCreate.js"
 
 type SessionChatStreamCreateOptions = {
@@ -14,7 +13,6 @@ type SessionChatStreamCreateOptions = {
   database: DatabaseClient
   history: Array<typeof messageTable.$inferSelect>
   prompt: string
-  replayService?: ReturnType<typeof streamReplayServiceCreate>
   requestId: string
   runId: string
   sessionId: string
@@ -24,7 +22,6 @@ type SessionChatStreamCreateOptions = {
     append: (input: unknown) => Promise<Result<void>>
     flush: () => Promise<Result<void>>
   }
-  onEventId?: (sequence: number, eventId: string) => void
   onTerminal?: (terminal: {
     assistantText?: string
     failure?: { code: string; message: string }
@@ -62,31 +59,12 @@ function sessionChatFailureCreate(chunk: StreamChunk, fallbackCode: string, fall
 
 async function* sessionChatStreamGenerate(options: SessionChatStreamCreateOptions): AsyncGenerator<StreamChunk> {
   let assistantText = ""
-  let eventSequence = 0
   let terminalPersisted = false
   let terminal: StreamChunk | undefined
   let assistantMessageId: string | null = null
 
   const eventPersist = async (chunk: StreamChunk): Promise<void> => {
-    if (options.replayService === undefined) return
-
-    const sequence = eventSequence + 1
-    const persisted = await options.replayService.append({
-      eventType: chunk.type,
-      idempotencyKey: `${options.runId}:${sequence}`,
-      payload: chunk,
-      sequence,
-    })
-    if (!persisted.success) throw new Error(persisted.errorMessage)
-
-    eventSequence = sequence
-    options.onEventId?.(sequence, persisted.data.event.id)
-  }
-
-  const providerOutputAppend = async (chunk: StreamChunk): Promise<void> => {
-    if (options.providerOutput === undefined) return
-    const appended = await options.providerOutput.append(chunk)
-    if (!appended.success) throw new Error(appended.errorMessage)
+    await options.providerOutput?.append(chunk)
   }
 
   const terminalNotify = async (input: {
@@ -118,7 +96,6 @@ async function* sessionChatStreamGenerate(options: SessionChatStreamCreateOption
 
         if (chunk.type === EventType.TEXT_MESSAGE_CONTENT) assistantText += chunk.delta
         if (chunk.type === EventType.RUN_ERROR) {
-          await providerOutputAppend(chunk)
           await eventPersist(chunk)
           terminalPersisted = true
           await terminalNotify({
@@ -130,7 +107,6 @@ async function* sessionChatStreamGenerate(options: SessionChatStreamCreateOption
         }
         if (chunk.type === EventType.RUN_FINISHED) {
           if (chunk.outcome?.type !== "success") {
-            await providerOutputAppend(chunk)
             await eventPersist(chunk)
             terminalPersisted = true
             await terminalNotify({
@@ -144,13 +120,12 @@ async function* sessionChatStreamGenerate(options: SessionChatStreamCreateOption
           continue
         }
 
-        await providerOutputAppend(chunk)
         await eventPersist(chunk)
         yield chunk
       }
     } catch (error) {
       if (options.signal.aborted) return
-      if (options.replayService === undefined) throw error
+      if (options.providerOutput === undefined) throw error
       const errorChunk = sessionChatRunErrorCreate(sessionChatAdapterErrorMessage(error), "chat_adapter_error")
       await eventPersist(errorChunk)
       terminalPersisted = true
@@ -222,11 +197,16 @@ async function* sessionChatStreamGenerate(options: SessionChatStreamCreateOption
     terminalPersisted = true
     yield terminal
   } finally {
-    if (!terminalPersisted && options.replayService !== undefined) {
+    if (!terminalPersisted && options.providerOutput !== undefined) {
       const errorChunk = sessionChatRunErrorCreate("The chat run was aborted.", "chat_aborted")
       await eventPersist(errorChunk).catch(() => undefined)
       if (options.signal.aborted) {
         await terminalNotify({ status: "aborted" })
+      } else if (options.providerOutput !== undefined) {
+        await terminalNotify({
+          failure: { code: "chat_aborted", message: "The chat run was aborted." },
+          status: "failed",
+        })
       }
     }
     options.cleanup?.()

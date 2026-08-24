@@ -3,8 +3,8 @@ import { useChat } from "@tanstack/ai-solid"
 import { createEffect, createMemo } from "solid-js"
 import type { CodelineExecution } from "../providers/schema/codelineExecutionSchema.js"
 import { runCancelCommand } from "../run/client/runCancelCommand.js"
-import { streamReplayConnectionCreate } from "../stream/client/streamReplayConnectionCreate.js"
 import { chatComposerStop } from "./chatComposerStop.js"
+import { sessionChatConnectionCreate } from "./sessionChatConnectionCreate.js"
 import { streamActivityStateCreate } from "./streamActivityStateCreate.js"
 import { transientMessageActivitiesResolve } from "./transientMessageActivitiesResolve.js"
 import type { TransientMessage } from "./transientMessagesResolve.js"
@@ -36,7 +36,7 @@ export function chatComposerStateCreate(options: ChatComposerOptions) {
   )
   const stopError = createSignalObject<string | undefined>(undefined)
   const stopping = createSignalObject(false)
-  const connection = streamReplayConnectionCreate({
+  const connection = sessionChatConnectionCreate({
     fetcher: options.fetcher,
     onStateChange: recoveryStatus.set,
     sessionId: options.sessionId,

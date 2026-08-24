@@ -97,6 +97,7 @@ test.skipIf(!databaseAvailable)("loads only authorized session delegations in cr
     const loaded = await runDelegationsLoad(database, userId, organizationId, sessionId)
     expect(loaded.success).toBe(true)
     if (!loaded.success) return
+    expect(loaded.data.revision).toBe(3)
     const expected = successfulChildren
       .map((child) => child.data.delegation)
       .sort((left, right) => left.id.localeCompare(right.id))

@@ -4,7 +4,6 @@ import { finalizedMessageCopyStateCreate } from "../message/ui/finalizedMessageC
 import { sessionFinalizedMessagesFetch } from "../message/ui/sessionFinalizedMessagesFetch.js"
 import type { CodelineExecution } from "../providers/schema/codelineExecutionSchema.js"
 import { sessionDelegationsFetch } from "../run/ui/sessionDelegationsFetch.js"
-import { sessionStreamSnapshotFetch } from "../run/ui/sessionStreamSnapshotFetch.js"
 import { sessionReadOnlyNoticeResolve } from "../session/client/sessionReadOnlyNoticeResolve.js"
 import { sessionReadOnlyReasonResolve } from "../session/client/sessionReadOnlyReasonResolve.js"
 import { sessionDetailFetch } from "../session/ui/sessionDetailFetch.js"
@@ -24,6 +23,7 @@ import { sessionDisplayModeStateCreate } from "./sessionDisplayModeStateCreate.j
 import { sessionInitialMessageStateCreate } from "./sessionInitialMessageStateCreate.js"
 import type { SessionNavigationState } from "./sessionNavigationStateCreate.js"
 import { sessionPinToggleStateCreate } from "./sessionPinToggleStateCreate.js"
+import { sessionActiveRunReattachStateCreate } from "./sessionActiveRunReattachStateCreate.js"
 import { sessionSettledCacheViewStateCreate } from "./sessionSettledCacheViewStateCreate.js"
 import { sessionSettledCompletionCacheRegistry } from "./sessionSettledCompletionCacheRegistry.js"
 import { sessionStreamStateCreate } from "./sessionStreamStateCreate.js"
@@ -189,8 +189,19 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
     }
     return false
   }
+  // Reload rejoins a detached run: discover the session's active runs, read each
+  // run-specific active snapshot, then attach the feed after its cursor.
+  const activeRunReattach = sessionActiveRunReattachStateCreate({
+    activeRunAttach: (input) => {
+      eventFeed?.activeRunAttach(input)
+    },
+    enabled: () => isSignedIn() && isOnline() && readOnlyReason() === null,
+    ...(fetcher === undefined ? {} : { fetch: fetcher }),
+    sessionId: selectedSessionId,
+  })
   const streamState = sessionStreamStateCreate({
     delegations: streamDelegations,
+    ...(eventFeed === undefined ? {} : { eventFeedState: () => eventFeed.dataState }),
     inFlightRunId: () => {
       const currentSession = session()
       return currentSession ? (chatCreate(currentSession.id).runId?.() ?? null) : null
@@ -200,7 +211,6 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
       return currentSession ? chatCreate(currentSession.id).pendingMessages() : []
     },
     isEnabled: () => displayMode.mode() === "stream" || subagentThread.selected() !== undefined,
-    load: (sessionId, signal) => sessionStreamSnapshotFetch(sessionId, { signal }),
     sessionId: () => session()?.id,
   })
   const initialMessage = sessionInitialMessageStateCreate({
@@ -272,6 +282,7 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
   })
 
   return {
+    activeRunReattachStatus: activeRunReattach.status,
     chatCreate,
     displayMode,
     session: () => session() ?? lastSession.get(),

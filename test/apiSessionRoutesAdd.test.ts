@@ -3,9 +3,11 @@ import { randomBytes } from "node:crypto"
 import { createResult } from "@adaptive-ds/result"
 import { eq } from "drizzle-orm"
 import { Hono } from "hono"
+import * as v from "valibot"
 import { agentTable } from "../src/agents/db/agentTable.js"
 import type { AppEnvironment } from "../src/api/appEnvironment.js"
 import { appCreate } from "../src/app/appCreate.js"
+import type { ConfigurationStore } from "../src/configuration/configurationStore.js"
 import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
 import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
 import { databaseUrl } from "../src/database/databaseUrl.js"
@@ -15,11 +17,13 @@ import { organizationMemberTable } from "../src/identity/db/organizationMemberTa
 import { organizationTable } from "../src/identity/db/organizationTable.js"
 import { journalCursorCodecCreate } from "../src/journal/actions/journalCursorCodecCreate.js"
 import { messageTable } from "../src/message/db/messageTable.js"
+import { attemptTable } from "../src/run/db/attemptTable.js"
+import { runTable } from "../src/run/db/runTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionChatAdapterCreate } from "../src/session/actions/sessionChatAdapterCreate.js"
 import { apiSessionRoutesAdd } from "../src/session/api/apiSessionRoutesAdd.js"
+import { sessionChatCommandResponseSchema } from "../src/session/api/sessionChatCommandResponseSchema.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
-import { streamEventTable } from "../src/stream/db/streamEventTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
 import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
 
@@ -47,6 +51,27 @@ const app = appCreate({
   database,
   journalCursorCodec: journalCursorCodec.data,
   sessionChatAdapter: sessionChatAdapterCreate,
+})
+const runConfigurationStore = {
+  gitStore: {} as never,
+  snapshot: {
+    configuration: {
+      agentConfigurations: [
+        {
+          configuration: { model: "session-http-deterministic", provider: "deterministic" },
+          target: { agentId, serverId },
+        },
+      ],
+      version: 1,
+    },
+    revision: "session-http-configuration-revision",
+  },
+} satisfies ConfigurationStore
+const runApp = appCreate({
+  configuration,
+  configurationStore: runConfigurationStore,
+  database,
+  journalCursorCodec: journalCursorCodec.data,
 })
 
 test("requires the authenticated session cursor and journal dependencies at construction", () => {
@@ -429,7 +454,7 @@ test.skipIf(!databaseAvailable)("session HTTP routes validate requests and curso
 })
 
 test.skipIf(!databaseAvailable)(
-  "session chat HTTP persists prepared messages and replay events in SQLite",
+  "session chat HTTP returns a command response and persists prepared messages",
   async () => {
     const created = await app.request("http://codeline.test/api/sessions", {
       body: JSON.stringify({
@@ -459,16 +484,79 @@ test.skipIf(!databaseAvailable)(
       method: "POST",
     })
     expect(response.status).toBe(200)
-    expect(await response.text()).toContain("RUN_FINISHED")
+    expect(response.headers.get("Content-Type")).toContain("application/json")
+    expect(await response.json()).toEqual({ runId, sessionId })
 
-    const messages = await database.select().from(messageTable).where(eq(messageTable.sessionId, sessionId))
+    let messages = await database.select().from(messageTable).where(eq(messageTable.sessionId, sessionId))
+    for (let attempt = 0; attempt < 100 && messages.length < 2; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      messages = await database.select().from(messageTable).where(eq(messageTable.sessionId, sessionId))
+    }
     expect(messages).toMatchObject([
       { content: "Persist this chat", role: "user", sequence: 1 },
       { content: "Deterministic response: Persist this chat", role: "assistant", sequence: 2 },
     ])
-    const events = await database.select().from(streamEventTable).where(eq(streamEventTable.sessionId, sessionId))
-    expect(events.length).toBeGreaterThan(0)
-    expect(events.at(-1)?.eventType).toBe("RUN_FINISHED")
+  },
+)
+
+test.skipIf(!databaseAvailable)(
+  "session chat HTTP deduplicates concurrent prompt retries into one typed command and durable run",
+  async () => {
+    const created = await runApp.request("http://codeline.test/api/sessions", {
+      body: JSON.stringify({
+        clientRequestId: `session-chat-idempotency-${uuidv7()}`,
+        metadata: {},
+        primaryAgentId: agentId,
+        serverId,
+        title: "HTTP chat idempotency",
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+    expect(created.status).toBe(201)
+    const sessionId = ((await created.json()) as { session: { id: string } }).session.id
+    const idempotencyKey = `session-chat-prompt-${uuidv7()}`
+    const request = () =>
+      runApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+        body: JSON.stringify({
+          context: [],
+          forwardedProps: {},
+          messages: [{ content: "Deduplicate this prompt", id: `prompt-${idempotencyKey}`, role: "user" }],
+          runId: idempotencyKey,
+          state: {},
+          threadId: sessionId,
+          tools: [],
+        }),
+        headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
+        method: "POST",
+      })
+
+    const responses = await Promise.all([request(), request()])
+    const responseBodies = []
+    for (const response of responses) {
+      expect(response.status).toBe(200)
+      const body = await response.json()
+      expect(v.safeParse(sessionChatCommandResponseSchema, body).success).toBe(true)
+      responseBodies.push(body)
+    }
+    expect(responseBodies[0]).toEqual(responseBodies[1])
+    expect(responseBodies[0]).toMatchObject({ sessionId })
+
+    const retry = await request()
+    expect(retry.status).toBe(200)
+    expect(await retry.json()).toEqual(responseBodies[0])
+
+    const runs = await database.select().from(runTable).where(eq(runTable.sessionId, sessionId))
+    expect(runs).toHaveLength(1)
+    expect(runs[0]).toMatchObject({ clientRunId: idempotencyKey, sessionId, userId })
+    const attempts = await database
+      .select()
+      .from(attemptTable)
+      .where(eq(attemptTable.runId, runs[0]?.id ?? ""))
+    expect(attempts).toHaveLength(1)
+    const messages = await database.select().from(messageTable).where(eq(messageTable.sessionId, sessionId))
+    expect(messages.filter((message) => message.clientRequestId === idempotencyKey)).toHaveLength(1)
+    expect(messages.filter((message) => message.role === "user")).toHaveLength(1)
   },
 )
 

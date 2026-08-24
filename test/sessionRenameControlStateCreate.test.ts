@@ -20,7 +20,12 @@ test("selected session exposes rename at its HTTP-backed title without navigatio
   const source = await Bun.file(new URL("../src/ui/SelectedSession.tsx", import.meta.url)).text()
 
   expect(source).toContain('import { SessionRenameControl } from "../session/ui/SessionRenameControl.js"')
-  expect(source).toContain("state={props.state.renameState()!}")
+  // The rename control is resolved through `Show` rather than a non-null
+  // assertion: a read-only session has no rename state, and asserting it here
+  // threw inside the render effect and froze every dependent update.
+  expect(source).toContain("props.state.readOnlyReason() === null ? props.state.renameState() : undefined")
+  expect(source).toContain("{(rename) => <SessionRenameControl state={rename()} />}")
+  expect(source).not.toContain("props.state.renameState()!")
   expect(source).not.toContain("onRenamed=")
 })
 

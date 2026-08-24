@@ -5,7 +5,6 @@ import type { AppEnvironment } from "../src/api/appEnvironment.js"
 import { runActiveRegistryCreate } from "../src/run/actions/runActiveRegistryCreate.js"
 import { runCancel } from "../src/run/actions/runCancel.js"
 import { runDelegationsLoad } from "../src/run/actions/runDelegationsLoad.js"
-import { runSessionStreamSnapshotLoad } from "../src/run/actions/runSessionStreamSnapshotLoad.js"
 import { apiRunRoutesAdd } from "../src/run/api/apiRunRoutesAdd.js"
 import type { runTable } from "../src/run/db/runTable.js"
 
@@ -83,10 +82,38 @@ test("run cancellation route rejects an invalid command body", async () => {
   expect(response.status).toBe(400)
 })
 
+test("run cancellation route rejects an invalid response contract", async () => {
+  const app = new Hono<AppEnvironment>()
+  app.use("*", async (context, next) => {
+    context.set("database", {} as AppEnvironment["Variables"]["database"])
+    context.set("requestIdentity", { userId: "user-1" })
+    await next()
+  })
+  apiRunRoutesAdd(app, {
+    runCancel: async () =>
+      createResult({
+        cancelledRunIds: [1] as unknown as string[],
+        changed: true,
+        descendantsCancelled: 0,
+        run: {} as never,
+      }),
+    runLoad: async () => createResult({ attempt: {} as never, attempts: [], run: {} as never }),
+  })
+
+  const response = await app.request("http://codeline.test/sessions/session-1/runs/target/cancel", {
+    body: JSON.stringify({}),
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+  })
+
+  expect(response.status).toBe(500)
+})
+
 test("delegation read route passes the authenticated organization and session scope and preserves the response shape", async () => {
   const app = new Hono<AppEnvironment>()
   const scope = { organizationId: "organization-1", sessionId: "session-1", userId: "user-1" }
   let received: Parameters<typeof runDelegationsLoad> | undefined
+  let revision = 4
 
   app.use("*", async (context, next) => {
     context.set("database", {} as AppEnvironment["Variables"]["database"])
@@ -108,6 +135,7 @@ test("delegation read route passes the authenticated organization and session sc
             task: "Inspect the implementation.",
           },
         ],
+        revision,
       })
     },
   })
@@ -116,7 +144,11 @@ test("delegation read route passes the authenticated organization and session sc
 
   expect(response.status).toBe(200)
   expect(received?.slice(1)).toEqual([scope.userId, scope.organizationId, scope.sessionId])
-  expect(await response.json()).toEqual({
+  expect(response.headers.get("Cache-Control")).toBe("private, no-cache")
+  expect(response.headers.get("Vary")).toBe("Cookie, Accept-Encoding")
+  const firstEtag = response.headers.get("ETag")
+  expect(firstEtag).toMatch(/^".+"$/)
+  expect(await response.json()).toMatchObject({
     delegations: [
       {
         childRunId: "child-1",
@@ -127,80 +159,25 @@ test("delegation read route passes the authenticated organization and session sc
         task: "Inspect the implementation.",
       },
     ],
-  })
-})
-
-test("stream snapshot route passes authenticated organization and session scope and validates its response", async () => {
-  const app = new Hono<AppEnvironment>()
-  const scope = { organizationId: "organization-1", sessionId: "session-1", userId: "user-1" }
-  let received: Parameters<typeof runSessionStreamSnapshotLoad> | undefined
-
-  app.use("*", async (context, next) => {
-    context.set("database", {} as AppEnvironment["Variables"]["database"])
-    context.set("requestIdentity", scope)
-    await next()
+    etag: firstEtag,
+    revision: 4,
+    schemaVersion: "run-delegations.v1",
   })
 
-  apiRunRoutesAdd(app, {
-    runSessionStreamSnapshotLoad: async (...input) => {
-      received = input
-      return createResult({
-        events: [
-          {
-            createdAt: 1,
-            eventType: "text_delta",
-            id: "event-1",
-            payload: { delta: "hello" },
-            sequence: 1,
-            streamId: "stream-1",
-          },
-        ],
-        runs: [
-          {
-            attempts: [{ id: "attempt-1", ordinal: 1, status: "succeeded", streamId: "stream-1" }],
-            cancellationKind: null,
-            clientRunId: "client-run-1",
-            createdAt: 1,
-            id: "run-1",
-            snapshot: { target: { agentId: "agent-1" } },
-            status: "succeeded",
-            streamId: "stream-1",
-          },
-        ],
-      })
-    },
+  const notModified = await app.request(`http://codeline.test/sessions/${scope.sessionId}/delegations`, {
+    headers: { "If-None-Match": firstEtag ?? "" },
   })
+  expect(notModified.status).toBe(304)
+  expect(notModified.headers.get("Cache-Control")).toBe("private, no-cache")
+  expect(await notModified.text()).toBe("")
 
-  const response = await app.request(`http://codeline.test/sessions/${scope.sessionId}/stream-snapshot`)
-
-  expect(response.status).toBe(200)
-  expect(received?.slice(1)).toEqual([scope.userId, scope.organizationId, scope.sessionId])
-  expect(await response.json()).toMatchObject({
-    events: [{ eventType: "text_delta", sequence: 1, streamId: "stream-1" }],
-    runs: [{ attempts: [{ ordinal: 1 }], id: "run-1" }],
+  revision = 5
+  const changed = await app.request(`http://codeline.test/sessions/${scope.sessionId}/delegations`, {
+    headers: { "If-None-Match": firstEtag ?? "" },
   })
-})
-
-test("stream snapshot route masks missing organization authorization context", async () => {
-  const app = new Hono<AppEnvironment>()
-  let loaded = false
-  app.use("*", async (context, next) => {
-    context.set("database", {} as AppEnvironment["Variables"]["database"])
-    context.set("requestIdentity", { userId: "user-1" })
-    await next()
-  })
-
-  apiRunRoutesAdd(app, {
-    runSessionStreamSnapshotLoad: async () => {
-      loaded = true
-      return createResult({ events: [], runs: [] })
-    },
-  })
-
-  const response = await app.request("http://codeline.test/sessions/session-1/stream-snapshot")
-
-  expect(response.status).toBe(404)
-  expect(loaded).toBe(false)
+  expect(changed.status).toBe(200)
+  expect(changed.headers.get("ETag")).not.toBe(firstEtag)
+  expect((await changed.json()).revision).toBe(5)
 })
 
 test("delegation read route masks a missing organization authorization context", async () => {
@@ -215,7 +192,7 @@ test("delegation read route masks a missing organization authorization context",
   apiRunRoutesAdd(app, {
     runDelegationsLoad: async () => {
       loaded = true
-      return createResult({ delegations: [] })
+      return createResult({ delegations: [], revision: 1 })
     },
   })
 

@@ -41,6 +41,13 @@ export const simulationScenarioSessionMetadata = {
     agentId: "example-agent-simulation-unexpected-end",
     sessionId: "example-session-simulation-unexpected-end",
   },
+  "detached-reload": {
+    href: "/simulate/detached-reload",
+    label: "Detached run reload",
+    model: "simulation-detached-reload",
+    agentId: "example-agent-simulation-detached-reload",
+    sessionId: "example-session-simulation-detached-reload",
+  },
   cancellation: {
     href: "/simulate/cancellation",
     label: "Cancellation",
