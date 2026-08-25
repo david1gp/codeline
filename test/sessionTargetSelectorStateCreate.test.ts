@@ -410,6 +410,103 @@ test("automatic creation and first-message fallback share one in-flight request"
   dispose()
 })
 
+test("automatic creation does not re-trigger before the final selection", async () => {
+  const requests: string[] = []
+  const selectionStatuses: string[] = []
+  const [isNewSessionRoute, setIsNewSessionRoute] = createSignal(true)
+  const [selectedSessionId, setSelectedSessionId] = createSignal<string | null>(null)
+  let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
+  const dispose = createRoot((rootDispose) => {
+    state = sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(),
+      fetch: fetchDefaultCreate(requests),
+      isNewSessionRoute,
+      selectedSessionId,
+      sessionSelect: (sessionId) => {
+        selectionStatuses.push(state?.sessionCreateStatus() ?? "missing")
+        setSelectedSessionId(sessionId)
+        setIsNewSessionRoute(false)
+      },
+    })
+    return rootDispose
+  })
+  await effectsSettle()
+
+  expect(requests.filter((request) => request === "POST /api/sessions")).toHaveLength(1)
+  expect(selectionStatuses).toEqual(["creating"])
+  expect(selectedSessionId()).toBe("created-session")
+  await effectsSettle()
+  expect(requests.filter((request) => request === "POST /api/sessions")).toHaveLength(1)
+  dispose()
+})
+
+test("a send-triggered new-session route does not create a second session", async () => {
+  const requests: string[] = []
+  const navigation: string[] = []
+  const selected: string[] = []
+  const [isNewSessionRoute, setIsNewSessionRoute] = createSignal(false)
+  const [selectedSessionId, setSelectedSessionId] = createSignal<string | null>(null)
+  let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
+  let routeCreation: Promise<string | null> | undefined
+  const dispose = createRoot((rootDispose) => {
+    state = sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(),
+      fetch: fetchDefaultCreate(requests),
+      isNewSessionRoute,
+      selectedSessionId,
+      sessionNew: () => {
+        navigation.push("new")
+        setIsNewSessionRoute(true)
+        routeCreation = state?.sessionCreateStart()
+      },
+      sessionSelect: (sessionId) => {
+        navigation.push("select")
+        selected.push(sessionId)
+        setSelectedSessionId(sessionId)
+      },
+    })
+    return rootDispose
+  })
+  await effectsSettle()
+
+  const sendCreation = state?.sessionCreateStart()
+  await sendCreation
+  await effectsSettle()
+
+  expect(routeCreation).toBeDefined()
+  expect(routeCreation).toBe(sendCreation)
+  expect(requests.filter((request) => request === "POST /api/sessions")).toHaveLength(1)
+  expect(navigation).toEqual(["new", "select"])
+  expect(selected).toEqual(["created-session"])
+  expect(selectedSessionId()).toBe("created-session")
+  dispose()
+})
+
+test("a failed new-session navigation cancels deferred creation", async () => {
+  const requests: string[] = []
+  let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
+  const dispose = createRoot((rootDispose) => {
+    state = sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(),
+      fetch: fetchDefaultCreate(requests),
+      selectedSessionId: () => null,
+      sessionNew: () => {
+        throw new Error("navigation failed")
+      },
+      sessionSelect: () => undefined,
+    })
+    return rootDispose
+  })
+  await effectsSettle()
+
+  expect(() => state?.sessionCreateStart()).toThrow("navigation failed")
+  await effectsSettle()
+
+  expect(requests.filter((request) => request === "POST /api/sessions")).toHaveLength(0)
+  expect(state?.sessionCreateStatus()).toBe("idle")
+  dispose()
+})
+
 test("a stale automatic result cannot select a session after the target changes", async () => {
   const gates: Array<ReturnType<typeof deferredCreate<void>>> = []
   const selected: string[] = []
@@ -453,6 +550,49 @@ test("a stale automatic result cannot select a session after the target changes"
   await effectsSettle()
   expect(selected).toEqual(["created-example-agent-local-review"])
   expect(selectedSessionId()).toBe("created-example-agent-local-review")
+  dispose()
+})
+
+test("an overlapping create with a different project only selects the newest session", async () => {
+  const gates: Array<ReturnType<typeof deferredCreate<void>>> = []
+  const selected: string[] = []
+  const [selectedSessionId, setSelectedSessionId] = createSignal<string | null>(null)
+  let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
+  const dispose = createRoot((rootDispose) => {
+    state = sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(),
+      fetch: async (input, init) => {
+        if (String(input) === "/api/sessions" && init?.method === "POST") {
+          const gate = deferredCreate<void>()
+          gates.push(gate)
+          await gate.promise
+          const body = JSON.parse(String(init.body)) as { projectPath: string }
+          return response({ created: true, session: { id: `created-${body.projectPath}` } }, { status: 201 })
+        }
+        return fetchDefaultCreate([])(input, init)
+      },
+      selectedSessionId,
+      sessionSelect: (sessionId) => {
+        selected.push(sessionId)
+        setSelectedSessionId(sessionId)
+      },
+    })
+    return rootDispose
+  })
+  await effectsSettle()
+
+  const first = state?.sessionCreateStart("/workspace/first")
+  const second = state?.sessionCreateStart("/workspace/second")
+  await effectsSettle()
+  expect(gates).toHaveLength(2)
+
+  gates[1]?.resolve()
+  expect(await second).toBe("created-/workspace/second")
+  expect(selected).toEqual(["created-/workspace/second"])
+
+  gates[0]?.resolve()
+  expect(await first).toBeNull()
+  expect(selected).toEqual(["created-/workspace/second"])
   dispose()
 })
 

@@ -665,12 +665,15 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
     const clientRequestId = pendingCreateRequestIdResolve(target, projectPath)
     const requiresNewSessionRoute =
       options.isNewSessionRoute !== undefined && (options.isNewSessionRoute() || options.sessionNew !== undefined)
+    if (requiresNewSessionRoute) automaticCreateKey = key
     sessionCreateStatus.set("creating")
-    options.sessionNew?.()
+    let taskCancelled = false
     const sessionCreateIsCurrent = () => {
       const currentTarget = pendingTarget()
       return (
         !isDisposed &&
+        !taskCancelled &&
+        sessionCreateInFlight?.promise === task &&
         sessionCreateGeneration === generation &&
         options.selectedSessionId() === null &&
         currentTarget?.agentId === target.agentId &&
@@ -679,7 +682,9 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
         (!requiresNewSessionRoute || options.isNewSessionRoute?.() === true)
       )
     }
-    const task = (async () => {
+    // Register before navigation: entering /new can synchronously trigger the automatic-create effect.
+    const task = Promise.resolve().then(async () => {
+      if (taskCancelled) return null
       try {
         const response = await fetchImplementation("/api/sessions", {
           body: JSON.stringify({
@@ -708,8 +713,8 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
         pendingCreateKey = null
         pendingCreateRequestId = null
         sessionCreateErrorMessage.set(undefined)
-        sessionCreateStatus.set("idle")
         options.sessionSelect(parsed.output.session.id)
+        sessionCreateStatus.set("idle")
         return parsed.output.session.id
       } catch (_error) {
         if (sessionCreateIsCurrent()) {
@@ -718,13 +723,24 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
         }
         return null
       }
-    })()
+    })
     sessionCreateInFlight = { generation, key, promise: task }
     void task.finally(() => {
       if (sessionCreateInFlight?.promise !== task) return
       sessionCreateInFlight = null
       if (!isDisposed && sessionCreateStatus.get() === "creating") sessionCreateStatus.set("idle")
     })
+    try {
+      options.sessionNew?.()
+    } catch (error) {
+      if (sessionCreateInFlight?.promise === task) {
+        taskCancelled = true
+        sessionCreateInFlight = null
+        sessionCreateGeneration += 1
+        if (sessionCreateStatus.get() === "creating") sessionCreateStatus.set("idle")
+      }
+      throw error
+    }
     return task
   }
 
@@ -771,6 +787,7 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
     selectedAgentId: selectedAgentId.get,
     selectedAgentName: () =>
       agents.get().find((agent) => agent.id === selectedAgentId.get())?.name ?? "Local execution agent",
+    selectedSessionId: options.selectedSessionId,
     selectedServerId: selectedServerId.get,
     servers: servers.get,
     serverSelect: (serverId: string) => {
