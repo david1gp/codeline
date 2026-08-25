@@ -27,13 +27,13 @@ Reduce wasted Markdown work during streamed message updates while preserving com
 
 ## Tasks
 
-- [ ] 1. Define message streaming identity and append-only eligibility at the message render-state boundary.
-- [ ] 2. Implement parser-derived stable/live projection and bounded block-cache primitives.
-- [ ] 3. Implement a per-consumer latest-only scheduler with one in-flight and one newest pending request.
-- [ ] 4. Integrate scheduling and block reuse into streamed message rendering, including conservative whole-document fallback.
-- [ ] 5. Add unit tests adapted from OpenCode worker queue/projection cases and T3 Code LRU patterns, including fences, lists, blockquotes, tables, reference definitions, character-by-character streaming, non-append edits, eviction, disposal, and stale responses.
-- [ ] 6. Keep and narrow the browser coverage to a managed-preview smoke test proving bundled-worker execution, source fallback, and final visible Markdown.
-- [ ] 7. Verify focused tests with concurrency 1, then the combined repository-managed preview service and Markdown smoke test.
+- [x] 1. Define message streaming identity and append-only eligibility at the message render-state boundary.
+- [x] 2. Implement parser-derived stable/live projection and bounded block-cache primitives.
+- [x] 3. Implement a per-consumer latest-only scheduler with one in-flight and one newest pending request.
+- [x] 4. Integrate scheduling and block reuse into streamed message rendering, including conservative whole-document fallback.
+- [x] 5. Add unit tests adapted from OpenCode worker queue/projection cases and T3 Code LRU patterns, including fences, lists, blockquotes, tables, reference definitions, character-by-character streaming, non-append edits, eviction, disposal, and stale responses.
+- [x] 6. Keep and narrow the browser coverage to a managed-preview smoke test proving bundled-worker execution, source fallback, and final visible Markdown.
+- [x] 7. Verify focused tests with concurrency 1, then the combined repository-managed preview service and Markdown smoke test.
 
 ## Paths
 
