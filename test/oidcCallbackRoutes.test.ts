@@ -121,6 +121,38 @@ test("OIDC callback diagnostics classify token exchange failures without logging
   }
 })
 
+test("OIDC callback classifies non-2xx token responses before nonce extraction without disclosure", async () => {
+  const stages: string[] = []
+  const originalConsoleLog = console.log
+  console.log = (...values: unknown[]) => stages.push(values.map(String).join(" "))
+  const secret = "oauth-error-secret"
+  const errorBody = JSON.stringify({ error: "invalid_client", error_description: `provider-${secret}` })
+  try {
+    const app = callbackApp({
+      providerFetch: async (input) =>
+        String(input) === metadata.tokenEndpoint
+          ? new Response(errorBody, { headers: { "content-type": "application/json" }, status: 400 })
+          : jwksResponse(),
+    })
+    const response = await app.request(
+      "https://codeline.test/login/zitadel/callback?code=authorization-code&state=state-value",
+      { headers: { Cookie: "__Host-codeline-oidc-binding=browser-binding" } },
+    )
+
+    expect(response.status).toBe(400)
+    const responseBody = await response.text()
+    expect(responseBody).toBe('{"error":{"code":"bad_request","message":"The OIDC login could not be completed."}}')
+    expect(stages).toEqual(["auth_callback_stage=token_exchange"])
+    expect(stages.some((stage) => stage.includes("nonce"))).toBe(false)
+    expect(stages.join(" ")).not.toContain(secret)
+    expect(stages.join(" ")).not.toContain(errorBody)
+    expect(responseBody).not.toContain(secret)
+    expect(responseBody).not.toContain(errorBody)
+  } finally {
+    console.log = originalConsoleLog
+  }
+})
+
 test("OIDC callback nonce diagnostics distinguish missing and mismatched nonces without disclosure", async () => {
   const stages: string[] = []
   const originalConsoleLog = console.log

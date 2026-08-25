@@ -405,6 +405,7 @@ async function oidcCallbackHandle(
   } catch (_error) {
     return oidcCallbackFailure(context, 400, "token_exchange")
   }
+  if (!tokenResponse.ok) return oidcCallbackFailure(context, 400, "token_exchange")
   const nonceResult = await oidcResponseNonceResolve(tokenResponse)
   if (nonceResult.category !== "success") return oidcCallbackFailure(context, 400, nonceResult.category)
   const nonce = nonceResult.nonce
