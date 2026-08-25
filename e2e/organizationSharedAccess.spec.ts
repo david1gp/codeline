@@ -1,10 +1,13 @@
 import { type Browser, type BrowserContext, expect, test } from "@playwright/test"
+import { oidcEnvironmentConfigurationResolve } from "../scripts/oidcEnvironmentConfigurationResolve.js"
 import { e2eMemberSessionsIssue } from "./e2eMemberSessionsIssue.js"
 import { e2eMemberSessionsPurge } from "./e2eMemberSessionsPurge.js"
 import { e2eRunIdCreate } from "./e2eRunIdCreate.js"
 
 const sessionCookieName = "__Host-codeline-session"
 const baseOrigin = process.env.PUBLIC_ORIGIN ?? "https://preview.codeline.work"
+const oidcEnvironment = oidcEnvironmentConfigurationResolve(process.env)
+if (!oidcEnvironment.success) throw new Error(oidcEnvironment.errorMessage)
 
 async function memberContextOpen(browser: Browser, token: string): Promise<BrowserContext> {
   const context = await browser.newContext({ baseURL: baseOrigin })
@@ -38,7 +41,7 @@ test("organization members share targets while personal sessions stay private", 
     // The issuing script only returns members whose membership row points at the
     // configured organization, so the shared-target assertions below cannot pass
     // through an unrelated organization.
-    expect(issued.organizationExternalId).toBe(process.env.ZITADEL_ORGANIZATION_ID)
+    expect(issued.organizationExternalId).toBe(oidcEnvironment.data.organizationExternalId)
     expect(issued.organizationId.length).toBeGreaterThan(0)
     expect(issued.subjectPrefix).toContain(runId)
 

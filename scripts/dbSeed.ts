@@ -9,6 +9,7 @@ import { openLibsql } from "../src/database/openLibsql.js"
 import { providerAgentCatalogLoad } from "../src/providers/catalog/providerAgentCatalogLoad.js"
 import { managedDatabaseConsumersStop } from "./managedDatabaseConsumersStop.js"
 import { managedDatabaseResetLockRun } from "./managedDatabaseResetLockRun.js"
+import { oidcEnvironmentConfigurationResolve } from "./oidcEnvironmentConfigurationResolve.js"
 
 const configurationStoreDir = Bun.env.CONFIG_STORE_DIR
 if (configurationStoreDir === undefined) {
@@ -16,19 +17,22 @@ if (configurationStoreDir === undefined) {
   process.exit(1)
 }
 
-const organizationExternalId = Bun.env.ZITADEL_ORGANIZATION_ID
-if (organizationExternalId === undefined || organizationExternalId.trim().length === 0) {
-  console.error("ZITADEL_ORGANIZATION_ID is required to seed the Contentoren organization.")
+const environment = oidcEnvironmentConfigurationResolve()
+if (!environment.success) {
+  console.error(environment.errorMessage)
   process.exit(1)
 }
+const { issuer, organizationExternalId } = environment.data
 const userId = Bun.env.EXAMPLE_DATA_USER_ID
 const organizationMembershipSubject = Bun.env.EXAMPLE_DATA_SUBJECT
 
 if (
   (userId === undefined) !== (organizationMembershipSubject === undefined) ||
-  (userId !== undefined && (Bun.env.ZITADEL_ISSUER === undefined || organizationMembershipSubject === undefined))
+  (userId !== undefined && (issuer === undefined || organizationMembershipSubject === undefined))
 ) {
-  console.error("EXAMPLE_DATA_USER_ID and EXAMPLE_DATA_SUBJECT must be set together; the pair requires ZITADEL_ISSUER.")
+  console.error(
+    "EXAMPLE_DATA_USER_ID and EXAMPLE_DATA_SUBJECT must be set together; the pair requires a configured OIDC issuer.",
+  )
   process.exit(1)
 }
 
@@ -81,9 +85,7 @@ const result = await exampleDataSeed(database, {
   organizationExternalId,
   reset,
   ...(userId === undefined ? {} : { userId }),
-  ...(userId === undefined || Bun.env.ZITADEL_ISSUER === undefined
-    ? {}
-    : { organizationMembershipIssuer: Bun.env.ZITADEL_ISSUER }),
+  ...(userId === undefined || issuer === undefined ? {} : { organizationMembershipIssuer: issuer }),
   ...(userId === undefined || organizationMembershipSubject === undefined ? {} : { organizationMembershipSubject }),
 })
 

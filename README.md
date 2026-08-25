@@ -156,11 +156,17 @@ chmod 600 .env
 
 The managed preview stack includes one compiled Bun service serving the SQLite-backed API, SSE, and built UI. Use the wrapper below for lifecycle and database operations; do not start replacement services outside the managed unit.
 
-### ZITADEL organization access
+### Concurrent Authworks and Zitadel SSO
 
-Set `ZITADEL_ORGANIZATION_ID` in the ignored `.env` to Contentoren's non-secret ZITADEL organization ID. Codeline requests the `urn:zitadel:iam:user:resourceowner` scope and validates `urn:zitadel:iam:user:resourceowner:id` at sign-in. The claim must equal `ZITADEL_ORGANIZATION_ID`; the OIDC client ID identifies the application and does not establish organization membership.
+OIDC mode accepts explicit `OIDC_AUTHWORKS_*` and `OIDC_ZITADEL_*` namespaces, so Authworks and Zitadel can be configured at the same time. Each configured provider needs an issuer and client ID, and both providers must use the same non-secret Contentoren organization ID. Each OIDC client must register the exact shared callback `https://preview.codeline.work/api/auth/callback`; do not register provider-specific callback paths, query strings, or fragments. The `openid profile email` scopes are requested, with the `urn:zitadel:iam:user:resourceowner` scope added when discovery advertises it.
 
-Authenticated Contentoren organization members share access to the servers and enabled execution agents assigned to Contentoren. Server access comes from the validated organization claim. Codeline does not use per-user server ownership or a separate invitation flow. Sessions, messages, notes, runs, and streams remain private to the user who created them.
+The resource-owner claim contract is shared: both providers must emit `urn:zitadel:iam:user:resourceowner:id`, and its value must equal the configured organization ID. The client ID identifies the OIDC application; it does not establish organization membership. Authenticated members of that organization share access to Contentoren's configured servers and enabled execution agents.
+
+When more than one provider is configured, `/api/auth/login` requires exactly one `provider=authworks` or `provider=zitadel` query value. An omitted provider remains valid when exactly one provider is configured; unknown or duplicate provider values are rejected. The callback uses the issuer saved in the short-lived OIDC transaction to select discovery and callback credentials. Any callback `provider` query value is ignored, so it cannot switch credentials after the transaction is created.
+
+Existing single-provider configuration remains compatible through the provider-neutral `OIDC_*` names and the legacy `ZITADEL_*` aliases. Do not set conflicting aliases. Seed and E2E environment resolution prefers `OIDC_ZITADEL_ISSUER`/`ZITADEL_ISSUER`, then `OIDC_AUTHWORKS_ISSUER`, then `OIDC_ISSUER`; all configured organization aliases must resolve to one shared value. See [.env.example](./.env.example) for placeholders only.
+
+Both providers produce the same Codeline session behavior: a successful callback creates an opaque, host-only Codeline session (normally valid for twelve hours), and provider access tokens are not persisted. Existing sessions are authorized against memberships from any configured provider issuer. Sessions, messages, notes, runs, and streams remain private to the application user who created them; organization membership grants shared server access, not shared personal session data.
 
 Project discovery roots are configured with `CODELINE_PROJECT_ROOTS` as a JSON string array. Omit the variable, or leave it blank, to discover projects from the operating-system home directory. Set it to an explicit empty array (`[]`) to disable project discovery. Relative roots are normalized from the Codeline process working directory and duplicate roots are removed.
 
@@ -217,7 +223,7 @@ bun run db:generate
 bun run db:migrate
 ```
 
-Seed deterministic local example data through the repository-owned command. It applies Drizzle migrations first, reconciles the Contentoren organization from `ZITADEL_ORGANIZATION_ID`, assigns two stable servers to it, keeps the local-development user for private fixture sessions and messages, and reconciles catalog provider models and agents from `providers/` and `agents/` into the Git-backed configuration store under `example-server-local`. Repeated default runs preserve unrelated rows; `--reset` removes and recreates only the known fixture-owned rows.
+Seed deterministic local example data through the repository-owned command. It applies Drizzle migrations first, reconciles the Contentoren organization from the shared OIDC organization aliases, assigns two stable servers to it, keeps the local-development user for private fixture sessions and messages, and reconciles catalog provider models and agents from `providers/` and `agents/` into the Git-backed configuration store under `example-server-local`. Repeated default runs preserve unrelated rows; `--reset` removes and recreates only the known fixture-owned rows. If an OIDC fixture identity is configured, the seed uses the deterministic issuer precedence documented above.
 
 ```bash
 bun run db:seed
@@ -249,7 +255,7 @@ Browser verification is outside this operations-only step. Do not replace the ma
 
 The run mutates local development data. It creates two run-unique synthetic organization members, their identity sessions, and one conversation per member through the regular API, then deletes those users again in a teardown that also runs after a failed assertion; the cascading delete removes the generated memberships, identity sessions, conversations, messages, runs, notes, and stream rows. Seeded example data is untouched, and repeated runs stay independent because every run uses a fresh identifier.
 
-The setup and cleanup scripts refuse to run unless `NODE_ENV`, `PUBLIC_ORIGIN`, and `DATABASE_URL` match the repository-managed SQLite file at `data/db.sqlite`. Any other connection string aborts the run before a write happens. `ZITADEL_ISSUER` and `ZITADEL_ORGANIZATION_ID` must also be set in `.env`, as documented in `.env.example`; the synthetic members are created against exactly that issuer and organization, and a missing value aborts the run. To remove a run's data manually after an interrupted run, use its identifier:
+The setup and cleanup scripts refuse to run unless `NODE_ENV`, `PUBLIC_ORIGIN`, and `DATABASE_URL` match the repository-managed SQLite file at `data/db.sqlite`. Any other connection string aborts the run before a write happens. A configured OIDC issuer and shared organization ID must also resolve from the explicit or legacy names in `.env`, as documented in `.env.example`; the synthetic members are created against the deterministically selected issuer and shared organization, and a missing or conflicting value aborts the run. To remove a run's data manually after an interrupted run, use its identifier:
 
 ```bash
 bun scripts/e2eOrganizationMemberSessionsPurge.ts <run-id>

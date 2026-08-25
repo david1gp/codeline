@@ -2,6 +2,7 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import { databasePath } from "../src/database/databasePath.js"
+import { oidcEnvironmentConfigurationResolve } from "./oidcEnvironmentConfigurationResolve.js"
 
 export type E2eLocalEnvironment = {
   databaseUrl: string
@@ -74,15 +75,19 @@ export function e2eEnvironmentAssertLocal(): Result<E2eLocalEnvironment> {
     return createResultError(op, `End-to-end identity fixtures only run against ${managedPublicOrigin}.`)
   }
 
-  const issuer = environmentValueRead("ZITADEL_ISSUER")
-  if (issuer === undefined) {
-    return createResultError(op, "ZITADEL_ISSUER is required to run end-to-end identity fixtures.")
+  const oidcEnvironment = oidcEnvironmentConfigurationResolve()
+  if (!oidcEnvironment.success) return oidcEnvironment
+  if (oidcEnvironment.data.issuer === undefined) {
+    return createResultError(
+      op,
+      "An OIDC issuer is required to run end-to-end identity fixtures. Configure an explicit or legacy provider issuer.",
+    )
   }
 
-  const organizationExternalId = environmentValueRead("ZITADEL_ORGANIZATION_ID")
-  if (organizationExternalId === undefined) {
-    return createResultError(op, "ZITADEL_ORGANIZATION_ID is required to run end-to-end identity fixtures.")
-  }
-
-  return createResult({ databaseUrl, issuer, organizationExternalId, publicOrigin })
+  return createResult({
+    databaseUrl,
+    issuer: oidcEnvironment.data.issuer,
+    organizationExternalId: oidcEnvironment.data.organizationExternalId,
+    publicOrigin,
+  })
 }

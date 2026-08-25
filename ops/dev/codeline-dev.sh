@@ -54,9 +54,14 @@ require_any_loaded() {
 validate_database_environment() {
   load_env_file "$env_file"
   local name
-  for name in NODE_ENV CONFIG_STORE_DIR ZITADEL_ORGANIZATION_ID; do
+  for name in NODE_ENV CONFIG_STORE_DIR; do
     require_loaded "$name" "$env_file"
   done
+  require_any_loaded 'an OIDC organization ID' \
+    OIDC_AUTHWORKS_ORGANIZATION_ID OIDC_AUTHWORKS_ALLOWED_ORGANIZATION_ID \
+    OIDC_ZITADEL_ORGANIZATION_ID OIDC_ZITADEL_ALLOWED_ORGANIZATION_ID \
+    OIDC_ORGANIZATION_ID OIDC_ALLOWED_ORGANIZATION_ID \
+    ZITADEL_ORGANIZATION_ID ZITADEL_ALLOWED_ORGANIZATION_ID
   [[ "${loaded_env[NODE_ENV]}" == development ]] || fail "NODE_ENV must be development"
 }
 
@@ -80,10 +85,44 @@ validate_environment() {
   [[ "${loaded_env[PORT]}" == 6001 ]] || fail "PORT must equal 6001 for the managed preview stack"
   validate_public_origin
   if [[ "${loaded_env[AUTH_MODE]}" == oidc ]]; then
-    require_any_loaded 'OIDC_ISSUER or ZITADEL_ISSUER' OIDC_ISSUER ZITADEL_ISSUER
-    require_any_loaded 'OIDC_CLIENT_ID or ZITADEL_CLIENT_ID' OIDC_CLIENT_ID ZITADEL_CLIENT_ID
+    require_any_loaded 'an OIDC issuer' \
+      OIDC_AUTHWORKS_ISSUER OIDC_ZITADEL_ISSUER OIDC_ISSUER ZITADEL_ISSUER
+    require_any_loaded 'an OIDC client ID' \
+      OIDC_AUTHWORKS_CLIENT_ID OIDC_ZITADEL_CLIENT_ID OIDC_CLIENT_ID ZITADEL_CLIENT_ID
     require_any_loaded 'an OIDC organization ID' \
-      OIDC_ORGANIZATION_ID OIDC_ALLOWED_ORGANIZATION_ID ZITADEL_ORGANIZATION_ID ZITADEL_ALLOWED_ORGANIZATION_ID
+      OIDC_AUTHWORKS_ORGANIZATION_ID OIDC_AUTHWORKS_ALLOWED_ORGANIZATION_ID \
+      OIDC_ZITADEL_ORGANIZATION_ID OIDC_ZITADEL_ALLOWED_ORGANIZATION_ID \
+      OIDC_ORGANIZATION_ID OIDC_ALLOWED_ORGANIZATION_ID \
+      ZITADEL_ORGANIZATION_ID ZITADEL_ALLOWED_ORGANIZATION_ID
+
+    if [[ -n "${loaded_env[OIDC_AUTHWORKS_ISSUER]:-}" ||
+      -n "${loaded_env[OIDC_AUTHWORKS_CLIENT_ID]:-}" ||
+      -n "${loaded_env[OIDC_AUTHWORKS_CLIENT_SECRET]:-}" ||
+      -n "${loaded_env[OIDC_AUTHWORKS_ORGANIZATION_ID]:-}" ||
+      -n "${loaded_env[OIDC_AUTHWORKS_ALLOWED_ORGANIZATION_ID]:-}" ||
+      -n "${loaded_env[OIDC_AUTHWORKS_CALLBACK_URL]:-}" ||
+      -n "${loaded_env[OIDC_AUTHWORKS_REDIRECT_URI]:-}" ]]; then
+      require_any_loaded 'the Authworks issuer' OIDC_AUTHWORKS_ISSUER OIDC_ISSUER
+      require_any_loaded 'the Authworks client ID' OIDC_AUTHWORKS_CLIENT_ID OIDC_CLIENT_ID
+      require_any_loaded 'the Authworks organization ID' \
+        OIDC_AUTHWORKS_ORGANIZATION_ID OIDC_AUTHWORKS_ALLOWED_ORGANIZATION_ID \
+        OIDC_ORGANIZATION_ID OIDC_ALLOWED_ORGANIZATION_ID
+    fi
+
+    if [[ -n "${loaded_env[OIDC_ZITADEL_ISSUER]:-}" ||
+      -n "${loaded_env[OIDC_ZITADEL_CLIENT_ID]:-}" ||
+      -n "${loaded_env[OIDC_ZITADEL_CLIENT_SECRET]:-}" ||
+      -n "${loaded_env[OIDC_ZITADEL_ORGANIZATION_ID]:-}" ||
+      -n "${loaded_env[OIDC_ZITADEL_ALLOWED_ORGANIZATION_ID]:-}" ||
+      -n "${loaded_env[OIDC_ZITADEL_CALLBACK_URL]:-}" ||
+      -n "${loaded_env[OIDC_ZITADEL_REDIRECT_URI]:-}" ]]; then
+      require_any_loaded 'the Zitadel issuer' OIDC_ZITADEL_ISSUER ZITADEL_ISSUER
+      require_any_loaded 'the Zitadel client ID' OIDC_ZITADEL_CLIENT_ID ZITADEL_CLIENT_ID
+      require_any_loaded 'the Zitadel organization ID' \
+        OIDC_ZITADEL_ORGANIZATION_ID OIDC_ZITADEL_ALLOWED_ORGANIZATION_ID \
+        ZITADEL_ORGANIZATION_ID ZITADEL_ALLOWED_ORGANIZATION_ID \
+        OIDC_ORGANIZATION_ID OIDC_ALLOWED_ORGANIZATION_ID
+    fi
   fi
   load_env_file "$env_file"
 }
