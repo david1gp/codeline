@@ -52,6 +52,15 @@ type ApiAuthRoutesOptions = {
   callbackRoute?: Hono<AppEnvironment>
 }
 
+type OidcTokenExchangeFailureStage =
+  | "token_exchange_invalid_request"
+  | "token_exchange_invalid_client"
+  | "token_exchange_invalid_grant"
+  | "token_exchange_invalid_scope"
+  | "token_exchange_unsupported_grant_type"
+  | "token_exchange_server_error"
+  | "token_exchange_unknown"
+
 type OidcCallbackStage =
   | "configuration"
   | "callback_path"
@@ -65,6 +74,7 @@ type OidcCallbackStage =
   | "client_authentication"
   | "authorization_response"
   | "token_exchange"
+  | OidcTokenExchangeFailureStage
   | "token_response_json"
   | "token_response_id_token_missing"
   | "token_response_id_token_type"
@@ -405,7 +415,8 @@ async function oidcCallbackHandle(
   } catch (_error) {
     return oidcCallbackFailure(context, 400, "token_exchange")
   }
-  if (!tokenResponse.ok) return oidcCallbackFailure(context, 400, "token_exchange")
+  if (!tokenResponse.ok)
+    return oidcCallbackFailure(context, 400, await oidcTokenExchangeFailureStageResolve(tokenResponse))
   const nonceResult = await oidcResponseNonceResolve(tokenResponse)
   if (nonceResult.category !== "success") return oidcCallbackFailure(context, 400, nonceResult.category)
   const nonce = nonceResult.nonce
@@ -505,6 +516,7 @@ async function oidcCallbackHandle(
 }
 
 const oidcClockToleranceSeconds = 30
+const oidcTokenExchangeResponseMaxBytes = 16 * 1024
 
 function oidcCallbackPathResolve(configuration: RuntimeConfiguration | undefined): string {
   if (configuration?.oidcCallbackUrl !== undefined) return new URL(configuration.oidcCallbackUrl).pathname
@@ -566,6 +578,76 @@ function oidcClientAuthenticationResolve(
   if (secret !== undefined && methods.has("client_secret_jwt")) return oauth.ClientSecretJwt(secret)
   if (secret === undefined && methods.has("none")) return oauth.None()
   return undefined
+}
+
+async function oidcTokenExchangeFailureStageResolve(response: Response): Promise<OidcTokenExchangeFailureStage> {
+  const body = await oidcBoundedResponseJsonResolve(response)
+  if (body === undefined || body === null || typeof body !== "object" || Array.isArray(body))
+    return "token_exchange_unknown"
+
+  const error = (body as Record<string, unknown>).error
+  if (typeof error !== "string") return "token_exchange_unknown"
+  if (error === "invalid_request") return "token_exchange_invalid_request"
+  if (error === "invalid_client") return "token_exchange_invalid_client"
+  if (error === "invalid_grant") return "token_exchange_invalid_grant"
+  if (error === "invalid_scope") return "token_exchange_invalid_scope"
+  if (error === "unsupported_grant_type") return "token_exchange_unsupported_grant_type"
+  if (error === "server_error") return "token_exchange_server_error"
+  return "token_exchange_unknown"
+}
+
+async function oidcBoundedResponseJsonResolve(response: Response): Promise<unknown | undefined> {
+  let clonedResponse: Response
+  try {
+    clonedResponse = response.clone()
+  } catch (_error) {
+    return undefined
+  }
+  const body = await oidcBoundedResponseTextResolve(clonedResponse)
+  if (body === undefined) return undefined
+  try {
+    return JSON.parse(body) as unknown
+  } catch (_error) {
+    return undefined
+  }
+}
+
+async function oidcBoundedResponseTextResolve(response: Response): Promise<string | undefined> {
+  try {
+    if (response.body === null) {
+      const body = new Uint8Array(await response.arrayBuffer())
+      if (body.byteLength > oidcTokenExchangeResponseMaxBytes) return undefined
+      return new TextDecoder("utf-8", { fatal: true }).decode(body)
+    }
+
+    const reader = response.body.getReader()
+    const chunks: Uint8Array[] = []
+    let byteLength = 0
+    try {
+      while (true) {
+        const chunk = await reader.read()
+        if (chunk.done) break
+        byteLength += chunk.value.byteLength
+        if (byteLength > oidcTokenExchangeResponseMaxBytes) {
+          await reader.cancel()
+          return undefined
+        }
+        chunks.push(chunk.value)
+      }
+    } finally {
+      reader.releaseLock()
+    }
+
+    const body = new Uint8Array(byteLength)
+    let offset = 0
+    for (const chunk of chunks) {
+      body.set(chunk, offset)
+      offset += chunk.byteLength
+    }
+    return new TextDecoder("utf-8", { fatal: true }).decode(body)
+  } catch (_error) {
+    return undefined
+  }
 }
 
 type OidcProviderCustomFetch = (

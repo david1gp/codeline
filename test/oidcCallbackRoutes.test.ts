@@ -121,38 +121,85 @@ test("OIDC callback diagnostics classify token exchange failures without logging
   }
 })
 
-test("OIDC callback classifies non-2xx token responses before nonce extraction without disclosure", async () => {
+test("OIDC callback classifies exact standard token errors without disclosure", async () => {
   const stages: string[] = []
   const originalConsoleLog = console.log
   console.log = (...values: unknown[]) => stages.push(values.map(String).join(" "))
   const secret = "oauth-error-secret"
-  const errorBody = JSON.stringify({ error: "invalid_client", error_description: `provider-${secret}` })
   try {
-    const app = callbackApp({
-      providerFetch: async (input) =>
-        String(input) === metadata.tokenEndpoint
-          ? new Response(errorBody, { headers: { "content-type": "application/json" }, status: 400 })
-          : jwksResponse(),
-    })
-    const response = await app.request(
-      "https://codeline.test/login/zitadel/callback?code=authorization-code&state=state-value",
-      { headers: { Cookie: "__Host-codeline-oidc-binding=browser-binding" } },
-    )
+    for (const failure of [
+      ["invalid_request", "token_exchange_invalid_request"],
+      ["invalid_client", "token_exchange_invalid_client"],
+      ["invalid_grant", "token_exchange_invalid_grant"],
+      ["invalid_scope", "token_exchange_invalid_scope"],
+      ["unsupported_grant_type", "token_exchange_unsupported_grant_type"],
+      ["server_error", "token_exchange_server_error"],
+    ]) {
+      const app = callbackApp({
+        providerFetch: async (input) =>
+          String(input) === metadata.tokenEndpoint
+            ? new Response(JSON.stringify({ error: failure[0], error_description: `provider-${secret}` }), {
+                headers: { "content-type": "application/json" },
+                status: 400,
+              })
+            : jwksResponse(),
+      })
+      const response = await app.request(
+        "https://codeline.test/login/zitadel/callback?code=authorization-code&state=state-value",
+        { headers: { Cookie: "__Host-codeline-oidc-binding=browser-binding" } },
+      )
 
-    expect(response.status).toBe(400)
-    const responseBody = await response.text()
-    expect(responseBody).toBe('{"error":{"code":"bad_request","message":"The OIDC login could not be completed."}}')
-    expect(stages).toEqual(["auth_callback_stage=token_exchange"])
+      expect(response.status).toBe(400)
+      expect(await response.text()).toBe(
+        '{"error":{"code":"bad_request","message":"The OIDC login could not be completed."}}',
+      )
+      expect(stages.at(-1)).toBe(`auth_callback_stage=${failure[1]}`)
+    }
+
     expect(stages.some((stage) => stage.includes("nonce"))).toBe(false)
     expect(stages.join(" ")).not.toContain(secret)
-    expect(stages.join(" ")).not.toContain(errorBody)
-    expect(responseBody).not.toContain(secret)
-    expect(responseBody).not.toContain(errorBody)
   } finally {
     console.log = originalConsoleLog
   }
 })
 
+test("OIDC callback classifies malformed, unallowlisted, and oversized token bodies as unknown without disclosure", async () => {
+  const stages: string[] = []
+  const originalConsoleLog = console.log
+  console.log = (...values: unknown[]) => stages.push(values.map(String).join(" "))
+  const secret = "oauth-malformed-secret"
+  const bodies = [
+    `{"error":"invalid_client"`,
+    JSON.stringify({ error: "unauthorized_client", error_description: secret }),
+    JSON.stringify({ error: "invalid_client_suffix", body: secret }),
+    JSON.stringify({ error: 42, body: secret }),
+    JSON.stringify({ error: "invalid_client", body: secret.repeat(20_000) }),
+  ]
+  try {
+    for (const body of bodies) {
+      const app = callbackApp({
+        providerFetch: async (input) =>
+          String(input) === metadata.tokenEndpoint
+            ? new Response(body, { headers: { "content-type": "application/json" }, status: 400 })
+            : jwksResponse(),
+      })
+      const response = await app.request(
+        "https://codeline.test/login/zitadel/callback?code=authorization-code&state=state-value",
+        { headers: { Cookie: "__Host-codeline-oidc-binding=browser-binding" } },
+      )
+
+      expect(response.status).toBe(400)
+      expect(await response.text()).toBe(
+        '{"error":{"code":"bad_request","message":"The OIDC login could not be completed."}}',
+      )
+      expect(stages.at(-1)).toBe("auth_callback_stage=token_exchange_unknown")
+    }
+    const diagnostics = stages.join(" ")
+    expect(diagnostics).not.toContain(secret)
+  } finally {
+    console.log = originalConsoleLog
+  }
+})
 test("OIDC callback nonce diagnostics distinguish missing and mismatched nonces without disclosure", async () => {
   const stages: string[] = []
   const originalConsoleLog = console.log
