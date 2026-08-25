@@ -38,6 +38,10 @@ export default defineConfig(({ mode }) => {
         { find: /^solid-js\/web$/, replacement: resolve(dependenciesRoot, "solid-js/web/dist/web.js") },
         { find: /^solid-js\/store$/, replacement: resolve(dependenciesRoot, solidStoreRuntime) },
         { find: /^@corvu\/popover$/, replacement: resolve(dependenciesRoot, "@corvu/popover") },
+        {
+          find: /^decode-named-character-reference$/,
+          replacement: resolve(dependenciesRoot, "decode-named-character-reference/index.js"),
+        },
         { find: /^valibot$/, replacement: resolve(dependenciesRoot, "valibot") },
         { find: "clsx", replacement: resolve(dependenciesRoot, "clsx") },
         { find: "tailwind-merge", replacement: resolve(dependenciesRoot, "tailwind-merge") },

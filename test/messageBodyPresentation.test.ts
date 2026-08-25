@@ -17,3 +17,14 @@ test("message Markdown preserves paragraph line breaks without preserving inter-
 test("message Markdown safely renders partial streaming content", () => {
   expect(markdownHtmlRender("Working **on it")).toBe("<p>Working **on it</p>")
 })
+
+test("message fallback presents source as text with preserved whitespace", async () => {
+  const component = await Bun.file(new URL("../src/message/ui/MessageBody.tsx", import.meta.url)).text()
+  const stylesheet = await Bun.file(new URL("../src/markdown/markdown.css", import.meta.url)).text()
+
+  expect(component).toContain("markdown-content markdown-content--message markdown-content--message-fallback")
+  expect(component).toContain("{props.content}")
+  expect(component).not.toContain("innerHTML={props.content}")
+  expect(stylesheet).toContain(".markdown-content--message-fallback")
+  expect(stylesheet).toContain("white-space: pre-wrap")
+})

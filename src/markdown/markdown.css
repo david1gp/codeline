@@ -9,6 +9,10 @@
   margin-top: 0.5rem;
 }
 
+.markdown-content--message-fallback {
+  white-space: pre-wrap;
+}
+
 .markdown-content--preview {
   --markdown-content-color: var(--muted-foreground);
 }
