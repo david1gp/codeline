@@ -19,6 +19,8 @@ function messageBodyRenderAppendOnlyEligible(
   previous: MessageBodyRenderSnapshot | undefined,
   next: MessageBodyRenderSnapshot,
 ): boolean {
+  // A missing or changed identity makes the source a new document, even when its
+  // text happens to share a prefix with the previous render.
   if (previous === undefined) return false
   if (!next.isStreaming || !previous.isStreaming) return false
   if (next.messageId === undefined || next.messageId !== previous.messageId) return false
@@ -27,10 +29,10 @@ function messageBodyRenderAppendOnlyEligible(
 
 export function messageBodyRenderStateCreate(options: MessageBodyRenderStateCreateOptions) {
   const renderedHtml = createSignalObject<string | undefined>(undefined)
+  const appendOnly = createSignalObject(false)
   const renderHtml = options.renderHtml ?? markdownHtmlRenderAsync
   let contentVersion = 0
   let disposed = false
-  let appendOnly = false
   let previous: MessageBodyRenderSnapshot | undefined
 
   createEffect(() => {
@@ -40,7 +42,7 @@ export function messageBodyRenderStateCreate(options: MessageBodyRenderStateCrea
       isStreaming: options.isStreaming?.() ?? false,
       messageId: options.messageId?.(),
     }
-    appendOnly = messageBodyRenderAppendOnlyEligible(previous, snapshot)
+    appendOnly.set(messageBodyRenderAppendOnlyEligible(previous, snapshot))
     previous = snapshot
     const version = ++contentVersion
     renderedHtml.set(undefined)
@@ -63,5 +65,5 @@ export function messageBodyRenderStateCreate(options: MessageBodyRenderStateCrea
     contentVersion += 1
   })
 
-  return { appendOnly: () => appendOnly, renderedHtml: renderedHtml.get }
+  return { appendOnly: appendOnly.get, renderedHtml: renderedHtml.get }
 }
