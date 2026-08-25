@@ -115,6 +115,83 @@ test("ignores a late render result after the message body is disposed", async ()
   expect(root.state.renderedHtml()).toBeUndefined()
 })
 
+test("marks an identified streaming message append as eligible", async () => {
+  const [content, contentSet] = createSignal("stream")
+  const root = createRoot((dispose) => ({
+    dispose,
+    state: messageBodyRenderStateCreate({
+      content,
+      isStreaming: () => true,
+      messageId: () => "message-1",
+      renderHtml: async () => "<p>Rendered</p>",
+    }),
+  }))
+
+  await effectsFlush()
+  expect(root.state.appendOnly()).toBe(false)
+
+  contentSet("streamed")
+  await effectsFlush()
+
+  expect(root.state.appendOnly()).toBe(true)
+  root.dispose()
+})
+
+test("rejects append eligibility for a new message, replacement, or finalized source", async () => {
+  const [content, contentSet] = createSignal("stream")
+  const [messageId, messageIdSet] = createSignal("message-1")
+  const [isStreaming, isStreamingSet] = createSignal(true)
+  const root = createRoot((dispose) => ({
+    dispose,
+    state: messageBodyRenderStateCreate({
+      content,
+      isStreaming,
+      messageId,
+      renderHtml: async () => "<p>Rendered</p>",
+    }),
+  }))
+
+  await effectsFlush()
+  contentSet("streamed")
+  await effectsFlush()
+  expect(root.state.appendOnly()).toBe(true)
+
+  contentSet("rewritten")
+  await effectsFlush()
+  expect(root.state.appendOnly()).toBe(false)
+
+  contentSet("rewritten again")
+  messageIdSet("message-2")
+  await effectsFlush()
+  expect(root.state.appendOnly()).toBe(false)
+
+  messageIdSet("message-2")
+  isStreamingSet(false)
+  contentSet("rewritten again and finalized")
+  await effectsFlush()
+  expect(root.state.appendOnly()).toBe(false)
+  root.dispose()
+})
+
+test("does not treat an unidentifiable stream as append-only", async () => {
+  const [content, contentSet] = createSignal("stream")
+  const root = createRoot((dispose) => ({
+    dispose,
+    state: messageBodyRenderStateCreate({
+      content,
+      isStreaming: () => true,
+      renderHtml: async () => "<p>Rendered</p>",
+    }),
+  }))
+
+  await effectsFlush()
+  contentSet("streamed")
+  await effectsFlush()
+
+  expect(root.state.appendOnly()).toBe(false)
+  root.dispose()
+})
+
 type Deferred = {
   promise: Promise<string>
   reject: (reason?: unknown) => void
