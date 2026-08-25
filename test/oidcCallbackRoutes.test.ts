@@ -87,6 +87,40 @@ test("OIDC callback uses the exact configured path, validates the mocked token a
   expect(JSON.stringify(storedProfile)).not.toContain("access-token")
 })
 
+test("OIDC callback diagnostics classify token exchange failures without logging callback secrets", async () => {
+  const stages: string[] = []
+  const originalConsoleLog = console.log
+  console.log = (...values: unknown[]) => stages.push(values.map(String).join(" "))
+  try {
+    const app = callbackApp({
+      providerFetch: async (input) => {
+        if (String(input) === metadata.tokenEndpoint)
+          throw new Error(
+            "authorization-code access-token state-value nonce-value browser-binding client-secret subject-value organization-id",
+          )
+        return jwksResponse()
+      },
+    })
+    const response = await app.request(
+      "https://codeline.test/login/zitadel/callback?code=authorization-code&state=state-value",
+      { headers: { Cookie: "__Host-codeline-oidc-binding=browser-binding" } },
+    )
+
+    expect(response.status).toBe(400)
+    expect(stages).toEqual(["auth_callback_stage=token_exchange"])
+    expect(stages.join(" ")).not.toContain("authorization-code")
+    expect(stages.join(" ")).not.toContain("access-token")
+    expect(stages.join(" ")).not.toContain("state-value")
+    expect(stages.join(" ")).not.toContain("nonce-value")
+    expect(stages.join(" ")).not.toContain("browser-binding")
+    expect(stages.join(" ")).not.toContain("client-secret")
+    expect(stages.join(" ")).not.toContain("subject-value")
+    expect(stages.join(" ")).not.toContain("organization-id")
+  } finally {
+    console.log = originalConsoleLog
+  }
+})
+
 test("OIDC callback rejects missing and disallowed resource-owner claims before identity persistence", async () => {
   for (const claims of [{ [oidcResourceOwnerClaim]: "other-organization" }, { [oidcResourceOwnerClaim]: undefined }]) {
     let identityCalled = false

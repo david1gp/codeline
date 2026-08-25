@@ -52,6 +52,29 @@ type ApiAuthRoutesOptions = {
   callbackRoute?: Hono<AppEnvironment>
 }
 
+type OidcCallbackStage =
+  | "configuration"
+  | "callback_path"
+  | "state"
+  | "browser_binding"
+  | "database"
+  | "transaction_consume"
+  | "transaction_validate"
+  | "return_to"
+  | "provider_discovery"
+  | "client_authentication"
+  | "authorization_response"
+  | "token_exchange"
+  | "nonce"
+  | "id_token_parse"
+  | "id_token_signature"
+  | "id_token_claims"
+  | "userinfo"
+  | "subject_consistency"
+  | "resource_owner_validation"
+  | "identity_session_persistence"
+  | "unexpected"
+
 export function apiAuthRoutesAdd(api: Hono<AppEnvironment>, options: ApiAuthRoutesOptions = {}): void {
   const revoke = options.identitySessionRevoke ?? identitySessionRevoke
   const transactionCreate = options.oidcLoginTransactionCreate ?? oidcLoginTransactionCreate
@@ -158,7 +181,7 @@ export function apiAuthRoutesAdd(api: Hono<AppEnvironment>, options: ApiAuthRout
         pathIsKnown,
       })
     } catch (_error) {
-      return oidcCallbackError(context, 500)
+      return oidcCallbackFailure(context, 500, "unexpected")
     }
   })
 
@@ -280,7 +303,7 @@ async function oidcCallbackHandle(
 ): Promise<Response> {
   const configuration = options.configuration
   if (configuration === undefined || authenticationModeResolve(configuration) !== "oidc") {
-    return oidcCallbackError(context, 404)
+    return oidcCallbackFailure(context, 404, "configuration")
   }
   if (
     configuration.oidcIssuer === undefined ||
@@ -288,7 +311,7 @@ async function oidcCallbackHandle(
     configuration.oidcClientId === undefined ||
     configuration.oidcOrganizationId === undefined
   ) {
-    return oidcCallbackError(context, 503)
+    return oidcCallbackFailure(context, 503, "configuration")
   }
 
   const callbackUri = oidcCallbackUriResolve(configuration)
@@ -296,23 +319,25 @@ async function oidcCallbackHandle(
   const configuredCallback = new URL(callbackUri)
   const callbackRequestUrl = oidcCallbackRequestUrlResolve(configuredCallback, requestUrl)
   if (callbackRequestUrl.pathname !== configuredCallback.pathname) {
-    return oidcCallbackError(context, 400)
+    return oidcCallbackFailure(context, 400, "callback_path")
   }
 
   const callbackParameters = callbackRequestUrl.searchParams
   const states = callbackParameters.getAll("state")
   const state = states[0]
-  if (states.length !== 1 || state === undefined || state.length === 0) return oidcCallbackError(context, 400)
+  if (states.length !== 1 || state === undefined || state.length === 0)
+    return oidcCallbackFailure(context, 400, "state")
 
   const browserBinding = oidcLoginBrowserBindingCookieRead(context)
-  if (browserBinding === undefined || browserBinding.length === 0) return oidcCallbackError(context, 400)
+  if (browserBinding === undefined || browserBinding.length === 0)
+    return oidcCallbackFailure(context, 400, "browser_binding")
 
   const database = options.database ?? context.var.database
-  if (database === undefined) return oidcCallbackError(context, 503)
+  if (database === undefined) return oidcCallbackFailure(context, 503, "database")
   const now = options.now?.() ?? new Date()
   const transactionConsume = options.transactionConsume ?? oidcLoginTransactionConsume
   const consumedTransaction = await transactionConsume(database, state, now, browserBinding)
-  if (!consumedTransaction.success) return oidcCallbackError(context, 500)
+  if (!consumedTransaction.success) return oidcCallbackFailure(context, 500, "transaction_consume")
   const transaction = consumedTransaction.data
   if (
     transaction === undefined ||
@@ -320,21 +345,21 @@ async function oidcCallbackHandle(
     transaction.redirectUri !== callbackUri ||
     transaction.expiresAt.getTime() <= now.getTime()
   ) {
-    return oidcCallbackError(context, 400)
+    return oidcCallbackFailure(context, 400, "transaction_validate")
   }
 
   const returnTo = oidcLoginReturnToResolve(transaction.returnTo, configuration.publicOrigin, options.pathIsKnown)
-  if (!returnTo.success) return oidcCallbackError(context, 400)
+  if (!returnTo.success) return oidcCallbackFailure(context, 400, "return_to")
 
   const provider = await options.providerDiscovery(configuration.oidcIssuer)
-  if (!provider.success) return oidcCallbackError(context, 503)
-  if (provider.data.issuer !== configuration.oidcIssuer) return oidcCallbackError(context, 503)
+  if (!provider.success) return oidcCallbackFailure(context, 503, "provider_discovery")
+  if (provider.data.issuer !== configuration.oidcIssuer) return oidcCallbackFailure(context, 503, "provider_discovery")
 
   const clientAuthentication = oidcClientAuthenticationResolve(
     provider.data.tokenEndpointAuthMethodsSupported,
     configuration,
   )
-  if (clientAuthentication === undefined) return oidcCallbackError(context, 503)
+  if (clientAuthentication === undefined) return oidcCallbackFailure(context, 503, "client_authentication")
 
   const authorizationServer: oauth.AuthorizationServer = {
     authorization_response_iss_parameter_supported: provider.data.authorizationResponseIssParameterSupported,
@@ -352,9 +377,15 @@ async function oidcCallbackHandle(
 
   let claims: oauth.IDToken | undefined
   let processedTokenResponse: oauth.TokenEndpointResponse | undefined
+  let validatedParameters: Parameters<typeof oauth.authorizationCodeGrantRequest>[3]
   try {
-    const validatedParameters = await oauth.validateAuthResponse(authorizationServer, client, callbackParameters, state)
-    const tokenResponse = await oauth.authorizationCodeGrantRequest(
+    validatedParameters = await oauth.validateAuthResponse(authorizationServer, client, callbackParameters, state)
+  } catch (_error) {
+    return oidcCallbackFailure(context, 400, "authorization_response")
+  }
+  let tokenResponse: Response
+  try {
+    tokenResponse = await oauth.authorizationCodeGrantRequest(
       authorizationServer,
       client,
       clientAuthentication,
@@ -363,26 +394,40 @@ async function oidcCallbackHandle(
       transaction.codeVerifier,
       { [oauth.customFetch]: oidcProviderCustomFetch(options.providerFetch) },
     )
-    const nonce = await oidcResponseNonceResolve(tokenResponse)
-    if (nonce === undefined) return oidcCallbackError(context, 400)
+  } catch (_error) {
+    return oidcCallbackFailure(context, 400, "token_exchange")
+  }
+  const nonce = await oidcResponseNonceResolve(tokenResponse)
+  if (nonce === undefined) return oidcCallbackFailure(context, 400, "nonce")
+  try {
     processedTokenResponse = await oauth.processAuthorizationCodeResponse(authorizationServer, client, tokenResponse, {
       expectedNonce: nonce,
       requireIdToken: true,
     })
+  } catch (_error) {
+    if (createHash("sha256").update(nonce).digest("hex") !== transaction.nonceHash)
+      return oidcCallbackFailure(context, 400, "nonce")
+    return oidcCallbackFailure(context, 400, "id_token_parse")
+  }
+  try {
     await oidcIdTokenSignatureValidate(authorizationServer, tokenResponse, options.providerFetch)
+  } catch (_error) {
+    return oidcCallbackFailure(context, 400, "id_token_signature")
+  }
+  try {
     claims = oauth.getValidatedIdTokenClaims(processedTokenResponse)
   } catch (_error) {
-    return oidcCallbackError(context, 400)
+    return oidcCallbackFailure(context, 400, "id_token_claims")
   }
-  if (claims === undefined) return oidcCallbackError(context, 400)
+  if (claims === undefined) return oidcCallbackFailure(context, 400, "id_token_claims")
+  if (!oidcIdTokenClaimsAreSafe(claims, provider.data.issuer, configuration.oidcClientId, now))
+    return oidcCallbackFailure(context, 400, "id_token_claims")
   if (
-    !oidcIdTokenClaimsAreSafe(claims, provider.data.issuer, configuration.oidcClientId, now) ||
     createHash("sha256")
       .update(claims.nonce ?? "")
       .digest("hex") !== transaction.nonceHash
-  ) {
-    return oidcCallbackError(context, 400)
-  }
+  )
+    return oidcCallbackFailure(context, 400, "nonce")
 
   const resourceOwnerId = await oidcResourceOwnerIdResolve(
     authorizationServer,
@@ -391,48 +436,54 @@ async function oidcCallbackHandle(
     processedTokenResponse,
     options.providerFetch,
   )
-  if (!resourceOwnerId.success || resourceOwnerId.data !== configuration.oidcOrganizationId) {
-    return oidcCallbackError(context, 400)
-  }
+  if (!resourceOwnerId.success)
+    return oidcCallbackFailure(context, 400, resourceOwnerId.callbackStage ?? "resource_owner_validation")
+  if (resourceOwnerId.data !== configuration.oidcOrganizationId)
+    return oidcCallbackFailure(context, 400, "resource_owner_validation")
 
   const identityUpsert = options.identityUpsert ?? oidcIdentityUpsert
   const identitySessionLoadResolve = options.identitySessionLoad ?? identitySessionLoad
   const identitySessionRevokeResolve = options.identitySessionRevoke ?? identitySessionRevoke
   const identitySessionCreateResolve = options.identitySessionCreate ?? identitySessionCreate
   const presentedSessionToken = identitySessionCookieRead(context)
-  const persisted = await oidcDatabaseTransactionRun(database, async (executor) => {
-    const user = await identityUpsert(executor, {
-      displayName: oidcProfileStringResolve(claims.name) ?? oidcProfileStringResolve(claims.preferred_username),
-      issuer: provider.data.issuer,
-      organizationExternalId: resourceOwnerId.data,
-      subject: claims.sub,
-      ...(claims.email_verified === true && oidcProfileStringResolve(claims.email) !== undefined
-        ? { verifiedEmail: oidcProfileStringResolve(claims.email) }
-        : {}),
-    })
-    if (!user.success) return user
+  let persisted: Result<{ session: { expiresAt: Date }; token: string }>
+  try {
+    persisted = await oidcDatabaseTransactionRun(database, async (executor) => {
+      const user = await identityUpsert(executor, {
+        displayName: oidcProfileStringResolve(claims.name) ?? oidcProfileStringResolve(claims.preferred_username),
+        issuer: provider.data.issuer,
+        organizationExternalId: resourceOwnerId.data,
+        subject: claims.sub,
+        ...(claims.email_verified === true && oidcProfileStringResolve(claims.email) !== undefined
+          ? { verifiedEmail: oidcProfileStringResolve(claims.email) }
+          : {}),
+      })
+      if (!user.success) return user
 
-    if (presentedSessionToken !== undefined) {
-      const presentedSession = await identitySessionLoadResolve(executor, presentedSessionToken, now)
-      if (!presentedSession.success) return presentedSession
-      if (presentedSession.data !== undefined) {
-        const revokedSession = await identitySessionRevokeResolve(executor, presentedSession.data.id, now)
-        if (!revokedSession.success) return revokedSession
+      if (presentedSessionToken !== undefined) {
+        const presentedSession = await identitySessionLoadResolve(executor, presentedSessionToken, now)
+        if (!presentedSession.success) return presentedSession
+        if (presentedSession.data !== undefined) {
+          const revokedSession = await identitySessionRevokeResolve(executor, presentedSession.data.id, now)
+          if (!revokedSession.success) return revokedSession
+        }
       }
-    }
 
-    const session = await identitySessionCreateResolve(executor, user.data.id, {
-      ...(options.sessionCredentialCreate === undefined ? {} : { credentialCreate: options.sessionCredentialCreate }),
-      ...(options.sessionIdCreate === undefined ? {} : { idCreate: options.sessionIdCreate }),
-      now,
+      const session = await identitySessionCreateResolve(executor, user.data.id, {
+        ...(options.sessionCredentialCreate === undefined ? {} : { credentialCreate: options.sessionCredentialCreate }),
+        ...(options.sessionIdCreate === undefined ? {} : { idCreate: options.sessionIdCreate }),
+        now,
+      })
+      if (!session.success) return session
+      return {
+        success: true as const,
+        data: { session: session.data.session, token: session.data.token },
+      }
     })
-    if (!session.success) return session
-    return {
-      success: true as const,
-      data: { session: session.data.session, token: session.data.token },
-    }
-  })
-  if (!persisted.success) return oidcCallbackError(context, 500)
+  } catch (_error) {
+    return oidcCallbackFailure(context, 500, "identity_session_persistence")
+  }
+  if (!persisted.success) return oidcCallbackFailure(context, 500, "identity_session_persistence")
 
   oidcLoginBrowserBindingCookieClear(context)
   identitySessionCookieSet(context, persisted.data.token, persisted.data.session.expiresAt, now)
@@ -471,6 +522,23 @@ function oidcCallbackError(context: Context<AppEnvironment>, status: 400 | 404 |
   } satisfies ApiErrorResponse
   oidcCallbackHeadersSet(context)
   return context.json(response, status)
+}
+
+function oidcCallbackFailure(
+  context: Context<AppEnvironment>,
+  status: 400 | 404 | 500 | 503,
+  stage: OidcCallbackStage,
+): Response {
+  oidcCallbackStageLog(stage)
+  return oidcCallbackError(context, status)
+}
+
+function oidcCallbackStageLog(stage: OidcCallbackStage): void {
+  try {
+    console.log(`auth_callback_stage=${stage}`)
+  } catch (_error) {
+    // Diagnostics must never change the callback response.
+  }
 }
 
 function oidcClientAuthenticationResolve(
@@ -566,32 +634,52 @@ async function oidcResourceOwnerIdResolve(
   claims: oauth.IDToken,
   tokenResponse: oauth.TokenEndpointResponse | undefined,
   providerFetch: OidcProviderFetch | undefined,
-): Promise<Result<string>> {
+): Promise<OidcResourceOwnerResult> {
   const op = "oidcResourceOwnerIdResolve"
   const idTokenValue = claims[oidcResourceOwnerClaim]
   if (idTokenValue !== undefined) {
     const resourceOwnerId = oidcProfileStringResolve(idTokenValue)
     return resourceOwnerId === undefined
-      ? createResultError(op, "The OIDC resource-owner claim is invalid.")
+      ? oidcResourceOwnerError(op, "The OIDC resource-owner claim is invalid.", "resource_owner_validation")
       : createResult(resourceOwnerId)
   }
 
   if (authorizationServer.userinfo_endpoint === undefined || tokenResponse?.access_token === undefined) {
-    return createResultError(op, "The OIDC resource-owner claim is missing.")
+    return oidcResourceOwnerError(op, "The OIDC resource-owner claim is missing.", "resource_owner_validation")
   }
 
+  let response: Response
   try {
-    const response = await oauth.userInfoRequest(authorizationServer, client, tokenResponse.access_token, {
+    response = await oauth.userInfoRequest(authorizationServer, client, tokenResponse.access_token, {
       [oauth.customFetch]: oidcProviderCustomFetch(providerFetch),
     })
+  } catch (_error) {
+    return oidcResourceOwnerError(op, "The OIDC resource-owner claim could not be validated.", "userinfo")
+  }
+  if (!response.ok)
+    return oidcResourceOwnerError(op, "The OIDC resource-owner claim could not be validated.", "userinfo")
+
+  try {
     const userInfo = await oauth.processUserInfoResponse(authorizationServer, client, claims.sub, response)
     const resourceOwnerId = oidcProfileStringResolve(userInfo[oidcResourceOwnerClaim])
     return resourceOwnerId === undefined
-      ? createResultError(op, "The OIDC resource-owner claim is missing.")
+      ? oidcResourceOwnerError(op, "The OIDC resource-owner claim is missing.", "resource_owner_validation")
       : createResult(resourceOwnerId)
   } catch (_error) {
-    return createResultError(op, "The OIDC resource-owner claim could not be validated.")
+    return oidcResourceOwnerError(op, "The OIDC resource-owner claim could not be validated.", "subject_consistency")
   }
+}
+
+type OidcResourceOwnerResult = Result<string> & {
+  callbackStage?: "userinfo" | "subject_consistency" | "resource_owner_validation"
+}
+
+function oidcResourceOwnerError(
+  op: string,
+  errorMessage: string,
+  callbackStage: NonNullable<OidcResourceOwnerResult["callbackStage"]>,
+): OidcResourceOwnerResult {
+  return { ...createResultError(op, errorMessage), callbackStage }
 }
 
 function oidcProfileStringResolve(value: unknown): string | undefined {
