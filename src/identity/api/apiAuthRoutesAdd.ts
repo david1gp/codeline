@@ -65,7 +65,8 @@ type OidcCallbackStage =
   | "client_authentication"
   | "authorization_response"
   | "token_exchange"
-  | "nonce"
+  | "nonce_missing"
+  | "nonce_mismatch"
   | "id_token_parse"
   | "id_token_signature"
   | "id_token_claims"
@@ -398,7 +399,7 @@ async function oidcCallbackHandle(
     return oidcCallbackFailure(context, 400, "token_exchange")
   }
   const nonce = await oidcResponseNonceResolve(tokenResponse)
-  if (nonce === undefined) return oidcCallbackFailure(context, 400, "nonce")
+  if (nonce === undefined) return oidcCallbackFailure(context, 400, "nonce_missing")
   try {
     processedTokenResponse = await oauth.processAuthorizationCodeResponse(authorizationServer, client, tokenResponse, {
       expectedNonce: nonce,
@@ -406,7 +407,7 @@ async function oidcCallbackHandle(
     })
   } catch (_error) {
     if (createHash("sha256").update(nonce).digest("hex") !== transaction.nonceHash)
-      return oidcCallbackFailure(context, 400, "nonce")
+      return oidcCallbackFailure(context, 400, "nonce_mismatch")
     return oidcCallbackFailure(context, 400, "id_token_parse")
   }
   try {
@@ -427,7 +428,11 @@ async function oidcCallbackHandle(
       .update(claims.nonce ?? "")
       .digest("hex") !== transaction.nonceHash
   )
-    return oidcCallbackFailure(context, 400, "nonce")
+    return oidcCallbackFailure(
+      context,
+      400,
+      typeof claims.nonce === "string" && claims.nonce.length > 0 ? "nonce_mismatch" : "nonce_missing",
+    )
 
   const resourceOwnerId = await oidcResourceOwnerIdResolve(
     authorizationServer,

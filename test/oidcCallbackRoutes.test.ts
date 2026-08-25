@@ -121,6 +121,52 @@ test("OIDC callback diagnostics classify token exchange failures without logging
   }
 })
 
+test("OIDC callback nonce diagnostics distinguish missing and mismatched nonces without disclosure", async () => {
+  const stages: string[] = []
+  const originalConsoleLog = console.log
+  console.log = (...values: unknown[]) => stages.push(values.map(String).join(" "))
+  const idTokens: string[] = []
+  try {
+    for (const failure of [
+      { name: "missing", nonce: undefined },
+      { name: "mismatch", nonce: "unexpected-nonce" },
+    ]) {
+      const idToken = await signedIdToken({ name: `claims-${failure.name}-secret`, nonce: failure.nonce })
+      idTokens.push(idToken)
+      const app = callbackApp({
+        providerFetch: async (input) => {
+          if (String(input) === metadata.tokenEndpoint) return tokenResponse(idToken)
+          return jwksResponse()
+        },
+      })
+      const response = await app.request(
+        "https://codeline.test/login/zitadel/callback?code=authorization-code&state=state-value",
+        { headers: { Cookie: "__Host-codeline-oidc-binding=browser-binding" } },
+      )
+
+      expect(response.status).toBe(400)
+    }
+
+    expect(stages).toEqual(["auth_callback_stage=nonce_missing", "auth_callback_stage=nonce_mismatch"])
+    const diagnostics = stages.join(" ")
+    for (const value of [
+      "nonce-value",
+      "unexpected-nonce",
+      "claims-missing-secret",
+      "claims-mismatch-secret",
+      "authorization-code",
+      "state-value",
+      "browser-binding",
+      "subject-value",
+      "organization-id",
+    ])
+      expect(diagnostics).not.toContain(value)
+    for (const idToken of idTokens) expect(diagnostics).not.toContain(idToken)
+  } finally {
+    console.log = originalConsoleLog
+  }
+})
+
 test("OIDC callback rejects missing and disallowed resource-owner claims before identity persistence", async () => {
   for (const claims of [{ [oidcResourceOwnerClaim]: "other-organization" }, { [oidcResourceOwnerClaim]: undefined }]) {
     let identityCalled = false
