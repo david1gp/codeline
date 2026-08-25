@@ -19,6 +19,7 @@ const demoAgents = [
 
 export function demoSessionTargetSelectorStateCreate(
   variant: () => DemoSessionScreenVariant,
+  selectedSessionId: { get: () => string | null },
 ): SessionTargetSelectorState {
   const selectedServerId = createSignalObject<string | null>(demoServers[0]?.id ?? null)
   const selectedAgentId = createSignalObject<string | null>(demoAgents[0]?.id ?? null)
@@ -100,6 +101,7 @@ export function demoSessionTargetSelectorStateCreate(
     selectedAgentId: selectedAgentId.get,
     selectedAgentName: () =>
       agents().find((agent) => agent.id === selectedAgentId.get())?.name ?? "Local execution agent",
+    selectedSessionId: selectedSessionId.get,
     selectedServerId: selectedServerId.get,
     servers,
     serverSelect: (serverId: string) => {

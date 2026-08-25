@@ -1,7 +1,8 @@
 import type { Accessor } from "solid-js"
-import { signalObjectCreate } from "./signalObjectCreate.js"
+import { createEffect } from "solid-js/dist/solid.js"
 import type { ActiveProjectState } from "./activeProjectStateCreate.js"
 import type { SessionTargetSelectorState } from "./sessionTargetSelectorStateCreate.js"
+import { signalObjectCreate } from "./signalObjectCreate.js"
 
 type NewSessionProject = {
   projectLabel: string
@@ -20,6 +21,7 @@ export function newSessionDialogStateCreate(options: NewSessionDialogStateOption
   const open = signalObjectCreate(false)
   const newProjectOpen = signalObjectCreate(false)
   const selectedProjectPath = signalObjectCreate(options.activeProject.project().path)
+  let sessionCreationPendingRoute = false
 
   const projects = () => {
     const current = options.activeProject.project()
@@ -33,6 +35,7 @@ export function newSessionDialogStateCreate(options: NewSessionDialogStateOption
   }
   const openChange = (nextOpen: boolean) => {
     open.set(nextOpen)
+    sessionCreationPendingRoute = false
     if (nextOpen) selectedProjectPath.set(options.activeProject.project().path)
     if (!nextOpen) newProjectOpen.set(false)
   }
@@ -50,9 +53,17 @@ export function newSessionDialogStateCreate(options: NewSessionDialogStateOption
   }
   const sessionCreate = async () => {
     if (!options.sessionTarget.canCreateSession() || options.sessionTarget.isCreatingSession()) return
+    sessionCreationPendingRoute = true
     const sessionId = await options.sessionTarget.sessionCreateStart(selectedProjectPath.get())
     if (sessionId !== null) openChange(false)
+    if (sessionId === null) sessionCreationPendingRoute = false
   }
+
+  createEffect(() => {
+    const selectedSessionId = options.sessionTarget.selectedSessionId()
+    if (!sessionCreationPendingRoute || selectedSessionId === null) return
+    openChange(false)
+  })
 
   return {
     canCreateSession: () => options.sessionTarget.canCreateSession() && selectedProjectPath.get().length > 0,

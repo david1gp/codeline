@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { createRoot } from "solid-js/dist/solid.js"
+import { createRoot, createSignal } from "solid-js/dist/solid.js"
 import { activeProjectStateCreate } from "../src/ui/activeProjectStateCreate.js"
 import { newSessionDialogStateCreate } from "../src/ui/newSessionDialogStateCreate.js"
 import type { SessionTargetSelectorState } from "../src/ui/sessionTargetSelectorStateCreate.js"
@@ -12,6 +12,7 @@ test("session creation uses the selected project", async () => {
       canCreateSession: () => true,
       isCreatingSession: () => false,
       sessionCreateErrorMessage: () => undefined,
+      selectedSessionId: () => null,
       sessionCreateStart: async (projectPath?: string) => {
         createdProjectPaths.push(projectPath ?? "")
         return "session-id"
@@ -53,6 +54,7 @@ test("new project selection opens the project dialog and selects the confirmed p
           canCreateSession: () => true,
           isCreatingSession: () => false,
           sessionCreateErrorMessage: () => undefined,
+          selectedSessionId: () => null,
           sessionCreateStart: async (projectPath?: string) => {
             createdProjectPaths.push(projectPath ?? "")
             return "session-id"
@@ -85,5 +87,48 @@ test("new project selection opens the project dialog and selects the confirmed p
   expect(root.state.dialogTitle()).toBe("New Session")
   expect(root.state.selectedProjectPath()).toBe("/workspace/new")
 
+  root.dispose()
+})
+
+test("session route selection closes the modal and clears the project form", async () => {
+  const [selectedSessionId, setSelectedSessionId] = createSignal<string | null>(null)
+  let resolveCreate: ((sessionId: string) => void) | undefined
+  let dialogState: ReturnType<typeof newSessionDialogStateCreate> | undefined
+  const root = createRoot((dispose) => {
+    const activeProject = activeProjectStateCreate()
+    const state = newSessionDialogStateCreate({
+      activeProject,
+      projects: () => [],
+      sessionTarget: {
+        canCreateSession: () => true,
+        isCreatingSession: () => false,
+        sessionCreateErrorMessage: () => undefined,
+        selectedSessionId,
+        sessionCreateStart: () =>
+          new Promise<string>((resolve) => {
+            resolveCreate = resolve
+            dialogState?.newProjectOpenChange(true)
+            setSelectedSessionId("session-id")
+          }),
+        sessionCreateStatus: () => "creating" as const,
+      } as unknown as SessionTargetSelectorState,
+    })
+    dialogState = state
+    return {
+      activeProject,
+      dispose,
+      state,
+    }
+  })
+
+  root.state.openChange(true)
+  root.state.projectChange(root.state.newProjectOptionValue)
+  root.state.projectChange("~")
+  root.state.formSubmit({ preventDefault: () => undefined } as SubmitEvent)
+  await new Promise((resolve) => setTimeout(resolve, 0))
+
+  expect(root.state.open()).toBe(false)
+  expect(root.state.newProjectOpen()).toBe(false)
+  resolveCreate?.("session-id")
   root.dispose()
 })

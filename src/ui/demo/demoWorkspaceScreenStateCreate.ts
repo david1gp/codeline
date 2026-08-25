@@ -27,6 +27,6 @@ export function demoWorkspaceScreenStateCreate(variant: () => DemoSessionScreenV
       variant,
     }),
     sessionList: demoSessionListStateCreate({ selectedSessionId, variant }),
-    sessionTargetSelector: demoSessionTargetSelectorStateCreate(variant),
+    sessionTargetSelector: demoSessionTargetSelectorStateCreate(variant, selectedSessionId),
   }
 }
