@@ -147,7 +147,7 @@ test("OIDC callback nonce diagnostics distinguish missing and mismatched nonces 
       expect(response.status).toBe(400)
     }
 
-    expect(stages).toEqual(["auth_callback_stage=nonce_missing", "auth_callback_stage=nonce_mismatch"])
+    expect(stages).toEqual(["auth_callback_stage=id_token_nonce_missing", "auth_callback_stage=nonce_mismatch"])
     const diagnostics = stages.join(" ")
     for (const value of [
       "nonce-value",
@@ -162,6 +162,69 @@ test("OIDC callback nonce diagnostics distinguish missing and mismatched nonces 
     ])
       expect(diagnostics).not.toContain(value)
     for (const idToken of idTokens) expect(diagnostics).not.toContain(idToken)
+  } finally {
+    console.log = originalConsoleLog
+  }
+})
+
+test("OIDC callback classifies every nonce extraction failure without logging token secrets", async () => {
+  const stages: string[] = []
+  const originalConsoleLog = console.log
+  console.log = (...values: unknown[]) => stages.push(values.map(String).join(" "))
+  const secret = "callback-classifier-secret"
+  try {
+    const cases: Array<{ category: string; response: () => Response | Promise<Response> }> = [
+      { category: "token_response_json", response: () => new Response(`{"secret":"${secret}"`) },
+      { category: "token_response_json", response: () => new Response("null") },
+      { category: "token_response_json", response: () => new Response(JSON.stringify([secret])) },
+      {
+        category: "token_response_id_token_missing",
+        response: () =>
+          new Response(JSON.stringify({ access_token: secret }), { headers: { "content-type": "application/json" } }),
+      },
+      {
+        category: "token_response_id_token_type",
+        response: () =>
+          new Response(JSON.stringify({ access_token: secret, id_token: null }), {
+            headers: { "content-type": "application/json" },
+          }),
+      },
+      { category: "id_token_jwt_payload_missing", response: () => tokenResponse(`header-${secret}`) },
+      {
+        category: "id_token_payload_json",
+        response: () => tokenResponse(`header.${base64url(`{"secret":"${secret}"`)}.signature`),
+      },
+      { category: "id_token_payload_json", response: () => tokenResponse(`header.${base64url("null")}.signature`) },
+      {
+        category: "id_token_nonce_missing",
+        response: () => tokenResponseFromClaims({ name: `missing-${secret}`, nonce: undefined }),
+      },
+      {
+        category: "id_token_nonce_empty",
+        response: () => tokenResponseFromClaims({ name: `empty-${secret}`, nonce: "" }),
+      },
+      {
+        category: "id_token_nonce_type",
+        response: () => tokenResponseFromClaims({ name: `type-${secret}`, nonce: { secret } }),
+      },
+    ]
+
+    for (const failure of cases) {
+      const app = callbackApp({
+        providerFetch: async (input) =>
+          String(input) === metadata.tokenEndpoint ? await failure.response() : jwksResponse(),
+      })
+      const response = await app.request(
+        "https://codeline.test/login/zitadel/callback?code=authorization-code&state=state-value",
+        { headers: { Cookie: "__Host-codeline-oidc-binding=browser-binding" } },
+      )
+
+      expect(response.status).toBe(400)
+      expect(stages.at(-1)).toBe(`auth_callback_stage=${failure.category}`)
+    }
+
+    expect(stages).toHaveLength(cases.length)
+    expect(stages.join(" ")).not.toContain(secret)
   } finally {
     console.log = originalConsoleLog
   }
@@ -527,6 +590,10 @@ function tokenResponse(idToken: string): Response {
     headers: { "content-type": "application/json" },
     status: 200,
   })
+}
+
+async function tokenResponseFromClaims(overrides: Record<string, unknown>): Promise<Response> {
+  return tokenResponse(await signedIdToken(overrides))
 }
 
 function jwksResponse(kid = "test-key"): Response {

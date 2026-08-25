@@ -65,7 +65,14 @@ type OidcCallbackStage =
   | "client_authentication"
   | "authorization_response"
   | "token_exchange"
-  | "nonce_missing"
+  | "token_response_json"
+  | "token_response_id_token_missing"
+  | "token_response_id_token_type"
+  | "id_token_jwt_payload_missing"
+  | "id_token_payload_json"
+  | "id_token_nonce_missing"
+  | "id_token_nonce_empty"
+  | "id_token_nonce_type"
   | "nonce_mismatch"
   | "id_token_parse"
   | "id_token_signature"
@@ -398,8 +405,9 @@ async function oidcCallbackHandle(
   } catch (_error) {
     return oidcCallbackFailure(context, 400, "token_exchange")
   }
-  const nonce = await oidcResponseNonceResolve(tokenResponse)
-  if (nonce === undefined) return oidcCallbackFailure(context, 400, "nonce_missing")
+  const nonceResult = await oidcResponseNonceResolve(tokenResponse)
+  if (nonceResult.category !== "success") return oidcCallbackFailure(context, 400, nonceResult.category)
+  const nonce = nonceResult.nonce
   try {
     processedTokenResponse = await oauth.processAuthorizationCodeResponse(authorizationServer, client, tokenResponse, {
       expectedNonce: nonce,
@@ -431,7 +439,7 @@ async function oidcCallbackHandle(
     return oidcCallbackFailure(
       context,
       400,
-      typeof claims.nonce === "string" && claims.nonce.length > 0 ? "nonce_mismatch" : "nonce_missing",
+      typeof claims.nonce === "string" && claims.nonce.length > 0 ? "nonce_mismatch" : "id_token_nonce_missing",
     )
 
   const resourceOwnerId = await oidcResourceOwnerIdResolve(
@@ -600,24 +608,50 @@ async function oidcIdTokenSignatureValidate(
   }
 }
 
-async function oidcResponseNonceResolve(response: Response): Promise<string | undefined> {
+type OidcNonceExtractionFailureCategory =
+  | "token_response_json"
+  | "token_response_id_token_missing"
+  | "token_response_id_token_type"
+  | "id_token_jwt_payload_missing"
+  | "id_token_payload_json"
+  | "id_token_nonce_missing"
+  | "id_token_nonce_empty"
+  | "id_token_nonce_type"
+
+type OidcNonceExtractionResult =
+  | { category: "success"; nonce: string }
+  | { category: OidcNonceExtractionFailureCategory }
+
+async function oidcResponseNonceResolve(response: Response): Promise<OidcNonceExtractionResult> {
+  let body: unknown
   try {
-    const body = (await response.clone().json()) as { id_token?: unknown }
-    return oidcUnverifiedNonceResolve(typeof body.id_token === "string" ? body.id_token : undefined)
+    body = await response.clone().json()
   } catch (_error) {
-    return undefined
+    return { category: "token_response_json" }
   }
+
+  if (body === null || typeof body !== "object" || Array.isArray(body)) return { category: "token_response_json" }
+  const tokenResponseBody = body as Record<string, unknown>
+  if (!("id_token" in tokenResponseBody) || tokenResponseBody.id_token === undefined)
+    return { category: "token_response_id_token_missing" }
+  if (typeof tokenResponseBody.id_token !== "string") return { category: "token_response_id_token_type" }
+  return oidcUnverifiedNonceResolve(tokenResponseBody.id_token)
 }
 
-function oidcUnverifiedNonceResolve(idToken: string | undefined): string | undefined {
-  if (idToken === undefined) return undefined
+function oidcUnverifiedNonceResolve(idToken: string): OidcNonceExtractionResult {
   const payload = idToken.split(".")[1]
-  if (payload === undefined) return undefined
+  if (payload === undefined) return { category: "id_token_jwt_payload_missing" }
   try {
-    const claims = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { nonce?: unknown }
-    return typeof claims.nonce === "string" && claims.nonce.length > 0 ? claims.nonce : undefined
+    const claims: unknown = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"))
+    if (claims === null || typeof claims !== "object" || Array.isArray(claims))
+      return { category: "id_token_payload_json" }
+    const idTokenClaims = claims as Record<string, unknown>
+    if (!("nonce" in idTokenClaims) || idTokenClaims.nonce === undefined) return { category: "id_token_nonce_missing" }
+    if (idTokenClaims.nonce === "") return { category: "id_token_nonce_empty" }
+    if (typeof idTokenClaims.nonce !== "string") return { category: "id_token_nonce_type" }
+    return { category: "success", nonce: idTokenClaims.nonce }
   } catch (_error) {
-    return undefined
+    return { category: "id_token_payload_json" }
   }
 }
 
