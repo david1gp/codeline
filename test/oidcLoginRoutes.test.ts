@@ -4,6 +4,7 @@ import * as oauth from "oauth4webapi"
 import { appCreate } from "../src/app/appCreate.js"
 import { oidcLoginReturnToResolve } from "../src/identity/oidc/oidcLoginReturnToResolve.js"
 import { oidcProviderDiscoveryCreate } from "../src/identity/oidc/oidcProviderDiscoveryCreate.js"
+import { oidcResourceOwnerScope } from "../src/identity/oidc/oidcResourceOwnerScope.js"
 
 const configuration = {
   authMode: "oidc" as const,
@@ -24,6 +25,7 @@ const metadata = {
   issuer: configuration.oidcIssuer,
   jwks_uri: "https://issuer.codeline.test/jwks",
   response_types_supported: ["code"],
+  scopes_supported: ["openid", "profile", "email", oidcResourceOwnerScope],
   token_endpoint: "https://issuer.codeline.test/token",
 }
 
@@ -97,7 +99,7 @@ test("OIDC login discovers once, stores a bound ten-minute transaction, and redi
   expect(firstLocation.searchParams.get("client_id")).toBe("client-id")
   expect(firstLocation.searchParams.get("redirect_uri")).toBe(configuration.oidcCallbackUrl)
   expect(firstLocation.searchParams.get("response_type")).toBe("code")
-  expect(firstLocation.searchParams.get("scope")).toBe("openid profile email urn:zitadel:iam:user:resourceowner")
+  expect(firstLocation.searchParams.get("scope")).toBe(`openid profile email ${oidcResourceOwnerScope}`)
   expect(firstLocation.searchParams.get("state")).toBe("state-one")
   expect(firstLocation.searchParams.get("nonce")).toBe("nonce-one")
   expect(firstLocation.searchParams.get("code_challenge_method")).toBe("S256")
@@ -113,6 +115,25 @@ test("OIDC login discovers once, stores a bound ten-minute transaction, and redi
     returnTo: "/files",
     state: "state-two",
   })
+})
+
+test("OIDC login omits the resource-owner scope when the provider does not advertise it", async () => {
+  const app = appCreate({
+    configuration,
+    database: {} as never,
+    oidcLoginTransactionCreate: async () => createResult({} as never),
+    oidcProviderFetch: async () =>
+      new Response(JSON.stringify({ ...metadata, scopes_supported: ["openid", "profile", "email"] }), {
+        headers: { "content-type": "application/json" },
+      }),
+    oidcReturnToPathIsKnown: (pathname) => pathname === "/" || pathname === "/files",
+  })
+
+  const response = await app.request("https://codeline.test/api/auth/login?returnTo=/files")
+  const location = new URL(response.headers.get("location") ?? "")
+
+  expect(response.status).toBe(302)
+  expect(location.searchParams.get("scope")).toBe("openid profile email")
 })
 
 test("OIDC login rejects unknown and cross-origin return paths before discovery", async () => {

@@ -146,6 +146,7 @@ async function oidcProviderDiscoveryFetch(
       issuer: metadata.issuer,
       jwksUri,
       responseTypesSupported: metadata.response_types_supported,
+      ...(metadata.scopes_supported === undefined ? {} : { scopesSupported: metadata.scopes_supported }),
       tokenEndpoint,
       tokenEndpointAuthMethodsSupported: metadata.token_endpoint_auth_methods_supported ?? ["client_secret_basic"],
       ...(userinfoEndpoint === undefined ? {} : { userinfoEndpoint }),

@@ -52,6 +52,7 @@ test.each([
   ["GET", "/api/sessions?cursor=opaque-cursor"],
   ["GET", "/api/events"],
   ["GET", "/api/events?after=opaque-cursor"],
+  ["GET", "/api/auth/login?returnTo=%2Ffiles"],
   ["POST", "/api/sessions"],
   ["PATCH", "/api/sessions/session-1"],
   ["DELETE", "/api/sessions/session-1"],

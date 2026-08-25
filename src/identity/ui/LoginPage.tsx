@@ -1,3 +1,4 @@
+import { LinkButtonExternal } from "#ui/interactive/link/LinkButton.jsx"
 import { loginPageStateCreate } from "./loginPageStateCreate.js"
 
 export function LoginPage() {
@@ -8,16 +9,11 @@ export function LoginPage() {
       <div class="w-full max-w-sm rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6">
         <h1 class="font-semibold text-[var(--foreground)] text-lg">Sign in to Codeline</h1>
         <p class="mt-2 text-[13px] text-[var(--muted-foreground)]">
-          Codeline needs an authenticated session before the workspace can load.
+          Continue with Authworks SSO at authworks.contentoren.de. You will return to Codeline after signing in.
         </p>
-        <a
-          class="mt-6 inline-flex w-full items-center justify-center rounded-lg border border-[var(--accent)] bg-[var(--accent-soft)] px-4 py-2 font-medium text-[13px] text-[var(--accent)] no-underline"
-          href={state.loginHref()}
-          rel="nofollow"
-          target="_self"
-        >
-          Continue to sign in
-        </a>
+        <LinkButtonExternal class="mt-6 w-full" href={state.loginHref()} rel="nofollow" target="_self">
+          Continue with Authworks SSO
+        </LinkButtonExternal>
       </div>
     </main>
   )

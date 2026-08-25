@@ -127,7 +127,10 @@ export function apiAuthRoutesAdd(api: Hono<AppEnvironment>, options: ApiAuthRout
     authorizationUrl.searchParams.set("code_challenge_method", "S256")
     authorizationUrl.searchParams.set("redirect_uri", redirectUri)
     authorizationUrl.searchParams.set("response_type", "code")
-    authorizationUrl.searchParams.set("scope", `openid profile email ${oidcResourceOwnerScope}`)
+    const authorizationScopes = ["openid", "profile", "email"]
+    if (provider.data.scopesSupported?.includes(oidcResourceOwnerScope))
+      authorizationScopes.push(oidcResourceOwnerScope)
+    authorizationUrl.searchParams.set("scope", authorizationScopes.join(" "))
     authorizationUrl.searchParams.set("state", state)
     authorizationUrl.searchParams.set("nonce", nonce)
 
