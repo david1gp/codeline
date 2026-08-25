@@ -16,6 +16,7 @@ After a failure, run only the failing file/test name.
 - The managed API owns the embedded SQLite file at `data/db.sqlite`; use the repository-owned `db:reset-seed` workflow for resets and deterministic fixture data.
 - The browser reaches the managed UI at `PUBLIC_ORIGIN` (`https://preview.codeline.work`). Typed HTTP and `/api/events` SSE are served by the combined preview service.
 - Inspect Solid Router internals in `/home/david/opensource/solid-router` when needed.
+- Authworks `ssotest` browser verification uses private `E2E_STAFF_EMAIL`/`E2E_STAFF_PASSWORD` from ignored `.env`, with account source metadata under `~/leo/contentoren-server/zitadel`; never print/commit credentials.
 
 ## solid-ui
 

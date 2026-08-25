@@ -30,7 +30,7 @@ Replace the failing local login flow with Authworks SSO through `authworks.conte
 - [x] 4. Update the login UI/client flow for Authworks SSO. (The managed preview login action redirects to the Authworks login UI.)
 - [x] 5. Add or update focused automated tests. (Focused auth/login/service-worker tests pass; typecheck and build pass.)
 - [x] 6. Verify the managed combined preview service and login redirect. (The managed preview is ready, redirects to Authworks, and serves the fixed service worker; the credential-required callback remains not exercised.)
-- [ ] 7. Use the existing private `ssotest` credentials, ensure the account is available through Authworks using the Contentoren Zitadel configuration where required, persist credentials only in ignored `.env`, verify the complete callback/session flow, and record the credential convention in `AGENTS.md`.
+- [x] 7. Private `ssotest` credentials use `E2E_STAFF_EMAIL`/`E2E_STAFF_PASSWORD` from ignored `.env`; account source metadata is under `~/leo/contentoren-server/zitadel`; full callback, logout, and relogin passed.
 
 ## Paths
 
