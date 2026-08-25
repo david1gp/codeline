@@ -3,6 +3,7 @@ import { MessageBody } from "../message/ui/MessageBody.js"
 import { ProviderModelSelector } from "../providers/ui/ProviderModelSelector.js"
 import type { providerModelSelectorStateCreate } from "../providers/ui/providerModelSelectorStateCreate.js"
 import { SessionTargetSelector } from "./SessionTargetSelector.js"
+import { sessionChatPendingMessagesCreate } from "./sessionChatPendingMessagesCreate.js"
 import type { SessionChatState } from "./sessionChatStateCreate.js"
 import type { SessionTargetSelectorState } from "./sessionTargetSelectorStateCreate.js"
 
@@ -11,12 +12,18 @@ export function SessionChat(props: {
   sessionTarget?: SessionTargetSelectorState
   state: SessionChatState
 }) {
+  const pendingMessageState = sessionChatPendingMessagesCreate({
+    isBusy: props.state.isBusy,
+    messages: props.state.pendingMessages,
+    runId: props.state.runId ?? (() => null),
+  })
+
   return (
     <section class="shrink-0 px-4 pb-2 max-[760px]:px-3" aria-label="Chat input">
       <div class="mx-auto grid w-full max-w-[820px] gap-2">
-        <Show when={props.state.pendingMessages().length > 0}>
+        <Show when={pendingMessageState.pendingMessages().length > 0}>
           <ol class="grid max-h-[30vh] list-none gap-3 overflow-y-auto p-0" aria-label="In-flight messages">
-            <For each={props.state.pendingMessages()}>
+            <For each={pendingMessageState.pendingMessages()}>
               {(message) => (
                 <li class="flex min-w-0 flex-col" classList={{ "items-end": message.role === "user" }}>
                   <Show when={message.role !== "user"}>
@@ -46,7 +53,7 @@ export function SessionChat(props: {
                       "w-full": message.role !== "user",
                     }}
                   >
-                    <MessageBody content={message.content} />
+                    <MessageBody content={message.content} isStreaming={message.isStreaming} messageId={message.id} />
                   </div>
                 </li>
               )}

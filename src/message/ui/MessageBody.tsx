@@ -3,10 +3,16 @@ import { messageBodyRenderStateCreate } from "./messageBodyRenderStateCreate.js"
 
 type MessageBodyProps = {
   content: string
+  isStreaming?: boolean
+  messageId?: string
 }
 
 export function MessageBody(props: MessageBodyProps) {
-  const state = messageBodyRenderStateCreate({ content: () => props.content })
+  const state = messageBodyRenderStateCreate({
+    content: () => props.content,
+    isStreaming: () => props.isStreaming ?? false,
+    messageId: () => props.messageId,
+  })
 
   return (
     <Show
