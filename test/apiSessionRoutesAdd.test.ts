@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test"
 import { randomBytes } from "node:crypto"
 import { createResult } from "@adaptive-ds/result"
+import { type AnyTextAdapter, EventType } from "@tanstack/ai"
 import { asc, eq } from "drizzle-orm"
 import { Hono } from "hono"
 import * as v from "valibot"
@@ -17,6 +18,7 @@ import { organizationMemberTable } from "../src/identity/db/organizationMemberTa
 import { organizationTable } from "../src/identity/db/organizationTable.js"
 import { journalCursorCodecCreate } from "../src/journal/actions/journalCursorCodecCreate.js"
 import { messageTable } from "../src/message/db/messageTable.js"
+import { providerDelegationToolLoopCreate } from "../src/providers/runtime/providerDelegationToolLoopCreate.js"
 import { runCreate } from "../src/run/actions/runCreate.js"
 import { attemptTable } from "../src/run/db/attemptTable.js"
 import { runDelegationTable } from "../src/run/db/runDelegationTable.js"
@@ -74,6 +76,29 @@ const runConfigurationStore = {
     revision: "session-http-configuration-revision",
   },
 } satisfies ConfigurationStore
+
+function nestedProviderDelegationToolLoopCreate(options: Parameters<typeof providerDelegationToolLoopCreate>[0]) {
+  const adapter: AnyTextAdapter = {
+    ...options.adapter,
+    chatStream: (input) =>
+      (async function* () {
+        // Make the nested API regression exercise result handoff instead of a provider-written continuation.
+        const continuation = input.messages.some((message) => message.role === "tool")
+        for await (const chunk of options.adapter.chatStream(input)) {
+          if (
+            continuation &&
+            (chunk.type === EventType.TEXT_MESSAGE_START ||
+              chunk.type === EventType.TEXT_MESSAGE_CONTENT ||
+              chunk.type === EventType.TEXT_MESSAGE_END)
+          )
+            continue
+          yield chunk
+        }
+      })(),
+  }
+  return providerDelegationToolLoopCreate({ ...options, adapter })
+}
+
 const runApp = appCreate({
   ...appSseTestDependenciesCreate(journalCursorCodec.data),
   configuration,
@@ -89,6 +114,7 @@ const nestedRunApp = appCreate({
   database,
   developmentIdentityUpsert: testDevelopmentIdentityUpsert,
   journalCursorCodec: journalCursorCodec.data,
+  providerDelegationToolLoopCreate: nestedProviderDelegationToolLoopCreate,
   runCreate: (database, userId, sessionId, input) =>
     runCreate(database, userId, sessionId, {
       ...input,
@@ -567,6 +593,23 @@ test.skipIf(!databaseAvailable)(
         .where(eq(runDelegationTable.sessionId, sessionId))
         .orderBy(asc(runDelegationTable.createdAt), asc(runDelegationTable.id))
     }
+
+    let messages = await database
+      .select({ content: messageTable.content, role: messageTable.role })
+      .from(messageTable)
+      .where(eq(messageTable.sessionId, sessionId))
+      .orderBy(asc(messageTable.sequence))
+    for (let attempt = 0; attempt < 100 && !messages.some((message) => message.role === "assistant"); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      messages = await database
+        .select({ content: messageTable.content, role: messageTable.role })
+        .from(messageTable)
+        .where(eq(messageTable.sessionId, sessionId))
+        .orderBy(asc(messageTable.sequence))
+    }
+    expect(messages.filter((message) => message.role === "assistant").map((message) => message.content)).toEqual([
+      "Deterministic response: ping",
+    ])
 
     expect(delegations).toHaveLength(2)
     expect(delegations.map((delegation) => delegation.task)).toEqual(["delegate:ping", "ping"])

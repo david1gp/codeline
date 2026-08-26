@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { EventType, type AnyTextAdapter, type ModelMessage, type StreamChunk } from "@tanstack/ai"
+import { type AnyTextAdapter, EventType, type ModelMessage, type StreamChunk } from "@tanstack/ai"
 import { providerDelegationToolLoopCreate } from "../src/providers/runtime/providerDelegationToolLoopCreate.js"
 import { providerExecutionEventFromStreamChunk } from "../src/providers/runtime/providerExecutionEventFromStreamChunk.js"
 import { executionStreamEventNormalize } from "../src/stream/actions/executionStreamEventNormalize.js"
@@ -51,6 +51,99 @@ function delegatedToolScript(toolArguments: string): Array<StreamChunk> {
   ] as Array<StreamChunk>
 }
 
+function delegatedToolScriptWithPreToolText(toolArguments: string): Array<StreamChunk> {
+  return [
+    { runId: "run-delegation", threadId: "thread-delegation", timestamp: 1, type: EventType.RUN_STARTED },
+    { messageId: "assistant-delegation", role: "assistant", timestamp: 2, type: EventType.TEXT_MESSAGE_START },
+    {
+      delta: "Before delegation.",
+      messageId: "assistant-delegation",
+      timestamp: 3,
+      type: EventType.TEXT_MESSAGE_CONTENT,
+    },
+    { messageId: "assistant-delegation", timestamp: 4, type: EventType.TEXT_MESSAGE_END },
+    {
+      timestamp: 5,
+      toolCallId: "call-delegation-1",
+      toolCallName: "delegate_task",
+      toolName: "delegate_task",
+      type: EventType.TOOL_CALL_START,
+    },
+    { delta: toolArguments, timestamp: 6, toolCallId: "call-delegation-1", type: EventType.TOOL_CALL_ARGS },
+    {
+      finishReason: "tool_calls",
+      outcome: { type: "success" },
+      runId: "run-delegation",
+      threadId: "thread-delegation",
+      timestamp: 7,
+      type: EventType.RUN_FINISHED,
+    },
+  ] as Array<StreamChunk>
+}
+
+function multipleDelegatedToolScript(): Array<StreamChunk> {
+  return [
+    { runId: "run-delegation", threadId: "thread-delegation", timestamp: 1, type: EventType.RUN_STARTED },
+    {
+      timestamp: 2,
+      toolCallId: "call-delegation-1",
+      toolCallName: "delegate_task",
+      toolName: "delegate_task",
+      type: EventType.TOOL_CALL_START,
+    },
+    { delta: '{"task":"return first"}', timestamp: 3, toolCallId: "call-delegation-1", type: EventType.TOOL_CALL_ARGS },
+    {
+      timestamp: 4,
+      toolCallId: "call-delegation-2",
+      toolCallName: "delegate_task",
+      toolName: "delegate_task",
+      type: EventType.TOOL_CALL_START,
+    },
+    {
+      delta: '{"task":"return second"}',
+      timestamp: 5,
+      toolCallId: "call-delegation-2",
+      type: EventType.TOOL_CALL_ARGS,
+    },
+    {
+      finishReason: "tool_calls",
+      outcome: { type: "success" },
+      runId: "run-delegation",
+      threadId: "thread-delegation",
+      timestamp: 6,
+      type: EventType.RUN_FINISHED,
+    },
+  ] as Array<StreamChunk>
+}
+
+function duplicateToolResultScript(): Array<StreamChunk> {
+  return [
+    { runId: "run-delegation", threadId: "thread-delegation", timestamp: 5, type: EventType.RUN_STARTED },
+    {
+      content: "ping",
+      state: "output-available",
+      timestamp: 6,
+      toolCallId: "call-delegation-1",
+      type: EventType.TOOL_CALL_RESULT,
+    },
+    {
+      content: "ping",
+      state: "output-available",
+      timestamp: 7,
+      toolCallId: "call-delegation-1",
+      type: EventType.TOOL_CALL_RESULT,
+    },
+    {
+      finishReason: "stop",
+      outcome: { type: "success" },
+      runId: "run-delegation",
+      threadId: "thread-delegation",
+      timestamp: 8,
+      type: EventType.RUN_FINISHED,
+    },
+  ] as Array<StreamChunk>
+}
+
 function finalTextScript(text: string): Array<StreamChunk> {
   return [
     { runId: "run-delegation", threadId: "thread-delegation", timestamp: 5, type: EventType.RUN_STARTED },
@@ -63,6 +156,20 @@ function finalTextScript(text: string): Array<StreamChunk> {
       runId: "run-delegation",
       threadId: "thread-delegation",
       timestamp: 9,
+      type: EventType.RUN_FINISHED,
+    },
+  ] as Array<StreamChunk>
+}
+
+function terminalOnlyScript(): Array<StreamChunk> {
+  return [
+    { runId: "run-delegation", threadId: "thread-delegation", timestamp: 5, type: EventType.RUN_STARTED },
+    {
+      finishReason: "stop",
+      outcome: { type: "success" },
+      runId: "run-delegation",
+      threadId: "thread-delegation",
+      timestamp: 6,
       type: EventType.RUN_FINISHED,
     },
   ] as Array<StreamChunk>
@@ -105,8 +212,125 @@ test("runs delegate_task synchronously and collapses intermediate model lifecycl
     content: "child result",
     toolCallId: "call-delegation-1",
   })
+  expect(chunks.filter((chunk) => chunk.type === EventType.TEXT_MESSAGE_CONTENT).map((chunk) => chunk.delta)).toEqual([
+    "Delegated task complete.",
+  ])
   expect(scripted.calls).toHaveLength(2)
   expect(scripted.calls[1]?.some((message) => message.role === "tool" && message.content === "child result")).toBe(true)
+})
+
+test("returns a successful delegation result when the continuation has no assistant text", async () => {
+  const scripted = scriptedAdapterCreate([delegatedToolScript('{"task":"return ping"}'), terminalOnlyScript()])
+  const loop = providerDelegationToolLoopCreate({
+    adapter: scripted.adapter,
+    delegateTask: () => "ping",
+  })
+
+  const chunks = await collect(
+    loop({
+      messages: [{ content: "Please delegate this task.", role: "user" }],
+      runId: "run-delegation",
+      signal: new AbortController().signal,
+      threadId: "thread-delegation",
+    }),
+  )
+
+  expect(chunks.filter((chunk) => chunk.type === EventType.TEXT_MESSAGE_CONTENT).map((chunk) => chunk.delta)).toEqual([
+    "ping",
+  ])
+  expect(chunks.filter((chunk) => chunk.type === EventType.TEXT_MESSAGE_START)).toHaveLength(1)
+  expect(chunks.filter((chunk) => chunk.type === EventType.TEXT_MESSAGE_END)).toHaveLength(1)
+  expect(chunks.filter((chunk) => chunk.type === EventType.RUN_FINISHED)).toHaveLength(1)
+})
+
+test("returns the delegated result after pre-tool text when the continuation is empty", async () => {
+  const scripted = scriptedAdapterCreate([
+    delegatedToolScriptWithPreToolText('{"task":"return ping"}'),
+    terminalOnlyScript(),
+  ])
+  const loop = providerDelegationToolLoopCreate({
+    adapter: scripted.adapter,
+    delegateTask: () => "ping",
+  })
+
+  const chunks = await collect(
+    loop({
+      messages: [{ content: "Please delegate this task.", role: "user" }],
+      runId: "run-delegation",
+      signal: new AbortController().signal,
+      threadId: "thread-delegation",
+    }),
+  )
+
+  expect(chunks.filter((chunk) => chunk.type === EventType.TEXT_MESSAGE_CONTENT).map((chunk) => chunk.delta)).toEqual([
+    "Before delegation.",
+    "ping",
+  ])
+})
+
+test("deduplicates delegated result events by tool call ID", async () => {
+  const scripted = scriptedAdapterCreate([delegatedToolScript('{"task":"return ping"}'), duplicateToolResultScript()])
+  const loop = providerDelegationToolLoopCreate({
+    adapter: scripted.adapter,
+    delegateTask: () => "ping",
+  })
+
+  const chunks = await collect(
+    loop({
+      messages: [{ content: "Please delegate this task.", role: "user" }],
+      runId: "run-delegation",
+      signal: new AbortController().signal,
+      threadId: "thread-delegation",
+    }),
+  )
+
+  expect(chunks.filter((chunk) => chunk.type === EventType.TOOL_CALL_RESULT)).toHaveLength(1)
+  expect(chunks.filter((chunk) => chunk.type === EventType.TEXT_MESSAGE_CONTENT).map((chunk) => chunk.delta)).toEqual([
+    "ping",
+  ])
+})
+
+test("returns multiple delegated results in tool call order", async () => {
+  const scripted = scriptedAdapterCreate([multipleDelegatedToolScript(), terminalOnlyScript()])
+  const loop = providerDelegationToolLoopCreate({
+    adapter: scripted.adapter,
+    delegateTask: ({ task }) => (task === "return first" ? "first result" : "second result"),
+  })
+
+  const chunks = await collect(
+    loop({
+      messages: [{ content: "Delegate both tasks.", role: "user" }],
+      runId: "run-delegation",
+      signal: new AbortController().signal,
+      threadId: "thread-delegation",
+    }),
+  )
+
+  expect(chunks.filter((chunk) => chunk.type === EventType.TEXT_MESSAGE_CONTENT).map((chunk) => chunk.delta)).toEqual([
+    "first result\nsecond result",
+  ])
+})
+
+test("does not fall back to an error result", async () => {
+  const scripted = scriptedAdapterCreate([delegatedToolScript('{"task":"fail"}'), terminalOnlyScript()])
+  const loop = providerDelegationToolLoopCreate({
+    adapter: scripted.adapter,
+    delegateTask: () => {
+      throw new Error("delegated failure")
+    },
+  })
+
+  const chunks = await collect(
+    loop({
+      messages: [{ content: "Fail the delegated task.", role: "user" }],
+      runId: "run-delegation",
+      signal: new AbortController().signal,
+      threadId: "thread-delegation",
+    }),
+  )
+
+  expect(chunks.filter((chunk) => chunk.type === EventType.TEXT_MESSAGE_CONTENT)).toHaveLength(0)
+  expect(chunks.find((chunk) => chunk.type === EventType.TOOL_CALL_RESULT)).toMatchObject({ state: "output-error" })
 })
 
 test("propagates the selected child agent through the delegation tool", async () => {

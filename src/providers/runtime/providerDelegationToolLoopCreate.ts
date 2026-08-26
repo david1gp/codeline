@@ -1,13 +1,14 @@
 import {
+  type AnyTextAdapter,
   chat,
   EventType,
-  toolDefinition,
-  type AnyTextAdapter,
   type ModelMessage,
   type SchemaInput,
   type StreamChunk,
+  toolDefinition,
 } from "@tanstack/ai"
 import * as v from "valibot"
+import { providerExecutionEventFromStreamChunk } from "./providerExecutionEventFromStreamChunk.js"
 
 const DELEGATE_TASK_INPUT_LIMIT = 100_000
 const DELEGATE_TASK_OUTPUT_LIMIT = 16_384
@@ -106,6 +107,13 @@ async function* providerDelegationToolLoopGenerate(
 
   let finalChunk: Extract<StreamChunk, { type: "RUN_FINISHED" }> | undefined
   let emittedError = false
+  let continuationText = ""
+  let currentRoundHasToolCalls = false
+  let currentRoundHasToolResult = false
+  let delegatedResultRoundHasError = false
+  let hasDelegatedResultRound = false
+  const delegatedResultEventIds = new Set<string>()
+  const delegatedResults = new Map<string, string>()
 
   try {
     yield {
@@ -123,12 +131,48 @@ async function* providerDelegationToolLoopGenerate(
       threadId: input.threadId,
       tools: [delegateTask],
     })) {
-      if (chunk.type === EventType.RUN_STARTED) continue
+      if (chunk.type === EventType.RUN_STARTED) {
+        currentRoundHasToolCalls = false
+        currentRoundHasToolResult = false
+        continuationText = ""
+        continue
+      }
       if (chunk.type === EventType.RUN_FINISHED) {
         finalChunk = chunk
         continue
       }
       if (chunk.type === EventType.RUN_ERROR) emittedError = true
+      if (chunk.type === EventType.TEXT_MESSAGE_CONTENT) continuationText += chunk.delta
+      if (chunk.type === EventType.TOOL_CALL_START) {
+        if (hasDelegatedResultRound && (!currentRoundHasToolCalls || currentRoundHasToolResult)) {
+          delegatedResults.clear()
+          delegatedResultRoundHasError = false
+          hasDelegatedResultRound = false
+          continuationText = ""
+        }
+        currentRoundHasToolCalls = true
+      }
+      if (chunk.type === EventType.TOOL_CALL_RESULT) {
+        const providerEvent = providerExecutionEventFromStreamChunk(chunk)
+        if (providerEvent.success && providerEvent.data?.type === "tool_result") {
+          if (currentRoundHasToolCalls && !currentRoundHasToolResult) {
+            delegatedResults.clear()
+            delegatedResultRoundHasError = false
+            hasDelegatedResultRound = true
+            currentRoundHasToolResult = true
+            continuationText = ""
+          }
+
+          if (delegatedResultEventIds.has(providerEvent.data.toolCallId)) continue
+          delegatedResultEventIds.add(providerEvent.data.toolCallId)
+
+          if (providerEvent.data.outcome === "error") {
+            delegatedResultRoundHasError = true
+          } else if (typeof providerEvent.data.result === "string" && providerEvent.data.result.trim().length > 0) {
+            delegatedResults.set(providerEvent.data.toolCallId, providerEvent.data.result)
+          }
+        }
+      }
       yield providerDelegationStreamChunkJsonSafe(chunk)
     }
   } catch {
@@ -158,6 +202,32 @@ async function* providerDelegationToolLoopGenerate(
   }
 
   if (emittedError) return
+
+  if (
+    (finalChunk === undefined || finalChunk.outcome?.type === "success") &&
+    continuationText.trim().length === 0 &&
+    !delegatedResultRoundHasError &&
+    delegatedResults.size > 0
+  ) {
+    const messageId = `${input.runId}:delegated-result`
+    yield {
+      messageId,
+      role: "assistant",
+      timestamp: Date.now(),
+      type: EventType.TEXT_MESSAGE_START,
+    }
+    yield {
+      delta: [...delegatedResults.values()].join("\n").slice(0, DELEGATE_TASK_OUTPUT_LIMIT),
+      messageId,
+      timestamp: Date.now(),
+      type: EventType.TEXT_MESSAGE_CONTENT,
+    }
+    yield {
+      messageId,
+      timestamp: Date.now(),
+      type: EventType.TEXT_MESSAGE_END,
+    }
+  }
 
   yield providerDelegationStreamChunkJsonSafe({
     ...(finalChunk ?? {}),
