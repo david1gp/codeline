@@ -585,7 +585,8 @@ test.skipIf(!databaseAvailable)(
       .from(runDelegationTable)
       .where(eq(runDelegationTable.sessionId, sessionId))
       .orderBy(asc(runDelegationTable.createdAt), asc(runDelegationTable.id))
-    for (let attempt = 0; attempt < 100 && delegations.length < 2; attempt += 1) {
+    const delegationsDeadline = Date.now() + 3_000
+    while (delegations.length < 2 && Date.now() < delegationsDeadline) {
       await new Promise((resolve) => setTimeout(resolve, 5))
       delegations = await database
         .select()
@@ -593,19 +594,30 @@ test.skipIf(!databaseAvailable)(
         .where(eq(runDelegationTable.sessionId, sessionId))
         .orderBy(asc(runDelegationTable.createdAt), asc(runDelegationTable.id))
     }
+    if (delegations.length < 2) {
+      throw new Error(
+        `Timed out waiting 3 seconds for two nested delegations for session ${sessionId}; observed ${JSON.stringify(delegations)}`,
+      )
+    }
 
     let messages = await database
       .select({ content: messageTable.content, role: messageTable.role })
       .from(messageTable)
       .where(eq(messageTable.sessionId, sessionId))
       .orderBy(asc(messageTable.sequence))
-    for (let attempt = 0; attempt < 100 && !messages.some((message) => message.role === "assistant"); attempt += 1) {
+    const messagesDeadline = Date.now() + 3_000
+    while (!messages.some((message) => message.role === "assistant") && Date.now() < messagesDeadline) {
       await new Promise((resolve) => setTimeout(resolve, 5))
       messages = await database
         .select({ content: messageTable.content, role: messageTable.role })
         .from(messageTable)
         .where(eq(messageTable.sessionId, sessionId))
         .orderBy(asc(messageTable.sequence))
+    }
+    if (!messages.some((message) => message.role === "assistant")) {
+      throw new Error(
+        `Timed out waiting 3 seconds for the nested assistant message for session ${sessionId}; observed ${JSON.stringify(messages)}`,
+      )
     }
     expect(messages.filter((message) => message.role === "assistant").map((message) => message.content)).toEqual([
       "Deterministic response: ping",
