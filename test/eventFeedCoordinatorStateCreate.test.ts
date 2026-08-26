@@ -164,10 +164,13 @@ test("forwards transport status changes to the tab connection indicator", () => 
 test("reopens the feed and refreshes registered state once when connectivity returns", async () => {
   const calls: string[] = []
   let releaseSessionRefresh: (() => void) | undefined
+  const statuses: string[] = []
   const sessionRefresh = new Promise<void>((resolve) => {
     releaseSessionRefresh = resolve
   })
-  const { coordinator, source, sources } = coordinatorCreate()
+  const { coordinator, source, sources } = coordinatorCreate({
+    connectionIndicator: { statusSet: (status) => statuses.push(status.status) },
+  })
   coordinator.registerSessionList(async () => {
     calls.push("session-list")
     await sessionRefresh
@@ -212,12 +215,15 @@ test("reopens the feed and refreshes registered state once when connectivity ret
   const secondRecovery = coordinator.online()
 
   expect(secondRecovery).toBe(firstRecovery)
-  expect(sources).toHaveLength(2)
-  expect(sources[1]?.url).toBe("/api/events?after=cursor-0")
+  expect(sources).toHaveLength(1)
+  expect(source.closeCount).toBe(1)
+  expect(statuses.at(-1)).toBe("reconnecting")
   expect(calls).toEqual(["session-list"])
 
   releaseSessionRefresh?.()
   expect(await firstRecovery).toMatchObject({ success: true })
+  expect(sources).toHaveLength(2)
+  expect(sources[1]?.url).toBe("/api/events?after=cursor-0")
   expect(calls).toEqual(["session-list", "session", "messages", "delegations", "stream", "note-list", "note-detail"])
   coordinator.close()
 })

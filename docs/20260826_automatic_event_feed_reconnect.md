@@ -21,9 +21,9 @@ Restore an editable signed-in session automatically after a temporary connection
 ## Tasks
 
 - [x] 1. Implement online recovery coordination and focused unit coverage.
-- [ ] 2. Surface the existing reconnecting indicator in the signed-in app header with focused UI coverage.
-- [ ] 3. Extend the offline browsing E2E test to prove automatic recovery without page refresh.
-- [ ] 4. Run focused tests and verify the combined managed preview flow in a browser.
+- [x] 2. Surface the existing reconnecting indicator in the signed-in app header with focused UI coverage.
+- [x] 3. Extend the offline browsing E2E test to prove automatic recovery without page refresh.
+- [x] 4. Run focused tests and verify the combined managed preview flow in a browser.
 
 ## Paths
 

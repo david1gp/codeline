@@ -136,11 +136,44 @@ test("a settled session cached while signed in stays readable signed out and off
     await expect(page.getByRole("button", { name: "Pin session" })).toHaveCount(0)
     await expect(page.getByRole("button", { name: "Unpin session" })).toHaveCount(0)
     await expect(page.getByRole("button", { name: `Rename ${cachedSessionTitle}` })).toHaveCount(0)
+    await expect(page.locator("header").getByRole("button", { name: /^Events offline/ })).toBeVisible()
 
     // Going offline must never discard the cached account data.
     const recordsWhileOffline = await settledRecordsRead(page, settledDatabaseName)
     expect(recordsWhileOffline.some((record) => record.sessionId === cachedSessionId)).toBe(true)
+
+    // Restoring connectivity reopens the feed and revalidates the authoritative
+    // selected session and its related resources in place. The replacement
+    // feed remains reconnecting until its first heartbeat reaches the browser.
+    let recoveryLoadCount = 0
+    page.on("load", () => {
+      recoveryLoadCount += 1
+    })
+    const sessionUrlBeforeRecovery = page.url()
+    const recoveryResponseWait = (pathname: string) =>
+      page.waitForResponse(
+        (response) => {
+          const url = new URL(response.url())
+          return response.request().method() === "GET" && url.origin === baseOrigin && url.pathname === pathname
+        },
+        { timeout: 30_000 },
+      )
+    const authoritativeSession = recoveryResponseWait(`/api/sessions/${cachedSessionId}`)
+    const authoritativeMessages = recoveryResponseWait(`/api/sessions/${cachedSessionId}/messages`)
+    const authoritativeDelegations = recoveryResponseWait(`/api/sessions/${cachedSessionId}/delegations`)
     await context.setOffline(false)
+    await expect(page.locator("header").getByRole("button", { name: "Events reconnecting" })).toBeVisible()
+    const recoveryResponses = await Promise.all([authoritativeSession, authoritativeMessages, authoritativeDelegations])
+    for (const response of recoveryResponses) expect([200, 304]).toContain(response.status())
+    await expect(page.locator("header").getByRole("button", { name: "Events connected" })).toBeVisible({
+      timeout: 30_000,
+    })
+    expect(page.url()).toBe(sessionUrlBeforeRecovery)
+    expect(recoveryLoadCount).toBe(0)
+    await cachedSessionExpectRendered(page)
+    await expect(readOnlyNotice(page)).toHaveCount(0)
+    await expect(page.getByRole("textbox", { name: "Message" })).toBeEnabled()
+    await expect(page.getByRole("button", { name: `Rename ${cachedSessionTitle}` })).toBeVisible()
 
     // Signed out: the last locally active account may be browsed read-only.
     await context.clearCookies()

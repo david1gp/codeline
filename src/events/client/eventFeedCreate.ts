@@ -669,6 +669,13 @@ export function eventFeedCreate(options: EventFeedCreateOptions) {
     openTransport()
   }
 
+  const reconnect = (): void => {
+    if (closed) return
+    browserOffline = false
+    transportClose()
+    transportStateSet("reconnecting")
+  }
+
   /**
    * Reload attach point. The caller has already read the run-specific active
    * snapshot from one consistent server snapshot; this folds it into feed state
@@ -776,6 +783,7 @@ export function eventFeedCreate(options: EventFeedCreateOptions) {
     getUrl: () => eventFeedUrlCreate(currentCursor),
     offline,
     online,
+    reconnect,
     retryReconciliation,
     get state() {
       return statusResolve()

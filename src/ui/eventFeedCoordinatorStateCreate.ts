@@ -242,11 +242,15 @@ export function eventFeedCoordinatorStateCreate(options: EventFeedCoordinatorOpt
 
   const onlineRecoveryRun = async (): Promise<Result<void>> => {
     if (closed) return createResult(undefined)
-    feed.online()
+    // Keep the transport closed while the authoritative HTTP state is
+    // refreshed. Otherwise events received on the reopened feed can race the
+    // refresh responses and be overwritten by stale query data.
+    feed.reconnect()
     const refreshed = await eventFeedRefreshCallbacksRun(
       "eventFeedCoordinatorOnlineRecovery",
       resetRefreshCallbacksResolve(),
     )
+    if (!closed) feed.online()
     if (!refreshed.success) {
       options.onError?.(refreshed)
       return refreshed
