@@ -6,11 +6,14 @@ import { databaseExecutorTransactionRun } from "../../database/databaseExecutorT
 import { sessionTable } from "../../session/db/sessionTable.js"
 import { uuidv7 } from "../../uuid/uuidv7.js"
 import { runChildAdmissionResolve } from "../actions/runChildAdmissionResolve.js"
+import { runExecutionManifestChildResolve } from "../actions/runExecutionManifestChildResolve.js"
+import { runExecutionManifestToolDefaultsResolve } from "../actions/runExecutionManifestToolDefaultsResolve.js"
 import { runErrorCodes } from "../errors/runErrorCodes.js"
 import { runResultCreateError } from "../errors/runResultCreateError.js"
 import { runBudgetSchema } from "../schema/runBudgetSchema.js"
 import type { RunChildAdmission } from "../schema/runChildAdmissionSchema.js"
 import { type RunChildCreateInput, runChildCreateInputSchema } from "../schema/runChildCreateInputSchema.js"
+import type { RunExecutionSnapshot } from "../schema/runExecutionSnapshotSchema.js"
 import { runExecutionSnapshotSchema } from "../schema/runExecutionSnapshotSchema.js"
 import { attemptTable } from "./attemptTable.js"
 import { runDelegationTable } from "./runDelegationTable.js"
@@ -42,12 +45,59 @@ function runRepositoryChildTaskCanonicalize(task: string): string {
   return task.trim()
 }
 
+function runRepositoryChildSnapshotPolicyValidate(
+  parentSnapshot: RunExecutionSnapshot,
+  childSnapshot: RunExecutionSnapshot,
+  explicit: boolean,
+): Result<void> {
+  const op = "runRepositoryChildCreate"
+  if (childSnapshot.executionManifest === undefined) {
+    if (explicit && parentSnapshot.executionManifest !== undefined)
+      return runResultCreateError(
+        op,
+        "The explicit child execution manifest is required.",
+        runErrorCodes.childToolEscalation,
+      )
+    return createResult(undefined)
+  }
+  if (childSnapshot.executionManifest.tools.primary.agentId !== childSnapshot.target.agentId)
+    return runResultCreateError(
+      op,
+      "The child execution manifest primary agent does not match the child target.",
+      runErrorCodes.childSnapshotInvalid,
+    )
+  const configurationTools = runExecutionManifestToolDefaultsResolve(
+    childSnapshot.executionManifest.tools.primary.tools,
+  )
+  if (jsonCanonicalize(childSnapshot.configuration.tools) !== jsonCanonicalize(configurationTools))
+    return runResultCreateError(
+      op,
+      "The child configuration tools do not match the immutable execution manifest.",
+      runErrorCodes.childToolEscalation,
+    )
+  if (!explicit) return createResult(undefined)
+
+  const expectedManifest = runExecutionManifestChildResolve(
+    parentSnapshot.executionManifest,
+    childSnapshot.target.agentId,
+  )
+  if (!expectedManifest.success) return expectedManifest
+  if (jsonCanonicalize(childSnapshot.executionManifest) !== jsonCanonicalize(expectedManifest.data))
+    return runResultCreateError(
+      op,
+      "The explicit child execution manifest is not the persisted selectable-subagent manifest.",
+      runErrorCodes.childToolEscalation,
+    )
+  return createResult(undefined)
+}
+
 async function runRepositoryChildExistingLoad(
   transaction: DatabaseExecutor,
   userId: string,
   sessionId: string,
   delegation: typeof runDelegationTable.$inferSelect,
   expectedTarget?: RunRepositoryChildTarget,
+  parentSnapshot?: RunExecutionSnapshot,
 ): Promise<Result<RunChildCreateResult>> {
   const op = "runRepositoryChildCreate"
   const [existingRun] = await transaction
@@ -64,6 +114,12 @@ async function runRepositoryChildExistingLoad(
         op,
         "The existing child execution snapshot is invalid.",
         runErrorCodes.childSnapshotInvalid,
+      )
+    if (parentSnapshot?.executionManifest !== undefined && parsedSnapshot.output.executionManifest === undefined)
+      return runResultCreateError(
+        op,
+        "The existing child execution manifest is required for a manifest-bearing lineage.",
+        runErrorCodes.childToolEscalation,
       )
     if (
       parsedSnapshot.output.target.agentId !== expectedTarget.agentId ||
@@ -174,9 +230,6 @@ export async function runRepositoryChildCreate(
             runErrorCodes.delegationConflict,
           )
         }
-        const requestedTarget = parsedInput.output.snapshot?.target
-        if (requestedTarget !== undefined)
-          return runRepositoryChildExistingLoad(transaction, userId, sessionId, existingDelegation, requestedTarget)
         const parsedParentSnapshot = v.safeParse(runExecutionSnapshotSchema, parent.snapshot)
         if (!parsedParentSnapshot.success)
           return runResultCreateError(
@@ -184,12 +237,38 @@ export async function runRepositoryChildCreate(
             "The parent execution snapshot is invalid.",
             runErrorCodes.childSnapshotInvalid,
           )
+        const requestedSnapshot = parsedInput.output.snapshot
+        if (requestedSnapshot !== undefined) {
+          if (requestedSnapshot.target.serverId !== parsedParentSnapshot.output.target.serverId)
+            return runResultCreateError(
+              op,
+              "The child execution snapshot server does not match the parent.",
+              runErrorCodes.childTargetMismatch,
+            )
+          const requestedSnapshotPolicy = runRepositoryChildSnapshotPolicyValidate(
+            parsedParentSnapshot.output,
+            requestedSnapshot,
+            true,
+          )
+          if (!requestedSnapshotPolicy.success) return requestedSnapshotPolicy
+        }
+        const requestedTarget = requestedSnapshot?.target
+        if (requestedTarget !== undefined)
+          return runRepositoryChildExistingLoad(
+            transaction,
+            userId,
+            sessionId,
+            existingDelegation,
+            requestedTarget,
+            parsedParentSnapshot.output,
+          )
         return runRepositoryChildExistingLoad(
           transaction,
           userId,
           sessionId,
           existingDelegation,
           parsedParentSnapshot.output.target,
+          parsedParentSnapshot.output,
         )
       }
 
@@ -278,6 +357,7 @@ export async function runRepositoryChildCreate(
           sessionId,
           matchingDelegation.delegation,
           childSnapshot.target,
+          parsedSnapshot.output,
         )
       }
 
@@ -308,6 +388,13 @@ export async function runRepositoryChildCreate(
           runErrorCodes.childNotAdmitted,
         )
       }
+
+      const childSnapshotPolicy = runRepositoryChildSnapshotPolicyValidate(
+        parsedSnapshot.output,
+        childSnapshot,
+        parsedInput.output.snapshot !== undefined,
+      )
+      if (!childSnapshotPolicy.success) return childSnapshotPolicy
 
       const rootOrdinal = (descendantState?.latestRootOrdinal ?? 0) + 1
       const childRunId = uuidv7()

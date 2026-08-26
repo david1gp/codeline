@@ -12,6 +12,16 @@ const parentDeadline = new Date("2030-01-01T00:01:00.000Z")
 const snapshot = {
   configuration: { model: "deterministic-model", provider: "deterministic" as const },
   configurationRevision: "delegation-test-revision",
+  executionManifest: {
+    commandCatalog: { digest: null, version: 1 as const },
+    instructions: { snapshots: [], version: 1 as const },
+    skills: { snapshots: [], version: 1 as const },
+    tools: {
+      primary: { agentId: "delegation-test-agent", tools: ["skill", "delegate_task"] as const },
+      selectableSubagents: [{ agentId: "child-agent", tools: ["webfetch", "skill", "delegate_task"] as const }],
+    },
+    version: 1 as const,
+  },
   target: { agentId: "delegation-test-agent", serverId: "delegation-test-server" },
 }
 
@@ -252,8 +262,18 @@ test("admits a delegated child with its immutable execution snapshot", async () 
   const harness = harnessCreate()
   const childSnapshot = {
     agentPrompt: "Child prompt",
-    configuration: { model: "child-model", provider: "deterministic" },
+    configuration: { model: "child-model", provider: "deterministic", tools: { bash: false, webfetch: true } },
     configurationRevision: "child-revision",
+    executionManifest: {
+      commandCatalog: { digest: null, version: 1 },
+      instructions: { snapshots: [], version: 1 },
+      skills: { snapshots: [], version: 1 },
+      tools: {
+        primary: { agentId: "child-agent", tools: ["webfetch", "skill", "delegate_task"] },
+        selectableSubagents: [],
+      },
+      version: 1,
+    },
     target: { agentId: "child-agent", serverId: "delegation-test-server" },
   }
 
@@ -261,6 +281,31 @@ test("admits a delegated child with its immutable execution snapshot", async () 
 
   expect(result.success).toBe(true)
   expect(harness.admittedSnapshot).toEqual(childSnapshot)
+})
+
+test("rejects an explicit child that is absent from the persisted selectable-subagent manifest", async () => {
+  const harness = harnessCreate()
+  const result = await execute(harness, {
+    configuration: { model: "child-model", provider: "deterministic" },
+    configurationRevision: "child-revision",
+    executionManifest: {
+      commandCatalog: { digest: null, version: 1 },
+      instructions: { snapshots: [], version: 1 },
+      skills: { snapshots: [], version: 1 },
+      tools: {
+        primary: { agentId: "unselected-agent", tools: ["skill", "delegate_task"] },
+        selectableSubagents: [],
+      },
+      version: 1,
+    },
+    target: { agentId: "unselected-agent", serverId: "delegation-test-server" },
+  })
+
+  expect(result).toMatchObject({
+    code: "run.child-agent-not-selectable",
+    success: false,
+  })
+  expect(harness.childCreateCalls()).toBe(0)
 })
 
 test("executes a child successfully with a bounded private result", async () => {

@@ -31,6 +31,8 @@ const fixture = {
   secondaryServerId: `run-test-secondary-server-${uuidv7()}`,
   serverId: `run-test-server-${uuidv7()}`,
   sessionId: `run-test-session-${uuidv7()}`,
+  selectedSessionId: `run-test-selected-session-${uuidv7()}`,
+  selectedSubagentId: `run-test-selected-subagent-${uuidv7()}`,
   userKey: `run-test-user-${uuidv7()}`,
 }
 let userId: string | undefined
@@ -88,6 +90,22 @@ beforeAll(async () => {
     title: "Run Test Session",
     userId,
   })
+  await database.insert(sessionTable).values({
+    clientRequestId: uuidv7(),
+    executionSelection: {
+      tools: {
+        primary: { agentId: fixture.agentId, tools: { bash: true, webfetch: false } },
+        selectableSubagents: [{ agentId: fixture.selectedSubagentId, tools: { bash: false, webfetch: true } }],
+      },
+      version: 1 as const,
+    },
+    id: fixture.selectedSessionId,
+    metadata: {},
+    primaryAgentId: fixture.agentId,
+    serverId: fixture.serverId,
+    title: "Run Test Selected Session",
+    userId,
+  })
 })
 
 afterAll(async () => {
@@ -142,6 +160,220 @@ test.skipIf(!databaseAvailable)(
       clientRunId: "client-run-duplicate-stream",
     })
     expect(duplicateStream).toMatchObject({ success: false })
+  },
+)
+
+test.skipIf(!databaseAvailable)(
+  "run persistence carries the selected manifest through attempts, retries, and delegated children",
+  async () => {
+    if (userId === undefined) return
+    const selectionManifest = {
+      commandCatalog: { digest: null, version: 1 as const },
+      instructions: { snapshots: [], version: 1 as const },
+      skills: { snapshots: [], version: 1 as const },
+      tools: {
+        primary: {
+          agentId: fixture.agentId,
+          tools: ["bash", "skill", "delegate_task"] as Array<"bash" | "webfetch" | "skill" | "delegate_task">,
+        },
+        selectableSubagents: [
+          {
+            agentId: fixture.selectedSubagentId,
+            tools: ["webfetch", "skill", "delegate_task"] as Array<"bash" | "webfetch" | "skill" | "delegate_task">,
+          },
+        ],
+      },
+      version: 1 as const,
+    }
+    const rootInput = {
+      budget: { maxAttempts: 2, maxChildDepth: 2, maxChildRuns: 3, maxDurationMs: 10_000 },
+      clientRunId: `client-run-selected-${uuidv7()}`,
+      snapshot: {
+        ...input.snapshot,
+        configuration: { ...input.snapshot.configuration, tools: { bash: true, webfetch: false } },
+        executionManifest: selectionManifest,
+      },
+      streamId: `run-selected-${uuidv7()}`,
+    }
+    const root = await runCreate(database, userId, fixture.selectedSessionId, rootInput)
+    expect(root).toMatchObject({ success: true, data: { created: true, attempt: { ordinal: 1 } } })
+    if (!root.success) return
+    expect(root.data.attempt.snapshot.executionManifest).toEqual(root.data.run.snapshot.executionManifest)
+
+    expect(
+      await runTransition(database, userId, fixture.selectedSessionId, root.data.run.id, { status: "running" }),
+    ).toMatchObject({ success: true })
+    expect(
+      await runTransition(database, userId, fixture.selectedSessionId, root.data.run.id, {
+        failure: { code: "provider_timeout", message: "The selected run timed out." },
+        status: "failed",
+      }),
+    ).toMatchObject({ success: true })
+    const retry = await runRetryAttemptCreate(database, userId, fixture.selectedSessionId, root.data.run.id, {
+      now: () => new Date(root.data.run.deadlineAt.getTime() - 1),
+    })
+    expect(retry).toMatchObject({ success: true, data: { attempt: { ordinal: 2 } } })
+    if (!retry.success) return
+    expect(retry.data.attempt.snapshot.executionManifest).toEqual(root.data.run.snapshot.executionManifest)
+
+    expect(
+      await runTransition(database, userId, fixture.selectedSessionId, root.data.run.id, { status: "running" }),
+    ).toMatchObject({ success: true })
+    const inherited = await runChildCreate(database, userId, fixture.selectedSessionId, {
+      delegationKey: `selected-inherited-${uuidv7()}`,
+      parentAttemptId: retry.data.attempt.id,
+      parentRunId: root.data.run.id,
+      task: "Preserve the parent execution manifest.",
+    })
+    expect(inherited).toMatchObject({ success: true, data: { created: true } })
+    if (!inherited.success) return
+    expect(inherited.data.run.snapshot.executionManifest).toEqual(root.data.run.snapshot.executionManifest)
+    expect(inherited.data.attempt.snapshot.executionManifest).toEqual(root.data.run.snapshot.executionManifest)
+
+    const explicitManifest = {
+      ...selectionManifest,
+      tools: {
+        primary: selectionManifest.tools.selectableSubagents[0] as NonNullable<
+          (typeof selectionManifest.tools.selectableSubagents)[number]
+        >,
+        selectableSubagents: [],
+      },
+    }
+    const explicitDelegationKey = `selected-explicit-${uuidv7()}`
+    const explicit = await runChildCreate(database, userId, fixture.selectedSessionId, {
+      delegationKey: explicitDelegationKey,
+      parentAttemptId: retry.data.attempt.id,
+      parentRunId: root.data.run.id,
+      snapshot: {
+        ...root.data.run.snapshot,
+        configuration: { ...root.data.run.snapshot.configuration, tools: { bash: false, webfetch: true } },
+        executionManifest: explicitManifest,
+        target: { agentId: fixture.selectedSubagentId, serverId: fixture.serverId },
+      },
+      task: "Use only the persisted selectable-subagent tools.",
+    })
+    expect(explicit).toMatchObject({ success: true, data: { created: true } })
+    if (!explicit.success) return
+    expect(explicit.data.run.snapshot.executionManifest).toEqual(explicitManifest)
+
+    const persistedDowngrade = structuredClone(explicit.data.run.snapshot)
+    delete persistedDowngrade.executionManifest
+    await database.update(runTable).set({ snapshot: persistedDowngrade }).where(eq(runTable.id, explicit.data.run.id))
+    await database
+      .update(attemptTable)
+      .set({ snapshot: persistedDowngrade })
+      .where(eq(attemptTable.runId, explicit.data.run.id))
+    const reusedDowngraded = await runChildCreate(database, userId, fixture.selectedSessionId, {
+      delegationKey: explicitDelegationKey,
+      parentAttemptId: retry.data.attempt.id,
+      parentRunId: root.data.run.id,
+      task: "Use only the persisted selectable-subagent tools.",
+    })
+    expect(reusedDowngraded).toMatchObject({ code: runErrorCodes.childToolEscalation, success: false })
+
+    const escalated = await runChildCreate(database, userId, fixture.selectedSessionId, {
+      delegationKey: `selected-escalated-${uuidv7()}`,
+      parentAttemptId: retry.data.attempt.id,
+      parentRunId: root.data.run.id,
+      snapshot: {
+        ...root.data.run.snapshot,
+        configuration: { ...root.data.run.snapshot.configuration, tools: { bash: true, webfetch: true } },
+        executionManifest: {
+          ...explicitManifest,
+          tools: {
+            ...explicitManifest.tools,
+            primary: {
+              ...explicitManifest.tools.primary,
+              tools: ["bash", "webfetch", "skill", "delegate_task"] as Array<
+                "bash" | "webfetch" | "skill" | "delegate_task"
+              >,
+            },
+          },
+        },
+        target: { agentId: fixture.selectedSubagentId, serverId: fixture.serverId },
+      },
+      task: "Attempt to escalate the selected child tools.",
+    })
+    expect(escalated).toMatchObject({ code: runErrorCodes.childToolEscalation, success: false })
+
+    const missingManifest = structuredClone(root.data.run.snapshot)
+    delete missingManifest.executionManifest
+    const downgraded = await runChildCreate(database, userId, fixture.selectedSessionId, {
+      delegationKey: `selected-missing-manifest-${uuidv7()}`,
+      parentAttemptId: retry.data.attempt.id,
+      parentRunId: root.data.run.id,
+      snapshot: {
+        ...missingManifest,
+        configuration: { ...missingManifest.configuration, tools: { bash: false, webfetch: true } },
+        target: { agentId: fixture.selectedSubagentId, serverId: fixture.serverId },
+      },
+      task: "Attempt to omit the manifest from a selected child.",
+    })
+    expect(downgraded).toMatchObject({ code: runErrorCodes.childToolEscalation, success: false })
+  },
+)
+
+test.skipIf(!databaseAvailable)(
+  "legacy pre-manifest snapshots remain compatible through roots, retries, and children",
+  async () => {
+    if (userId === undefined) return
+    const legacyRoot = await runCreate(database, userId, fixture.sessionId, {
+      ...input,
+      budget: { maxAttempts: 2, maxChildDepth: 1, maxChildRuns: 3, maxDurationMs: 10_000 },
+      clientRunId: `client-run-legacy-${uuidv7()}`,
+      streamId: `run-legacy-${uuidv7()}`,
+    })
+    expect(legacyRoot).toMatchObject({ success: true, data: { created: true, attempt: { ordinal: 1 } } })
+    if (!legacyRoot.success) return
+    expect(legacyRoot.data.run.snapshot).not.toHaveProperty("executionManifest")
+    expect(legacyRoot.data.attempt.snapshot).toEqual(legacyRoot.data.run.snapshot)
+
+    expect(
+      await runTransition(database, userId, fixture.sessionId, legacyRoot.data.run.id, { status: "running" }),
+    ).toMatchObject({
+      success: true,
+    })
+    expect(
+      await runTransition(database, userId, fixture.sessionId, legacyRoot.data.run.id, {
+        failure: { code: "provider_timeout", message: "The legacy run timed out." },
+        status: "failed",
+      }),
+    ).toMatchObject({ success: true })
+    const retry = await runRetryAttemptCreate(database, userId, fixture.sessionId, legacyRoot.data.run.id, {
+      now: () => new Date(legacyRoot.data.run.deadlineAt.getTime() - 1),
+    })
+    expect(retry).toMatchObject({ success: true, data: { attempt: { ordinal: 2 } } })
+    if (!retry.success) return
+    expect(retry.data.attempt.snapshot).toEqual(legacyRoot.data.run.snapshot)
+    expect(retry.data.attempt.snapshot).not.toHaveProperty("executionManifest")
+
+    expect(
+      await runTransition(database, userId, fixture.sessionId, legacyRoot.data.run.id, { status: "running" }),
+    ).toMatchObject({
+      success: true,
+    })
+    const inherited = await runChildCreate(database, userId, fixture.sessionId, {
+      delegationKey: `legacy-inherited-${uuidv7()}`,
+      parentAttemptId: retry.data.attempt.id,
+      parentRunId: legacyRoot.data.run.id,
+      task: "Inherit the pre-manifest parent snapshot.",
+    })
+    expect(inherited).toMatchObject({ success: true, data: { created: true } })
+    if (!inherited.success) return
+    expect(inherited.data.run.snapshot).toEqual(legacyRoot.data.run.snapshot)
+    expect(inherited.data.attempt.snapshot).toEqual(legacyRoot.data.run.snapshot)
+
+    const explicit = await runChildCreate(database, userId, fixture.sessionId, {
+      delegationKey: `legacy-explicit-${uuidv7()}`,
+      parentAttemptId: retry.data.attempt.id,
+      parentRunId: legacyRoot.data.run.id,
+      snapshot: structuredClone(legacyRoot.data.run.snapshot),
+      task: "Use an explicit pre-manifest child snapshot.",
+    })
+    expect(explicit).toMatchObject({ success: true, data: { created: true } })
+    if (!explicit.success) return
+    expect(explicit.data.run.snapshot).toEqual(legacyRoot.data.run.snapshot)
+    expect(explicit.data.attempt.snapshot).toEqual(legacyRoot.data.run.snapshot)
   },
 )
 

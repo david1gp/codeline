@@ -209,6 +209,16 @@ test.skipIf(!databaseAvailable)("two members of one organization share server, a
     snapshot: {
       configuration: { model: "server-access-model", provider: "deterministic" },
       configurationRevision: "server-access-revision",
+      executionManifest: {
+        commandCatalog: { digest: null, version: 1 },
+        instructions: { snapshots: [], version: 1 },
+        skills: { snapshots: [], version: 1 },
+        tools: {
+          primary: { agentId, tools: ["skill", "delegate_task"] },
+          selectableSubagents: [],
+        },
+        version: 1,
+      },
       target: { agentId, serverId },
     },
     streamId: `server-access-private-stream-${uuidv7()}`,

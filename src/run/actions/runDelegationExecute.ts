@@ -10,8 +10,11 @@ import { runResultCreateError } from "../errors/runResultCreateError.js"
 import { type RunChildCreateInput, runChildCreateInputSchema } from "../schema/runChildCreateInputSchema.js"
 import { type RunDelegationResult, runDelegationResultSchema } from "../schema/runDelegationResultSchema.js"
 import type { RunExecutionSnapshot } from "../schema/runExecutionSnapshotSchema.js"
+import { runExecutionSnapshotSchema } from "../schema/runExecutionSnapshotSchema.js"
 import type { RunFailureMetadata } from "../schema/runFailureMetadataSchema.js"
 import type { RunTransitionInput } from "../schema/runTransitionInputSchema.js"
+import { runExecutionManifestChildResolve } from "./runExecutionManifestChildResolve.js"
+import { runExecutionManifestToolDefaultsResolve } from "./runExecutionManifestToolDefaultsResolve.js"
 import { runRetryAdmissionResolve } from "./runRetryAdmissionResolve.js"
 
 const PRIVATE_RESULT_LIMIT = 16_384
@@ -92,6 +95,67 @@ type RunDelegationAbortKind = "cancelled" | "deadline"
 
 function runDelegationFailureCreate(code: string, message: string): RunFailureMetadata {
   return { code: code.slice(0, 100), message: message.trim().slice(0, 2_000) || "The delegated child run failed." }
+}
+
+function runDelegationJsonCanonicalize(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value)
+  if (Array.isArray(value)) return `[${value.map(runDelegationJsonCanonicalize).join(",")}]`
+  return `{${Object.keys(value as Record<string, unknown>)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${runDelegationJsonCanonicalize((value as Record<string, unknown>)[key])}`)
+    .join(",")}}`
+}
+
+function runDelegationChildSnapshotPolicyValidate(
+  parentRun: typeof runTable.$inferSelect,
+  childSnapshot: RunExecutionSnapshot | undefined,
+): Result<void> {
+  const op = "runDelegationExecute"
+  if (childSnapshot === undefined) return createResult(undefined)
+  const parentSnapshot = v.safeParse(runExecutionSnapshotSchema, parentRun.snapshot)
+  if (!parentSnapshot.success)
+    return runResultCreateError(op, "The parent execution snapshot is invalid.", runErrorCodes.childSnapshotInvalid)
+  if (parentSnapshot.output.executionManifest === undefined && childSnapshot.executionManifest === undefined)
+    return createResult(undefined)
+  if (childSnapshot.executionManifest === undefined)
+    return runResultCreateError(
+      op,
+      "The explicit child execution manifest is required.",
+      runErrorCodes.childToolEscalation,
+    )
+  if (childSnapshot.target.serverId !== parentSnapshot.output.target.serverId)
+    return runResultCreateError(
+      op,
+      "The child execution snapshot server does not match the parent.",
+      runErrorCodes.childTargetMismatch,
+    )
+  const expectedManifest = runExecutionManifestChildResolve(
+    parentSnapshot.output.executionManifest,
+    childSnapshot.target.agentId,
+  )
+  if (!expectedManifest.success) return expectedManifest
+  if (
+    runDelegationJsonCanonicalize(childSnapshot.executionManifest) !==
+    runDelegationJsonCanonicalize(expectedManifest.data)
+  )
+    return runResultCreateError(
+      op,
+      "The explicit child execution manifest is not the persisted selectable-subagent manifest.",
+      runErrorCodes.childToolEscalation,
+    )
+  const configurationTools = runExecutionManifestToolDefaultsResolve(
+    childSnapshot.executionManifest.tools.primary.tools,
+  )
+  if (
+    runDelegationJsonCanonicalize(childSnapshot.configuration.tools) !==
+    runDelegationJsonCanonicalize(configurationTools)
+  )
+    return runResultCreateError(
+      op,
+      "The child configuration tools do not match the immutable execution manifest.",
+      runErrorCodes.childToolEscalation,
+    )
+  return createResult(undefined)
 }
 
 function runDelegationResultCreate(
@@ -423,6 +487,9 @@ export async function runDelegationExecute(
   if (input.parentRun.status !== "running" || input.parentAttempt.status !== "running") {
     return runResultCreateError(op, "The trusted parent attempt is not running.", runErrorCodes.stateInconsistent)
   }
+
+  const childSnapshotPolicy = runDelegationChildSnapshotPolicyValidate(input.parentRun, parsedInput.output.snapshot)
+  if (!childSnapshotPolicy.success) return childSnapshotPolicy
 
   const child = await options.childCreate(parsedInput.output)
   if (!child.success) return child

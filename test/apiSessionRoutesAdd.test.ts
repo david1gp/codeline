@@ -548,6 +548,114 @@ test.skipIf(!databaseAvailable)(
 )
 
 test.skipIf(!databaseAvailable)(
+  "session chat admits runs from the persisted execution selection instead of caller tool configuration",
+  async () => {
+    const selectedSubagentId = `session-http-selected-subagent-${uuidv7()}`
+    const created = await runApp.request("http://codeline.test/api/sessions", {
+      body: JSON.stringify({
+        clientRequestId: `session-chat-selection-${uuidv7()}`,
+        executionSelection: {
+          tools: {
+            primary: { agentId, tools: { bash: true, webfetch: false } },
+            selectableSubagents: [{ agentId: selectedSubagentId, tools: { bash: false, webfetch: true } }],
+          },
+          version: 1,
+        },
+        metadata: {},
+        primaryAgentId: agentId,
+        serverId,
+        title: "Persisted execution selection",
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+    expect(created.status).toBe(201)
+    const sessionId = ((await created.json()) as { session: { id: string } }).session.id
+    const runId = `session-chat-selection-run-${uuidv7()}`
+    const response = await runApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+      body: JSON.stringify({
+        forwardedProps: { codelineExecution: { model: "forwarded-model", provider: "deterministic" } },
+        messages: [{ content: "Use the persisted selection", id: `prompt-${runId}`, role: "user" }],
+        runId,
+        threadId: sessionId,
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+    expect(response.status).toBe(200)
+
+    const [run] = await database.select().from(runTable).where(eq(runTable.sessionId, sessionId))
+    expect(run).toMatchObject({ snapshot: { configuration: { model: "forwarded-model" } } })
+    expect(run?.snapshot).toMatchObject({
+      configuration: { tools: { bash: true, webfetch: false } },
+      executionManifest: {
+        tools: {
+          primary: { agentId, tools: ["bash", "skill", "delegate_task"] },
+          selectableSubagents: [{ agentId: selectedSubagentId, tools: ["webfetch", "skill", "delegate_task"] }],
+        },
+      },
+    })
+    const attempts = await database
+      .select()
+      .from(attemptTable)
+      .where(eq(attemptTable.runId, run?.id ?? ""))
+    expect(attempts).toHaveLength(1)
+    expect(attempts[0]?.snapshot.executionManifest).toEqual(run?.snapshot.executionManifest)
+  },
+)
+
+test.skipIf(!databaseAvailable)(
+  "session chat rejects an invalid persisted execution selection before run admission",
+  async () => {
+    const created = await runApp.request("http://codeline.test/api/sessions", {
+      body: JSON.stringify({
+        clientRequestId: `session-chat-invalid-selection-${uuidv7()}`,
+        executionSelection: {
+          tools: {
+            primary: { agentId, tools: { bash: true, webfetch: false } },
+            selectableSubagents: [],
+          },
+          version: 1,
+        },
+        metadata: {},
+        primaryAgentId: agentId,
+        serverId,
+        title: "Invalid persisted execution selection",
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+    expect(created.status).toBe(201)
+    const sessionId = ((await created.json()) as { session: { id: string } }).session.id
+    await database
+      .update(sessionTable)
+      .set({
+        executionSelection: {
+          tools: {
+            primary: { agentId: "different-agent", tools: { bash: false, webfetch: false } },
+            selectableSubagents: [],
+          },
+          version: 1,
+        } as never,
+      })
+      .where(eq(sessionTable.id, sessionId))
+
+    const runId = `session-chat-invalid-selection-run-${uuidv7()}`
+    const response = await runApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+      body: JSON.stringify({
+        messages: [{ content: "This must not be admitted", id: `prompt-${runId}`, role: "user" }],
+        runId,
+        threadId: sessionId,
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+    expect(response.status).toBe(400)
+    expect(await database.select().from(runTable).where(eq(runTable.sessionId, sessionId))).toHaveLength(0)
+  },
+)
+
+test.skipIf(!databaseAvailable)(
   "session chat keeps a delegated subagent's second ping delegation on the child run",
   async () => {
     const created = await nestedRunApp.request("http://codeline.test/api/sessions", {

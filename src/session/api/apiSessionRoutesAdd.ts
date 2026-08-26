@@ -34,6 +34,7 @@ import { runChildCreate } from "../../run/actions/runChildCreate.js"
 import { runCreate } from "../../run/actions/runCreate.js"
 import { runDelegationExecute } from "../../run/actions/runDelegationExecute.js"
 import { runDelegationFinalize } from "../../run/actions/runDelegationFinalize.js"
+import { runExecutionManifestChildResolve } from "../../run/actions/runExecutionManifestChildResolve.js"
 import { runExecutionSnapshotResolve } from "../../run/actions/runExecutionSnapshotResolve.js"
 import { runFailureClassResolve } from "../../run/actions/runFailureClassResolve.js"
 import { runLoad } from "../../run/actions/runLoad.js"
@@ -54,6 +55,7 @@ import { sessionChatPrepare } from "../actions/sessionChatPrepare.js"
 import { sessionChatStreamCreate } from "../actions/sessionChatStreamCreate.js"
 import { sessionCreate } from "../actions/sessionCreate.js"
 import { sessionDelete } from "../actions/sessionDelete.js"
+import { sessionExecutionSelectionCanonicalize } from "../actions/sessionExecutionSelectionCanonicalize.js"
 import { sessionListSnapshot } from "../actions/sessionListSnapshot.js"
 import { sessionLoad } from "../actions/sessionLoad.js"
 import { sessionPin } from "../actions/sessionPin.js"
@@ -244,6 +246,7 @@ async function sessionChatAdmissionResolve(
   runId: string,
   target: { agentId: string; serverId: string },
   forwardedExecution: unknown,
+  persistedExecutionSelection: unknown,
   options: ApiSessionRoutesOptions,
   runLoadAction: typeof runLoad,
 ): Promise<Result<SessionChatAdmission>> {
@@ -263,10 +266,19 @@ async function sessionChatAdmissionResolve(
   if (loaded.errorMessage !== "The run could not be found.") return createResultError(op, loaded.errorMessage)
   if (options.configurationStore === undefined) return createResultError(op, "The configuration store is unavailable.")
 
+  const executionSelection = sessionExecutionSelectionCanonicalize(persistedExecutionSelection, target.agentId, {
+    catalog: options.providerAgentCatalog,
+  })
+  if (!executionSelection.success) return createResultError(op, "The persisted session execution selection is invalid.")
+
   const resolved = (options.runExecutionSnapshotResolve ?? runExecutionSnapshotResolve)(
     target,
     options.configurationStore,
-    { catalog: options.providerAgentCatalog, execution: forwardedExecution },
+    {
+      catalog: options.providerAgentCatalog,
+      execution: forwardedExecution,
+      ...(executionSelection.data === null ? {} : { executionSelection: executionSelection.data }),
+    },
   )
   if (!resolved.success) return createResultError(op, resolved.errorMessage)
 
@@ -336,6 +348,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
 
     const requestHash = apiIdempotencyRequestHashCreate({
       metadata: parsed.data.metadata,
+      executionSelection: parsed.data.executionSelection,
       primaryAgentId: parsed.data.primaryAgentId,
       projectPath: parsed.data.projectPath,
       serverId: parsed.data.serverId,
@@ -355,11 +368,14 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
         }),
       },
       organizationId,
+      providerAgentCatalog: options.providerAgentCatalog,
       projectRootDirs: options.projectRootDirs,
       requestHash,
     })
     if (!result.success) {
       if (result.code === "idempotency_conflict") return idempotencyConflict(context)
+      if (result.errorMessage.includes("execution selection"))
+        return badRequest(context, "The session execution selection is invalid.")
       if (result.errorMessage.includes("project path"))
         return badRequest(context, "The session project path is invalid.")
       if (result.errorMessage.includes("could not be found") || result.errorMessage.includes("could not be authorized"))
@@ -416,11 +432,16 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
         parsed.data.runId,
         { agentId: loaded.data.session.primaryAgentId, serverId: loaded.data.session.serverId },
         parsed.data.forwardedProps?.codelineExecution,
+        loaded.data.session.executionSelection,
         options,
         runLoadAction,
       )
       if (!admission.success) {
-        if (admission.errorMessage.includes("execution override") || admission.errorMessage.includes("catalog"))
+        if (
+          admission.errorMessage.includes("execution override") ||
+          admission.errorMessage.includes("execution selection") ||
+          admission.errorMessage.includes("catalog")
+        )
           return badRequest(context, admission.errorMessage)
         return internalServerError(context)
       }
@@ -493,6 +514,8 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
         if (options.configurationStore === undefined) throw new Error("The child agent configuration is unavailable.")
         const parentSnapshot = v.safeParse(runExecutionSnapshotSchema, parentRun.snapshot)
         if (!parentSnapshot.success) throw new Error("The parent execution snapshot is invalid.")
+        const childManifest = runExecutionManifestChildResolve(parentSnapshot.output.executionManifest, input.agentId)
+        if (!childManifest.success) throw new Error(childManifest.errorMessage)
         const childCatalogAgent = options.providerAgentCatalog?.agents.some(({ id }) => id === input.agentId)
         const resolved = (options.runExecutionSnapshotResolve ?? runExecutionSnapshotResolve)(
           { agentId: input.agentId, serverId: parentSnapshot.output.target.serverId },
@@ -500,6 +523,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
           {
             catalog: options.providerAgentCatalog,
             configurationRevision: parentSnapshot.output.configurationRevision,
+            executionManifest: childManifest.data,
             ...(childCatalogAgent === true ? { configuration: parentSnapshot.output.configuration } : {}),
           },
         )

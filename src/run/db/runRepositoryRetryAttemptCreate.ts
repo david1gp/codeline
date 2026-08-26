@@ -1,5 +1,6 @@
 import { createResult, type Result } from "@adaptive-ds/result"
 import { and, desc, eq } from "drizzle-orm"
+import * as v from "valibot"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { databaseExecutorTransactionRun } from "../../database/databaseExecutorTransactionRun.js"
 import { sessionTable } from "../../session/db/sessionTable.js"
@@ -7,6 +8,7 @@ import { uuidv7 } from "../../uuid/uuidv7.js"
 import { runRetryAdmissionResolve } from "../actions/runRetryAdmissionResolve.js"
 import { runErrorCodes } from "../errors/runErrorCodes.js"
 import { runResultCreateError } from "../errors/runResultCreateError.js"
+import { runExecutionSnapshotSchema } from "../schema/runExecutionSnapshotSchema.js"
 import type { RunRetryAdmission } from "../schema/runRetryAdmissionSchema.js"
 import { attemptTable } from "./attemptTable.js"
 import { runTable } from "./runTable.js"
@@ -73,6 +75,22 @@ export async function runRepositoryRetryAttemptCreate(
         return runResultCreateError(op, "The latest run attempt could not be loaded.", runErrorCodes.attemptNotFound)
       if (latestAttempt.sessionId !== sessionId || latestAttempt.userId !== userId) {
         return runResultCreateError(op, "The run attempt ownership is inconsistent.", runErrorCodes.stateInconsistent)
+      }
+      const parsedRunSnapshot = v.safeParse(runExecutionSnapshotSchema, run.snapshot)
+      const parsedAttemptSnapshot = v.safeParse(runExecutionSnapshotSchema, latestAttempt.snapshot)
+      if (!parsedRunSnapshot.success || !parsedAttemptSnapshot.success) {
+        return runResultCreateError(
+          op,
+          "The run and latest attempt snapshots are invalid.",
+          runErrorCodes.retryAttemptInconsistent,
+        )
+      }
+      if (jsonCanonicalize(parsedRunSnapshot.output) !== jsonCanonicalize(parsedAttemptSnapshot.output)) {
+        return runResultCreateError(
+          op,
+          "The run and latest attempt snapshots are inconsistent.",
+          runErrorCodes.retryAttemptInconsistent,
+        )
       }
       if (
         run.status !== latestAttempt.status ||

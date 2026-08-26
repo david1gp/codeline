@@ -75,8 +75,16 @@ test("run execution snapshot resolves the committed target configuration and rev
         generation: { maxTokens: 512, temperature: 0.2 },
         model: "committed-model",
         provider: "codex-lb",
+        tools: { bash: false, webfetch: false },
       },
       configurationRevision: written.data,
+      executionManifest: {
+        commandCatalog: { digest: null, version: 1 },
+        instructions: { snapshots: [], version: 1 },
+        skills: { snapshots: [], version: 1 },
+        tools: { primary: { agentId: "agent-1", tools: ["skill", "delegate_task"] }, selectableSubagents: [] },
+        version: 1,
+      },
       target: { agentId: "agent-1", serverId: "server-1" },
     },
   })
@@ -84,6 +92,11 @@ test("run execution snapshot resolves the committed target configuration and rev
   expect(Object.isFrozen(resolved.data)).toBe(true)
   expect(Object.isFrozen(resolved.data.configuration)).toBe(true)
   expect(Object.isFrozen(resolved.data.target)).toBe(true)
+  expect(resolved.data.executionManifest).toBeDefined()
+  if (resolved.data.executionManifest !== undefined) {
+    expect(Object.isFrozen(resolved.data.executionManifest)).toBe(true)
+    expect(Object.isFrozen(resolved.data.executionManifest.tools)).toBe(true)
+  }
 })
 
 test("run execution snapshot stays independent across committed configuration changes", async () => {
@@ -178,4 +191,34 @@ test("run execution snapshot freezes the catalog revision, model metadata, promp
   const snapshotPrompt = resolved.data.agentPrompt
   buildAgent.prompt = "Changed after admission."
   expect(resolved.data.agentPrompt).toBe(snapshotPrompt)
+})
+
+test("run execution snapshot captures validated selection tools in its manifest", async () => {
+  const store = await createStore()
+  const written = await configurationStoreWrite(store, configuration("selection-model"))
+  expect(written.success).toBe(true)
+  if (!written.success) return
+
+  const resolved = runExecutionSnapshotResolve({ agentId: "agent-1", serverId: "server-1" }, store, {
+    executionSelection: {
+      tools: {
+        primary: { agentId: "agent-1", tools: { bash: true, webfetch: true } },
+        selectableSubagents: [{ agentId: "reviewer", tools: { bash: true } }],
+      },
+      version: 1,
+    },
+  })
+
+  expect(resolved).toMatchObject({
+    success: true,
+    data: {
+      configuration: { tools: { bash: true, webfetch: true } },
+      executionManifest: {
+        tools: {
+          primary: { agentId: "agent-1", tools: ["bash", "webfetch", "skill", "delegate_task"] },
+          selectableSubagents: [{ agentId: "reviewer", tools: ["bash", "skill", "delegate_task"] }],
+        },
+      },
+    },
+  })
 })

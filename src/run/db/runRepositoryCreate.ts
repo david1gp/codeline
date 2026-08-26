@@ -3,8 +3,10 @@ import { and, desc, eq } from "drizzle-orm"
 import * as v from "valibot"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { databaseExecutorTransactionRun } from "../../database/databaseExecutorTransactionRun.js"
+import { sessionExecutionSelectionCanonicalize } from "../../session/actions/sessionExecutionSelectionCanonicalize.js"
 import { sessionTable } from "../../session/db/sessionTable.js"
 import { uuidv7 } from "../../uuid/uuidv7.js"
+import { runExecutionManifestSelectionResolve } from "../actions/runExecutionManifestSelectionResolve.js"
 import { runErrorCodes } from "../errors/runErrorCodes.js"
 import { runResultCreateError } from "../errors/runResultCreateError.js"
 import { runBudgetSchema } from "../schema/runBudgetSchema.js"
@@ -32,6 +34,67 @@ function runImmutableInputMatches(
   )
 }
 
+function runRepositoryExecutionManifestPolicyValidate(
+  session: { executionSelection: unknown; primaryAgentId: string },
+  snapshot: RunCreateInput["snapshot"],
+): Result<void> {
+  const op = "runRepositoryCreate"
+  if (snapshot.executionManifest !== undefined) {
+    if (snapshot.executionManifest.tools.primary.agentId !== snapshot.target.agentId)
+      return runResultCreateError(
+        op,
+        "The run execution manifest primary agent does not match the run target.",
+        runErrorCodes.executionSnapshotInvalid,
+      )
+    const configurationTools = snapshot.configuration.tools
+    const manifestTools = {
+      bash: snapshot.executionManifest.tools.primary.tools.includes("bash"),
+      webfetch: snapshot.executionManifest.tools.primary.tools.includes("webfetch"),
+    }
+    if (jsonCanonicalize(configurationTools) !== jsonCanonicalize(manifestTools))
+      return runResultCreateError(
+        op,
+        "The run configuration tools do not match the immutable execution manifest.",
+        runErrorCodes.executionSnapshotInvalid,
+      )
+  }
+
+  const selection = sessionExecutionSelectionCanonicalize(session.executionSelection, session.primaryAgentId)
+  if (!selection.success)
+    return runResultCreateError(
+      op,
+      "The persisted session execution selection is invalid.",
+      runErrorCodes.executionSnapshotInvalid,
+    )
+
+  const expectedManifest = runExecutionManifestSelectionResolve({
+    primaryAgentId: session.primaryAgentId,
+    selection: selection.data ?? {
+      tools: {
+        primary: { agentId: session.primaryAgentId, tools: snapshot.configuration.tools },
+        selectableSubagents: [],
+      },
+      version: 1,
+    },
+  })
+  if (!expectedManifest.success) return expectedManifest
+  if (snapshot.executionManifest === undefined) {
+    if (selection.data === null) return createResult(undefined)
+    return runResultCreateError(
+      op,
+      "The run execution manifest does not match the persisted session execution selection.",
+      runErrorCodes.executionSnapshotInvalid,
+    )
+  }
+  if (jsonCanonicalize(snapshot.executionManifest) !== jsonCanonicalize(expectedManifest.data))
+    return runResultCreateError(
+      op,
+      "The run execution manifest does not match the persisted session execution selection.",
+      runErrorCodes.executionSnapshotInvalid,
+    )
+  return createResult(undefined)
+}
+
 type RunCreateResult = {
   created: boolean
   run: typeof runTable.$inferSelect
@@ -56,7 +119,12 @@ export async function runRepositoryCreate(
   return databaseExecutorTransactionRun<RunCreateResult>(database, async (transaction) => {
     try {
       const [session] = await transaction
-        .select({ id: sessionTable.id, primaryAgentId: sessionTable.primaryAgentId, serverId: sessionTable.serverId })
+        .select({
+          executionSelection: sessionTable.executionSelection,
+          id: sessionTable.id,
+          primaryAgentId: sessionTable.primaryAgentId,
+          serverId: sessionTable.serverId,
+        })
         .from(sessionTable)
         .where(and(eq(sessionTable.id, sessionId), eq(sessionTable.userId, userId)))
         .limit(1)
@@ -72,6 +140,9 @@ export async function runRepositoryCreate(
           runErrorCodes.snapshotTargetMismatch,
         )
       }
+
+      const manifestPolicy = runRepositoryExecutionManifestPolicyValidate(session, parsedInput.output.snapshot)
+      if (!manifestPolicy.success) return manifestPolicy
 
       const [existing] = await transaction
         .select()

@@ -3,11 +3,13 @@ import * as v from "valibot"
 import { runBudgetSchema } from "../src/run/schema/runBudgetSchema.js"
 import { runCancelInputSchema } from "../src/run/schema/runCancelInputSchema.js"
 import { runCancellationKindSchema } from "../src/run/schema/runCancellationKindSchema.js"
+import { runDelegationResultSchema } from "../src/run/schema/runDelegationResultSchema.js"
+import { runExecutionManifestSchema } from "../src/run/schema/runExecutionManifestSchema.js"
 import { runExecutionSnapshotSchema } from "../src/run/schema/runExecutionSnapshotSchema.js"
 import { runFailureClassSchema } from "../src/run/schema/runFailureClassSchema.js"
-import { runDelegationResultSchema } from "../src/run/schema/runDelegationResultSchema.js"
 import { runRetryAdmissionSchema } from "../src/run/schema/runRetryAdmissionSchema.js"
 import { runStatusSchema } from "../src/run/schema/runStatusSchema.js"
+import { sessionExecutionSelectionSchema } from "../src/session/schema/sessionExecutionSelectionSchema.js"
 
 const snapshot = {
   configuration: {
@@ -18,6 +20,17 @@ const snapshot = {
   },
   configurationRevision: "configuration-revision-1",
   target: { agentId: "agent-1", serverId: "server-1" },
+}
+
+const executionManifest = {
+  commandCatalog: { digest: null, version: 1 },
+  instructions: { snapshots: [], version: 1 },
+  skills: { snapshots: [], version: 1 },
+  tools: {
+    primary: { agentId: "agent-1", tools: ["skill", "delegate_task"] },
+    selectableSubagents: [{ agentId: "reviewer", tools: ["bash", "skill", "delegate_task"] }],
+  },
+  version: 1,
 }
 
 test("run contracts default and bound the initial budget", () => {
@@ -46,6 +59,53 @@ test("execution snapshots are strict and retain only secret references", () => {
   ).toBe(false)
   expect(v.safeParse(runExecutionSnapshotSchema, { ...snapshot, extra: true }).success).toBe(false)
   expect(v.safeParse(runExecutionSnapshotSchema, { ...snapshot, configurationRevision: "" }).success).toBe(false)
+})
+
+test("legacy pre-manifest execution snapshots remain valid", () => {
+  expect(v.safeParse(runExecutionSnapshotSchema, snapshot).output).not.toHaveProperty("executionManifest")
+})
+
+test("execution selection and manifests are versioned, strict, and resource-empty", () => {
+  const selection = {
+    tools: {
+      primary: { agentId: "agent-1", tools: { bash: true } },
+      selectableSubagents: [{ agentId: "reviewer", tools: { webfetch: true } }],
+    },
+    version: 1,
+  }
+  const parsedSelection = v.safeParse(sessionExecutionSelectionSchema, selection)
+  expect(parsedSelection.success).toBe(true)
+  if (parsedSelection.success) {
+    expect(parsedSelection.output.tools.primary.tools).toEqual({ bash: true, webfetch: false })
+  }
+
+  expect(v.safeParse(sessionExecutionSelectionSchema, { ...selection, version: 2 }).success).toBe(false)
+  expect(
+    v.safeParse(sessionExecutionSelectionSchema, {
+      ...selection,
+      tools: { ...selection.tools, selectableSubagents: [{ agentId: "agent-1", tools: { bash: true } }] },
+    }).success,
+  ).toBe(false)
+  expect(v.safeParse(runExecutionManifestSchema, executionManifest).success).toBe(true)
+  expect(
+    v.safeParse(runExecutionManifestSchema, {
+      ...executionManifest,
+      commandCatalog: { digest: "sha256-invalid", version: 1 },
+    }).success,
+  ).toBe(false)
+  expect(
+    v.safeParse(runExecutionManifestSchema, {
+      ...executionManifest,
+      instructions: { snapshots: [{}], version: 1 },
+    }).success,
+  ).toBe(false)
+  expect(v.safeParse(runExecutionManifestSchema, { ...executionManifest, version: 2 }).success).toBe(false)
+  expect(
+    v.safeParse(runExecutionManifestSchema, {
+      ...executionManifest,
+      tools: { ...executionManifest.tools, primary: { agentId: "agent-1", tools: ["not-a-tool"] } },
+    }).success,
+  ).toBe(false)
 })
 
 test("run statuses are closed to the durable lifecycle vocabulary", () => {
