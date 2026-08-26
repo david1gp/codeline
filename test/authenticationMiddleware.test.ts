@@ -36,12 +36,12 @@ const dualProviderConfiguration = {
     authworks: {
       clientId: "authworks-client",
       issuer: authworksIssuer,
-      organizationId: configuredOrganizationExternalId,
+      organizationId: "authworks-provider-organization",
     },
     zitadel: {
       clientId: "zitadel-client",
       issuer: zitadelIssuer,
-      organizationId: configuredOrganizationExternalId,
+      organizationId: "zitadel-provider-organization",
     },
   },
   publicOrigin: "https://codeline.test",
@@ -162,7 +162,8 @@ test("authentication accepts membership through either configured provider issue
     const canonicalIssuer = `${issuer}/`
     const app = authenticationApp([membership(configuredOrganizationId, issuer)], {
       configuration: dualProviderConfiguration,
-      organizationMemberLoad: async (_database, _userId, _organizationExternalId, lookedUpIssuer) => {
+      organizationMemberLoad: async (_database, _userId, organizationExternalId, lookedUpIssuer) => {
+        expect(organizationExternalId).toBe(configuredOrganizationExternalId)
         lookedUpIssuers.push(lookedUpIssuer ?? "")
         return createResult(
           (lookedUpIssuer === canonicalIssuer ? membership(configuredOrganizationId, issuer) : undefined) as never,

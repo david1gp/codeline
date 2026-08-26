@@ -212,6 +212,30 @@ test("explicit providers must use the existing shared organization ID", () => {
   expect(result.errorMessage).not.toContain("zitadel-organization-id")
 })
 
+test("explicit providers map distinct provider organization IDs to one local organization", () => {
+  const result = runtimeConfigurationParse({
+    AUTH_MODE: "oidc",
+    OIDC_AUTHWORKS_CLIENT_ID: "authworks-client-id",
+    OIDC_AUTHWORKS_ISSUER: "https://authworks.example.test",
+    OIDC_AUTHWORKS_ORGANIZATION_ID: "authworks-organization-id",
+    OIDC_ORGANIZATION_ID: "local-organization-id",
+    OIDC_ZITADEL_CLIENT_ID: "zitadel-client-id",
+    OIDC_ZITADEL_ISSUER: "https://zitadel.example.test",
+    OIDC_ZITADEL_ORGANIZATION_ID: "zitadel-organization-id",
+    databaseUrl: "file:./data/db.sqlite",
+    nodeEnv: "production",
+    publicOrigin: "https://codeline.example.test",
+  })
+
+  expect(result.success).toBe(true)
+  if (!result.success) return
+  expect(result.data.oidcOrganizationId).toBe("local-organization-id")
+  expect(result.data.oidcProviders).toMatchObject({
+    authworks: { organizationId: "authworks-organization-id" },
+    zitadel: { organizationId: "zitadel-organization-id" },
+  })
+})
+
 test("OIDC configuration preserves the issuer's root slash and path spelling", () => {
   for (const oidcIssuer of [
     "https://issuer.example.test",
@@ -403,17 +427,21 @@ test("server startup passes validated authentication configuration to the app bo
 
 test("server startup forwards explicit provider namespaces into the validated configuration", async () => {
   for (const name of [
+    "OIDC_AUTHWORKS_CALLBACK_URL",
     "OIDC_CALLBACK_URL",
     "OIDC_CLIENT_ID",
     "OIDC_CLIENT_SECRET",
     "OIDC_ISSUER",
     "OIDC_ORGANIZATION_ID",
     "OIDC_REDIRECT_URI",
+    "OIDC_ZITADEL_CALLBACK_URL",
     "ZITADEL_CLIENT_ID",
     "ZITADEL_CLIENT_SECRET",
     "ZITADEL_ISSUER",
     "ZITADEL_ORGANIZATION_ID",
     "ZITADEL_REDIRECT_URI",
+    "OIDC_AUTHWORKS_REDIRECT_URI",
+    "OIDC_ZITADEL_REDIRECT_URI",
   ])
     delete Bun.env[name]
   Bun.env.AUTH_MODE = "oidc"

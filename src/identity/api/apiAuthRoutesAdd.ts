@@ -202,7 +202,7 @@ export function apiAuthRoutesAdd(api: Hono<AppEnvironment>, options: ApiAuthRout
     authorizationUrl.searchParams.set("redirect_uri", redirectUri)
     authorizationUrl.searchParams.set("response_type", "code")
     const authorizationScopes = ["openid", "profile", "email"]
-    if (provider.data.scopesSupported?.includes(oidcResourceOwnerScope))
+    if (selectedProvider.name === "zitadel" || provider.data.scopesSupported?.includes(oidcResourceOwnerScope))
       authorizationScopes.push(oidcResourceOwnerScope)
     authorizationUrl.searchParams.set("scope", authorizationScopes.join(" "))
     authorizationUrl.searchParams.set("state", state)
@@ -313,6 +313,7 @@ function authenticationModeResolve(configuration: RuntimeConfiguration): "develo
 }
 
 function oidcConfiguredProvidersResolve(configuration: RuntimeConfiguration): OidcConfiguredProvider[] {
+  if (configuration.oidcOrganizationId === undefined) return []
   const normalizedProviders = oidcProviderNames.flatMap((name) => {
     const provider = configuration.oidcProviders?.[name]
     const canonicalIssuer = provider?.issuer === undefined ? undefined : oidcIssuerCanonicalize(provider.issuer)
@@ -419,6 +420,8 @@ async function oidcCallbackHandle(
   if (configuration.publicOrigin === undefined) {
     return oidcCallbackFailure(context, 503, "configuration")
   }
+  const organizationExternalId = configuration.oidcOrganizationId
+  if (organizationExternalId === undefined) return oidcCallbackFailure(context, 503, "configuration")
   const configuredProviders = oidcConfiguredProvidersResolve(configuration)
   if (configuredProviders.length === 0) return oidcCallbackFailure(context, 503, "configuration")
 
@@ -587,7 +590,7 @@ async function oidcCallbackHandle(
       const user = await identityUpsert(executor, {
         displayName: oidcProfileStringResolve(claims.name) ?? oidcProfileStringResolve(claims.preferred_username),
         issuer: providerIssuer.data,
-        organizationExternalId: resourceOwnerId.data,
+        organizationExternalId,
         subject: claims.sub,
         ...(claims.email_verified === true && oidcProfileStringResolve(claims.email) !== undefined
           ? { verifiedEmail: oidcProfileStringResolve(claims.email) }

@@ -51,6 +51,28 @@ require_any_loaded() {
   fail "$description is required in $env_file"
 }
 
+first_loaded_value() {
+  local name
+  for name in "$@"; do
+    if [[ -n "${loaded_env[$name]:-}" ]]; then
+      printf '%s' "${loaded_env[$name]}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+validate_provider_organization_mapping() {
+  local authworks_organization zitadel_organization
+  authworks_organization=$(first_loaded_value OIDC_AUTHWORKS_ORGANIZATION_ID OIDC_AUTHWORKS_ALLOWED_ORGANIZATION_ID || true)
+  zitadel_organization=$(first_loaded_value \
+    OIDC_ZITADEL_ORGANIZATION_ID OIDC_ZITADEL_ALLOWED_ORGANIZATION_ID \
+    ZITADEL_ORGANIZATION_ID ZITADEL_ALLOWED_ORGANIZATION_ID || true)
+  if [[ -n "$authworks_organization" && -n "$zitadel_organization" && "$authworks_organization" != "$zitadel_organization" ]]; then
+    require_any_loaded 'a local Codeline organization external ID' OIDC_ORGANIZATION_ID OIDC_ALLOWED_ORGANIZATION_ID
+  fi
+}
+
 validate_database_environment() {
   load_env_file "$env_file"
   local name
@@ -62,6 +84,7 @@ validate_database_environment() {
     OIDC_ZITADEL_ORGANIZATION_ID OIDC_ZITADEL_ALLOWED_ORGANIZATION_ID \
     OIDC_ORGANIZATION_ID OIDC_ALLOWED_ORGANIZATION_ID \
     ZITADEL_ORGANIZATION_ID ZITADEL_ALLOWED_ORGANIZATION_ID
+  validate_provider_organization_mapping
   [[ "${loaded_env[NODE_ENV]}" == development ]] || fail "NODE_ENV must be development"
 }
 
@@ -94,6 +117,7 @@ validate_environment() {
       OIDC_ZITADEL_ORGANIZATION_ID OIDC_ZITADEL_ALLOWED_ORGANIZATION_ID \
       OIDC_ORGANIZATION_ID OIDC_ALLOWED_ORGANIZATION_ID \
       ZITADEL_ORGANIZATION_ID ZITADEL_ALLOWED_ORGANIZATION_ID
+    validate_provider_organization_mapping
 
     if [[ -n "${loaded_env[OIDC_AUTHWORKS_ISSUER]:-}" ||
       -n "${loaded_env[OIDC_AUTHWORKS_CLIENT_ID]:-}" ||

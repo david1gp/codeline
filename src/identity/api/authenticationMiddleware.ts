@@ -15,7 +15,7 @@ const oidcProviderNames = ["authworks", "legacy", "zitadel"] as const
 
 type OidcMembershipProviderConfiguration = {
   issuer: string
-  organizationId: string
+  organizationExternalId: string
 }
 
 type AuthenticationMiddlewareOptions = {
@@ -77,7 +77,12 @@ export function authenticationMiddleware(
     const membershipProviders = oidcMembershipProvidersResolve(configuration)
     if (membershipProviders !== undefined) {
       for (const provider of membershipProviders) {
-        const membership = await memberLoad(database, session.data.userId, provider.organizationId, provider.issuer)
+        const membership = await memberLoad(
+          database,
+          session.data.userId,
+          provider.organizationExternalId,
+          provider.issuer,
+        )
         if (!membership.success) return authenticationUnauthorized(context)
         if (membership.data === undefined) continue
         organizationId = membership.data.organizationId
@@ -102,20 +107,23 @@ export function authenticationMiddleware(
 function oidcMembershipProvidersResolve(
   configuration: RuntimeConfiguration,
 ): readonly OidcMembershipProviderConfiguration[] | undefined {
+  const organizationExternalId = configuration.oidcOrganizationId
+  if (organizationExternalId === undefined) return undefined
+
   if (configuration.oidcProviders !== undefined) {
     return oidcProviderNames.flatMap((name) => {
       const provider = configuration.oidcProviders?.[name]
       if (provider?.issuer === undefined || provider.organizationId === undefined) return []
       const canonicalIssuer = oidcIssuerCanonicalize(provider.issuer)
       if (!canonicalIssuer.success) return []
-      return [{ issuer: canonicalIssuer.data, organizationId: provider.organizationId }]
+      return [{ issuer: canonicalIssuer.data, organizationExternalId }]
     })
   }
 
-  if (configuration.oidcIssuer === undefined || configuration.oidcOrganizationId === undefined) return undefined
+  if (configuration.oidcIssuer === undefined) return undefined
   const canonicalIssuer = oidcIssuerCanonicalize(configuration.oidcIssuer)
   if (!canonicalIssuer.success) return []
-  return [{ issuer: canonicalIssuer.data, organizationId: configuration.oidcOrganizationId }]
+  return [{ issuer: canonicalIssuer.data, organizationExternalId }]
 }
 
 function authenticationPathPublic(path: string, configuration: RuntimeConfiguration): boolean {

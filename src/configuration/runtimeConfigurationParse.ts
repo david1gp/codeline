@@ -1,8 +1,8 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
+import { oidcIssuerCanonicalize } from "../identity/oidc/oidcIssuerCanonicalize.js"
 import type { OidcProviderConfiguration } from "./oidcProviderConfigurationSchema.js"
 import { type RuntimeConfiguration, runtimeConfigurationSchema } from "./runtimeConfigurationSchema.js"
-import { oidcIssuerCanonicalize } from "../identity/oidc/oidcIssuerCanonicalize.js"
 
 type OidcProviderName = "authworks" | "legacy" | "zitadel"
 type OidcProviderField = keyof OidcProviderConfiguration
@@ -49,6 +49,7 @@ const oidcOrganizationEnvironmentNames = [
   ...oidcLegacyEnvironmentNames.generic.organizationId,
   ...oidcLegacyEnvironmentNames.zitadel.organizationId,
 ] as const
+const oidcLocalOrganizationEnvironmentNames = ["OIDC_ORGANIZATION_ID", "OIDC_ALLOWED_ORGANIZATION_ID"] as const
 
 export function runtimeConfigurationParse(input: unknown): Result<RuntimeConfiguration> {
   const op = "runtimeConfigurationParse"
@@ -219,18 +220,26 @@ function runtimeConfigurationInputNormalize(input: unknown): Result<unknown> {
 
 function runtimeConfigurationDevelopmentOrganizationResolve(input: Record<string, unknown>): Result<unknown> {
   const op = "runtimeConfigurationParse"
-  const values = [
+  const localValues = [
     { name: "oidcOrganizationId", value: input.oidcOrganizationId },
-    ...oidcOrganizationEnvironmentNames.map((name) => ({ name, value: input[name] })),
-    ...(["authworks", "legacy", "zitadel"] as const).flatMap((provider) => {
-      const providers =
-        isRecord(input.oidcProviders) && isRecord(input.oidcProviders[provider])
-          ? input.oidcProviders[provider]
-          : undefined
-      const value = providers?.organizationId
-      return value === undefined ? [] : [{ name: `oidcProviders.${provider}.organizationId`, value }]
-    }),
+    ...oidcLocalOrganizationEnvironmentNames.map((name) => ({ name, value: input[name] })),
   ].filter((entry): entry is { name: string; value: unknown } => entry.value !== undefined)
+  const providerValues: Array<{ name: string; value: unknown }> = []
+  for (const name of oidcOrganizationEnvironmentNames) {
+    if (oidcLocalOrganizationEnvironmentNames.includes(name as (typeof oidcLocalOrganizationEnvironmentNames)[number]))
+      continue
+    const value = input[name]
+    if (value !== undefined) providerValues.push({ name, value })
+  }
+  for (const provider of ["authworks", "legacy", "zitadel"] as const) {
+    const providers =
+      isRecord(input.oidcProviders) && isRecord(input.oidcProviders[provider])
+        ? input.oidcProviders[provider]
+        : undefined
+    const value = providers?.organizationId
+    if (value !== undefined) providerValues.push({ name: `oidcProviders.${provider}.organizationId`, value })
+  }
+  const values = localValues.length > 0 ? localValues : providerValues
   const first = values[0]
   if (first === undefined) return createResult(undefined)
   if (values.some((entry) => entry.value !== first.value)) {
@@ -270,7 +279,7 @@ function runtimeConfigurationProvidersNormalize(
   let zitadel = explicitZitadel
   if (explicitAuthworks !== undefined) {
     if (generic !== undefined) {
-      const merged = oidcProviderInputMerge(explicitAuthworks, generic)
+      const merged = oidcProviderInputMerge(explicitAuthworks, oidcProviderInputWithoutOrganization(generic))
       if (!merged.success) return merged
       authworks = merged.data
     }
@@ -291,7 +300,7 @@ function runtimeConfigurationProvidersNormalize(
     }
   } else if (legacyZitadel !== undefined) {
     if (generic !== undefined && explicitAuthworks === undefined && explicitZitadel === undefined) {
-      const merged = oidcProviderInputMerge(generic, legacyZitadel)
+      const merged = oidcProviderInputMerge(oidcProviderInputWithoutOrganization(generic), legacyZitadel)
       if (!merged.success) return merged
       zitadel = merged.data
       authworks = undefined
@@ -311,7 +320,7 @@ function runtimeConfigurationProvidersNormalize(
       else zitadel = merged.data
     }
   }
-  oidcProviderInputSharedOrganizationApply(authworks, zitadel)
+  oidcProviderInputSharedOrganizationApply(authworks, zitadel, generic)
 
   if (authworks === undefined && legacy === undefined && zitadel === undefined && !isRecord(input.oidcProviders))
     return createResult(undefined)
@@ -393,15 +402,21 @@ function oidcProviderInputHasIdentityValues(input: OidcProviderInput): boolean {
 function oidcProviderInputSharedFields(input: OidcProviderInput): OidcProviderInput {
   return {
     ...(input.callbackUrl === undefined ? {} : { callbackUrl: input.callbackUrl }),
-    ...(input.organizationId === undefined ? {} : { organizationId: input.organizationId }),
   }
+}
+
+function oidcProviderInputWithoutOrganization(input: OidcProviderInput): OidcProviderInput {
+  const result = { ...input }
+  delete result.organizationId
+  return result
 }
 
 function oidcProviderInputSharedOrganizationApply(
   authworks: OidcProviderInput | undefined,
   zitadel: OidcProviderInput | undefined,
+  generic: OidcProviderInput | undefined,
 ): void {
-  const organization = authworks?.organizationId ?? zitadel?.organizationId
+  const organization = generic?.organizationId ?? authworks?.organizationId ?? zitadel?.organizationId
   if (organization === undefined) return
   if (authworks !== undefined && authworks.organizationId === undefined) authworks.organizationId = organization
   if (zitadel !== undefined && zitadel.organizationId === undefined) zitadel.organizationId = organization
@@ -591,6 +606,39 @@ function oidcOrganizationResolve(
   input: unknown,
 ): Result<string> {
   const op = "runtimeConfigurationParse"
+  const localInputValues = [
+    {
+      name: "oidcOrganizationId",
+      value: isRecord(input) ? input.oidcOrganizationId : undefined,
+    },
+    ...oidcLocalOrganizationEnvironmentNames.map((name) => ({
+      name,
+      value: isRecord(input) ? input[name] : undefined,
+    })),
+  ].filter((entry) => entry.value !== undefined)
+  const invalidLocalValues = localInputValues.filter(
+    (entry) => typeof entry.value !== "string" || entry.value.trim().length === 0,
+  )
+  if (invalidLocalValues.length > 0) {
+    return createResultError(
+      op,
+      `Runtime authentication configuration is invalid. Invalid fields: ${invalidLocalValues
+        .map((entry) => entry.name)
+        .join(" and ")}.`,
+    )
+  }
+  const localValues = localInputValues as Array<{ name: string; value: string }>
+  const local = localValues[0]
+  if (localValues.some((entry) => entry.value !== local?.value)) {
+    return createResultError(
+      op,
+      `Runtime authentication configuration is invalid. Conflicting values for ${localValues
+        .map((entry) => entry.name)
+        .join(" and ")}.`,
+    )
+  }
+  if (local !== undefined) return createResult(local.value)
+
   const values = entries
     .map(([provider, configuration]) => ({
       name: oidcProviderFieldName(provider, "organizationId", input),
@@ -602,9 +650,11 @@ function oidcOrganizationResolve(
   if (values.some((entry) => entry.value !== first.value)) {
     return createResultError(
       op,
-      `Runtime authentication configuration is invalid. Conflicting values for ${values
+      `Runtime authentication configuration is invalid. Invalid fields: ${values
         .map((entry) => entry.name)
-        .join(" and ")}.`,
+        .join(
+          " and ",
+        )}. Configure one local Codeline organization external ID with OIDC_ORGANIZATION_ID when provider organization IDs differ.`,
     )
   }
   return createResult(first.value)

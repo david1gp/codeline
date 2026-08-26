@@ -41,21 +41,21 @@ const multiProviderConfiguration = {
   databaseUrl: "file:./data/db.sqlite",
   nodeEnv: "production" as const,
   oidcCallbackUrl: "https://codeline.test/api/auth/callback",
-  oidcOrganizationId: "organization-id",
+  oidcOrganizationId: "local-organization-id",
   oidcProviders: {
     authworks: {
       callbackUrl: "https://codeline.test/api/auth/callback",
       clientId: "authworks-client-id",
       clientSecret: "authworks-client-secret",
       issuer: "https://authworks.codeline.test",
-      organizationId: "organization-id",
+      organizationId: "authworks-organization-id",
     },
     zitadel: {
       callbackUrl: "https://codeline.test/api/auth/callback",
       clientId: "zitadel-client-id",
       clientSecret: "zitadel-client-secret",
       issuer: "https://zitadel.codeline.test",
-      organizationId: "organization-id",
+      organizationId: "zitadel-organization-id",
     },
   },
   publicOrigin: "https://codeline.test",
@@ -170,8 +170,94 @@ test("OIDC callback selects credentials from the consumed issuer and ignores cal
   )
   expect(storedProfile).toMatchObject({
     issuer: `${multiProviderConfiguration.oidcProviders.authworks.issuer}/`,
-    organizationExternalId: multiProviderConfiguration.oidcProviders.authworks.organizationId,
+    organizationExternalId: multiProviderConfiguration.oidcOrganizationId,
   })
+})
+
+test("OIDC callback validates each issuer's provider organization and maps it to the local organization", async () => {
+  for (const providerName of ["authworks", "zitadel"] as const) {
+    const providerConfiguration = multiProviderConfiguration.oidcProviders[providerName]
+    const providerMetadata: OidcProviderMetadata = {
+      ...metadata,
+      issuer: providerConfiguration.issuer,
+      jwksUri: `${providerConfiguration.issuer}/jwks`,
+      tokenEndpoint: `${providerConfiguration.issuer}/token`,
+    }
+    let storedProfile: Record<string, unknown> | undefined
+    const app = callbackApp({
+      configuration: multiProviderConfiguration,
+      consume: async () =>
+        createResult({
+          ...transaction,
+          issuer: providerConfiguration.issuer,
+          redirectUri: multiProviderConfiguration.oidcCallbackUrl,
+        }),
+      identityUpsert: async (_database, profile) => {
+        storedProfile = profile
+        return createResult(applicationUser)
+      },
+      providerDiscovery: async () => createResult(providerMetadata),
+      providerFetch: async (input) =>
+        String(input) === providerMetadata.tokenEndpoint
+          ? tokenResponse(
+              await signedIdToken(
+                {},
+                {
+                  clientId: providerConfiguration.clientId,
+                  issuer: providerConfiguration.issuer,
+                  organizationId: providerConfiguration.organizationId,
+                },
+              ),
+            )
+          : jwksResponse(),
+    })
+
+    const response = await app.request(
+      `https://codeline.test/api/auth/callback?code=authorization-code&state=state-value`,
+      { headers: { Cookie: "__Host-codeline-oidc-binding=browser-binding" } },
+    )
+
+    expect(response.status, providerName).toBe(302)
+    expect(storedProfile, providerName).toMatchObject({
+      issuer: `${providerConfiguration.issuer}/`,
+      organizationExternalId: multiProviderConfiguration.oidcOrganizationId,
+    })
+  }
+})
+
+test("OIDC callback rejects a provider organization ID accepted by another issuer", async () => {
+  let identityCalled = false
+  const providerConfiguration = multiProviderConfiguration.oidcProviders.authworks
+  const app = callbackApp({
+    configuration: multiProviderConfiguration,
+    consume: async () => createResult({ ...transaction, issuer: providerConfiguration.issuer }),
+    identityUpsert: async () => {
+      identityCalled = true
+      return createResult(applicationUser)
+    },
+    providerDiscovery: async () => createResult(authworksMetadata),
+    providerFetch: async (input) =>
+      String(input) === authworksMetadata.tokenEndpoint
+        ? tokenResponse(
+            await signedIdToken(
+              {},
+              {
+                clientId: providerConfiguration.clientId,
+                issuer: providerConfiguration.issuer,
+                organizationId: multiProviderConfiguration.oidcProviders.zitadel.organizationId,
+              },
+            ),
+          )
+        : jwksResponse(),
+  })
+
+  const response = await app.request(
+    "https://codeline.test/api/auth/callback?code=authorization-code&state=state-value",
+    { headers: { Cookie: "__Host-codeline-oidc-binding=browser-binding" } },
+  )
+
+  expect(response.status).toBe(400)
+  expect(identityCalled).toBe(false)
 })
 
 test("OIDC callback resumes a persisted transaction across an equivalent issuer spelling change", async () => {
@@ -225,7 +311,7 @@ test("OIDC callback resumes a persisted transaction across an equivalent issuer 
   expect(discoveredIssuer).toBe(canonicalConfiguration.oidcProviders.authworks.issuer)
   expect(storedProfile).toMatchObject({
     issuer: canonicalConfiguration.oidcProviders.authworks.issuer,
-    organizationExternalId: canonicalConfiguration.oidcProviders.authworks.organizationId,
+    organizationExternalId: canonicalConfiguration.oidcOrganizationId,
   })
 })
 

@@ -219,7 +219,7 @@ test("OIDC login discovers once, stores a bound ten-minute transaction, and redi
   })
 })
 
-test("OIDC login omits the resource-owner scope when the provider does not advertise it", async () => {
+test("provider-neutral OIDC login omits the resource-owner scope when discovery does not advertise it", async () => {
   const app = appCreate({
     configuration,
     database: {} as never,
@@ -236,6 +236,26 @@ test("OIDC login omits the resource-owner scope when the provider does not adver
 
   expect(response.status).toBe(302)
   expect(location.searchParams.get("scope")).toBe("openid profile email")
+})
+
+test("OIDC login requests the Zitadel resource-owner scope when discovery does not advertise it", async () => {
+  const app = appCreate({
+    configuration: multiProviderConfiguration,
+    database: {} as never,
+    oidcLoginTransactionCreate: async () => createResult({} as never),
+    oidcProviderFetch: async () =>
+      new Response(
+        JSON.stringify({ ...multiProviderMetadata.zitadel, scopes_supported: ["openid", "profile", "email"] }),
+        { headers: { "content-type": "application/json" } },
+      ),
+    oidcReturnToPathIsKnown: (pathname) => pathname === "/" || pathname === "/files",
+  })
+
+  const response = await app.request("https://codeline.test/api/auth/login?provider=zitadel&returnTo=/files")
+  const location = new URL(response.headers.get("location") ?? "")
+
+  expect(response.status).toBe(302)
+  expect(location.searchParams.get("scope")).toBe(`openid profile email ${oidcResourceOwnerScope}`)
 })
 
 test("OIDC login requires and selects a normalized provider when multiple providers are configured", async () => {

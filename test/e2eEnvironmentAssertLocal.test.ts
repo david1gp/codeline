@@ -161,7 +161,24 @@ test("the local guard rejects conflicting shared organization IDs", () => {
 
   const result = e2eEnvironmentAssertLocal()
   expect(result.success).toBe(false)
-  if (!result.success) expect(result.errorMessage).toContain("shared")
+  if (!result.success) expect(result.errorMessage).toContain("differ")
+})
+
+test("the local guard maps distinct provider organization IDs to the configured local organization", () => {
+  environmentApply({
+    OIDC_AUTHWORKS_ISSUER: "https://authworks.example.test",
+    OIDC_AUTHWORKS_ORGANIZATION_ID: "authworks-organization",
+    OIDC_ZITADEL_ISSUER: "https://zitadel.example.test",
+    OIDC_ZITADEL_ORGANIZATION_ID: "zitadel-organization",
+    OIDC_ORGANIZATION_ID: "contentoren-organization",
+    OIDC_ISSUER: undefined,
+    ZITADEL_ISSUER: undefined,
+    ZITADEL_ORGANIZATION_ID: undefined,
+  })
+
+  const result = e2eEnvironmentAssertLocal()
+  expect(result.success).toBe(true)
+  if (result.success) expect(result.data.organizationExternalId).toBe("contentoren-organization")
 })
 
 test("the local guard requires the managed database URL", () => {
