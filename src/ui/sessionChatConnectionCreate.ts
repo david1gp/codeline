@@ -3,8 +3,8 @@ import type { ConnectConnectionAdapter } from "@tanstack/ai-client"
 import { apiHttpClientCreate } from "../api/client/apiHttpClientCreate.js"
 import { runActiveSnapshotFetch } from "../run/ui/runActiveSnapshotFetch.js"
 import {
-  sessionChatCommandResponseSchema,
   type SessionChatCommandResponse,
+  sessionChatCommandResponseSchema,
 } from "../session/api/sessionChatCommandResponseSchema.js"
 import { sessionChatRequestSchema } from "../session/schema/sessionChatRequestSchema.js"
 
@@ -111,7 +111,10 @@ async function* sessionChatConnectionRunPoll(
     }
     if (snapshot.data.status === "failed" || snapshot.data.status === "aborted") {
       onStateChange?.("error")
-      yield sessionChatConnectionErrorCreate("run_failed", "The chat run did not complete successfully.")
+      yield sessionChatConnectionErrorCreate(
+        snapshot.data.failure?.code ?? "run_failed",
+        snapshot.data.failure?.message ?? "The chat run did not complete successfully.",
+      )
       return
     }
     await sessionChatConnectionWait(signal, 100)

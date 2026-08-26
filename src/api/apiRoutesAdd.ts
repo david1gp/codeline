@@ -36,6 +36,7 @@ import { runDelegationFinalize } from "../run/actions/runDelegationFinalize.js"
 import { runExecutionSnapshotResolve } from "../run/actions/runExecutionSnapshotResolve.js"
 import { runLoad } from "../run/actions/runLoad.js"
 import { runRetryAttemptCreate } from "../run/actions/runRetryAttemptCreate.js"
+import { runSessionSnapshotLoad } from "../run/actions/runSessionSnapshotLoad.js"
 import { runTransition } from "../run/actions/runTransition.js"
 import { apiRunRoutesAdd } from "../run/api/apiRunRoutesAdd.js"
 import { runErrorCatalog } from "../run/errors/runErrorCatalog.js"
@@ -77,6 +78,7 @@ type ApiRoutesAddOptions = {
   runExecutionSnapshotResolve?: typeof runExecutionSnapshotResolve
   runLoad?: typeof runLoad
   runRetryAttemptCreate?: typeof runRetryAttemptCreate
+  runSessionSnapshotLoad?: typeof runSessionSnapshotLoad
   runTransition?: typeof runTransition
   identitySessionRevoke?: typeof identitySessionRevoke
   identitySessionCreate?: typeof import("../identity/actions/identitySessionCreate.js").identitySessionCreate
@@ -178,6 +180,7 @@ export function apiRoutesAdd(
     runActiveSnapshotLoad: options.runActiveSnapshotLoad,
     runCancellationCoordinator: options.runCancellationCoordinator,
     runLoad: options.runLoad,
+    runSessionSnapshotLoad: options.runSessionSnapshotLoad,
   })
   if (
     options.configuration !== undefined &&

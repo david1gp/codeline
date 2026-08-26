@@ -237,3 +237,74 @@ test("delegation read route masks an unauthorized session as not found", async (
     },
   })
 })
+
+test("session run snapshot route passes the authenticated scope and returns persisted run state", async () => {
+  const app = new Hono<AppEnvironment>()
+  const scope = { organizationId: "organization-1", sessionId: "session-1", userId: "user-1" }
+  let received: unknown[] | undefined
+  app.use("*", async (context, next) => {
+    context.set("database", {} as AppEnvironment["Variables"]["database"])
+    context.set("requestIdentity", scope)
+    await next()
+  })
+
+  apiRunRoutesAdd(app, {
+    runSessionSnapshotLoad: async (...input) => {
+      received = input
+      return createResult({
+        events: [
+          {
+            attemptOrdinal: 1,
+            eventType: "delta",
+            payload: { delta: "hello", deltaKind: "text", messageId: null, runId: "run-1", sessionId: scope.sessionId },
+            sequence: 2,
+            streamId: "stream-1",
+          },
+        ],
+        runs: [
+          {
+            attempts: [{ id: "attempt-1", ordinal: 1, status: "failed", streamId: "stream-1" }],
+            cancellationKind: null,
+            createdAt: 1,
+            failure: { code: "provider_failed", message: "The provider failed." },
+            id: "run-1",
+            status: "failed",
+            streamId: "stream-1",
+          },
+        ],
+      })
+    },
+  })
+
+  const response = await app.request(`http://codeline.test/sessions/${scope.sessionId}/runs/snapshot`)
+
+  expect(response.status).toBe(200)
+  expect(received?.slice(1)).toEqual([scope.userId, scope.organizationId, scope.sessionId])
+  expect(response.headers.get("cache-control")).toBe("private, no-cache")
+  expect(await response.json()).toMatchObject({
+    events: [{ eventType: "delta", sequence: 2, streamId: "stream-1" }],
+    runs: [
+      {
+        attempts: [{ id: "attempt-1" }],
+        failure: { code: "provider_failed", message: "The provider failed." },
+        id: "run-1",
+        status: "failed",
+      },
+    ],
+  })
+})
+
+test("session run snapshot client encodes the session ID and validates the response", async () => {
+  const { runSessionSnapshotFetch } = await import("../src/run/ui/runSessionSnapshotFetch.js")
+  let request: { input: RequestInfo | URL; init?: RequestInit } | undefined
+  const loaded = await runSessionSnapshotFetch("session/a", {
+    fetch: async (input, init) => {
+      request = { input, init }
+      return new Response(JSON.stringify({ events: [], runs: [] }), { status: 200 })
+    },
+  })
+
+  expect(loaded).toMatchObject({ success: true, data: { events: [], runs: [] } })
+  expect(request?.input).toBe("/api/sessions/session%2Fa/runs/snapshot")
+  expect(request?.init?.method).toBe("GET")
+})

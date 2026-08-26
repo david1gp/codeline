@@ -52,6 +52,7 @@ export const runErrorCodes = {
   registrationConflict: "run.registration-conflict",
   sessionNotFound: "run.session-not-found",
   sessionIdRequired: "run.session-id-required",
+  sessionSnapshotInvalid: "run.session-snapshot-invalid",
   sessionRevisionUpdateFailed: "run.session-revision-update-failed",
   sessionUpdateFailed: "run.session-update-failed",
   scopeRequired: "run.scope-required",

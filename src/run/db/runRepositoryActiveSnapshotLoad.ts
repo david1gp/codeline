@@ -33,7 +33,7 @@ export async function runRepositoryActiveSnapshotLoad(
 
   const loaded = await databaseReadTransactionRun(database, async (transaction) => {
     const [run] = await transaction
-      .select({ id: runTable.id, status: runTable.status })
+      .select({ failure: runTable.failure, id: runTable.id, status: runTable.status })
       .from(runTable)
       .innerJoin(sessionTable, and(eq(runTable.sessionId, sessionTable.id), eq(runTable.userId, sessionTable.userId)))
       .innerJoin(
@@ -80,6 +80,7 @@ export async function runRepositoryActiveSnapshotLoad(
       lastCursor,
       lastSequence,
       partialText,
+      failure: run.failure,
       status: status.output,
     })
     if (!response.success)

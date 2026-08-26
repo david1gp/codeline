@@ -11,8 +11,10 @@ import { organizationTable } from "../src/identity/db/organizationTable.js"
 import { journalCursorCodecCreate } from "../src/journal/actions/journalCursorCodecCreate.js"
 import { journalEventTable } from "../src/journal/db/journalEventTable.js"
 import { apiRunRoutesAdd } from "../src/run/api/apiRunRoutesAdd.js"
+import { attemptTable } from "../src/run/db/attemptTable.js"
 import { runRepositoryActiveListLoad } from "../src/run/db/runRepositoryActiveListLoad.js"
 import { runRepositoryActiveSnapshotLoad } from "../src/run/db/runRepositoryActiveSnapshotLoad.js"
+import { runRepositorySessionSnapshotLoad } from "../src/run/db/runRepositorySessionSnapshotLoad.js"
 import { runTable } from "../src/run/db/runTable.js"
 import { runErrorCodes } from "../src/run/errors/runErrorCodes.js"
 import { runActiveSnapshotFetch } from "../src/run/ui/runActiveSnapshotFetch.js"
@@ -42,7 +44,12 @@ test("active snapshot route passes authorization scope and validates its respons
   apiRunRoutesAdd(app, {
     runActiveSnapshotLoad: async (...input) => {
       received = input
-      return createResult({ lastSequence: 12, partialText: "partial", status: "running" })
+      return createResult({
+        failure: { code: "provider_timeout", message: "The provider timed out." },
+        lastSequence: 12,
+        partialText: "partial",
+        status: "failed",
+      })
     },
   })
 
@@ -50,7 +57,12 @@ test("active snapshot route passes authorization scope and validates its respons
 
   expect(response.status).toBe(200)
   expect(received?.slice(1, 5)).toEqual([scope.userId, scope.organizationId, scope.sessionId, "run-1"])
-  expect(await response.json()).toEqual({ lastSequence: 12, partialText: "partial", status: "running" })
+  expect(await response.json()).toEqual({
+    failure: { code: "provider_timeout", message: "The provider timed out." },
+    lastSequence: 12,
+    partialText: "partial",
+    status: "failed",
+  })
 })
 
 test("active snapshot route hides unauthorized and malformed results", async () => {
@@ -143,14 +155,30 @@ test("active snapshot client requests and validates the typed response", async (
   const loaded = await runActiveSnapshotFetch("session/a", "run/a", {
     fetch: async (input, init) => {
       request = { input, init }
-      return new Response(JSON.stringify({ lastSequence: 7, partialText: "hello", status: "accepted" }), {
-        headers: { "Content-Type": "application/json" },
-        status: 200,
-      })
+      return new Response(
+        JSON.stringify({
+          failure: { code: "provider_timeout", message: "The provider timed out." },
+          lastSequence: 7,
+          partialText: "hello",
+          status: "failed",
+        }),
+        {
+          headers: { "Content-Type": "application/json" },
+          status: 200,
+        },
+      )
     },
   })
 
-  expect(loaded).toMatchObject({ success: true, data: { lastSequence: 7, partialText: "hello", status: "accepted" } })
+  expect(loaded).toMatchObject({
+    success: true,
+    data: {
+      failure: { code: "provider_timeout", message: "The provider timed out." },
+      lastSequence: 7,
+      partialText: "hello",
+      status: "failed",
+    },
+  })
   expect(request?.input).toBe("/api/sessions/session%2Fa/runs/run%2Fa/snapshot")
   expect(request?.init?.method).toBe("GET")
 
@@ -203,6 +231,22 @@ const activeSnapshotRepositoryTest = async () => {
       clientRunId: `client-${suffix}`,
       deadlineAt: new Date(now.getTime() + 10_000),
       id: runId,
+      sessionId,
+      snapshot: {
+        configuration: { model: "deterministic", provider: "deterministic" },
+        configurationRevision: "revision",
+        target: { agentId, serverId },
+      },
+      status: "running",
+      streamId: `stream-${suffix}`,
+      updatedAt: now,
+      userId,
+    })
+    await database.insert(attemptTable).values({
+      budget: { maxAttempts: 1, maxChildDepth: 0, maxChildRuns: 0, maxDurationMs: 10_000 },
+      id: `attempt-${suffix}`,
+      ordinal: 1,
+      runId,
       sessionId,
       snapshot: {
         configuration: { model: "deterministic", provider: "deterministic" },
@@ -285,6 +329,35 @@ const activeSnapshotRepositoryTest = async () => {
     expect(await runRepositoryActiveListLoad(database, userId, organizationId, sessionId)).toMatchObject({
       success: true,
       data: { runs: [{ runId, status: "running" }] },
+    })
+    expect(await runRepositorySessionSnapshotLoad(database, userId, organizationId, sessionId)).toMatchObject({
+      success: true,
+      data: {
+        events: [
+          { attemptOrdinal: 1, eventType: "delta", sequence: 2, streamId: `stream-${suffix}` },
+          { attemptOrdinal: 1, eventType: "delta", sequence: 5, streamId: `stream-${suffix}` },
+          { attemptOrdinal: 1, eventType: "delta", sequence: 8, streamId: `stream-${suffix}` },
+        ],
+        runs: [
+          {
+            attempts: [{ id: `attempt-${suffix}`, ordinal: 1, status: "running", streamId: `stream-${suffix}` }],
+            id: runId,
+            status: "running",
+          },
+        ],
+      },
+    })
+
+    const failure = { code: "provider_timeout", message: "The provider timed out." }
+    await database.update(runTable).set({ failure, status: "failed" }).where(eq(runTable.id, runId))
+    await database.update(attemptTable).set({ failure, status: "failed" }).where(eq(attemptTable.runId, runId))
+    expect(await runRepositoryActiveSnapshotLoad(database, userId, organizationId, sessionId, runId)).toMatchObject({
+      success: true,
+      data: { failure, status: "failed" },
+    })
+    expect(await runRepositorySessionSnapshotLoad(database, userId, organizationId, sessionId)).toMatchObject({
+      success: true,
+      data: { runs: [{ failure, id: runId, status: "failed" }] },
     })
     expect(await runRepositoryActiveListLoad(database, otherUserId, organizationId, sessionId)).toMatchObject({
       code: runErrorCodes.sessionNotFound,

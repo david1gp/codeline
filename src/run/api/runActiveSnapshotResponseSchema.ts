@@ -1,6 +1,7 @@
 import * as v from "valibot"
 import { apiCursorSchema } from "../../api/schema/apiCursorSchema.js"
 import { apiSequenceSchema } from "../../api/schema/apiSequenceSchema.js"
+import { runFailureMetadataSchema } from "../schema/runFailureMetadataSchema.js"
 import { runStatusSchema } from "../schema/runStatusSchema.js"
 
 export const runActiveSnapshotResponseSchema = v.strictObject({
@@ -12,6 +13,7 @@ export const runActiveSnapshotResponseSchema = v.strictObject({
   lastCursor: v.optional(v.nullable(apiCursorSchema)),
   lastSequence: apiSequenceSchema,
   partialText: v.string(),
+  failure: v.optional(v.nullable(runFailureMetadataSchema)),
   // Reconciliation may observe a terminal transition, so terminal statuses are intentional here.
   status: runStatusSchema,
 })

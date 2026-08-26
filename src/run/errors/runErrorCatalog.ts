@@ -56,6 +56,7 @@ const runErrorEntries = [
   { code: runErrorCodes.scopeRequired, httpStatus: 400, retryable: false },
   { code: runErrorCodes.sessionNotFound, httpStatus: 404, retryable: false },
   { code: runErrorCodes.sessionIdRequired, httpStatus: 400, retryable: false },
+  { code: runErrorCodes.sessionSnapshotInvalid, httpStatus: 500, retryable: false },
   { code: runErrorCodes.sessionRevisionUpdateFailed, httpStatus: 500, retryable: true },
   { code: runErrorCodes.sessionUpdateFailed, httpStatus: 500, retryable: true },
   { code: runErrorCodes.snapshotTargetMismatch, httpStatus: 409, retryable: false },

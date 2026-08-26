@@ -18,12 +18,14 @@ import { runCancel } from "../actions/runCancel.js"
 import { runCancellationCoordinatorCreate } from "../actions/runCancellationCoordinatorCreate.js"
 import { runDelegationsLoad } from "../actions/runDelegationsLoad.js"
 import { runLoad } from "../actions/runLoad.js"
+import { runSessionSnapshotLoad } from "../actions/runSessionSnapshotLoad.js"
 import { runErrorCatalog } from "../errors/runErrorCatalog.js"
 import { runCancelInputSchema } from "../schema/runCancelInputSchema.js"
 import { runActiveListResponseSchema } from "./runActiveListResponseSchema.js"
 import { runActiveSnapshotResponseSchema } from "./runActiveSnapshotResponseSchema.js"
 import { runCancelResponseSchema } from "./runCancelResponseSchema.js"
 import { runDelegationsResponseCreate } from "./runDelegationsResponseCreate.js"
+import { runSessionSnapshotResponseSchema } from "./runSessionSnapshotResponseSchema.js"
 
 type ApiContext = Context<AppEnvironment>
 type RunCancellationCoordinator = ReturnType<typeof runCancellationCoordinatorCreate>
@@ -38,6 +40,7 @@ type ApiRunRoutesOptions = {
   runCancellationCoordinator?: RunCancellationCoordinator
   runDelegationsLoad?: typeof runDelegationsLoad
   runLoad?: typeof runLoad
+  runSessionSnapshotLoad?: typeof runSessionSnapshotLoad
   metricsCollector?: ReturnType<typeof metricsCollectorCreate>
 }
 
@@ -116,6 +119,25 @@ export function apiRunRoutesAdd(api: Hono<AppEnvironment>, options: ApiRunRoutes
     const response = v.safeParse(runActiveSnapshotResponseSchema, result.data)
     if (!response.success) return internalServerError(context, catalog)
     options.metricsCollector?.increment("snapshot_response_total", 1, { status: "200" })
+    return context.json(response.output)
+  })
+
+  api.get("/sessions/:sessionId/runs/snapshot", async (context) => {
+    const organizationId = context.var.requestIdentity.organizationId
+    if (organizationId === undefined) return notFound(context, catalog)
+
+    const result = await (options.runSessionSnapshotLoad ?? runSessionSnapshotLoad)(
+      context.var.database,
+      context.var.requestIdentity.userId,
+      organizationId,
+      context.req.param("sessionId"),
+    )
+    if (!result.success) return errorResponse(context, result, catalog)
+
+    const response = v.safeParse(runSessionSnapshotResponseSchema, result.data)
+    if (!response.success) return internalServerError(context, catalog)
+    context.header("Cache-Control", "private, no-cache")
+    context.header("Vary", "Cookie, Accept-Encoding")
     return context.json(response.output)
   })
 
