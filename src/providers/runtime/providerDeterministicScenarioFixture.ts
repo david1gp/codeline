@@ -200,6 +200,97 @@ export const providerDeterministicScenarioFixture = {
     ],
     maxAttempts: 1,
   },
+  "abort-before-event": {
+    attempts: [
+      {
+        ordinal: 1,
+        steps: [
+          {
+            delayMs: 20,
+            event: { eventType: "text_delta", payload: { delta: "This event should be aborted before delivery." } },
+          },
+          { delayMs: 20, event: { eventType: "terminal", payload: { status: "completed" } } },
+        ],
+      },
+    ],
+    maxAttempts: 1,
+  },
+  "abort-event-race": {
+    attempts: [
+      {
+        ordinal: 1,
+        steps: [
+          { delayMs: 0, event: { eventType: "text_delta", payload: { delta: "This event races with abort." } } },
+          { delayMs: 0, event: { eventType: "terminal", payload: { status: "completed" } } },
+        ],
+      },
+    ],
+    maxAttempts: 1,
+  },
+  "abort-after-terminal": {
+    attempts: [
+      {
+        ordinal: 1,
+        steps: [
+          {
+            delayMs: 0,
+            event: { eventType: "text_delta", payload: { delta: "The terminal event wins before abort." } },
+          },
+          { delayMs: 0, event: { eventType: "terminal", payload: { status: "completed" } } },
+        ],
+      },
+    ],
+    maxAttempts: 1,
+  },
+  "retry-stream-replacement": {
+    attempts: [
+      {
+        ordinal: 1,
+        steps: [
+          {
+            delayMs: 0,
+            event: { eventType: "text_delta", payload: { delta: "Failed attempt output must be replaced." } },
+          },
+          {
+            delayMs: 0,
+            event: {
+              eventType: "terminal",
+              payload: { code: "provider_retryable", message: "Replace this failed stream.", status: "error" },
+            },
+          },
+        ],
+      },
+      {
+        ordinal: 2,
+        steps: [
+          { delayMs: 0, event: { eventType: "text_delta", payload: { delta: "Authoritative retry output." } } },
+          { delayMs: 0, event: { eventType: "terminal", payload: { status: "completed" } } },
+        ],
+      },
+    ],
+    maxAttempts: 2,
+  },
+  "incomplete-tool-lifecycle": {
+    attempts: [
+      {
+        ordinal: 1,
+        steps: [
+          {
+            delayMs: 0,
+            event: { eventType: "tool_start", payload: { toolCallId: "incomplete-tool-1", toolName: "read" } },
+          },
+          {
+            delayMs: 0,
+            event: {
+              eventType: "tool_output",
+              payload: { output: "Partial tool output.", toolCallId: "incomplete-tool-1", truncated: false },
+            },
+          },
+        ],
+      },
+    ],
+    maxAttempts: 1,
+  },
   "unexpected-end": {
     attempts: [
       {
@@ -213,6 +304,37 @@ export const providerDeterministicScenarioFixture = {
             },
           },
           { delayMs: 30, event: { eventType: "text_delta", payload: { delta: "No completion marker was emitted." } } },
+        ],
+      },
+    ],
+    maxAttempts: 1,
+  },
+  "duplicate-terminal": {
+    attempts: [
+      {
+        ordinal: 1,
+        steps: [
+          { delayMs: 0, event: { eventType: "terminal", payload: { status: "completed" } } },
+          { delayMs: 0, event: { eventType: "terminal", payload: { status: "completed" } } },
+        ],
+      },
+    ],
+    maxAttempts: 1,
+  },
+  "out-of-order-terminal": {
+    attempts: [
+      {
+        ordinal: 1,
+        steps: [
+          { delayMs: 0, event: { eventType: "terminal", payload: { status: "completed" } } },
+          { delayMs: 0, event: { eventType: "text_delta", payload: { delta: "Late text must be ignored." } } },
+          {
+            delayMs: 0,
+            event: {
+              eventType: "terminal",
+              payload: { code: "late_error", message: "Late terminal must be ignored.", status: "error" },
+            },
+          },
         ],
       },
     ],
