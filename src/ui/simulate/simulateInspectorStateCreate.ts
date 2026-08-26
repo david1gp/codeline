@@ -1,5 +1,6 @@
 import { createResult, type Result } from "@adaptive-ds/result"
 import { createSignalObject } from "@adaptive-ds/solid-ui/utils/createSignalObject"
+import type { RunFailureMetadata } from "../../run/schema/runFailureMetadataSchema.js"
 import { httpQueryStateCreate } from "../httpQueryStateCreate.js"
 import type { SessionChatState } from "../sessionChatStateCreate.js"
 import { simulateInspectorBackendStateDerive } from "./simulateInspectorBackendStateDerive.js"
@@ -15,13 +16,17 @@ type SimulateInspectorRun = {
   attempts: ReadonlyArray<SimulateInspectorAttempt>
   cancellationKind?: string | null
   createdAt: number
+  failure?: RunFailureMetadata | null
   id: string
   status: string
   streamId: string
 }
 
 type SimulateInspectorStreamEvent = {
+  attemptOrdinal?: number
   eventType: string
+  payload?: unknown
+  sequence?: number
   streamId: string
 }
 
@@ -56,8 +61,8 @@ function simulateInspectorLatestRunResolve(
 /**
  * Simulation-only comparison of the live frontend transport state against the
  * HTTP run snapshot and stream replay rows for the same session. The loader is
- * injected until the HTTP API exposes session-run enumeration; it never mirrors
- * client snapshots.
+ * injected so tests can preserve the same loading/error fallback without
+ * mirroring client snapshots.
  */
 export function simulateInspectorStateCreate(options: SimulateInspectorOptions) {
   const expanded = createSignalObject(false)
@@ -73,9 +78,13 @@ export function simulateInspectorStateCreate(options: SimulateInspectorOptions) 
 
   return {
     attempts: () => backend().attempts,
+    authoritativeAttemptOrdinal: () => backend().authoritativeAttemptOrdinal,
+    authoritativeStreamId: () => backend().authoritativeStreamId,
+    cancellation: () => backend().cancellation,
     eventCounts: () => backend().eventCounts,
     eventTotal: () => backend().eventTotal,
     expandedToggle: () => expanded.set(!expanded.get()),
+    failure: () => backend().failure,
     frontend: () => ({
       attemptCount: options.chat().attemptCount(),
       failures: options.chat().failures(),
@@ -86,8 +95,12 @@ export function simulateInspectorStateCreate(options: SimulateInspectorOptions) 
     }),
     isExpanded: expanded.get,
     isLoading: () => backendQuery.isLoading() && backendQuery.data() === undefined,
+    invariantViolations: () => backend().invariantViolations,
+    persistedEventCounts: () => backend().persistedEventCounts,
+    persistedEventTotal: () => backend().persistedEventTotal,
     run: () => backend().run,
     streamId: () => backend().streamId,
+    terminalReason: () => backend().terminalReason,
   }
 }
 

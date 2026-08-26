@@ -76,14 +76,26 @@ test("simulation inspector loads the latest HTTP run snapshot and filters replay
       status: "succeeded",
       streamId: "run-stream",
     })
+    expect(state.authoritativeAttemptOrdinal()).toBe(2)
+    expect(state.authoritativeStreamId()).toBe("attempt-new-2")
+    expect(state.invariantViolations()).toEqual([])
+    expect(state.cancellation()).toBeNull()
+    expect(state.terminalReason()).toBeUndefined()
     expect(state.attempts()).toEqual([
       { id: "new-attempt-1", ordinal: 1, status: "failed", streamId: "attempt-new" },
       { id: "new-attempt-2", ordinal: 2, status: "succeeded", streamId: "attempt-new-2" },
     ])
     expect(state.streamId()).toBe("attempt-new-2")
     expect(state.eventTotal()).toBe(2)
+    expect(state.persistedEventTotal()).toBe(4)
     expect(state.eventCounts()).toEqual([
       { count: 1, eventType: "RUN_FINISHED" },
+      { count: 1, eventType: "TEXT_MESSAGE_CONTENT" },
+    ])
+    expect(state.persistedEventCounts()).toEqual([
+      { count: 1, eventType: "old" },
+      { count: 1, eventType: "RUN_FINISHED" },
+      { count: 1, eventType: "RUN_STARTED" },
       { count: 1, eventType: "TEXT_MESSAGE_CONTENT" },
     ])
 
@@ -106,7 +118,100 @@ test("simulation inspector keeps the empty backend state after an HTTP loader er
     expect(state.attempts()).toEqual([])
     expect(state.eventCounts()).toEqual([])
     expect(state.eventTotal()).toBe(0)
+    expect(state.authoritativeAttemptOrdinal()).toBeUndefined()
+    expect(state.authoritativeStreamId()).toBeUndefined()
+    expect(state.invariantViolations()).toEqual([])
+    expect(state.cancellation()).toBeNull()
+    expect(state.terminalReason()).toBeUndefined()
+    expect(state.persistedEventCounts()).toEqual([])
+    expect(state.persistedEventTotal()).toBe(0)
     expect(state.streamId()).toBeUndefined()
+
+    dispose()
+  })
+})
+
+test("simulation inspector consumes the persisted session run snapshot contract", async () => {
+  await createRoot(async (dispose) => {
+    const state = simulateInspectorStateCreate({
+      chat: () => chat,
+      load: async () =>
+        createResult({
+          events: [
+            {
+              attemptOrdinal: 1,
+              eventType: "delta",
+              payload: { delta: "hello", deltaKind: "text", messageId: null, runId: "run-1", sessionId: "session-1" },
+              sequence: 1,
+              streamId: "stream-1",
+            },
+            {
+              attemptOrdinal: 1,
+              eventType: "run-completed",
+              payload: { messageId: null, runId: "run-1", sessionId: "session-1", sessionRevision: 2 },
+              sequence: 2,
+              streamId: "stream-1",
+            },
+          ],
+          runs: [
+            {
+              attempts: [{ id: "attempt-1", ordinal: 1, status: "succeeded", streamId: "stream-1" }],
+              cancellationKind: null,
+              createdAt: 1,
+              id: "run-1",
+              status: "succeeded",
+              streamId: "stream-1",
+            },
+          ],
+        }),
+      sessionId: () => "session-1",
+    })
+
+    await tick()
+
+    expect(state.run()).toMatchObject({ id: "run-1", status: "succeeded" })
+    expect(state.attempts()).toEqual([{ id: "attempt-1", ordinal: 1, status: "succeeded", streamId: "stream-1" }])
+    expect(state.eventTotal()).toBe(2)
+    expect(state.persistedEventTotal()).toBe(2)
+    expect(state.persistedEventCounts()).toEqual([
+      { count: 1, eventType: "delta" },
+      { count: 1, eventType: "run-completed" },
+    ])
+    expect(state.invariantViolations()).toEqual([])
+
+    dispose()
+  })
+})
+
+test("simulation inspector exposes durable terminal failure metadata in UI state", async () => {
+  await createRoot(async (dispose) => {
+    const state = simulateInspectorStateCreate({
+      chat: () => chat,
+      load: async () =>
+        createResult({
+          events: [],
+          runs: [
+            {
+              attempts: [{ id: "attempt-1", ordinal: 1, status: "failed", streamId: "stream-1" }],
+              cancellationKind: null,
+              createdAt: 1,
+              failure: { code: "provider_timeout", message: "The provider timed out." },
+              id: "run-1",
+              status: "failed",
+              streamId: "stream-1",
+            },
+          ],
+        }),
+      sessionId: () => "session-1",
+    })
+
+    await tick()
+
+    expect(state.failure()).toEqual({ code: "provider_timeout", message: "The provider timed out." })
+    expect(state.run()).toMatchObject({
+      failure: { code: "provider_timeout", message: "The provider timed out." },
+      status: "failed",
+    })
 
     dispose()
   })

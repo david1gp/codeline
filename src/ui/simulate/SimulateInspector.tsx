@@ -44,6 +44,16 @@ export function SimulateInspector(props: { state: SimulateInspectorState }) {
             <dd class="m-0">{props.state.run()?.status ?? (props.state.isLoading() ? "loading" : "none")}</dd>
             <dt class="text-accent">cancellation</dt>
             <dd class="m-0">{props.state.run()?.cancellationKind ?? "none"}</dd>
+            <dt class="text-accent">failure</dt>
+            <dd class="m-0">
+              <Show when={props.state.failure()} fallback="none">
+                {(failure) => (
+                  <>
+                    {failure().code} · {failure().message}
+                  </>
+                )}
+              </Show>
+            </dd>
             <dt class="text-accent">stream</dt>
             <dd class="m-0 truncate">{props.state.streamId() ?? "none"}</dd>
             <dt class="text-accent">attempts</dt>
