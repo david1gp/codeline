@@ -1,16 +1,17 @@
 import { createResult, createResultError, createResultErrorCode, type Result } from "@adaptive-ds/result"
 import { and, eq } from "drizzle-orm"
 import * as v from "valibot"
-import { mutationIdempotencyTable } from "../../api/db/mutationIdempotencyTable.js"
 import { agentTable } from "../../agents/db/agentTable.js"
+import { mutationIdempotencyTable } from "../../api/db/mutationIdempotencyTable.js"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { serverTable } from "../../servers/db/serverTable.js"
 import { uuidv7 } from "../../uuid/uuidv7.js"
+import { sessionExecutionSelectionCanonicalize } from "../actions/sessionExecutionSelectionCanonicalize.js"
+import { sessionCreateMutationResponseCreate } from "../api/sessionCreateMutationResponseCreate.js"
 import {
   type SessionCreateMutationResponse,
   sessionCreateMutationResponseSchema,
 } from "../api/sessionCreateMutationResponseSchema.js"
-import { sessionCreateMutationResponseCreate } from "../api/sessionCreateMutationResponseCreate.js"
 import { sessionTable } from "./sessionTable.js"
 
 const sessionCreateOperation = "session.create"
@@ -28,6 +29,7 @@ export async function sessionRepositoryCreate(
   organizationId: string,
   input: {
     clientRequestId: string
+    executionSelection?: unknown
     id?: string
     idempotencyKey?: string
     metadata: Record<string, string>
@@ -40,6 +42,8 @@ export async function sessionRepositoryCreate(
   },
 ): Promise<Result<SessionCreateMutationResult>> {
   const op = "sessionRepositoryCreate"
+  const executionSelection = sessionExecutionSelectionCanonicalize(input.executionSelection, input.primaryAgentId)
+  if (!executionSelection.success) return executionSelection
 
   try {
     if (input.idempotencyKey !== undefined && input.requestHash === undefined)
@@ -86,6 +90,7 @@ export async function sessionRepositoryCreate(
       .insert(sessionTable)
       .values({
         clientRequestId: input.clientRequestId,
+        executionSelection: executionSelection.data,
         id: input.id ?? uuidv7(),
         metadata: input.metadata,
         primaryAgentId: input.primaryAgentId,

@@ -1,0 +1,2100 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "65623981-1998-423e-a686-58c4b0dae36e",
+  "prevId": "6d0ac7fc-f28d-4f08-a369-da01e8d58fd7",
+  "tables": {
+    "mutation_idempotency": {
+      "name": "mutation_idempotency",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "operation": {
+          "name": "operation",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "resource_id": {
+          "name": "resource_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "idempotency_key": {
+          "name": "idempotency_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "request_hash": {
+          "name": "request_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "response_body": {
+          "name": "response_body",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast((julianday('now') - 2440587.5)*86400000 as integer))"
+        }
+      },
+      "indexes": {
+        "mutation_idempotency_user_resource_idx": {
+          "name": "mutation_idempotency_user_resource_idx",
+          "columns": ["user_id", "resource_id"],
+          "isUnique": false
+        },
+        "mutation_idempotency_user_operation_key_unique": {
+          "name": "mutation_idempotency_user_operation_key_unique",
+          "columns": ["user_id", "operation", "idempotency_key"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "mutation_idempotency_user_id_identity_user_id_fk": {
+          "name": "mutation_idempotency_user_id_identity_user_id_fk",
+          "tableFrom": "mutation_idempotency",
+          "tableTo": "identity_user",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "identity_user": {
+      "name": "identity_user",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "display_name": {
+          "name": "display_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast((julianday('now') - 2440587.5)*86400000 as integer))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast((julianday('now') - 2440587.5)*86400000 as integer))"
+        }
+      },
+      "indexes": {
+        "user_display_name_idx": {
+          "name": "user_display_name_idx",
+          "columns": ["display_name"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "identity_external_identity": {
+      "name": "identity_external_identity",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "issuer": {
+          "name": "issuer",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "subject": {
+          "name": "subject",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast((julianday('now') - 2440587.5)*86400000 as integer))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast((julianday('now') - 2440587.5)*86400000 as integer))"
+        }
+      },
+      "indexes": {
+        "external_identity_user_idx": {
+          "name": "external_identity_user_idx",
+          "columns": ["user_id"],
+          "isUnique": false
+        },
+        "external_identity_issuer_subject_unique": {
+          "name": "external_identity_issuer_subject_unique",
+          "columns": ["issuer", "subject"],
+          "isUnique": true
+        },
+        "external_identity_user_issuer_unique": {
+          "name": "external_identity_user_issuer_unique",
+          "columns": ["user_id", "issuer"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "identity_external_identity_user_id_identity_user_id_fk": {
+          "name": "identity_external_identity_user_id_identity_user_id_fk",
+          "tableFrom": "identity_external_identity",
+          "tableTo": "identity_user",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "identity_session": {
+      "name": "identity_session",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "token_hash": {
+          "name": "token_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast((julianday('now') - 2440587.5)*86400000 as integer))"
+        },
+        "last_used_at": {
+          "name": "last_used_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "revoked_at": {
+          "name": "revoked_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "identity_session_user_expires_idx": {
+          "name": "identity_session_user_expires_idx",
+          "columns": ["user_id", "expires_at"],
+          "isUnique": false
+        },
+        "identity_session_token_hash_unique": {
+          "name": "identity_session_token_hash_unique",
+          "columns": ["token_hash"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "identity_session_user_id_identity_user_id_fk": {
+          "name": "identity_session_user_id_identity_user_id_fk",
+          "tableFrom": "identity_session",
+          "tableTo": "identity_user",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "identity_oidc_login_transaction": {
+      "name": "identity_oidc_login_transaction",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "issuer": {
+          "name": "issuer",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "state_hash": {
+          "name": "state_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "browser_binding_hash": {
+          "name": "browser_binding_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "nonce_hash": {
+          "name": "nonce_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "code_verifier": {
+          "name": "code_verifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "redirect_uri": {
+          "name": "redirect_uri",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "return_to": {
+          "name": "return_to",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'/'"
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "consumed_at": {
+          "name": "consumed_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast((julianday('now') - 2440587.5)*86400000 as integer))"
+        }
+      },
+      "indexes": {
+        "oidc_login_transaction_expires_idx": {
+          "name": "oidc_login_transaction_expires_idx",
+          "columns": ["expires_at"],
+          "isUnique": false
+        },
+        "oidc_login_transaction_state_hash_unique": {
+          "name": "oidc_login_transaction_state_hash_unique",
+          "columns": ["state_hash"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "identity_organization_member": {
+      "name": "identity_organization_member",
+      "columns": {
+        "organization_id": {
+          "name": "organization_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "issuer": {
+          "name": "issuer",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "subject": {
+          "name": "subject",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast((julianday('now') - 2440587.5)*86400000 as integer))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast((julianday('now') - 2440587.5)*86400000 as integer))"
+        }
+      },
+      "indexes": {
+        "organization_member_user_idx": {
+          "name": "organization_member_user_idx",
+          "columns": ["user_id"],
+          "isUnique": false
+        },
+        "organization_member_identity_unique": {
+          "name": "organization_member_identity_unique",
+          "columns": ["organization_id", "issuer", "subject"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "identity_organization_member_organization_id_identity_organization_id_fk": {
+          "name": "identity_organization_member_organization_id_identity_organization_id_fk",
+          "tableFrom": "identity_organization_member",
+          "tableTo": "identity_organization",
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "identity_organization_member_user_id_identity_user_id_fk": {
+          "name": "identity_organization_member_user_id_identity_user_id_fk",
+          "tableFrom": "identity_organization_member",
+          "tableTo": "identity_user",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "organization_member_pkey": {
+          "columns": ["organization_id", "user_id"],
+          "name": "organization_member_pkey"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "identity_organization": {
+      "name": "identity_organization",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "external_id": {
+          "name": "external_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast((julianday('now') - 2440587.5)*86400000 as integer))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast((julianday('now') - 2440587.5)*86400000 as integer))"
+        }
+      },
+      "indexes": {
+        "organization_external_id_unique": {
+          "name": "organization_external_id_unique",
+          "columns": ["external_id"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "server": {
+      "name": "server",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "endpoint": {
+          "name": "endpoint",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'{}'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast((julianday('now') - 2440587.5)*86400000 as integer))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast((julianday('now') - 2440587.5)*86400000 as integer))"
+        }
+      },
+      "indexes": {
+        "server_organization_idx": {
+          "name": "server_organization_idx",
+          "columns": ["organization_id"],
+          "isUnique": false
+        },
+        "server_name_idx": {
+          "name": "server_name_idx",
+          "columns": ["name"],
+          "isUnique": false
+        },
+        "server_metadata_gin_idx": {
+          "name": "server_metadata_gin_idx",
+          "columns": ["metadata"],
+          "isUnique": false
+        },
+        "server_organization_name_unique": {
+          "name": "server_organization_name_unique",
+          "columns": ["organization_id", "name"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "server_organization_id_identity_organization_id_fk": {
+          "name": "server_organization_id_identity_organization_id_fk",
+          "tableFrom": "server",
+          "tableTo": "identity_organization",
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "agent": {
+      "name": "agent",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "server_id": {
+          "name": "server_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "parent_agent_id": {
+          "name": "parent_agent_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "configuration": {
+          "name": "configuration",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'{}'"
+        },
+        "sort_order": {
+          "name": "sort_order",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast((julianday('now') - 2440587.5)*86400000 as integer))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast((julianday('now') - 2440587.5)*86400000 as integer))"
+        }
+      },
+      "indexes": {
+        "agent_server_idx": {
+          "name": "agent_server_idx",
+          "columns": ["server_id"],
+          "isUnique": false
+        },
+        "agent_parent_idx": {
+          "name": "agent_parent_idx",
+          "columns": ["parent_agent_id"],
+          "isUnique": false
+        },
+        "agent_server_name_unique": {
+          "name": "agent_server_name_unique",
+          "columns": ["server_id", "name"],
+          "isUnique": true
+        },
+        "agent_server_id_unique": {
+          "name": "agent_server_id_unique",
+          "columns": ["server_id", "id"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "agent_server_id_server_id_fk": {
+          "name": "agent_server_id_server_id_fk",
+          "tableFrom": "agent",
+          "tableTo": "server",
+          "columnsFrom": ["server_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "agent_parent_agent_id_agent_id_fk": {
+          "name": "agent_parent_agent_id_agent_id_fk",
+          "tableFrom": "agent",
+          "tableTo": "agent",
+          "columnsFrom": ["parent_agent_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "agent_sort_order_nonnegative": {
+          "name": "agent_sort_order_nonnegative",
+          "value": "\"agent\".\"sort_order\" >= 0"
+        }
+      }
+    },
+    "session_execution_selection_default": {
+      "name": "session_execution_selection_default",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_path": {
+          "name": "project_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "execution_selection": {
+          "name": "execution_selection",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast((julianday('now') - 2440587.5)*86400000 as integer))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast((julianday('now') - 2440587.5)*86400000 as integer))"
+        }
+      },
+      "indexes": {
+        "session_execution_selection_default_user_project_idx": {
+          "name": "session_execution_selection_default_user_project_idx",
+          "columns": ["user_id", "project_path"],
+          "isUnique": false
+        },
+        "session_execution_selection_default_user_project_unique": {
+          "name": "session_execution_selection_default_user_project_unique",
+          "columns": ["user_id", "project_path"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "session_execution_selection_default_user_id_identity_user_id_fk": {
+          "name": "session_execution_selection_default_user_id_identity_user_id_fk",
+          "tableFrom": "session_execution_selection_default",
+          "tableTo": "identity_user",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "session": {
+      "name": "session",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "server_id": {
+          "name": "server_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "primary_agent_id": {
+          "name": "primary_agent_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_path": {
+          "name": "project_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'~'"
+        },
+        "parent_session_id": {
+          "name": "parent_session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "client_request_id": {
+          "name": "client_request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "execution_selection": {
+          "name": "execution_selection",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'{}'"
+        },
+        "pinned": {
+          "name": "pinned",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": true
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "archived_at": {
+          "name": "archived_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast((julianday('now') - 2440587.5)*86400000 as integer))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast((julianday('now') - 2440587.5)*86400000 as integer))"
+        }
+      },
+      "indexes": {
+        "session_user_updated_idx": {
+          "name": "session_user_updated_idx",
+          "columns": ["user_id", "updated_at"],
+          "isUnique": false
+        },
+        "session_user_archived_idx": {
+          "name": "session_user_archived_idx",
+          "columns": ["user_id", "archived_at"],
+          "isUnique": false
+        },
+        "session_server_idx": {
+          "name": "session_server_idx",
+          "columns": ["server_id"],
+          "isUnique": false
+        },
+        "session_parent_idx": {
+          "name": "session_parent_idx",
+          "columns": ["parent_session_id"],
+          "isUnique": false
+        },
+        "session_user_client_request_unique": {
+          "name": "session_user_client_request_unique",
+          "columns": ["user_id", "client_request_id"],
+          "isUnique": true
+        },
+        "session_user_id_unique": {
+          "name": "session_user_id_unique",
+          "columns": ["user_id", "id"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "session_user_id_identity_user_id_fk": {
+          "name": "session_user_id_identity_user_id_fk",
+          "tableFrom": "session",
+          "tableTo": "identity_user",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "session_server_id_server_id_fk": {
+          "name": "session_server_id_server_id_fk",
+          "tableFrom": "session",
+          "tableTo": "server",
+          "columnsFrom": ["server_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "session_primary_agent_id_agent_id_fk": {
+          "name": "session_primary_agent_id_agent_id_fk",
+          "tableFrom": "session",
+          "tableTo": "agent",
+          "columnsFrom": ["primary_agent_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "session_parent_session_id_session_id_fk": {
+          "name": "session_parent_session_id_session_id_fk",
+          "tableFrom": "session",
+          "tableTo": "session",
+          "columnsFrom": ["parent_session_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "session_server_primary_agent_consistency_fk": {
+          "name": "session_server_primary_agent_consistency_fk",
+          "tableFrom": "session",
+          "tableTo": "agent",
+          "columnsFrom": ["server_id", "primary_agent_id"],
+          "columnsTo": ["server_id", "id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "message": {
+      "name": "message",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "agent_id": {
+          "name": "agent_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sequence": {
+          "name": "sequence",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "content": {
+          "name": "content",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "client_request_id": {
+          "name": "client_request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'{}'"
+        },
+        "finalized_at": {
+          "name": "finalized_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast((julianday('now') - 2440587.5)*86400000 as integer))"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast((julianday('now') - 2440587.5)*86400000 as integer))"
+        }
+      },
+      "indexes": {
+        "message_session_sequence_idx": {
+          "name": "message_session_sequence_idx",
+          "columns": ["session_id", "sequence"],
+          "isUnique": false
+        },
+        "message_role_idx": {
+          "name": "message_role_idx",
+          "columns": ["role"],
+          "isUnique": false
+        },
+        "message_session_sequence_unique": {
+          "name": "message_session_sequence_unique",
+          "columns": ["session_id", "sequence"],
+          "isUnique": true
+        },
+        "message_session_client_request_unique": {
+          "name": "message_session_client_request_unique",
+          "columns": ["session_id", "client_request_id"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "message_session_id_session_id_fk": {
+          "name": "message_session_id_session_id_fk",
+          "tableFrom": "message",
+          "tableTo": "session",
+          "columnsFrom": ["session_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "message_agent_id_agent_id_fk": {
+          "name": "message_agent_id_agent_id_fk",
+          "tableFrom": "message",
+          "tableTo": "agent",
+          "columnsFrom": ["agent_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "message_sequence_positive": {
+          "name": "message_sequence_positive",
+          "value": "\"message\".\"sequence\" > 0"
+        },
+        "message_role_allowed": {
+          "name": "message_role_allowed",
+          "value": "\"message\".\"role\" in ('user', 'assistant')"
+        }
+      }
+    },
+    "note": {
+      "name": "note",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "content": {
+          "name": "content",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_path": {
+          "name": "project_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "sort_order": {
+          "name": "sort_order",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast((julianday('now') - 2440587.5)*86400000 as integer))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast((julianday('now') - 2440587.5)*86400000 as integer))"
+        }
+      },
+      "indexes": {
+        "note_user_updated_idx": {
+          "name": "note_user_updated_idx",
+          "columns": ["user_id", "updated_at", "id"],
+          "isUnique": false
+        },
+        "note_user_project_idx": {
+          "name": "note_user_project_idx",
+          "columns": ["user_id", "project_path"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "note_user_id_identity_user_id_fk": {
+          "name": "note_user_id_identity_user_id_fk",
+          "tableFrom": "note",
+          "tableTo": "identity_user",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "attempt": {
+      "name": "attempt",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ordinal": {
+          "name": "ordinal",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "stream_id": {
+          "name": "stream_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'accepted'"
+        },
+        "snapshot": {
+          "name": "snapshot",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "budget": {
+          "name": "budget",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "failure": {
+          "name": "failure",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "finished_at": {
+          "name": "finished_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast((julianday('now') - 2440587.5)*86400000 as integer))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast((julianday('now') - 2440587.5)*86400000 as integer))"
+        }
+      },
+      "indexes": {
+        "attempt_session_updated_idx": {
+          "name": "attempt_session_updated_idx",
+          "columns": ["session_id", "updated_at", "id"],
+          "isUnique": false
+        },
+        "attempt_run_idx": {
+          "name": "attempt_run_idx",
+          "columns": ["run_id", "ordinal"],
+          "isUnique": false
+        },
+        "attempt_stream_idx": {
+          "name": "attempt_stream_idx",
+          "columns": ["stream_id"],
+          "isUnique": false
+        },
+        "attempt_run_ordinal_unique": {
+          "name": "attempt_run_ordinal_unique",
+          "columns": ["run_id", "ordinal"],
+          "isUnique": true
+        },
+        "attempt_stream_id_unique": {
+          "name": "attempt_stream_id_unique",
+          "columns": ["stream_id"],
+          "isUnique": true
+        },
+        "attempt_user_session_run_id_unique": {
+          "name": "attempt_user_session_run_id_unique",
+          "columns": ["user_id", "session_id", "run_id", "id"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "attempt_user_id_identity_user_id_fk": {
+          "name": "attempt_user_id_identity_user_id_fk",
+          "tableFrom": "attempt",
+          "tableTo": "identity_user",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "attempt_run_ownership_consistency_fk": {
+          "name": "attempt_run_ownership_consistency_fk",
+          "tableFrom": "attempt",
+          "tableTo": "run",
+          "columnsFrom": ["user_id", "session_id", "run_id"],
+          "columnsTo": ["user_id", "session_id", "id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "attempt_status_allowed": {
+          "name": "attempt_status_allowed",
+          "value": "\"attempt\".\"status\" IN ('accepted', 'running', 'succeeded', 'failed', 'aborted')"
+        },
+        "attempt_ordinal_positive": {
+          "name": "attempt_ordinal_positive",
+          "value": "\"attempt\".\"ordinal\" > 0"
+        },
+        "attempt_stream_id_bounded": {
+          "name": "attempt_stream_id_bounded",
+          "value": "length(\"attempt\".\"stream_id\") BETWEEN 1 AND 200"
+        }
+      }
+    },
+    "run_delegation": {
+      "name": "run_delegation",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "child_run_id": {
+          "name": "child_run_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "root_run_id": {
+          "name": "root_run_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "parent_run_id": {
+          "name": "parent_run_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "parent_attempt_id": {
+          "name": "parent_attempt_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "delegation_key": {
+          "name": "delegation_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "root_ordinal": {
+          "name": "root_ordinal",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "depth": {
+          "name": "depth",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "task": {
+          "name": "task",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "finalized_result": {
+          "name": "finalized_result",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast((julianday('now') - 2440587.5)*86400000 as integer))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast((julianday('now') - 2440587.5)*86400000 as integer))"
+        }
+      },
+      "indexes": {
+        "run_delegation_user_updated_idx": {
+          "name": "run_delegation_user_updated_idx",
+          "columns": ["user_id", "updated_at", "id"],
+          "isUnique": false
+        },
+        "run_delegation_session_updated_idx": {
+          "name": "run_delegation_session_updated_idx",
+          "columns": ["session_id", "updated_at", "id"],
+          "isUnique": false
+        },
+        "run_delegation_root_idx": {
+          "name": "run_delegation_root_idx",
+          "columns": ["root_run_id", "root_ordinal"],
+          "isUnique": false
+        },
+        "run_delegation_parent_idx": {
+          "name": "run_delegation_parent_idx",
+          "columns": ["parent_run_id", "parent_attempt_id"],
+          "isUnique": false
+        },
+        "run_delegation_child_run_unique": {
+          "name": "run_delegation_child_run_unique",
+          "columns": ["child_run_id"],
+          "isUnique": true
+        },
+        "run_delegation_parent_key_unique": {
+          "name": "run_delegation_parent_key_unique",
+          "columns": ["parent_run_id", "parent_attempt_id", "delegation_key"],
+          "isUnique": true
+        },
+        "run_delegation_root_ordinal_unique": {
+          "name": "run_delegation_root_ordinal_unique",
+          "columns": ["root_run_id", "root_ordinal"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "run_delegation_user_id_identity_user_id_fk": {
+          "name": "run_delegation_user_id_identity_user_id_fk",
+          "tableFrom": "run_delegation",
+          "tableTo": "identity_user",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "run_delegation_child_ownership_consistency_fk": {
+          "name": "run_delegation_child_ownership_consistency_fk",
+          "tableFrom": "run_delegation",
+          "tableTo": "run",
+          "columnsFrom": ["user_id", "session_id", "child_run_id"],
+          "columnsTo": ["user_id", "session_id", "id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "run_delegation_root_ownership_consistency_fk": {
+          "name": "run_delegation_root_ownership_consistency_fk",
+          "tableFrom": "run_delegation",
+          "tableTo": "run",
+          "columnsFrom": ["user_id", "session_id", "root_run_id"],
+          "columnsTo": ["user_id", "session_id", "id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "run_delegation_parent_ownership_consistency_fk": {
+          "name": "run_delegation_parent_ownership_consistency_fk",
+          "tableFrom": "run_delegation",
+          "tableTo": "run",
+          "columnsFrom": ["user_id", "session_id", "parent_run_id"],
+          "columnsTo": ["user_id", "session_id", "id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "run_delegation_parent_attempt_consistency_fk": {
+          "name": "run_delegation_parent_attempt_consistency_fk",
+          "tableFrom": "run_delegation",
+          "tableTo": "attempt",
+          "columnsFrom": ["user_id", "session_id", "parent_run_id", "parent_attempt_id"],
+          "columnsTo": ["user_id", "session_id", "run_id", "id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "run_delegation_key_bounded": {
+          "name": "run_delegation_key_bounded",
+          "value": "length(\"run_delegation\".\"delegation_key\") BETWEEN 1 AND 200"
+        },
+        "run_delegation_root_ordinal_positive": {
+          "name": "run_delegation_root_ordinal_positive",
+          "value": "\"run_delegation\".\"root_ordinal\" > 0"
+        },
+        "run_delegation_depth_bounded": {
+          "name": "run_delegation_depth_bounded",
+          "value": "\"run_delegation\".\"depth\" BETWEEN 1 AND 3"
+        },
+        "run_delegation_task_bounded": {
+          "name": "run_delegation_task_bounded",
+          "value": "length(\"run_delegation\".\"task\") BETWEEN 1 AND 100000"
+        }
+      }
+    },
+    "run": {
+      "name": "run",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "client_run_id": {
+          "name": "client_run_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "stream_id": {
+          "name": "stream_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'accepted'"
+        },
+        "snapshot": {
+          "name": "snapshot",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "budget": {
+          "name": "budget",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "deadline_at": {
+          "name": "deadline_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "failure": {
+          "name": "failure",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "cancellation_requested_at": {
+          "name": "cancellation_requested_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "cancellation_kind": {
+          "name": "cancellation_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "cancellation_source_run_id": {
+          "name": "cancellation_source_run_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "finished_at": {
+          "name": "finished_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast((julianday('now') - 2440587.5)*86400000 as integer))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast((julianday('now') - 2440587.5)*86400000 as integer))"
+        }
+      },
+      "indexes": {
+        "run_user_updated_idx": {
+          "name": "run_user_updated_idx",
+          "columns": ["user_id", "updated_at", "id"],
+          "isUnique": false
+        },
+        "run_session_updated_idx": {
+          "name": "run_session_updated_idx",
+          "columns": ["session_id", "updated_at", "id"],
+          "isUnique": false
+        },
+        "run_stream_idx": {
+          "name": "run_stream_idx",
+          "columns": ["stream_id"],
+          "isUnique": false
+        },
+        "run_session_client_run_unique": {
+          "name": "run_session_client_run_unique",
+          "columns": ["session_id", "client_run_id"],
+          "isUnique": true
+        },
+        "run_stream_id_unique": {
+          "name": "run_stream_id_unique",
+          "columns": ["stream_id"],
+          "isUnique": true
+        },
+        "run_user_session_id_unique": {
+          "name": "run_user_session_id_unique",
+          "columns": ["user_id", "session_id", "id"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "run_user_id_identity_user_id_fk": {
+          "name": "run_user_id_identity_user_id_fk",
+          "tableFrom": "run",
+          "tableTo": "identity_user",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "run_user_session_consistency_fk": {
+          "name": "run_user_session_consistency_fk",
+          "tableFrom": "run",
+          "tableTo": "session",
+          "columnsFrom": ["user_id", "session_id"],
+          "columnsTo": ["user_id", "id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "run_cancellation_source_ownership_fk": {
+          "name": "run_cancellation_source_ownership_fk",
+          "tableFrom": "run",
+          "tableTo": "run",
+          "columnsFrom": ["user_id", "session_id", "cancellation_source_run_id"],
+          "columnsTo": ["user_id", "session_id", "id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "run_status_allowed": {
+          "name": "run_status_allowed",
+          "value": "\"run\".\"status\" IN ('accepted', 'running', 'succeeded', 'failed', 'aborted')"
+        },
+        "run_cancellation_fields_allowed": {
+          "name": "run_cancellation_fields_allowed",
+          "value": "(\n        (\"run\".\"cancellation_kind\" IS NULL AND \"run\".\"cancellation_requested_at\" IS NULL AND \"run\".\"cancellation_source_run_id\" IS NULL)\n        OR (\"run\".\"cancellation_kind\" = 'requested' AND \"run\".\"cancellation_requested_at\" IS NOT NULL AND \"run\".\"cancellation_source_run_id\" IS NULL)\n        OR (\"run\".\"cancellation_kind\" = 'ancestor' AND \"run\".\"cancellation_requested_at\" IS NOT NULL AND \"run\".\"cancellation_source_run_id\" IS NOT NULL)\n      )"
+        },
+        "run_client_run_id_bounded": {
+          "name": "run_client_run_id_bounded",
+          "value": "length(\"run\".\"client_run_id\") BETWEEN 1 AND 200"
+        },
+        "run_stream_id_bounded": {
+          "name": "run_stream_id_bounded",
+          "value": "length(\"run\".\"stream_id\") BETWEEN 1 AND 200"
+        }
+      }
+    },
+    "journal_event": {
+      "name": "journal_event",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sequence": {
+          "name": "sequence",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "event_type": {
+          "name": "event_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "payload": {
+          "name": "payload",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast((julianday('now') - 2440587.5)*86400000 as integer))"
+        },
+        "serialized_bytes": {
+          "name": "serialized_bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "journal_event_user_sequence_idx": {
+          "name": "journal_event_user_sequence_idx",
+          "columns": ["user_id", "sequence"],
+          "isUnique": false
+        },
+        "journal_event_run_idx": {
+          "name": "journal_event_run_idx",
+          "columns": ["run_id"],
+          "isUnique": false
+        },
+        "journal_event_created_idx": {
+          "name": "journal_event_created_idx",
+          "columns": ["created_at"],
+          "isUnique": false
+        },
+        "journal_event_compact_retention_idx": {
+          "name": "journal_event_compact_retention_idx",
+          "columns": ["user_id", "created_at", "sequence", "id"],
+          "isUnique": false,
+          "where": "\"journal_event\".\"event_type\" in ('invalidate', 'run-completed', 'run-failed', 'run-cancelled', 'run-interrupted')"
+        },
+        "journal_event_user_sequence_unique": {
+          "name": "journal_event_user_sequence_unique",
+          "columns": ["user_id", "sequence"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "journal_event_user_id_identity_user_id_fk": {
+          "name": "journal_event_user_id_identity_user_id_fk",
+          "tableFrom": "journal_event",
+          "tableTo": "identity_user",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "journal_event_sequence_positive": {
+          "name": "journal_event_sequence_positive",
+          "value": "\"journal_event\".\"sequence\" > 0"
+        },
+        "journal_event_sequence_safe": {
+          "name": "journal_event_sequence_safe",
+          "value": "\"journal_event\".\"sequence\" <= 9007199254740991"
+        },
+        "journal_event_serialized_bytes_positive": {
+          "name": "journal_event_serialized_bytes_positive",
+          "value": "\"journal_event\".\"serialized_bytes\" > 0"
+        }
+      }
+    },
+    "journal_replay_boundary": {
+      "name": "journal_replay_boundary",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "pruned_through_sequence": {
+          "name": "pruned_through_sequence",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast((julianday('now') - 2440587.5)*86400000 as integer))"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "journal_replay_boundary_user_id_identity_user_id_fk": {
+          "name": "journal_replay_boundary_user_id_identity_user_id_fk",
+          "tableFrom": "journal_replay_boundary",
+          "tableTo": "identity_user",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "journal_replay_boundary_sequence_non_negative": {
+          "name": "journal_replay_boundary_sequence_non_negative",
+          "value": "\"journal_replay_boundary\".\"pruned_through_sequence\" >= 0"
+        },
+        "journal_replay_boundary_sequence_safe": {
+          "name": "journal_replay_boundary_sequence_safe",
+          "value": "\"journal_replay_boundary\".\"pruned_through_sequence\" <= 9007199254740991"
+        }
+      }
+    },
+    "journal_sequence_counter": {
+      "name": "journal_sequence_counter",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "next_sequence": {
+          "name": "next_sequence",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast((julianday('now') - 2440587.5)*86400000 as integer))"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "journal_sequence_counter_user_id_identity_user_id_fk": {
+          "name": "journal_sequence_counter_user_id_identity_user_id_fk",
+          "tableFrom": "journal_sequence_counter",
+          "tableTo": "identity_user",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "journal_sequence_counter_next_sequence_positive": {
+          "name": "journal_sequence_counter_next_sequence_positive",
+          "value": "\"journal_sequence_counter\".\"next_sequence\" > 0"
+        },
+        "journal_sequence_counter_next_sequence_safe": {
+          "name": "journal_sequence_counter_next_sequence_safe",
+          "value": "\"journal_sequence_counter\".\"next_sequence\" <= 9007199254740991"
+        }
+      }
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {}
+  }
+}

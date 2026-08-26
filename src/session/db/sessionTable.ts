@@ -2,6 +2,7 @@ import { type AnySQLiteColumn, foreignKey, index, integer, sqliteTable, text, un
 import { agentTable } from "../../agents/db/agentTable.js"
 import { applicationUserTable } from "../../identity/db/applicationUserTable.js"
 import { serverTable } from "../../servers/db/serverTable.js"
+import type { SessionExecutionSelection } from "../schema/sessionExecutionSelectionSchema.js"
 
 export const sessionTable = sqliteTable(
   "session",
@@ -22,6 +23,7 @@ export const sessionTable = sqliteTable(
     }),
     title: text("title").notNull(),
     clientRequestId: text("client_request_id").notNull(),
+    executionSelection: text("execution_selection", { mode: "json" }).$type<SessionExecutionSelection | null>(),
     metadata: text("metadata", { mode: "json" }).notNull().default({}),
     pinned: integer("pinned", { mode: "boolean" }).notNull().default(true),
     revision: integer("revision").notNull().default(1),

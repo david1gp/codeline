@@ -16,6 +16,7 @@ import { runDelegationTable } from "../run/db/runDelegationTable.js"
 import { runTable } from "../run/db/runTable.js"
 import { serverTable } from "../servers/db/serverTable.js"
 import { sessionTable } from "../session/db/sessionTable.js"
+import { sessionExecutionSelectionDefaultTable } from "../session/db/sessionExecutionSelectionDefaultTable.js"
 
 export const databaseSchema = {
   agentTable,
@@ -33,6 +34,7 @@ export const databaseSchema = {
   runTable,
   serverTable,
   sessionTable,
+  sessionExecutionSelectionDefaultTable,
   oidcLoginTransactionTable,
   organizationMemberTable,
   organizationTable,

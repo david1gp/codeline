@@ -22,6 +22,7 @@ const expectedTables = [
   "run_delegation",
   "server",
   "session",
+  "session_execution_selection_default",
 ] as const
 
 test("SQLite exposes all durable tables with flattened identity names", () => {
@@ -44,12 +45,19 @@ test("Drizzle keeps note ordering nullable for compatibility", () => {
 
 test("SQLite stores JSON, dates, booleans, and numeric sequences with native modes", () => {
   const sessionColumns = getTableConfig(databaseSchema.sessionTable).columns
+  const defaultColumns = getTableConfig(databaseSchema.sessionExecutionSelectionDefaultTable).columns
   const runColumns = getTableConfig(databaseSchema.runTable).columns
   const journalColumns = getTableConfig(databaseSchema.journalEventTable).columns
 
   expect(sessionColumns.find((column) => column.name === "metadata")?.dataType).toBe("json")
+  expect(sessionColumns.find((column) => column.name === "execution_selection")?.dataType).toBe("json")
+  expect(sessionColumns.find((column) => column.name === "execution_selection")?.notNull).toBe(false)
   expect(sessionColumns.find((column) => column.name === "pinned")?.dataType).toBe("boolean")
   expect(sessionColumns.find((column) => column.name === "created_at")?.dataType).toBe("date")
+  expect(defaultColumns.find((column) => column.name === "execution_selection")?.dataType).toBe("json")
+  expect(defaultColumns.find((column) => column.name === "revision")?.notNull).toBe(true)
+  expect(defaultColumns.find((column) => column.name === "created_at")?.dataType).toBe("date")
+  expect(defaultColumns.find((column) => column.name === "updated_at")?.dataType).toBe("date")
   expect(runColumns.find((column) => column.name === "snapshot")?.dataType).toBe("json")
   expect(runColumns.find((column) => column.name === "deadline_at")?.dataType).toBe("date")
   expect(journalColumns.find((column) => column.name === "sequence")?.dataType).toBe("number")
@@ -91,6 +99,10 @@ test("SQLite keeps run and attempt stream IDs and ownership unique", () => {
     "run_delegation_parent_key_unique",
     "run_delegation_root_ordinal_unique",
   ])
+  const defaultConfig = getTableConfig(databaseSchema.sessionExecutionSelectionDefaultTable)
+  expect(defaultConfig.uniqueConstraints.map((constraint) => constraint.name)).toContain(
+    "session_execution_selection_default_user_project_unique",
+  )
   expect(delegationConfig.checks.map((checkConstraint) => checkConstraint.name)).toEqual([
     "run_delegation_key_bounded",
     "run_delegation_root_ordinal_positive",

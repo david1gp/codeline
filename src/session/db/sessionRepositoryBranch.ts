@@ -6,11 +6,11 @@ import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { messageCopyFinalizedPrefix } from "../../message/actions/messageCopyFinalizedPrefix.js"
 import { serverTable } from "../../servers/db/serverTable.js"
 import { uuidv7 } from "../../uuid/uuidv7.js"
+import { sessionCreateMutationResponseCreate } from "../api/sessionCreateMutationResponseCreate.js"
 import {
   type SessionCreateMutationResponse,
   sessionCreateMutationResponseSchema,
 } from "../api/sessionCreateMutationResponseSchema.js"
-import { sessionCreateMutationResponseCreate } from "../api/sessionCreateMutationResponseCreate.js"
 import { sessionTable } from "./sessionTable.js"
 
 const sessionBranchOperation = "session.branch"
@@ -79,6 +79,7 @@ export async function sessionRepositoryBranch(
       .insert(sessionTable)
       .values({
         clientRequestId: input.clientRequestId,
+        executionSelection: source.session.executionSelection,
         id: input.id ?? uuidv7(),
         metadata: source.session.metadata,
         parentSessionId: source.session.id,

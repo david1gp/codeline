@@ -14,6 +14,7 @@ import { sessionDelete } from "../src/session/actions/sessionDelete.js"
 import { sessionLoad } from "../src/session/actions/sessionLoad.js"
 import { sessionPin } from "../src/session/actions/sessionPin.js"
 import { sessionRename } from "../src/session/actions/sessionRename.js"
+import { sessionTable } from "../src/session/db/sessionTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
 import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
 
@@ -159,4 +160,67 @@ test.skipIf(!databaseAvailable)("session creation binds retries to the original 
   })
   expect(replayed).toMatchObject({ success: true, data: { created: false, replayed: true } })
   if (replayed.success) await sessionDelete(database, userId, replayed.data.session.id)
+})
+
+test.skipIf(!databaseAvailable)("session creation persists a canonical execution selection", async () => {
+  if (userId === undefined) return
+  const input = {
+    clientRequestId: `session-test-selection-${uuidv7()}`,
+    executionSelection: {
+      tools: {
+        primary: { agentId: fixture.agentId, tools: { bash: true } },
+        selectableSubagents: [{ agentId: "session-test-reviewer", tools: { webfetch: true } }],
+      },
+      version: 1 as const,
+    },
+    metadata: {},
+    primaryAgentId: fixture.agentId,
+    serverId: fixture.serverId,
+    title: "Execution selection session",
+  }
+  const requestHash = apiIdempotencyRequestHashCreate(input)
+  const created = await sessionCreate(database, userId, input, {
+    idempotencyKey: input.clientRequestId,
+    organizationId: userId,
+    requestHash,
+  })
+  expect(created).toMatchObject({
+    success: true,
+    data: {
+      created: true,
+      session: {
+        executionSelection: {
+          tools: {
+            primary: { agentId: fixture.agentId, tools: { bash: true, webfetch: false } },
+            selectableSubagents: [{ agentId: "session-test-reviewer", tools: { bash: false, webfetch: true } }],
+          },
+          version: 1,
+        },
+      },
+    },
+  })
+  if (!created.success) return
+
+  const [persisted] = await database.select().from(sessionTable).where(eq(sessionTable.id, created.data.session.id))
+  expect(persisted?.executionSelection).toEqual(created.data.session.executionSelection)
+
+  const changedSelection = {
+    ...input,
+    executionSelection: {
+      ...input.executionSelection,
+      tools: {
+        ...input.executionSelection.tools,
+        primary: { ...input.executionSelection.tools.primary, tools: { bash: false, webfetch: true } },
+      },
+    },
+  }
+  expect(
+    await sessionCreate(database, userId, changedSelection, {
+      idempotencyKey: input.clientRequestId,
+      organizationId: userId,
+      requestHash: apiIdempotencyRequestHashCreate(changedSelection),
+    }),
+  ).toMatchObject({ code: "idempotency_conflict", success: false })
+
+  await sessionDelete(database, userId, created.data.session.id)
 })

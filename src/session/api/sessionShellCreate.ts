@@ -1,10 +1,12 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
-import { sessionShellSchema, type SessionShell } from "./sessionShellSchema.js"
+import type { SessionExecutionSelection } from "../schema/sessionExecutionSelectionSchema.js"
+import { type SessionShell, sessionShellSchema } from "./sessionShellSchema.js"
 
 type SessionShellSource = {
   archivedAt: Date | string | null
   createdAt: Date | string
+  executionSelection?: SessionExecutionSelection | null
   id: string
   metadata: unknown
   parentSessionId: string | null
@@ -28,6 +30,7 @@ export function sessionShellCreate(session: SessionShellSource): Result<SessionS
   const parsed = v.safeParse(sessionShellSchema, {
     archivedAt: archivedAt ?? null,
     createdAt,
+    executionSelection: session.executionSelection ?? null,
     id: session.id,
     metadata: session.metadata,
     parentSessionId: session.parentSessionId,

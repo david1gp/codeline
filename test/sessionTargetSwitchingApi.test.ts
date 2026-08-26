@@ -6,8 +6,8 @@ import { agentListResponseSchema } from "../src/agents/api/agentListResponseSche
 import { agentTable } from "../src/agents/db/agentTable.js"
 import { appCreate } from "../src/app/appCreate.js"
 import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
-import { databaseUrl } from "../src/database/databaseUrl.js"
 import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
+import { databaseUrl } from "../src/database/databaseUrl.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
 import { organizationMemberTable } from "../src/identity/db/organizationMemberTable.js"
@@ -17,6 +17,7 @@ import { serverListResponseSchema } from "../src/servers/api/serverListResponseS
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionTargetCreateResponseSchema } from "../src/session/api/sessionTargetCreateResponseSchema.js"
 import { sessionTargetLoadResponseSchema } from "../src/session/api/sessionTargetLoadResponseSchema.js"
+import { sessionTable } from "../src/session/db/sessionTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
 import { appSseTestDependenciesCreate } from "./appSseTestDependenciesCreate.js"
 import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
@@ -162,8 +163,16 @@ test.skipIf(!databaseAvailable)(
   "repeating a create with the same client request id returns the existing session",
   async () => {
     const clientRequestId = `switching-request-idempotent-${uuidv7()}`
+    const executionSelection = {
+      tools: {
+        primary: { agentId: primaryAgentId, tools: { bash: true } },
+        selectableSubagents: [{ agentId: reviewAgentId, tools: { webfetch: true } }],
+      },
+      version: 1,
+    }
     const body = JSON.stringify({
       clientRequestId,
+      executionSelection,
       primaryAgentId: primaryAgentId,
       serverId: primaryServerId,
       title: "Idempotent switching session",
@@ -172,7 +181,15 @@ test.skipIf(!databaseAvailable)(
 
     const firstResponse = await app.request("/api/sessions", { body, headers, method: "POST" })
     expect(firstResponse.status).toBe(201)
-    const first = v.parse(sessionTargetCreateResponseSchema, await firstResponse.json())
+    const firstBody = await firstResponse.json()
+    expect(firstBody.session.executionSelection).toEqual({
+      tools: {
+        primary: { agentId: primaryAgentId, tools: { bash: true, webfetch: false } },
+        selectableSubagents: [{ agentId: reviewAgentId, tools: { bash: false, webfetch: true } }],
+      },
+      version: 1,
+    })
+    const first = v.parse(sessionTargetCreateResponseSchema, firstBody)
     expect(first.created).toBe(true)
 
     const retryResponse = await app.request("/api/sessions", { body, headers, method: "POST" })
@@ -180,8 +197,52 @@ test.skipIf(!databaseAvailable)(
     const retry = v.parse(sessionTargetCreateResponseSchema, await retryResponse.json())
     expect(retry.created).toBe(false)
     expect(retry.session.id).toBe(first.session.id)
+
+    const changedSelectionResponse = await app.request("/api/sessions", {
+      body: JSON.stringify({
+        clientRequestId,
+        executionSelection: {
+          ...executionSelection,
+          tools: {
+            ...executionSelection.tools,
+            primary: { agentId: primaryAgentId, tools: { bash: false, webfetch: true } },
+          },
+        },
+        primaryAgentId,
+        serverId: primaryServerId,
+        title: "Idempotent switching session",
+      }),
+      headers,
+      method: "POST",
+    })
+    expect(changedSelectionResponse.status).toBe(409)
   },
 )
+
+test.skipIf(!databaseAvailable)("an invalid execution selection is rejected before session insertion", async () => {
+  const clientRequestId = `switching-request-invalid-selection-${uuidv7()}`
+  const response = await app.request("/api/sessions", {
+    body: JSON.stringify({
+      clientRequestId,
+      executionSelection: {
+        tools: {
+          primary: { agentId: reviewAgentId, tools: { bash: true, webfetch: false } },
+          selectableSubagents: [],
+        },
+        version: 1,
+      },
+      primaryAgentId,
+      serverId: primaryServerId,
+      title: "Invalid execution selection",
+    }),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  })
+  expect(response.status).toBe(400)
+  expect(
+    await database.select().from(sessionTable).where(eq(sessionTable.clientRequestId, clientRequestId)),
+  ).toHaveLength(0)
+})
 
 test.skipIf(!databaseAvailable)("a session cannot be created against an agent of another server", async () => {
   const response = await app.request("/api/sessions", {

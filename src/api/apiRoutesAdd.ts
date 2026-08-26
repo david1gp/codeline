@@ -45,6 +45,7 @@ import { sessionChatAdapterCreate } from "../session/actions/sessionChatAdapterC
 import { apiSessionBranchRoutesAdd } from "../session/api/apiSessionBranchRoutesAdd.js"
 import { apiSessionRenameRoutesAdd } from "../session/api/apiSessionRenameRoutesAdd.js"
 import { apiSessionRoutesAdd } from "../session/api/apiSessionRoutesAdd.js"
+import { apiSessionExecutionSelectionDefaultRoutesAdd } from "../session/api/apiSessionExecutionSelectionDefaultRoutesAdd.js"
 import type { streamLiveSubscriptionCreate } from "../stream/actions/streamLiveSubscriptionCreate.js"
 import type { streamSseConnectionWriterCreate } from "../stream/actions/streamSseConnectionWriterCreate.js"
 import type { AppEnvironment } from "./appEnvironment.js"
@@ -156,6 +157,13 @@ export function apiRoutesAdd(
     environment: options.providerEnvironment,
     fetch: options.providerFetch,
   })
+  if (options.database !== undefined) {
+    apiSessionExecutionSelectionDefaultRoutesAdd(api, {
+      database: options.database,
+      projectRootDirs: options.projectRootDirs,
+      providerAgentCatalog: options.providerAgentCatalog,
+    })
+  }
   if (
     options.configuration !== undefined &&
     options.database !== undefined &&
