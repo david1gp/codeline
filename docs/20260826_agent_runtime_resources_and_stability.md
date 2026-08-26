@@ -27,7 +27,7 @@ Add a small, deterministic agent-runtime foundation with normalized transcripts,
 
 ## Approach
 
-- Current context: Phase 1 implementation, full checks, and combined-preview browser verification pass. The required commit/push/deploy cycle is in progress before Phase 2 begins.
+- Current context: Phase 1 implementation and full checks pass. A deployed cancellation-inspector convergence defect was corrected through the existing reconciliation refresh seam; its follow-up publish and deployed verification are in progress.
 - Build pure schemas, resolvers, and projections before connecting provider loops or UI.
 - Extend `RunExecutionSnapshot` with a versioned execution manifest containing instructions, active skills, command catalog identity, and effective per-agent tools.
 - Use one typed tool registry for `skill`, `bash`, `webfetch`, and `delegate_task`; retain the existing provider event and durable tool-activity protocol.
