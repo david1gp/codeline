@@ -5,8 +5,9 @@ import type { CodelineConfigurationDocument } from "../src/configuration/codelin
 import { configurationStoreCreate } from "../src/configuration/configurationStoreCreate.js"
 import { configurationStoreRead } from "../src/configuration/configurationStoreRead.js"
 import { configurationStoreWrite } from "../src/configuration/configurationStoreWrite.js"
-import { runExecutionSnapshotResolve } from "../src/run/actions/runExecutionSnapshotResolve.js"
 import { providerAgentCatalogLoad } from "../src/providers/catalog/providerAgentCatalogLoad.js"
+import { runExecutionSnapshotResolve } from "../src/run/actions/runExecutionSnapshotResolve.js"
+import { runErrorCodes } from "../src/run/errors/runErrorCodes.js"
 
 const tmpRoot = Bun.env.TMPDIR ?? "/tmp"
 const directories: string[] = []
@@ -129,6 +130,7 @@ test("run execution snapshot rejects an unconfigured session target", async () =
   if (!written.success) return
 
   expect(runExecutionSnapshotResolve({ agentId: "missing-agent", serverId: "server-1" }, store)).toMatchObject({
+    code: runErrorCodes.executionTargetUnconfigured,
     errorMessage: "The run execution target is not configured.",
     success: false,
   })
