@@ -2,10 +2,12 @@ import { expect, test } from "bun:test"
 import { createHash } from "node:crypto"
 import { createResult } from "@adaptive-ds/result"
 import { appCreate } from "../src/app/appCreate.js"
+import type { RuntimeConfiguration } from "../src/configuration/runtimeConfigurationSchema.js"
 import type { identitySessionCreate } from "../src/identity/actions/identitySessionCreate.js"
 import type { oidcIdentityUpsert } from "../src/identity/actions/oidcIdentityUpsert.js"
 import type { oidcLoginTransactionConsume } from "../src/identity/db/oidcLoginTransactionConsume.js"
 import type { oidcLoginTransactionTable } from "../src/identity/db/oidcLoginTransactionTable.js"
+import type { oidcProviderDiscoveryCreate } from "../src/identity/oidc/oidcProviderDiscoveryCreate.js"
 import type { OidcProviderFetch } from "../src/identity/oidc/oidcProviderFetch.js"
 import type { OidcProviderMetadata } from "../src/identity/oidc/oidcProviderMetadata.js"
 import { oidcResourceOwnerClaim } from "../src/identity/oidc/oidcResourceOwnerClaim.js"
@@ -33,6 +35,37 @@ const metadata: OidcProviderMetadata = {
   tokenEndpoint: "https://issuer.codeline.test/token",
   tokenEndpointAuthMethodsSupported: ["client_secret_basic"],
   userinfoEndpoint: "https://issuer.codeline.test/userinfo",
+}
+const multiProviderConfiguration = {
+  authMode: "oidc" as const,
+  databaseUrl: "file:./data/db.sqlite",
+  nodeEnv: "production" as const,
+  oidcCallbackUrl: "https://codeline.test/api/auth/callback",
+  oidcOrganizationId: "organization-id",
+  oidcProviders: {
+    authworks: {
+      callbackUrl: "https://codeline.test/api/auth/callback",
+      clientId: "authworks-client-id",
+      clientSecret: "authworks-client-secret",
+      issuer: "https://authworks.codeline.test",
+      organizationId: "organization-id",
+    },
+    zitadel: {
+      callbackUrl: "https://codeline.test/api/auth/callback",
+      clientId: "zitadel-client-id",
+      clientSecret: "zitadel-client-secret",
+      issuer: "https://zitadel.codeline.test",
+      organizationId: "organization-id",
+    },
+  },
+  publicOrigin: "https://codeline.test",
+}
+const authworksMetadata: OidcProviderMetadata = {
+  ...metadata,
+  authorizationEndpoint: "https://authworks.codeline.test/authorize",
+  issuer: multiProviderConfiguration.oidcProviders.authworks.issuer,
+  jwksUri: "https://authworks.codeline.test/jwks",
+  tokenEndpoint: "https://authworks.codeline.test/token",
 }
 const keyPair = await crypto.subtle.generateKey(
   { hash: "SHA-256", modulusLength: 2048, name: "RSASSA-PKCS1-v1_5", publicExponent: new Uint8Array([1, 0, 1]) },
@@ -79,12 +112,141 @@ test("OIDC callback uses the exact configured path, validates the mocked token a
   expect(tokenRequestAuthorization).toContain("Basic ")
   expect(storedProfile).toEqual({
     displayName: "Verified User",
-    issuer: configuration.oidcIssuer,
+    issuer: `${configuration.oidcIssuer}/`,
     organizationExternalId: configuration.oidcOrganizationId,
     subject: "subject-value",
     verifiedEmail: "verified@example.test",
   })
   expect(JSON.stringify(storedProfile)).not.toContain("access-token")
+})
+
+test("OIDC callback selects credentials from the consumed issuer and ignores callback provider input", async () => {
+  let discoveredIssuer = ""
+  let tokenRequestAuthorization = ""
+  let storedProfile: Record<string, unknown> | undefined
+  const app = callbackApp({
+    configuration: multiProviderConfiguration,
+    consume: async () =>
+      createResult({
+        ...transaction,
+        issuer: authworksMetadata.issuer,
+        redirectUri: multiProviderConfiguration.oidcCallbackUrl,
+      }),
+    identityUpsert: async (_database, profile) => {
+      storedProfile = profile
+      return createResult(applicationUser)
+    },
+    providerDiscovery: async (issuer) => {
+      discoveredIssuer = issuer
+      return createResult(authworksMetadata)
+    },
+    providerFetch: async (input, init) => {
+      if (String(input) === authworksMetadata.tokenEndpoint) {
+        tokenRequestAuthorization = new Request(input, init).headers.get("authorization") ?? ""
+        return tokenResponse(
+          await signedIdToken(
+            {},
+            {
+              clientId: multiProviderConfiguration.oidcProviders.authworks.clientId,
+              issuer: multiProviderConfiguration.oidcProviders.authworks.issuer,
+              organizationId: multiProviderConfiguration.oidcProviders.authworks.organizationId,
+            },
+          ),
+        )
+      }
+      return jwksResponse()
+    },
+  })
+
+  const response = await app.request(
+    "https://codeline.test/api/auth/callback?code=authorization-code&provider=zitadel&state=state-value",
+    { headers: { Cookie: "__Host-codeline-oidc-binding=browser-binding" } },
+  )
+
+  expect(response.status).toBe(302)
+  expect(discoveredIssuer).toBe(`${multiProviderConfiguration.oidcProviders.authworks.issuer}/`)
+  expect(Buffer.from(tokenRequestAuthorization.replace("Basic ", ""), "base64").toString()).toBe(
+    "authworks%2Dclient%2Did:authworks%2Dclient%2Dsecret",
+  )
+  expect(storedProfile).toMatchObject({
+    issuer: `${multiProviderConfiguration.oidcProviders.authworks.issuer}/`,
+    organizationExternalId: multiProviderConfiguration.oidcProviders.authworks.organizationId,
+  })
+})
+
+test("OIDC callback resumes a persisted transaction across an equivalent issuer spelling change", async () => {
+  const canonicalConfiguration = {
+    ...multiProviderConfiguration,
+    oidcProviders: {
+      ...multiProviderConfiguration.oidcProviders,
+      authworks: {
+        ...multiProviderConfiguration.oidcProviders.authworks,
+        issuer: `${multiProviderConfiguration.oidcProviders.authworks.issuer}/`,
+      },
+    },
+  }
+  let discoveredIssuer = ""
+  let storedProfile: Record<string, unknown> | undefined
+  const app = callbackApp({
+    configuration: canonicalConfiguration,
+    consume: async () =>
+      createResult({
+        ...transaction,
+        issuer: multiProviderConfiguration.oidcProviders.authworks.issuer,
+        redirectUri: canonicalConfiguration.oidcCallbackUrl,
+      }),
+    identityUpsert: async (_database, profile) => {
+      storedProfile = profile
+      return createResult(applicationUser)
+    },
+    providerDiscovery: async (issuer) => {
+      discoveredIssuer = issuer
+      return createResult(authworksMetadata)
+    },
+    providerFetch: async (input, _init) => {
+      if (String(input) === authworksMetadata.tokenEndpoint) {
+        const tokenConfiguration = {
+          clientId: canonicalConfiguration.oidcProviders.authworks.clientId,
+          issuer: authworksMetadata.issuer,
+          organizationId: canonicalConfiguration.oidcProviders.authworks.organizationId,
+        }
+        return tokenResponse(await signedIdToken({}, tokenConfiguration))
+      }
+      return jwksResponse()
+    },
+  })
+
+  const response = await app.request(
+    "https://codeline.test/api/auth/callback?code=authorization-code&state=state-value",
+    { headers: { Cookie: "__Host-codeline-oidc-binding=browser-binding" } },
+  )
+
+  expect(response.status).toBe(302)
+  expect(discoveredIssuer).toBe(canonicalConfiguration.oidcProviders.authworks.issuer)
+  expect(storedProfile).toMatchObject({
+    issuer: canonicalConfiguration.oidcProviders.authworks.issuer,
+    organizationExternalId: canonicalConfiguration.oidcProviders.authworks.organizationId,
+  })
+})
+
+test("OIDC callback rejects a consumed transaction issuer without configured provider credentials", async () => {
+  let discoveryCalled = false
+  const app = callbackApp({
+    configuration: multiProviderConfiguration,
+    consume: async () => createResult({ ...transaction, issuer: "https://unknown.codeline.test" }),
+    providerDiscovery: async () => {
+      discoveryCalled = true
+      return createResult(authworksMetadata)
+    },
+  })
+
+  const response = await app.request(
+    "https://codeline.test/api/auth/callback?code=authorization-code&state=state-value",
+    { headers: { Cookie: "__Host-codeline-oidc-binding=browser-binding" } },
+  )
+
+  expect(response.status).toBe(400)
+  expect(discoveryCalled).toBe(false)
 })
 
 test("OIDC callback diagnostics classify token exchange failures without logging callback secrets", async () => {
@@ -126,6 +288,7 @@ test("OIDC callback classifies exact standard token errors without disclosure", 
   const originalConsoleLog = console.log
   console.log = (...values: unknown[]) => stages.push(values.map(String).join(" "))
   const secret = "oauth-error-secret"
+  const errorBody = JSON.stringify({ error: "invalid_client", error_description: `provider-${secret}` })
   try {
     for (const failure of [
       ["invalid_request", "token_exchange_invalid_request"],
@@ -158,6 +321,7 @@ test("OIDC callback classifies exact standard token errors without disclosure", 
 
     expect(stages.some((stage) => stage.includes("nonce"))).toBe(false)
     expect(stages.join(" ")).not.toContain(secret)
+    expect(stages.join(" ")).not.toContain(errorBody)
   } finally {
     console.log = originalConsoleLog
   }
@@ -200,6 +364,7 @@ test("OIDC callback classifies malformed, unallowlisted, and oversized token bod
     console.log = originalConsoleLog
   }
 })
+
 test("OIDC callback nonce diagnostics distinguish missing and mismatched nonces without disclosure", async () => {
   const stages: string[] = []
   const originalConsoleLog = console.log
@@ -387,7 +552,7 @@ test("OIDC callback validates a missing ID-token resource-owner claim through st
   expect(userInfoAuthorization).toBe("Bearer access-token")
   expect(profile).toEqual({
     displayName: "OIDC Subject",
-    issuer: configuration.oidcIssuer,
+    issuer: `${configuration.oidcIssuer}/`,
     organizationExternalId: configuration.oidcOrganizationId,
     subject: "subject-value",
   })
@@ -550,7 +715,7 @@ test("OIDC callback forwards only verified email, reuses the external identity, 
   expect(revokedSessionId).toBe("presented-session")
   expect(profile).toEqual({
     displayName: "OIDC Subject",
-    issuer: configuration.oidcIssuer,
+    issuer: `${configuration.oidcIssuer}/`,
     organizationExternalId: configuration.oidcOrganizationId,
     subject: "subject-value",
   })
@@ -580,8 +745,10 @@ test("OIDC callback retries JWKS selection once for a rotated signing key", asyn
 })
 
 type CallbackOptions = {
+  configuration?: RuntimeConfiguration
   consume?: typeof oidcLoginTransactionConsume
   identityUpsert?: typeof oidcIdentityUpsert
+  providerDiscovery?: ReturnType<typeof oidcProviderDiscoveryCreate>
   providerFetch?: OidcProviderFetch
   sessionLoad?: typeof import("../src/identity/actions/identitySessionLoad.js").identitySessionLoad
   sessionRevoke?: typeof import("../src/identity/actions/identitySessionRevoke.js").identitySessionRevoke
@@ -589,7 +756,7 @@ type CallbackOptions = {
 
 function callbackApp(options: CallbackOptions = {}) {
   return appCreate({
-    configuration,
+    configuration: options.configuration ?? configuration,
     database: {} as never,
     identitySessionCreate: (async () =>
       createResult({ session, token: "fresh-session" })) as typeof identitySessionCreate,
@@ -598,7 +765,7 @@ function callbackApp(options: CallbackOptions = {}) {
     oidcIdentityUpsert: options.identityUpsert ?? (async () => createResult(applicationUser)),
     oidcLoginTransactionConsume: options.consume ?? (async () => createResult(transaction)),
     oidcNow: () => now,
-    oidcProviderDiscovery: async () => createResult(metadata),
+    oidcProviderDiscovery: options.providerDiscovery ?? (async () => createResult(metadata)),
     oidcProviderFetch:
       options.providerFetch ??
       (async (input) =>
@@ -638,18 +805,33 @@ const session = {
   userId: applicationUser.id,
 }
 
-async function signedIdToken(overrides: Record<string, unknown>): Promise<string> {
+type OidcTokenClaimsConfiguration = {
+  clientId: string
+  issuer: string
+  organizationId: string
+}
+
+const defaultOidcTokenClaimsConfiguration: OidcTokenClaimsConfiguration = {
+  clientId: configuration.oidcClientId,
+  issuer: configuration.oidcIssuer,
+  organizationId: configuration.oidcOrganizationId,
+}
+
+async function signedIdToken(
+  overrides: Record<string, unknown>,
+  tokenConfiguration: OidcTokenClaimsConfiguration = defaultOidcTokenClaimsConfiguration,
+): Promise<string> {
   const header = { alg: "RS256", kid: "test-key", typ: "JWT" }
   const payload = {
-    aud: configuration.oidcClientId,
+    aud: tokenConfiguration.clientId,
     email: "unverified@example.test",
     email_verified: false,
     exp: Math.floor(now.getTime() / 1_000) + 300,
     iat: Math.floor(now.getTime() / 1_000),
-    iss: configuration.oidcIssuer,
+    iss: tokenConfiguration.issuer,
     name: "OIDC Subject",
     nonce: "nonce-value",
-    [oidcResourceOwnerClaim]: configuration.oidcOrganizationId,
+    [oidcResourceOwnerClaim]: tokenConfiguration.organizationId,
     sub: "subject-value",
     ...overrides,
   }

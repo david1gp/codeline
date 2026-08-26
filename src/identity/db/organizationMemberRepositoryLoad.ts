@@ -1,6 +1,7 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import { and, eq } from "drizzle-orm"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
+import { oidcIssuerCanonicalize } from "../oidc/oidcIssuerCanonicalize.js"
 import { type OrganizationMember, organizationMemberTable } from "./organizationMemberTable.js"
 import { organizationTable } from "./organizationTable.js"
 
@@ -15,6 +16,9 @@ export async function organizationMemberRepositoryLoad(
   try {
     if (organizationExternalId !== undefined || issuer !== undefined) {
       if (organizationExternalId === undefined || issuer === undefined) return createResult(undefined)
+      const canonicalIssuer =
+        issuer === "urn:codeline:development" ? createResult(issuer) : oidcIssuerCanonicalize(issuer)
+      if (!canonicalIssuer.success) return createResultError(op, canonicalIssuer.errorMessage)
 
       const organization = await database.query.organizationTable.findFirst({
         where: eq(organizationTable.externalId, organizationExternalId),
@@ -25,10 +29,24 @@ export async function organizationMemberRepositoryLoad(
         where: and(
           eq(organizationMemberTable.organizationId, organization.id),
           eq(organizationMemberTable.userId, userId),
-          eq(organizationMemberTable.issuer, issuer),
+          eq(organizationMemberTable.issuer, canonicalIssuer.data),
         ),
       })
-      return createResult(membership)
+      if (membership !== undefined) return createResult(membership)
+
+      const findMany = database.query.organizationMemberTable.findMany
+      if (typeof findMany !== "function") return createResult(undefined)
+      const legacyMemberships = await database.query.organizationMemberTable.findMany({
+        where: and(
+          eq(organizationMemberTable.organizationId, organization.id),
+          eq(organizationMemberTable.userId, userId),
+        ),
+      })
+      const equivalentMembership = legacyMemberships.find((candidate) => {
+        const candidateIssuer = oidcIssuerCanonicalize(candidate.issuer)
+        return candidateIssuer.success && candidateIssuer.data === canonicalIssuer.data
+      })
+      return createResult(equivalentMembership)
     }
 
     const memberships = await database.query.organizationMemberTable.findMany({

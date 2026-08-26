@@ -6,11 +6,12 @@ import * as v from "valibot"
 import type { AppEnvironment } from "../src/api/appEnvironment.js"
 import { apiErrorResponseSchema } from "../src/api/errors/apiErrorResponseSchema.js"
 import { appCreate } from "../src/app/appCreate.js"
+import { runtimeConfigurationParse } from "../src/configuration/runtimeConfigurationParse.js"
 import { identitySessionCreate } from "../src/identity/actions/identitySessionCreate.js"
 import { identitySessionLoad } from "../src/identity/actions/identitySessionLoad.js"
 import { identitySessionRevoke } from "../src/identity/actions/identitySessionRevoke.js"
-import { identitySessionCookieSet } from "../src/identity/api/identitySessionCookieSet.js"
 import { authSessionResponseSchema } from "../src/identity/api/authSessionResponseSchema.js"
+import { identitySessionCookieSet } from "../src/identity/api/identitySessionCookieSet.js"
 import type { identitySessionTable } from "../src/identity/db/identitySessionTable.js"
 
 const oidcConfiguration = {
@@ -20,6 +21,26 @@ const oidcConfiguration = {
   oidcClientId: "client",
   oidcIssuer: "https://issuer.codeline.test",
   oidcOrganizationId: "contentoren",
+  publicOrigin: "https://codeline.test",
+}
+
+const dualProviderConfiguration = {
+  authMode: "oidc" as const,
+  databaseUrl: "file:./data/db.sqlite",
+  nodeEnv: "production" as const,
+  oidcOrganizationId: "contentoren",
+  oidcProviders: {
+    authworks: {
+      clientId: "authworks-client",
+      issuer: "https://authworks.codeline.test",
+      organizationId: "contentoren",
+    },
+    zitadel: {
+      clientId: "zitadel-client",
+      issuer: "https://zitadel.codeline.test",
+      organizationId: "contentoren",
+    },
+  },
   publicOrigin: "https://codeline.test",
 }
 
@@ -115,15 +136,19 @@ test("OIDC authentication returns validated no-store 401 responses and leaves he
 })
 
 test("development authentication resolves the configured identity without a cookie", async () => {
+  const configuration = runtimeConfigurationParse({
+    AUTH_MODE: "development",
+    OIDC_ALLOWED_ORGANIZATION_ID: "development-organization",
+    databaseUrl: "file:./data/db.sqlite",
+    developmentIdentity: { displayName: "Development", identityKey: "development" },
+    nodeEnv: "development",
+    publicOrigin: "http://codeline.test",
+  })
+  expect(configuration.success).toBe(true)
+  if (!configuration.success) return
+
   const app = appCreate({
-    configuration: {
-      authMode: "development",
-      databaseUrl: "file:./data/db.sqlite",
-      developmentIdentity: { displayName: "Development", identityKey: "development" },
-      nodeEnv: "development",
-      oidcOrganizationId: "development-organization",
-      publicOrigin: "http://codeline.test",
-    },
+    configuration: configuration.data,
     database: { transaction: async (operation: (transaction: unknown) => Promise<unknown>) => operation({}) } as never,
     identitySessionCreate: (async () =>
       createResult({
@@ -195,4 +220,74 @@ test("OIDC unsafe cookie requests require the exact configured Origin and logout
   expect(repeated.status).toBe(200)
   expect(revokeCount).toBe(2)
   expect(first.headers.get("set-cookie")).toContain("Max-Age=0")
+})
+
+test("server authentication rechecks membership through either configured provider issuer", async () => {
+  let activeIssuer: string | undefined = "https://authworks.codeline.test/"
+  let membershipCheckCount = 0
+  const app = appCreate({
+    configuration: dualProviderConfiguration,
+    database: {
+      query: {
+        applicationUserTable: { findFirst: async () => ({ displayName: "OIDC User" }) },
+      },
+    } as never,
+    identitySessionLoad: (async () => createResult(session)) as typeof identitySessionLoad,
+    organizationMemberLoad: async (_database, _userId, _organizationExternalId, issuer) => {
+      membershipCheckCount += 1
+      return createResult(
+        activeIssuer === issuer
+          ? ({
+              issuer,
+              organizationId: "contentoren",
+              subject: "subject-1",
+              userId: session.userId,
+            } as never)
+          : undefined,
+      )
+    },
+  })
+  const headers = { Cookie: "__Host-codeline-session=credential" }
+
+  const authworks = await app.request("https://codeline.test/api/auth/session", { headers })
+  activeIssuer = "https://zitadel.codeline.test/"
+  const zitadel = await app.request("https://codeline.test/api/auth/session", { headers })
+  activeIssuer = undefined
+  const revoked = await app.request("https://codeline.test/api/auth/session", { headers })
+
+  expect(authworks.status).toBe(200)
+  expect(zitadel.status).toBe(200)
+  expect(revoked.status).toBe(401)
+  expect(await authworks.json()).toMatchObject({ organizationId: "contentoren", userId: session.userId })
+  expect(await zitadel.json()).toMatchObject({ organizationId: "contentoren", userId: session.userId })
+  expect(membershipCheckCount).toBe(5)
+})
+
+test("server authentication accepts a legacy raw membership for a trailing-slash issuer", async () => {
+  const configuredIssuer = oidcConfiguration.oidcIssuer
+  const app = appCreate({
+    configuration: { ...oidcConfiguration, oidcIssuer: `${configuredIssuer}/` },
+    database: {
+      query: {
+        applicationUserTable: { findFirst: async () => ({ displayName: "OIDC User" }) },
+      },
+    } as never,
+    identitySessionLoad: (async () => createResult(session)) as typeof identitySessionLoad,
+    organizationMemberLoad: async (_database, _userId, _organizationExternalId, issuer) => {
+      expect(issuer).toBe(`${configuredIssuer}/`)
+      return createResult({
+        issuer: configuredIssuer,
+        organizationId: "contentoren",
+        subject: "subject-1",
+        userId: session.userId,
+      } as never)
+    },
+  })
+
+  const response = await app.request("https://codeline.test/api/auth/session", {
+    headers: { Cookie: "__Host-codeline-session=credential" },
+  })
+
+  expect(response.status).toBe(200)
+  expect(await response.json()).toMatchObject({ organizationId: "contentoren", userId: session.userId })
 })

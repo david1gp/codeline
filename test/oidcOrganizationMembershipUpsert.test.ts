@@ -44,7 +44,7 @@ test("OIDC organization membership upsert is idempotent for an issuer and subjec
   expect(second.success).toBe(true)
   expect(insertCount).toBe(2)
   expect(storedMembership).toMatchObject({
-    issuer: "https://issuer.test",
+    issuer: "https://issuer.test/",
     organizationId: organization.id,
     subject: "subject-a",
     userId: "oidc:user-a",

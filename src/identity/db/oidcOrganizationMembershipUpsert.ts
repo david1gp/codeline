@@ -1,6 +1,7 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import { eq } from "drizzle-orm"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
+import { oidcIssuerCanonicalize } from "../oidc/oidcIssuerCanonicalize.js"
 import { type OrganizationMember, organizationMemberTable } from "./organizationMemberTable.js"
 import { organizationTable } from "./organizationTable.js"
 
@@ -16,6 +17,8 @@ export async function oidcOrganizationMembershipUpsert(
   membership: OidcOrganizationMembership,
 ): Promise<Result<OrganizationMember>> {
   const op = "oidcOrganizationMembershipUpsert"
+  const canonicalIssuer = oidcIssuerCanonicalize(membership.issuer)
+  if (!canonicalIssuer.success) return createResultError(op, canonicalIssuer.errorMessage)
 
   try {
     const organization = await database.query.organizationTable.findFirst({
@@ -26,14 +29,14 @@ export async function oidcOrganizationMembershipUpsert(
     const [storedMembership] = await database
       .insert(organizationMemberTable)
       .values({
-        issuer: membership.issuer,
+        issuer: canonicalIssuer.data,
         organizationId: organization.id,
         subject: membership.subject,
         userId: membership.userId,
       })
       .onConflictDoUpdate({
         set: {
-          issuer: membership.issuer,
+          issuer: canonicalIssuer.data,
           subject: membership.subject,
           updatedAt: new Date(),
         },

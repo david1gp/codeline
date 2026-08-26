@@ -329,6 +329,26 @@ test("an invalid runtime configuration fails before the build or service stop", 
   }
 })
 
+test("explicit provider validation accepts Authworks generic IDs but rejects incomplete Zitadel", async () => {
+  const harness = await harnessCreate()
+  try {
+    const environmentFile = path.join(harness.root, ".env")
+    const environment = await fs.readFile(environmentFile, "utf8")
+    await fs.writeFile(
+      environmentFile,
+      `${environment.replace("AUTH_MODE=development", "AUTH_MODE=oidc")}\nOIDC_AUTHWORKS_ISSUER=https://authworks.example.test\nOIDC_AUTHWORKS_ORGANIZATION_ID=organization-id\nOIDC_ZITADEL_ISSUER=https://zitadel.example.test\nOIDC_ZITADEL_ORGANIZATION_ID=organization-id\nOIDC_CLIENT_ID=generic-client-id\n`,
+    )
+    const result = await harnessRun(harness, ["bash", harness.deployPath])
+
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toContain("the Zitadel client ID")
+    expect(await fileReadOrEmpty(harness.systemctlLog)).toBe("")
+    expect(await fileReadOrEmpty(harness.environment.MOCK_BUN_LOG!)).toBe("")
+  } finally {
+    await harnessDispose(harness)
+  }
+})
+
 test("a failed staged swap restores the prior build and restarts the managed target", async () => {
   const harness = await harnessCreate({ mvMode: "fail-stage" })
   try {

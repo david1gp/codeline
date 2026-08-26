@@ -1,5 +1,6 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import * as oauth from "oauth4webapi"
+import { oidcIssuerCanonicalize } from "./oidcIssuerCanonicalize.js"
 import type { OidcProviderFetch } from "./oidcProviderFetch.js"
 import type { OidcProviderMetadata } from "./oidcProviderMetadata.js"
 
@@ -40,25 +41,28 @@ export function oidcProviderDiscoveryCreate(options: OidcProviderDiscoveryOption
   const cache = new Map<string, OidcProviderDiscoveryCacheEntry>()
 
   return async (issuerValue: string): Promise<Result<OidcProviderMetadata>> => {
+    const canonicalIssuer = oidcIssuerCanonicalize(issuerValue)
+    if (!canonicalIssuer.success) return createResultError("oidcProviderDiscoveryFetch", canonicalIssuer.errorMessage)
+
     const currentTime = now().getTime()
-    const cached = cache.get(issuerValue)
+    const cached = cache.get(canonicalIssuer.data)
     if (cached?.result !== undefined && cached.expiresAt > currentTime) return cached.result
     if (cached?.pending !== undefined) return cached.pending
 
-    const pending = oidcProviderDiscoveryFetch(issuerValue, {
+    const pending = oidcProviderDiscoveryFetch(canonicalIssuer.data, {
       fetcher,
       maxResponseBytes,
       timeoutMs,
     })
-    cache.set(issuerValue, { pending, expiresAt: 0 })
+    cache.set(canonicalIssuer.data, { pending, expiresAt: 0 })
 
     const result = await pending
     if (!result.success) {
-      cache.delete(issuerValue)
+      cache.delete(canonicalIssuer.data)
       return result
     }
 
-    cache.set(issuerValue, { expiresAt: now().getTime() + ttlMs, result })
+    cache.set(canonicalIssuer.data, { expiresAt: now().getTime() + ttlMs, result })
     return result
   }
 }
@@ -72,9 +76,12 @@ async function oidcProviderDiscoveryFetch(
   },
 ): Promise<Result<OidcProviderMetadata>> {
   const op = "oidcProviderDiscoveryFetch"
+  const canonicalIssuer = oidcIssuerCanonicalize(issuerValue)
+  if (!canonicalIssuer.success) return createResultError(op, canonicalIssuer.errorMessage)
+
   let issuer: URL
   try {
-    issuer = new URL(issuerValue)
+    issuer = new URL(canonicalIssuer.data)
   } catch (_error) {
     return createResultError(op, "The OIDC issuer is invalid.")
   }
@@ -106,7 +113,9 @@ async function oidcProviderDiscoveryFetch(
       issuer,
       new Response(body, { headers: response.headers, status: response.status, statusText: response.statusText }),
     )
-    if (metadata.issuer !== issuerValue) return createResultError(op, "The OIDC provider issuer does not match.")
+    const metadataIssuer = oidcIssuerCanonicalize(metadata.issuer)
+    if (!metadataIssuer.success || metadataIssuer.data !== canonicalIssuer.data)
+      return createResultError(op, "The OIDC provider issuer does not match.")
 
     const authorizationEndpoint = oidcProviderEndpointResolve(metadata.authorization_endpoint)
     const tokenEndpoint = oidcProviderEndpointResolve(metadata.token_endpoint)

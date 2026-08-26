@@ -1,4 +1,5 @@
 import * as v from "valibot"
+import { oidcProviderConfigurationSchema } from "./oidcProviderConfigurationSchema.js"
 
 export const runtimeConfigurationSchema = v.object({
   authMode: v.optional(v.picklist(["development", "oidc"])),
@@ -11,6 +12,13 @@ export const runtimeConfigurationSchema = v.object({
     }),
   ),
   nodeEnv: v.picklist(["development", "test", "production"]),
+  oidcProviders: v.optional(
+    v.object({
+      authworks: v.optional(oidcProviderConfigurationSchema),
+      legacy: v.optional(oidcProviderConfigurationSchema),
+      zitadel: v.optional(oidcProviderConfigurationSchema),
+    }),
+  ),
   oidcCallbackUrl: v.optional(v.pipe(v.string(), v.url())),
   oidcClientId: v.optional(v.pipe(v.string(), v.minLength(1))),
   oidcClientSecret: v.optional(v.pipe(v.string(), v.minLength(1))),

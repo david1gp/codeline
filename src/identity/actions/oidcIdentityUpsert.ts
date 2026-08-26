@@ -8,6 +8,7 @@ import { applicationUserUpsert } from "../db/applicationUserUpsert.js"
 import { externalIdentityTable } from "../db/externalIdentityTable.js"
 import { externalIdentityUpsert } from "../db/externalIdentityUpsert.js"
 import { oidcOrganizationMembershipUpsert } from "../db/oidcOrganizationMembershipUpsert.js"
+import { oidcIssuerCanonicalize } from "../oidc/oidcIssuerCanonicalize.js"
 
 type OidcIdentityProfile = {
   displayName?: string
@@ -22,14 +23,12 @@ export async function oidcIdentityUpsert(
   profile: OidcIdentityProfile,
 ): Promise<Result<ApplicationUser>> {
   const op = "oidcIdentityUpsert"
-  const identityWhere = and(
-    eq(externalIdentityTable.issuer, profile.issuer),
-    eq(externalIdentityTable.subject, profile.subject),
-  )
+  const canonicalIssuer = oidcIssuerCanonicalize(profile.issuer)
+  if (!canonicalIssuer.success) return createResultError(op, canonicalIssuer.errorMessage)
 
   try {
-    const existingIdentity = await database.query.externalIdentityTable.findFirst({ where: identityWhere })
-    const proposedUserId = `oidc:${createHash("sha256").update(`${profile.issuer}\0${profile.subject}`).digest("hex")}`
+    const existingIdentity = await oidcExternalIdentityEquivalentLoad(database, canonicalIssuer.data, profile.subject)
+    const proposedUserId = `oidc:${createHash("sha256").update(`${canonicalIssuer.data}\0${profile.subject}`).digest("hex")}`
     const userId = existingIdentity?.userId ?? proposedUserId
     const existingUser = await database.query.applicationUserTable.findFirst({
       where: eq(applicationUserTable.id, userId),
@@ -43,7 +42,7 @@ export async function oidcIdentityUpsert(
 
     if (existingIdentity === undefined) {
       const storedIdentity = await externalIdentityUpsert(database, {
-        issuer: profile.issuer,
+        issuer: canonicalIssuer.data,
         subject: profile.subject,
         userId,
       })
@@ -54,7 +53,7 @@ export async function oidcIdentityUpsert(
     }
 
     const membership = await oidcOrganizationMembershipUpsert(database, {
-      issuer: profile.issuer,
+      issuer: canonicalIssuer.data,
       organizationExternalId: profile.organizationExternalId,
       subject: profile.subject,
       userId,
@@ -64,4 +63,25 @@ export async function oidcIdentityUpsert(
   } catch (_error) {
     return createResultError(op, "The OIDC identity could not be stored.")
   }
+}
+
+async function oidcExternalIdentityEquivalentLoad(
+  database: Pick<DatabaseExecutor, "query">,
+  issuer: string,
+  subject: string,
+): Promise<typeof externalIdentityTable.$inferSelect | undefined> {
+  const exactIdentity = await database.query.externalIdentityTable.findFirst({
+    where: and(eq(externalIdentityTable.issuer, issuer), eq(externalIdentityTable.subject, subject)),
+  })
+  if (exactIdentity !== undefined) return exactIdentity
+
+  const findMany = database.query.externalIdentityTable.findMany
+  if (typeof findMany !== "function") return undefined
+  const identities = await database.query.externalIdentityTable.findMany({
+    where: eq(externalIdentityTable.subject, subject),
+  })
+  return identities.find((identity) => {
+    const identityIssuer = oidcIssuerCanonicalize(identity.issuer)
+    return identityIssuer.success && identityIssuer.data === issuer
+  })
 }

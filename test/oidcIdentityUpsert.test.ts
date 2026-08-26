@@ -29,7 +29,7 @@ test("OIDC identity persistence maps case-sensitive issuer and subject without e
   expect(first.identityValues?.subject).toBe("Subject-A")
   expect(second.identityValues?.subject).toBe("subject-a")
   expect(first.membershipValues).toMatchObject({
-    issuer: "https://issuer.test",
+    issuer: "https://issuer.test/",
     organizationId: "organization-a",
     subject: "Subject-A",
   })
@@ -52,7 +52,7 @@ test("OIDC identity persistence synchronizes the organization membership on ever
   if (!first.success || !second.success) return
   expect(second.data.id).toBe(first.data.id)
   expect(database.membershipValues).toMatchObject({
-    issuer: profile.issuer,
+    issuer: `${profile.issuer}/`,
     organizationId: "organization-a",
     subject: profile.subject,
     userId: first.data.id,

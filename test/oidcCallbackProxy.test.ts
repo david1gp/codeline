@@ -23,6 +23,28 @@ test("resolves the provisioned Zitadel callback URL to its pathname", () => {
   ).toBe("/login/zitadel/callback")
 })
 
+test("resolves every runtime callback environment alias to its pathname", () => {
+  const callbackAliases = [
+    "OIDC_AUTHWORKS_CALLBACK_URL",
+    "OIDC_AUTHWORKS_REDIRECT_URI",
+    "OIDC_CALLBACK_URL",
+    "OIDC_REDIRECT_URI",
+    "OIDC_ZITADEL_CALLBACK_URL",
+    "OIDC_ZITADEL_REDIRECT_URI",
+    "ZITADEL_CALLBACK_URL",
+    "ZITADEL_REDIRECT_URI",
+  ] as const
+
+  for (const alias of callbackAliases) {
+    expect(
+      oidcCallbackPathResolve({
+        [alias]: `${publicOrigin}/login/provider/callback`,
+        PUBLIC_ORIGIN: publicOrigin,
+      }),
+    ).toBe("/login/provider/callback")
+  }
+})
+
 test("uses the provider-neutral default callback path", () => {
   expect(oidcCallbackPathResolve({ PUBLIC_ORIGIN: publicOrigin })).toBe("/api/auth/callback")
 })

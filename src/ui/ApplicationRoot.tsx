@@ -47,7 +47,7 @@ export function ApplicationRoot(props: { children?: JSX.Element }) {
             <div class="max-w-sm text-center">
               <h1 class="font-semibold text-[var(--foreground)] text-lg">Sign in required</h1>
               <p class="mt-2 text-[13px] text-[var(--muted-foreground)]">Your Codeline session has ended.</p>
-              <a class="mt-6 inline-block text-[13px] text-[var(--accent)]" href="/api/auth/login">
+              <a class="mt-6 inline-block text-[13px] text-[var(--accent)]" href={session.loginHref()}>
                 Sign in with SSO
               </a>
             </div>

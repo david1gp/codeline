@@ -33,7 +33,7 @@ const fixture = {
   userKey: `session-organization-user-${uuidv7()}`,
 }
 const userId = `development:${fixture.userKey}`
-const issuer = "https://session-organization-issuer.test"
+const issuer = "https://session-organization-zitadel.test"
 const identitySession = {
   createdAt: new Date("2026-08-18T12:00:00.000Z"),
   expiresAt: new Date("2026-08-19T12:00:00.000Z"),
@@ -47,9 +47,19 @@ const configuration = {
   authMode: "oidc" as const,
   databaseUrl,
   nodeEnv: "test" as const,
-  oidcClientId: "session-organization-client",
-  oidcIssuer: issuer,
   oidcOrganizationId: fixture.organizationId,
+  oidcProviders: {
+    authworks: {
+      clientId: "session-organization-authworks-client",
+      issuer: "https://session-organization-authworks.test",
+      organizationId: fixture.organizationId,
+    },
+    zitadel: {
+      clientId: "session-organization-zitadel-client",
+      issuer,
+      organizationId: fixture.organizationId,
+    },
+  },
   publicOrigin: "https://codeline.test",
 }
 const journalCursorCodec = journalCursorCodecCreate({ randomBytes, secret: `session-organization-${uuidv7()}` })
@@ -111,7 +121,7 @@ afterAll(async () => {
 })
 
 test.skipIf(!databaseAvailable)(
-  "rechecks current organization access for existing sessions, idempotency, listing, and chat",
+  "rechecks current organization access through the second provider for existing sessions, idempotency, listing, and chat",
   async () => {
     const clientRequestId = `session-organization-request-${uuidv7()}`
     const body = {

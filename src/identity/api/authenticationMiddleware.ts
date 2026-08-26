@@ -7,9 +7,16 @@ import { databaseTransactionRun } from "../../database/databaseTransactionRun.js
 import { identitySessionLoad } from "../actions/identitySessionLoad.js"
 import { organizationMemberLoad } from "../actions/organizationMemberLoad.js"
 import { developmentIdentityUpsert } from "../db/developmentIdentityUpsert.js"
+import { oidcIssuerCanonicalize } from "../oidc/oidcIssuerCanonicalize.js"
 import { identitySessionCookieRead } from "./identitySessionCookieRead.js"
 
 const developmentIdentityIssuer = "urn:codeline:development"
+const oidcProviderNames = ["authworks", "legacy", "zitadel"] as const
+
+type OidcMembershipProviderConfiguration = {
+  issuer: string
+  organizationId: string
+}
 
 type AuthenticationMiddlewareOptions = {
   developmentIdentityUpsert?: typeof developmentIdentityUpsert
@@ -67,15 +74,16 @@ export function authenticationMiddleware(
     if (!session.success || session.data === undefined) return authenticationUnauthorized(context)
 
     let organizationId: string | undefined
-    if (configuration.oidcOrganizationId !== undefined && configuration.oidcIssuer !== undefined) {
-      const membership = await memberLoad(
-        database,
-        session.data.userId,
-        configuration.oidcOrganizationId,
-        configuration.oidcIssuer,
-      )
-      if (!membership.success || membership.data === undefined) return authenticationUnauthorized(context)
-      organizationId = membership.data.organizationId
+    const membershipProviders = oidcMembershipProvidersResolve(configuration)
+    if (membershipProviders !== undefined) {
+      for (const provider of membershipProviders) {
+        const membership = await memberLoad(database, session.data.userId, provider.organizationId, provider.issuer)
+        if (!membership.success) return authenticationUnauthorized(context)
+        if (membership.data === undefined) continue
+        organizationId = membership.data.organizationId
+        break
+      }
+      if (organizationId === undefined) return authenticationUnauthorized(context)
     }
 
     if (authenticationUnsafeRequest(context.req.method) && !authenticationOriginMatches(context, configuration)) {
@@ -91,8 +99,34 @@ export function authenticationMiddleware(
   }
 }
 
+function oidcMembershipProvidersResolve(
+  configuration: RuntimeConfiguration,
+): readonly OidcMembershipProviderConfiguration[] | undefined {
+  if (configuration.oidcProviders !== undefined) {
+    return oidcProviderNames.flatMap((name) => {
+      const provider = configuration.oidcProviders?.[name]
+      if (provider?.issuer === undefined || provider.organizationId === undefined) return []
+      const canonicalIssuer = oidcIssuerCanonicalize(provider.issuer)
+      if (!canonicalIssuer.success) return []
+      return [{ issuer: canonicalIssuer.data, organizationId: provider.organizationId }]
+    })
+  }
+
+  if (configuration.oidcIssuer === undefined || configuration.oidcOrganizationId === undefined) return undefined
+  const canonicalIssuer = oidcIssuerCanonicalize(configuration.oidcIssuer)
+  if (!canonicalIssuer.success) return []
+  return [{ issuer: canonicalIssuer.data, organizationId: configuration.oidcOrganizationId }]
+}
+
 function authenticationPathPublic(path: string, configuration: RuntimeConfiguration): boolean {
-  if (path === "/api/health" || path === "/api/ready" || path === "/ready" || path === "/api/auth/login") return true
+  if (
+    path === "/api/health" ||
+    path === "/api/ready" ||
+    path === "/ready" ||
+    path === "/api/auth/login" ||
+    path === "/api/auth/providers"
+  )
+    return true
   const callbackPath =
     configuration.oidcCallbackUrl === undefined ? "/api/auth/callback" : new URL(configuration.oidcCallbackUrl).pathname
   return path === callbackPath

@@ -18,12 +18,14 @@ import { oidcIdentityUpsert } from "../actions/oidcIdentityUpsert.js"
 import { applicationUserRepositoryLoad } from "../db/applicationUserRepositoryLoad.js"
 import { oidcLoginTransactionConsume } from "../db/oidcLoginTransactionConsume.js"
 import { oidcLoginTransactionCreate } from "../db/oidcLoginTransactionCreate.js"
+import { oidcIssuerCanonicalize } from "../oidc/oidcIssuerCanonicalize.js"
 import { oidcLoginReturnToResolve } from "../oidc/oidcLoginReturnToResolve.js"
 import { oidcProviderDiscoveryCreate } from "../oidc/oidcProviderDiscoveryCreate.js"
 import type { OidcProviderFetch } from "../oidc/oidcProviderFetch.js"
 import { oidcResourceOwnerClaim } from "../oidc/oidcResourceOwnerClaim.js"
 import { oidcResourceOwnerScope } from "../oidc/oidcResourceOwnerScope.js"
 import type { AuthLogoutResponse } from "./authLogoutResponseSchema.js"
+import type { AuthProvidersResponse } from "./authProvidersResponseSchema.js"
 import type { AuthSessionResponse } from "./authSessionResponseSchema.js"
 import { identitySessionCookieClear } from "./identitySessionCookieClear.js"
 import { identitySessionCookieRead } from "./identitySessionCookieRead.js"
@@ -52,6 +54,17 @@ type ApiAuthRoutesOptions = {
   callbackRoute?: Hono<AppEnvironment>
 }
 
+const oidcProviderNames = ["authworks", "legacy", "zitadel"] as const
+type OidcProviderName = (typeof oidcProviderNames)[number]
+type OidcConfiguredProvider = {
+  name: OidcProviderName | "legacy"
+  callbackUrl?: string
+  clientId: string
+  clientSecret?: string
+  issuer: string
+  organizationId: string
+}
+
 type OidcTokenExchangeFailureStage =
   | "token_exchange_invalid_request"
   | "token_exchange_invalid_client"
@@ -69,6 +82,7 @@ type OidcCallbackStage =
   | "database"
   | "transaction_consume"
   | "transaction_validate"
+  | "provider_configuration"
   | "return_to"
   | "provider_discovery"
   | "client_authentication"
@@ -110,6 +124,20 @@ export function apiAuthRoutesAdd(api: Hono<AppEnvironment>, options: ApiAuthRout
   const callbackPath = oidcCallbackPathResolve(options.configuration)
   const callbackRoutePath = options.callbackRoute === undefined ? oidcApiPathResolve(callbackPath) : callbackPath
 
+  api.get("/auth/providers", (context) => {
+    context.header("Cache-Control", "no-store")
+    const configuration = options.configuration
+    const providers =
+      configuration === undefined || authenticationModeResolve(configuration) !== "oidc"
+        ? []
+        : oidcConfiguredProvidersResolve(configuration).map((provider) => ({
+            id: provider.name,
+            label: oidcProviderLabelResolve(provider.name),
+          }))
+    const response = { providers } satisfies AuthProvidersResponse
+    return context.json(response)
+  })
+
   api.get("/auth/login", async (context) => {
     context.header("Cache-Control", "no-store")
 
@@ -117,19 +145,22 @@ export function apiAuthRoutesAdd(api: Hono<AppEnvironment>, options: ApiAuthRout
     if (configuration === undefined || authenticationModeResolve(configuration) !== "oidc") {
       return oidcLoginError(context, 404, "OIDC login is not enabled.")
     }
-    if (
-      configuration.oidcIssuer === undefined ||
-      configuration.publicOrigin === undefined ||
-      configuration.oidcClientId === undefined ||
-      configuration.oidcOrganizationId === undefined
-    ) {
+    if (configuration.publicOrigin === undefined) {
       return oidcLoginError(context, 503, "OIDC login is not configured.")
     }
+
+    const configuredProviders = oidcConfiguredProvidersResolve(configuration)
+    if (configuredProviders.length === 0) return oidcLoginError(context, 503, "OIDC login is not configured.")
+    const selectedProvider = oidcProviderSelectionResolve(
+      configuredProviders,
+      new URL(context.req.url).searchParams.getAll("provider"),
+    )
+    if (selectedProvider === undefined) return oidcLoginError(context, 400, "The OIDC provider selection is invalid.")
 
     const returnTo = oidcLoginReturnToResolve(context.req.query("returnTo"), configuration.publicOrigin, pathIsKnown)
     if (!returnTo.success) return oidcLoginError(context, 400, "The login return path is invalid.")
 
-    const provider = await providerDiscovery(configuration.oidcIssuer)
+    const provider = await providerDiscovery(selectedProvider.issuer)
     if (!provider.success) return oidcLoginError(context, 503, "The OIDC provider is unavailable.")
 
     const now = options.now?.() ?? new Date()
@@ -146,14 +177,16 @@ export function apiAuthRoutesAdd(api: Hono<AppEnvironment>, options: ApiAuthRout
     }
 
     const redirectUri =
-      configuration.oidcCallbackUrl ?? new URL("/api/auth/callback", configuration.publicOrigin).toString()
+      selectedProvider.callbackUrl ??
+      configuration.oidcCallbackUrl ??
+      new URL("/api/auth/callback", configuration.publicOrigin).toString()
     const database = options.database ?? context.var.database
     const storedTransaction = await transactionCreate(database ?? ({} as DatabaseClient), {
       browserBinding,
       codeVerifier,
       expiresAt,
       id: idCreate(),
-      issuer: configuration.oidcIssuer,
+      issuer: selectedProvider.issuer,
       nonce,
       redirectUri,
       returnTo: returnTo.data,
@@ -163,7 +196,7 @@ export function apiAuthRoutesAdd(api: Hono<AppEnvironment>, options: ApiAuthRout
       return oidcLoginError(context, 500, "The OIDC login transaction could not be created.")
 
     const authorizationUrl = new URL(provider.data.authorizationEndpoint)
-    authorizationUrl.searchParams.set("client_id", configuration.oidcClientId)
+    authorizationUrl.searchParams.set("client_id", selectedProvider.clientId)
     authorizationUrl.searchParams.set("code_challenge", codeChallenge)
     authorizationUrl.searchParams.set("code_challenge_method", "S256")
     authorizationUrl.searchParams.set("redirect_uri", redirectUri)
@@ -279,6 +312,66 @@ function authenticationModeResolve(configuration: RuntimeConfiguration): "develo
   return configuration.authMode ?? (configuration.nodeEnv === "development" ? "development" : "oidc")
 }
 
+function oidcConfiguredProvidersResolve(configuration: RuntimeConfiguration): OidcConfiguredProvider[] {
+  const normalizedProviders = oidcProviderNames.flatMap((name) => {
+    const provider = configuration.oidcProviders?.[name]
+    const canonicalIssuer = provider?.issuer === undefined ? undefined : oidcIssuerCanonicalize(provider.issuer)
+    if (
+      provider === undefined ||
+      provider.clientId === undefined ||
+      canonicalIssuer === undefined ||
+      !canonicalIssuer.success ||
+      provider.organizationId === undefined
+    )
+      return []
+    return [
+      {
+        name,
+        callbackUrl: provider.callbackUrl,
+        clientId: provider.clientId,
+        clientSecret: provider.clientSecret,
+        issuer: canonicalIssuer.data,
+        organizationId: provider.organizationId,
+      },
+    ]
+  })
+  if (configuration.oidcProviders !== undefined) return normalizedProviders
+
+  if (
+    configuration.oidcClientId === undefined ||
+    configuration.oidcIssuer === undefined ||
+    configuration.oidcOrganizationId === undefined
+  )
+    return []
+  const canonicalIssuer = oidcIssuerCanonicalize(configuration.oidcIssuer)
+  if (!canonicalIssuer.success) return []
+  return [
+    {
+      name: "legacy",
+      callbackUrl: configuration.oidcCallbackUrl,
+      clientId: configuration.oidcClientId,
+      clientSecret: configuration.oidcClientSecret,
+      issuer: canonicalIssuer.data,
+      organizationId: configuration.oidcOrganizationId,
+    },
+  ]
+}
+
+function oidcProviderLabelResolve(name: OidcConfiguredProvider["name"]): string {
+  if (name === "legacy") return "OIDC"
+  if (name === "zitadel") return "Zitadel"
+  return "Authworks"
+}
+
+function oidcProviderSelectionResolve(
+  providers: readonly OidcConfiguredProvider[],
+  requestedProviders: readonly string[],
+): OidcConfiguredProvider | undefined {
+  if (requestedProviders.length === 0) return providers.length === 1 ? providers[0] : undefined
+  if (requestedProviders.length !== 1) return undefined
+  return providers.find((provider) => provider.name === requestedProviders[0])
+}
+
 function oidcLoginError(context: Context<AppEnvironment>, status: 400 | 404 | 500 | 503, message: string) {
   const response = {
     error: {
@@ -323,14 +416,11 @@ async function oidcCallbackHandle(
   if (configuration === undefined || authenticationModeResolve(configuration) !== "oidc") {
     return oidcCallbackFailure(context, 404, "configuration")
   }
-  if (
-    configuration.oidcIssuer === undefined ||
-    configuration.publicOrigin === undefined ||
-    configuration.oidcClientId === undefined ||
-    configuration.oidcOrganizationId === undefined
-  ) {
+  if (configuration.publicOrigin === undefined) {
     return oidcCallbackFailure(context, 503, "configuration")
   }
+  const configuredProviders = oidcConfiguredProvidersResolve(configuration)
+  if (configuredProviders.length === 0) return oidcCallbackFailure(context, 503, "configuration")
 
   const callbackUri = oidcCallbackUriResolve(configuration)
   const requestUrl = new URL(context.req.url)
@@ -359,23 +449,31 @@ async function oidcCallbackHandle(
   const transaction = consumedTransaction.data
   if (
     transaction === undefined ||
-    transaction.issuer !== configuration.oidcIssuer ||
     transaction.redirectUri !== callbackUri ||
     transaction.expiresAt.getTime() <= now.getTime()
   ) {
     return oidcCallbackFailure(context, 400, "transaction_validate")
   }
+  const transactionIssuer = oidcIssuerCanonicalize(transaction.issuer)
+  if (!transactionIssuer.success) return oidcCallbackFailure(context, 400, "provider_configuration")
+  const selectedProvider = configuredProviders.find((providerConfiguration) => {
+    const providerIssuer = oidcIssuerCanonicalize(providerConfiguration.issuer)
+    return providerIssuer.success && providerIssuer.data === transactionIssuer.data
+  })
+  if (selectedProvider === undefined) return oidcCallbackFailure(context, 400, "provider_configuration")
 
   const returnTo = oidcLoginReturnToResolve(transaction.returnTo, configuration.publicOrigin, options.pathIsKnown)
   if (!returnTo.success) return oidcCallbackFailure(context, 400, "return_to")
 
-  const provider = await options.providerDiscovery(configuration.oidcIssuer)
+  const provider = await options.providerDiscovery(selectedProvider.issuer)
   if (!provider.success) return oidcCallbackFailure(context, 503, "provider_discovery")
-  if (provider.data.issuer !== configuration.oidcIssuer) return oidcCallbackFailure(context, 503, "provider_discovery")
+  const providerIssuer = oidcIssuerCanonicalize(provider.data.issuer)
+  if (!providerIssuer.success || providerIssuer.data !== transactionIssuer.data)
+    return oidcCallbackFailure(context, 503, "provider_discovery")
 
   const clientAuthentication = oidcClientAuthenticationResolve(
     provider.data.tokenEndpointAuthMethodsSupported,
-    configuration,
+    selectedProvider.clientSecret,
   )
   if (clientAuthentication === undefined) return oidcCallbackFailure(context, 503, "client_authentication")
 
@@ -388,7 +486,7 @@ async function oidcCallbackHandle(
     ...(provider.data.userinfoEndpoint === undefined ? {} : { userinfo_endpoint: provider.data.userinfoEndpoint }),
   }
   const client: oauth.Client = {
-    client_id: configuration.oidcClientId,
+    client_id: selectedProvider.clientId,
     [oauth.clockSkew]: (now.getTime() - Date.now()) / 1_000,
     [oauth.clockTolerance]: oidcClockToleranceSeconds,
   }
@@ -420,18 +518,30 @@ async function oidcCallbackHandle(
   const nonceResult = await oidcResponseNonceResolve(tokenResponse)
   if (nonceResult.category !== "success") return oidcCallbackFailure(context, 400, nonceResult.category)
   const nonce = nonceResult.nonce
+  let tokenAuthorizationServer = authorizationServer
+  if (nonceResult.issuer !== undefined) {
+    const tokenIssuer = oidcIssuerCanonicalize(nonceResult.issuer)
+    if (!tokenIssuer.success || tokenIssuer.data !== providerIssuer.data)
+      return oidcCallbackFailure(context, 400, "id_token_claims")
+    tokenAuthorizationServer = { ...authorizationServer, issuer: nonceResult.issuer }
+  }
   try {
-    processedTokenResponse = await oauth.processAuthorizationCodeResponse(authorizationServer, client, tokenResponse, {
-      expectedNonce: nonce,
-      requireIdToken: true,
-    })
+    processedTokenResponse = await oauth.processAuthorizationCodeResponse(
+      tokenAuthorizationServer,
+      client,
+      tokenResponse,
+      {
+        expectedNonce: nonce,
+        requireIdToken: true,
+      },
+    )
   } catch (_error) {
     if (createHash("sha256").update(nonce).digest("hex") !== transaction.nonceHash)
       return oidcCallbackFailure(context, 400, "nonce_mismatch")
     return oidcCallbackFailure(context, 400, "id_token_parse")
   }
   try {
-    await oidcIdTokenSignatureValidate(authorizationServer, tokenResponse, options.providerFetch)
+    await oidcIdTokenSignatureValidate(tokenAuthorizationServer, tokenResponse, options.providerFetch)
   } catch (_error) {
     return oidcCallbackFailure(context, 400, "id_token_signature")
   }
@@ -441,7 +551,7 @@ async function oidcCallbackHandle(
     return oidcCallbackFailure(context, 400, "id_token_claims")
   }
   if (claims === undefined) return oidcCallbackFailure(context, 400, "id_token_claims")
-  if (!oidcIdTokenClaimsAreSafe(claims, provider.data.issuer, configuration.oidcClientId, now))
+  if (!oidcIdTokenClaimsAreSafe(claims, provider.data.issuer, selectedProvider.clientId, now))
     return oidcCallbackFailure(context, 400, "id_token_claims")
   if (
     createHash("sha256")
@@ -455,7 +565,7 @@ async function oidcCallbackHandle(
     )
 
   const resourceOwnerId = await oidcResourceOwnerIdResolve(
-    authorizationServer,
+    tokenAuthorizationServer,
     client,
     claims,
     processedTokenResponse,
@@ -463,7 +573,7 @@ async function oidcCallbackHandle(
   )
   if (!resourceOwnerId.success)
     return oidcCallbackFailure(context, 400, resourceOwnerId.callbackStage ?? "resource_owner_validation")
-  if (resourceOwnerId.data !== configuration.oidcOrganizationId)
+  if (resourceOwnerId.data !== selectedProvider.organizationId)
     return oidcCallbackFailure(context, 400, "resource_owner_validation")
 
   const identityUpsert = options.identityUpsert ?? oidcIdentityUpsert
@@ -476,7 +586,7 @@ async function oidcCallbackHandle(
     persisted = await oidcDatabaseTransactionRun(database, async (executor) => {
       const user = await identityUpsert(executor, {
         displayName: oidcProfileStringResolve(claims.name) ?? oidcProfileStringResolve(claims.preferred_username),
-        issuer: provider.data.issuer,
+        issuer: providerIssuer.data,
         organizationExternalId: resourceOwnerId.data,
         subject: claims.sub,
         ...(claims.email_verified === true && oidcProfileStringResolve(claims.email) !== undefined
@@ -569,10 +679,10 @@ function oidcCallbackStageLog(stage: OidcCallbackStage): void {
 
 function oidcClientAuthenticationResolve(
   supportedMethods: readonly string[] | undefined,
-  configuration: RuntimeConfiguration,
+  clientSecret: string | undefined,
 ): oauth.ClientAuth | undefined {
   const methods = new Set((supportedMethods ?? ["client_secret_basic"]).map((method) => method.toLowerCase()))
-  const secret = configuration.oidcClientSecret
+  const secret = clientSecret
   if (secret !== undefined && methods.has("client_secret_basic")) return oauth.ClientSecretBasic(secret)
   if (secret !== undefined && methods.has("client_secret_post")) return oauth.ClientSecretPost(secret)
   if (secret !== undefined && methods.has("client_secret_jwt")) return oauth.ClientSecretJwt(secret)
@@ -702,7 +812,7 @@ type OidcNonceExtractionFailureCategory =
   | "id_token_nonce_type"
 
 type OidcNonceExtractionResult =
-  | { category: "success"; nonce: string }
+  | { category: "success"; issuer?: string; nonce: string }
   | { category: OidcNonceExtractionFailureCategory }
 
 async function oidcResponseNonceResolve(response: Response): Promise<OidcNonceExtractionResult> {
@@ -732,14 +842,27 @@ function oidcUnverifiedNonceResolve(idToken: string): OidcNonceExtractionResult 
     if (!("nonce" in idTokenClaims) || idTokenClaims.nonce === undefined) return { category: "id_token_nonce_missing" }
     if (idTokenClaims.nonce === "") return { category: "id_token_nonce_empty" }
     if (typeof idTokenClaims.nonce !== "string") return { category: "id_token_nonce_type" }
-    return { category: "success", nonce: idTokenClaims.nonce }
+    return {
+      category: "success",
+      ...(typeof idTokenClaims.iss === "string" ? { issuer: idTokenClaims.iss } : {}),
+      nonce: idTokenClaims.nonce,
+    }
   } catch (_error) {
     return { category: "id_token_payload_json" }
   }
 }
 
 function oidcIdTokenClaimsAreSafe(claims: oauth.IDToken, issuer: string, clientId: string, now: Date): boolean {
-  if (claims.iss !== issuer || typeof claims.sub !== "string" || claims.sub.trim().length === 0) return false
+  const claimsIssuer = oidcIssuerCanonicalize(claims.iss)
+  const expectedIssuer = oidcIssuerCanonicalize(issuer)
+  if (
+    !claimsIssuer.success ||
+    !expectedIssuer.success ||
+    claimsIssuer.data !== expectedIssuer.data ||
+    typeof claims.sub !== "string" ||
+    claims.sub.trim().length === 0
+  )
+    return false
   const audience = Array.isArray(claims.aud) ? claims.aud : [claims.aud]
   if (!audience.includes(clientId)) return false
   if (audience.length > 1 && claims.azp !== clientId) return false

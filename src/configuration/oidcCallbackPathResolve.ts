@@ -1,4 +1,13 @@
-const callbackEnvironmentNames = ["OIDC_CALLBACK_URL", "OIDC_REDIRECT_URI", "ZITADEL_REDIRECT_URI"] as const
+const callbackEnvironmentNames = [
+  "OIDC_AUTHWORKS_CALLBACK_URL",
+  "OIDC_AUTHWORKS_REDIRECT_URI",
+  "OIDC_CALLBACK_URL",
+  "OIDC_REDIRECT_URI",
+  "OIDC_ZITADEL_CALLBACK_URL",
+  "OIDC_ZITADEL_REDIRECT_URI",
+  "ZITADEL_CALLBACK_URL",
+  "ZITADEL_REDIRECT_URI",
+] as const
 
 export function oidcCallbackPathResolve(environment: Readonly<Record<string, string | undefined>>): string | undefined {
   const configuredValues = callbackEnvironmentNames
