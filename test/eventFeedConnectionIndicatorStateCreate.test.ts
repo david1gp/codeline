@@ -2,6 +2,7 @@ import { expect, mock, test } from "bun:test"
 import { createRoot } from "solid-js/dist/solid.js"
 import { connectionStatusKind } from "../src/ui/connectionStatusKind.js"
 import { connectionStatusSource } from "../src/ui/connectionStatusSource.js"
+import { connectionStatusSummaryResolve } from "../src/ui/connectionStatusSummaryResolve.js"
 import { eventFeedConnectionIndicatorStateCreate } from "../src/ui/eventFeedConnectionIndicatorStateCreate.js"
 import type { PwaStatusView } from "../src/ui/pwa/pwaStatusView.js"
 import type { UiDataLayerStatus } from "../src/ui/uiDataLayerStatusSchema.js"
@@ -67,6 +68,34 @@ test("leaving offline clears the disconnected timestamp and re-entering it stamp
   events?.statusSet({ attempt: 1, lastEventId: null, status: "reconnecting" })
   expect(events?.disconnectedSince()).toBeUndefined()
   root.dispose()
+})
+
+test("the signed-in shell header renders the shared connection indicator", async () => {
+  const appSource = await Bun.file(new URL("../src/ui/App.tsx", import.meta.url)).text()
+
+  expect(appSource).toContain('import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator.js"')
+  expect(appSource).toContain("<ConnectionStatusIndicator state={props.state.connection} />")
+})
+
+test("a reconnecting feed is the summarised header indicator state", () => {
+  const events = {
+    disconnectedSince: () => undefined,
+    label: () => "Events reconnecting",
+    status: () => "reconnecting" as const,
+  }
+  const lines = appConnectionDetailsResolve({
+    events,
+    healthDisconnectedSince: () => undefined,
+    healthLabel: () => "API connected",
+    healthStatus: () => "connected",
+    pwa: pwaHealthy,
+  })
+
+  const summary = connectionStatusSummaryResolve(lines)
+
+  expect(summary.source).toBe(connectionStatusSource.events)
+  expect(summary.kind).toBe(connectionStatusKind.connecting)
+  expect(lines.find((line) => line.source === summary.source)?.label).toBe("Events reconnecting")
 })
 
 test("app connection details map feed statuses to indicator kinds in shell order", () => {

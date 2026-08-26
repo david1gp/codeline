@@ -62,7 +62,6 @@ test("PWA installation is Settings-only while update reload remains in the shell
   expect(appSource).toContain('<PwaStatusActions placement="shell"')
   expect(appSource).toContain('href="/settings"')
   expect(appSource).toContain("mdiCogOutline")
-  expect(appSource).not.toContain("ConnectionStatusIndicator")
   expect(appSource).not.toContain('placement="settings"')
   expect(pwaActionsSource).toContain('props.placement === "shell" && props.state.status() === "update-ready"')
   expect(pwaActionsSource).toContain("Reload to update")

@@ -104,6 +104,7 @@ export function eventFeedCoordinatorStateCreate(options: EventFeedCoordinatorOpt
   const noteDetail = new Set<EventFeedSelectedRegistration>()
   let resetRefreshPending = false
   let closed = false
+  let onlineRecovery: Promise<Result<void>> | undefined
 
   const selectedRegistrationsActive = (
     registrations: ReadonlySet<EventFeedSelectedRegistration>,
@@ -239,6 +240,32 @@ export function eventFeedCoordinatorStateCreate(options: EventFeedCoordinatorOpt
     feed.close()
   }
 
+  const onlineRecoveryRun = async (): Promise<Result<void>> => {
+    if (closed) return createResult(undefined)
+    feed.online()
+    const refreshed = await eventFeedRefreshCallbacksRun(
+      "eventFeedCoordinatorOnlineRecovery",
+      resetRefreshCallbacksResolve(),
+    )
+    if (!refreshed.success) {
+      options.onError?.(refreshed)
+      return refreshed
+    }
+    if (closed) return createResult(undefined)
+    return feed.retryReconciliation()
+  }
+
+  const online = (): Promise<Result<void>> => {
+    if (closed) return Promise.resolve(createResult(undefined))
+    if (onlineRecovery !== undefined) return onlineRecovery
+    const recovery = onlineRecoveryRun()
+    onlineRecovery = recovery
+    void recovery.then(() => {
+      if (onlineRecovery === recovery) onlineRecovery = undefined
+    })
+    return recovery
+  }
+
   const registerSessionList = (refresh: EventFeedRefreshCallback): (() => void) => {
     if (closed) return () => undefined
     sessionList.add(refresh)
@@ -340,7 +367,7 @@ export function eventFeedCoordinatorStateCreate(options: EventFeedCoordinatorOpt
     getState: feed.getState,
     getUrl: feed.getUrl,
     offline: feed.offline,
-    online: feed.online,
+    online,
     retryReconciliation: feed.retryReconciliation,
     get state() {
       return feed.state

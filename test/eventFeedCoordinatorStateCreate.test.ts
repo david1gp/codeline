@@ -161,6 +161,67 @@ test("forwards transport status changes to the tab connection indicator", () => 
   expect(statuses.at(-1)).toBe("offline")
 })
 
+test("reopens the feed and refreshes registered state once when connectivity returns", async () => {
+  const calls: string[] = []
+  let releaseSessionRefresh: (() => void) | undefined
+  const sessionRefresh = new Promise<void>((resolve) => {
+    releaseSessionRefresh = resolve
+  })
+  const { coordinator, source, sources } = coordinatorCreate()
+  coordinator.registerSessionList(async () => {
+    calls.push("session-list")
+    await sessionRefresh
+  })
+  coordinator.registerSelectedSession({
+    sessionId: "session-1",
+    refresh: () => {
+      calls.push("session")
+    },
+  })
+  coordinator.registerSelectedMessages({
+    sessionId: "session-1",
+    refresh: () => {
+      calls.push("messages")
+    },
+  })
+  coordinator.registerSelectedDelegations({
+    sessionId: "session-1",
+    refresh: () => {
+      calls.push("delegations")
+    },
+  })
+  coordinator.registerSelectedStream({
+    sessionId: "session-1",
+    refresh: () => {
+      calls.push("stream")
+    },
+  })
+  coordinator.registerNoteList(() => {
+    calls.push("note-list")
+  })
+  coordinator.registerNoteDetail({
+    noteId: "note-1",
+    refresh: () => {
+      calls.push("note-detail")
+    },
+  })
+
+  source.open()
+  coordinator.offline()
+  const firstRecovery = coordinator.online()
+  const secondRecovery = coordinator.online()
+
+  expect(secondRecovery).toBe(firstRecovery)
+  expect(sources).toHaveLength(2)
+  expect(sources[1]?.url).toBe("/api/events?after=cursor-0")
+  expect(calls).toEqual(["session-list"])
+
+  releaseSessionRefresh?.()
+  expect(await firstRecovery).toMatchObject({ success: true })
+  expect(calls).toEqual(["session-list", "session", "messages", "delegations", "stream", "note-list", "note-detail"])
+  coordinator.close()
+})
+
 test("enforces one owner for a tab registry and releases it through cleanup", () => {
   const first = coordinatorCreate()
   expect(() => coordinatorCreate()).toThrow()

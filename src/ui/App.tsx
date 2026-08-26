@@ -12,9 +12,10 @@ import { applicationShellContext } from "./applicationShellContext.js"
 import type { applicationShellStateCreate } from "./applicationShellStateCreate.js"
 import { appShellContext } from "./appShellContext.js"
 import type { AppShellView } from "./appShellView.js"
+import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator.js"
+import { primaryNavigationStateCreate } from "./primaryNavigationStateCreate.js"
 import { PwaStatusActions } from "./pwa/PwaStatusActions.js"
 import { pwaStatusContext } from "./pwa/pwaStatusContext.js"
-import { primaryNavigationStateCreate } from "./primaryNavigationStateCreate.js"
 import { sessionDrawerContext } from "./sessionDrawerContext.js"
 
 export function App(props: {
@@ -87,6 +88,7 @@ export function App(props: {
               >
                 <Icon path={mdiCogOutline} class="size-4 fill-current dark:fill-current" />
               </A>
+              <ConnectionStatusIndicator state={props.state.connection} />
               <PwaStatusActions placement="shell" state={props.state.pwa} />
               <Show when={props.applicationShell?.rightPanelAvailable() ? props.applicationShell : undefined}>
                 {(shell) => (
