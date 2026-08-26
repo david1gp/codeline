@@ -1,4 +1,4 @@
-import { createResult, createResultError, type Result } from "@adaptive-ds/result"
+import { createResult, type Result } from "@adaptive-ds/result"
 import { and, asc, eq, inArray } from "drizzle-orm"
 import * as v from "valibot"
 import type { DatabaseClient } from "../../database/databaseClient.js"
@@ -6,6 +6,8 @@ import { databaseReadTransactionRun } from "../../database/databaseReadTransacti
 import { serverTable } from "../../servers/db/serverTable.js"
 import { sessionTable } from "../../session/db/sessionTable.js"
 import { type RunActiveListResponse, runActiveListResponseSchema } from "../api/runActiveListResponseSchema.js"
+import { runErrorCodes } from "../errors/runErrorCodes.js"
+import { runResultCreateError } from "../errors/runResultCreateError.js"
 import { runTable } from "./runTable.js"
 
 const runActiveStatuses = ["accepted", "running"] as const
@@ -22,8 +24,9 @@ export async function runRepositoryActiveListLoad(
 ): Promise<Result<RunActiveListResponse>> {
   const op = "runRepositoryActiveListLoad"
   if (userId.trim().length === 0 || organizationId.trim().length === 0)
-    return createResultError(op, "The authenticated run scope is required.")
-  if (sessionId.trim().length === 0) return createResultError(op, "The session identifier is required.")
+    return runResultCreateError(op, "The authenticated run scope is required.", runErrorCodes.scopeRequired)
+  if (sessionId.trim().length === 0)
+    return runResultCreateError(op, "The session identifier is required.", runErrorCodes.sessionIdRequired)
 
   const loaded = await databaseReadTransactionRun(database, async (transaction) => {
     const [session] = await transaction
@@ -35,7 +38,8 @@ export async function runRepositoryActiveListLoad(
       )
       .where(and(eq(sessionTable.id, sessionId), eq(sessionTable.userId, userId)))
       .limit(1)
-    if (session === undefined) return createResultError(op, "The session could not be found.")
+    if (session === undefined)
+      return runResultCreateError(op, "The session could not be found.", runErrorCodes.sessionNotFound)
 
     const rows = await transaction
       .select({ id: runTable.id, status: runTable.status })
@@ -52,9 +56,10 @@ export async function runRepositoryActiveListLoad(
     const response = v.safeParse(runActiveListResponseSchema, {
       runs: rows.map((row) => ({ runId: row.id, status: row.status })),
     })
-    if (!response.success) return createResultError(op, "The active run list is invalid.")
+    if (!response.success)
+      return runResultCreateError(op, "The active run list is invalid.", runErrorCodes.activeListInvalid)
     return createResult(response.output)
   })
-  if (!loaded.success) return createResultError(op, loaded.errorMessage)
+  if (!loaded.success) return loaded
   return loaded
 }

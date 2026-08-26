@@ -1,9 +1,11 @@
-import { createResult, createResultError, type Result } from "@adaptive-ds/result"
+import { createResult, type Result } from "@adaptive-ds/result"
 import { and, desc, eq, isNull } from "drizzle-orm"
 import * as v from "valibot"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { databaseExecutorTransactionRun } from "../../database/databaseExecutorTransactionRun.js"
 import { sessionTable } from "../../session/db/sessionTable.js"
+import { runErrorCodes } from "../errors/runErrorCodes.js"
+import { runResultCreateError } from "../errors/runResultCreateError.js"
 import { type RunDelegationResult, runDelegationResultSchema } from "../schema/runDelegationResultSchema.js"
 import { attemptTable } from "./attemptTable.js"
 import { runDelegationTable } from "./runDelegationTable.js"
@@ -48,7 +50,8 @@ export async function runRepositoryDelegationFinalize(
 ): Promise<Result<RunDelegationFinalizeResult>> {
   const op = "runRepositoryDelegationFinalize"
   const parsedInput = v.safeParse(runDelegationResultSchema, input)
-  if (!parsedInput.success) return createResultError(op, "The delegation result is invalid.")
+  if (!parsedInput.success)
+    return runResultCreateError(op, "The delegation result is invalid.", runErrorCodes.delegationInvalid)
 
   return databaseExecutorTransactionRun<RunDelegationFinalizeResult>(database, async (transaction) => {
     try {
@@ -57,7 +60,8 @@ export async function runRepositoryDelegationFinalize(
         .from(sessionTable)
         .where(and(eq(sessionTable.id, sessionId), eq(sessionTable.userId, userId)))
         .limit(1)
-      if (session === undefined) return createResultError(op, "The session could not be found.")
+      if (session === undefined)
+        return runResultCreateError(op, "The session could not be found.", runErrorCodes.sessionNotFound)
 
       const [delegation] = await transaction
         .select()
@@ -70,7 +74,8 @@ export async function runRepositoryDelegationFinalize(
           ),
         )
         .limit(1)
-      if (delegation === undefined) return createResultError(op, "The delegation could not be found.")
+      if (delegation === undefined)
+        return runResultCreateError(op, "The delegation could not be found.", runErrorCodes.delegationNotFound)
 
       const [run] = await transaction
         .select()
@@ -79,7 +84,12 @@ export async function runRepositoryDelegationFinalize(
           and(eq(runTable.id, delegation.childRunId), eq(runTable.sessionId, sessionId), eq(runTable.userId, userId)),
         )
         .limit(1)
-      if (run === undefined) return createResultError(op, "The delegated child run could not be found.")
+      if (run === undefined)
+        return runResultCreateError(
+          op,
+          "The delegated child run could not be found.",
+          runErrorCodes.delegatedChildNotFound,
+        )
 
       const [attempt] = await transaction
         .select()
@@ -89,12 +99,21 @@ export async function runRepositoryDelegationFinalize(
         )
         .orderBy(desc(attemptTable.ordinal))
         .limit(1)
-      if (attempt === undefined) return createResultError(op, "The delegated child attempt could not be found.")
+      if (attempt === undefined)
+        return runResultCreateError(
+          op,
+          "The delegated child attempt could not be found.",
+          runErrorCodes.delegatedChildAttemptNotFound,
+        )
       if (delegation.childRunId !== run.id || attempt.runId !== run.id) {
-        return createResultError(op, "The delegation ownership is inconsistent.")
+        return runResultCreateError(op, "The delegation ownership is inconsistent.", runErrorCodes.stateInconsistent)
       }
       if (run.status !== attempt.status || jsonCanonicalize(run.failure) !== jsonCanonicalize(attempt.failure)) {
-        return createResultError(op, "The child run and current attempt are inconsistent.")
+        return runResultCreateError(
+          op,
+          "The child run and current attempt are inconsistent.",
+          runErrorCodes.stateInconsistent,
+        )
       }
 
       const result = parsedInput.output
@@ -103,23 +122,39 @@ export async function runRepositoryDelegationFinalize(
         run.status !== "accepted" &&
         jsonCanonicalize(run.failure) !== jsonCanonicalize(resultFailureResolve(result))
       ) {
-        return createResultError(op, "The terminal child failure metadata cannot be overwritten.")
+        return runResultCreateError(
+          op,
+          "The terminal child failure metadata cannot be overwritten.",
+          runErrorCodes.failureMetadataImmutable,
+        )
       }
       if (delegation.finalizedResult !== null) {
         if (!resultMatches(delegation.finalizedResult, result)) {
-          return createResultError(op, "The finalized delegation result cannot be overwritten.")
+          return runResultCreateError(
+            op,
+            "The finalized delegation result cannot be overwritten.",
+            runErrorCodes.delegationFinalizationConflict,
+          )
         }
         if (
           run.status !== result.status ||
           jsonCanonicalize(run.failure) !== jsonCanonicalize(resultFailureResolve(result))
         ) {
-          return createResultError(op, "The finalized delegation lifecycle is inconsistent.")
+          return runResultCreateError(
+            op,
+            "The finalized delegation lifecycle is inconsistent.",
+            runErrorCodes.stateInconsistent,
+          )
         }
         return createResult({ attempt, changed: false, delegation, run })
       }
 
       if (!lifecycleAllowsFinalization(run.status, result.status)) {
-        return createResultError(op, "The child run lifecycle does not allow delegation finalization.")
+        return runResultCreateError(
+          op,
+          "The child run lifecycle does not allow delegation finalization.",
+          runErrorCodes.delegationFinalizationConflict,
+        )
       }
 
       const now = new Date()
@@ -134,7 +169,12 @@ export async function runRepositoryDelegationFinalize(
         })
         .where(and(eq(runTable.id, run.id), eq(runTable.status, run.status)))
         .returning()
-      if (updatedRun === undefined) return createResultError(op, "The delegated child run could not be finalized.")
+      if (updatedRun === undefined)
+        return runResultCreateError(
+          op,
+          "The delegated child run could not be finalized.",
+          runErrorCodes.transitionFailed,
+        )
 
       const [updatedAttempt] = await transaction
         .update(attemptTable)
@@ -147,18 +187,23 @@ export async function runRepositoryDelegationFinalize(
         .where(and(eq(attemptTable.id, attempt.id), eq(attemptTable.status, attempt.status)))
         .returning()
       if (updatedAttempt === undefined)
-        return createResultError(op, "The delegated child attempt could not be finalized.")
+        return runResultCreateError(
+          op,
+          "The delegated child attempt could not be finalized.",
+          runErrorCodes.attemptPersistenceFailed,
+        )
 
       const [updatedDelegation] = await transaction
         .update(runDelegationTable)
         .set({ finalizedResult: result, updatedAt: now })
         .where(and(eq(runDelegationTable.id, delegation.id), isNull(runDelegationTable.finalizedResult)))
         .returning()
-      if (updatedDelegation === undefined) return createResultError(op, "The delegation result could not be finalized.")
+      if (updatedDelegation === undefined)
+        return runResultCreateError(op, "The delegation result could not be finalized.", runErrorCodes.transitionFailed)
 
       return createResult({ attempt: updatedAttempt, changed: true, delegation: updatedDelegation, run: updatedRun })
     } catch (_error) {
-      return createResultError(op, "The delegation result could not be persisted.")
+      return runResultCreateError(op, "The delegation result could not be persisted.", runErrorCodes.persistFailed)
     }
   })
 }

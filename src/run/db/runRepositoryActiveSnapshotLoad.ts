@@ -1,4 +1,4 @@
-import { createResult, createResultError, type Result } from "@adaptive-ds/result"
+import { createResult, type Result } from "@adaptive-ds/result"
 import { and, asc, eq } from "drizzle-orm"
 import * as v from "valibot"
 import type { DatabaseClient } from "../../database/databaseClient.js"
@@ -11,6 +11,8 @@ import {
   type RunActiveSnapshotResponse,
   runActiveSnapshotResponseSchema,
 } from "../api/runActiveSnapshotResponseSchema.js"
+import { runErrorCodes } from "../errors/runErrorCodes.js"
+import { runResultCreateError } from "../errors/runResultCreateError.js"
 import { runTable } from "./runTable.js"
 
 type RunActiveSnapshotCursorEncode = (journalId: unknown, sequence: unknown) => Result<string>
@@ -25,9 +27,9 @@ export async function runRepositoryActiveSnapshotLoad(
 ): Promise<Result<RunActiveSnapshotResponse>> {
   const op = "runRepositoryActiveSnapshotLoad"
   if (userId.trim().length === 0 || organizationId.trim().length === 0)
-    return createResultError(op, "The authenticated run scope is required.")
+    return runResultCreateError(op, "The authenticated run scope is required.", runErrorCodes.scopeRequired)
   if (sessionId.trim().length === 0 || runId.trim().length === 0)
-    return createResultError(op, "The session and run identifiers are required.")
+    return runResultCreateError(op, "The session and run identifiers are required.", runErrorCodes.identifiersRequired)
 
   const loaded = await databaseReadTransactionRun(database, async (transaction) => {
     const [run] = await transaction
@@ -40,10 +42,10 @@ export async function runRepositoryActiveSnapshotLoad(
       )
       .where(and(eq(runTable.id, runId), eq(runTable.sessionId, sessionId), eq(runTable.userId, userId)))
       .limit(1)
-    if (run === undefined) return createResultError(op, "The run could not be found.")
+    if (run === undefined) return runResultCreateError(op, "The run could not be found.", runErrorCodes.notFound)
 
     const status = v.safeParse(runActiveSnapshotResponseSchema.entries.status, run.status)
-    if (!status.success) return createResultError(op, "The run status is invalid.")
+    if (!status.success) return runResultCreateError(op, "The run status is invalid.", runErrorCodes.statusInvalid)
 
     const deltas = await transaction
       .select({ payload: journalEventTable.payload, sequence: journalEventTable.sequence })
@@ -62,7 +64,7 @@ export async function runRepositoryActiveSnapshotLoad(
     for (const delta of deltas) {
       const parsed = v.safeParse(streamProducerDeltaSchema, delta.payload)
       if (!parsed.success || parsed.output.runId !== run.id || parsed.output.sessionId !== sessionId)
-        return createResultError(op, "The persisted run delta is invalid.")
+        return runResultCreateError(op, "The persisted run delta is invalid.", runErrorCodes.persistedDeltaInvalid)
       lastSequence = delta.sequence
       if (parsed.output.deltaKind === "text") partialText += parsed.output.delta
     }
@@ -70,7 +72,7 @@ export async function runRepositoryActiveSnapshotLoad(
     let lastCursor: string | null = null
     if (lastSequence > 0 && dependencies.cursorEncode !== undefined) {
       const encoded = dependencies.cursorEncode(userId, lastSequence)
-      if (!encoded.success) return createResultError(op, "The active run cursor could not be encoded.")
+      if (!encoded.success) return encoded
       lastCursor = encoded.data
     }
 
@@ -80,9 +82,10 @@ export async function runRepositoryActiveSnapshotLoad(
       partialText,
       status: status.output,
     })
-    if (!response.success) return createResultError(op, "The active run snapshot is invalid.")
+    if (!response.success)
+      return runResultCreateError(op, "The active run snapshot is invalid.", runErrorCodes.activeSnapshotInvalid)
     return createResult(response.output)
   })
-  if (!loaded.success) return createResultError(op, loaded.errorMessage)
+  if (!loaded.success) return loaded
   return loaded
 }

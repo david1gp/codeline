@@ -1,10 +1,12 @@
-import { createResult, createResultError, type Result } from "@adaptive-ds/result"
+import { createResult, type Result } from "@adaptive-ds/result"
 import { and, desc, eq } from "drizzle-orm"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { databaseExecutorTransactionRun } from "../../database/databaseExecutorTransactionRun.js"
 import { sessionTable } from "../../session/db/sessionTable.js"
 import { uuidv7 } from "../../uuid/uuidv7.js"
 import { runRetryAdmissionResolve } from "../actions/runRetryAdmissionResolve.js"
+import { runErrorCodes } from "../errors/runErrorCodes.js"
+import { runResultCreateError } from "../errors/runResultCreateError.js"
 import type { RunRetryAdmission } from "../schema/runRetryAdmissionSchema.js"
 import { attemptTable } from "./attemptTable.js"
 import { runTable } from "./runTable.js"
@@ -49,14 +51,15 @@ export async function runRepositoryRetryAttemptCreate(
         .from(sessionTable)
         .where(and(eq(sessionTable.id, sessionId), eq(sessionTable.userId, userId)))
         .limit(1)
-      if (session === undefined) return createResultError(op, "The session could not be found.")
+      if (session === undefined)
+        return runResultCreateError(op, "The session could not be found.", runErrorCodes.sessionNotFound)
 
       const [run] = await transaction
         .select()
         .from(runTable)
         .where(and(eq(runTable.id, runId), eq(runTable.sessionId, sessionId), eq(runTable.userId, userId)))
         .limit(1)
-      if (run === undefined) return createResultError(op, "The run could not be found.")
+      if (run === undefined) return runResultCreateError(op, "The run could not be found.", runErrorCodes.notFound)
 
       const [latestAttempt] = await transaction
         .select()
@@ -66,15 +69,20 @@ export async function runRepositoryRetryAttemptCreate(
         )
         .orderBy(desc(attemptTable.ordinal))
         .limit(1)
-      if (latestAttempt === undefined) return createResultError(op, "The latest run attempt could not be loaded.")
+      if (latestAttempt === undefined)
+        return runResultCreateError(op, "The latest run attempt could not be loaded.", runErrorCodes.attemptNotFound)
       if (latestAttempt.sessionId !== sessionId || latestAttempt.userId !== userId) {
-        return createResultError(op, "The run attempt ownership is inconsistent.")
+        return runResultCreateError(op, "The run attempt ownership is inconsistent.", runErrorCodes.stateInconsistent)
       }
       if (
         run.status !== latestAttempt.status ||
         jsonCanonicalize(run.failure) !== jsonCanonicalize(latestAttempt.failure)
       ) {
-        return createResultError(op, "The run and latest attempt statuses are inconsistent.")
+        return runResultCreateError(
+          op,
+          "The run and latest attempt statuses are inconsistent.",
+          runErrorCodes.stateInconsistent,
+        )
       }
 
       if (run.status === "accepted" && latestAttempt.ordinal > 1) {
@@ -83,13 +91,17 @@ export async function runRepositoryRetryAttemptCreate(
           jsonCanonicalize(run.budget) !== jsonCanonicalize(latestAttempt.budget) ||
           latestAttempt.streamId !== runRetryAttemptStreamIdCreate(run.id, latestAttempt.ordinal)
         ) {
-          return createResultError(op, "The existing retry attempt is inconsistent with the run.")
+          return runResultCreateError(
+            op,
+            "The existing retry attempt is inconsistent with the run.",
+            runErrorCodes.retryAttemptInconsistent,
+          )
         }
         return createResult({ admission: null, attempt: latestAttempt, created: false, run })
       }
 
       if (latestAttempt.status !== "failed" || latestAttempt.failure === null) {
-        return createResultError(op, "The run retry was not admitted.")
+        return runResultCreateError(op, "The run retry was not admitted.", runErrorCodes.retryNotAdmitted)
       }
       const admission = runRetryAdmissionResolve({
         attemptOrdinal: latestAttempt.ordinal,
@@ -97,18 +109,27 @@ export async function runRepositoryRetryAttemptCreate(
         budget: run.budget,
         failure: latestAttempt.failure,
       })
-      if (!admission.success) return createResultError(op, admission.errorMessage)
+      if (!admission.success) return admission
       if (admission.data.decision !== "retry" || admission.data.nextAttemptOrdinal === null) {
-        return createResultError(op, `The run retry was not admitted: ${admission.data.reason}.`)
+        return runResultCreateError(
+          op,
+          `The run retry was not admitted: ${admission.data.reason}.`,
+          runErrorCodes.retryNotAdmitted,
+        )
       }
 
       if (run.cancellationRequestedAt !== null) {
-        return createResultError(op, "The run retry was not admitted: cancelled.")
+        return runResultCreateError(op, "The run retry was not admitted: cancelled.", runErrorCodes.retryNotAdmitted)
       }
       const now = options.now?.() ?? new Date()
-      if (Number.isNaN(now.getTime())) return createResultError(op, "The retry clock is invalid.")
+      if (Number.isNaN(now.getTime()))
+        return runResultCreateError(op, "The retry clock is invalid.", runErrorCodes.clockInvalid)
       if (now.getTime() >= run.deadlineAt.getTime()) {
-        return createResultError(op, "The run retry was not admitted: deadline_exceeded.")
+        return runResultCreateError(
+          op,
+          "The run retry was not admitted: deadline_exceeded.",
+          runErrorCodes.retryNotAdmitted,
+        )
       }
 
       const nextAttemptOrdinal = admission.data.nextAttemptOrdinal
@@ -126,7 +147,12 @@ export async function runRepositoryRetryAttemptCreate(
           userId,
         })
         .returning()
-      if (attempt === undefined) return createResultError(op, "The next run attempt could not be created.")
+      if (attempt === undefined)
+        return runResultCreateError(
+          op,
+          "The next run attempt could not be created.",
+          runErrorCodes.retryAttemptPersistenceFailed,
+        )
 
       const [updatedRun] = await transaction
         .update(runTable)
@@ -139,11 +165,16 @@ export async function runRepositoryRetryAttemptCreate(
         })
         .where(and(eq(runTable.id, run.id), eq(runTable.status, "failed")))
         .returning()
-      if (updatedRun === undefined) return createResultError(op, "The run could not be reopened for retry.")
+      if (updatedRun === undefined)
+        return runResultCreateError(op, "The run could not be reopened for retry.", runErrorCodes.retryReopenFailed)
 
       return createResult({ admission: admission.data, attempt, created: true, run: updatedRun })
     } catch (_error) {
-      return createResultError(op, "The next run attempt could not be persisted.")
+      return runResultCreateError(
+        op,
+        "The next run attempt could not be persisted.",
+        runErrorCodes.retryAttemptPersistenceFailed,
+      )
     }
   })
 }

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { createResult, createResultError } from "@adaptive-ds/result"
+import { createResult, createResultErrorCode } from "@adaptive-ds/result"
 import { Hono } from "hono"
 import type { AppEnvironment } from "../src/api/appEnvironment.js"
 import { runActiveRegistryCreate } from "../src/run/actions/runActiveRegistryCreate.js"
@@ -7,6 +7,7 @@ import { runCancel } from "../src/run/actions/runCancel.js"
 import { runDelegationsLoad } from "../src/run/actions/runDelegationsLoad.js"
 import { apiRunRoutesAdd } from "../src/run/api/apiRunRoutesAdd.js"
 import type { runTable } from "../src/run/db/runTable.js"
+import { runErrorCodes } from "../src/run/errors/runErrorCodes.js"
 
 test("run cancellation route passes the authenticated session scope and exact durable IDs to the active registry", async () => {
   const app = new Hono<AppEnvironment>()
@@ -211,10 +212,28 @@ test("delegation read route masks an unauthorized session as not found", async (
   })
 
   apiRunRoutesAdd(app, {
-    runDelegationsLoad: async () => createResultError("runDelegationsLoad", "The session could not be found."),
+    runDelegationsLoad: async () => {
+      const result = createResultErrorCode(
+        "runDelegationsLoad",
+        "The session lookup returned no visible resource.",
+        runErrorCodes.sessionNotFound,
+      )
+      result.errorData = JSON.stringify({ sessionId: "session-1" })
+      return result
+    },
   })
 
   const response = await app.request("http://codeline.test/sessions/session-1/delegations")
 
   expect(response.status).toBe(404)
+  expect(await response.json()).toMatchObject({
+    error: {
+      code: runErrorCodes.sessionNotFound,
+      details: { sessionId: "session-1" },
+      message: "The session lookup returned no visible resource.",
+      op: "runDelegationsLoad",
+      retryable: false,
+      status: 404,
+    },
+  })
 })

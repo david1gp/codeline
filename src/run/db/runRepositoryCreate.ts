@@ -1,10 +1,12 @@
-import { createResult, createResultError, type Result } from "@adaptive-ds/result"
+import { createResult, type Result } from "@adaptive-ds/result"
 import { and, desc, eq } from "drizzle-orm"
 import * as v from "valibot"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { databaseExecutorTransactionRun } from "../../database/databaseExecutorTransactionRun.js"
 import { sessionTable } from "../../session/db/sessionTable.js"
 import { uuidv7 } from "../../uuid/uuidv7.js"
+import { runErrorCodes } from "../errors/runErrorCodes.js"
+import { runResultCreateError } from "../errors/runResultCreateError.js"
 import { runBudgetSchema } from "../schema/runBudgetSchema.js"
 import { type RunCreateInput, runCreateInputSchema } from "../schema/runCreateInputSchema.js"
 import { attemptTable } from "./attemptTable.js"
@@ -44,9 +46,10 @@ export async function runRepositoryCreate(
 ): Promise<Result<RunCreateResult>> {
   const op = "runRepositoryCreate"
   const parsedInput = v.safeParse(runCreateInputSchema, input)
-  if (!parsedInput.success) return createResultError(op, "The run creation input is invalid.")
+  if (!parsedInput.success)
+    return runResultCreateError(op, "The run creation input is invalid.", runErrorCodes.invalidInput)
   const parsedBudget = v.safeParse(runBudgetSchema, parsedInput.output.budget ?? {})
-  if (!parsedBudget.success) return createResultError(op, "The run budget is invalid.")
+  if (!parsedBudget.success) return runResultCreateError(op, "The run budget is invalid.", runErrorCodes.invalidInput)
   const createdAt = new Date()
   const deadlineAt = new Date(createdAt.getTime() + parsedBudget.output.maxDurationMs)
 
@@ -57,12 +60,17 @@ export async function runRepositoryCreate(
         .from(sessionTable)
         .where(and(eq(sessionTable.id, sessionId), eq(sessionTable.userId, userId)))
         .limit(1)
-      if (session === undefined) return createResultError(op, "The session could not be found.")
+      if (session === undefined)
+        return runResultCreateError(op, "The session could not be found.", runErrorCodes.sessionNotFound)
       if (
         session.serverId !== parsedInput.output.snapshot.target.serverId ||
         session.primaryAgentId !== parsedInput.output.snapshot.target.agentId
       ) {
-        return createResultError(op, "The run snapshot target does not match the session target.")
+        return runResultCreateError(
+          op,
+          "The run snapshot target does not match the session target.",
+          runErrorCodes.snapshotTargetMismatch,
+        )
       }
 
       const [existing] = await transaction
@@ -72,7 +80,11 @@ export async function runRepositoryCreate(
         .limit(1)
       if (existing !== undefined) {
         if (!runImmutableInputMatches(existing, { ...parsedInput.output, budget: parsedBudget.output })) {
-          return createResultError(op, "The client run ID conflicts with different immutable run input.")
+          return runResultCreateError(
+            op,
+            "The client run ID conflicts with different immutable run input.",
+            runErrorCodes.clientRunIdConflict,
+          )
         }
         const [attempt] = await transaction
           .select()
@@ -86,7 +98,8 @@ export async function runRepositoryCreate(
           )
           .orderBy(desc(attemptTable.ordinal))
           .limit(1)
-        if (attempt === undefined) return createResultError(op, "The run attempt could not be loaded.")
+        if (attempt === undefined)
+          return runResultCreateError(op, "The run attempt could not be loaded.", runErrorCodes.attemptNotFound)
         return createResult<RunCreateResult>({ created: false, run: existing, attempt })
       }
 
@@ -106,7 +119,8 @@ export async function runRepositoryCreate(
           userId,
         })
         .returning()
-      if (run === undefined) return createResultError(op, "The run could not be created.")
+      if (run === undefined)
+        return runResultCreateError(op, "The run could not be created.", runErrorCodes.createFailed)
 
       const [attempt] = await transaction
         .insert(attemptTable)
@@ -122,10 +136,15 @@ export async function runRepositoryCreate(
           userId,
         })
         .returning()
-      if (attempt === undefined) return createResultError(op, "The initial run attempt could not be created.")
+      if (attempt === undefined)
+        return runResultCreateError(
+          op,
+          "The initial run attempt could not be created.",
+          runErrorCodes.attemptPersistenceFailed,
+        )
       return createResult<RunCreateResult>({ created: true, run, attempt })
     } catch (_error) {
-      return createResultError(op, "The run could not be created.")
+      return runResultCreateError(op, "The run could not be created.", runErrorCodes.createFailed)
     }
   })
 }

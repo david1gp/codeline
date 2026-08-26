@@ -1,10 +1,12 @@
-import { createResult, createResultError, type Result } from "@adaptive-ds/result"
+import { createResult, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
 import type { ExecutionStreamEvent } from "../../stream/schema/executionStreamEventSchema.js"
 import { executionStreamEventSchema } from "../../stream/schema/executionStreamEventSchema.js"
 import { attemptTable } from "../db/attemptTable.js"
 import { runDelegationTable } from "../db/runDelegationTable.js"
 import { runTable } from "../db/runTable.js"
+import { runErrorCodes } from "../errors/runErrorCodes.js"
+import { runResultCreateError } from "../errors/runResultCreateError.js"
 import { type RunChildCreateInput, runChildCreateInputSchema } from "../schema/runChildCreateInputSchema.js"
 import { type RunDelegationResult, runDelegationResultSchema } from "../schema/runDelegationResultSchema.js"
 import type { RunExecutionSnapshot } from "../schema/runExecutionSnapshotSchema.js"
@@ -100,7 +102,8 @@ function runDelegationResultCreate(
   const op = "runDelegationExecute"
   const candidate = failure === undefined ? { status, text } : { failure, status, text }
   const parsed = v.safeParse(runDelegationResultSchema, candidate)
-  if (!parsed.success) return createResultError(op, "The delegated child result is invalid.")
+  if (!parsed.success)
+    return runResultCreateError(op, "The delegated child result is invalid.", runErrorCodes.delegationInvalid)
   return createResult(parsed.output)
 }
 
@@ -108,15 +111,22 @@ function runDelegationFinalizedResultResolve(
   delegation: typeof runDelegationTable.$inferSelect,
 ): Result<RunDelegationResult> {
   const op = "runDelegationExecute"
-  if (delegation.finalizedResult === null) return createResultError(op, "The delegated child result is not finalized.")
+  if (delegation.finalizedResult === null)
+    return runResultCreateError(op, "The delegated child result is not finalized.", runErrorCodes.terminalResultMissing)
   const finalized = v.safeParse(runDelegationResultSchema, delegation.finalizedResult)
-  if (!finalized.success) return createResultError(op, "The finalized delegation result is invalid.")
+  if (!finalized.success)
+    return runResultCreateError(op, "The finalized delegation result is invalid.", runErrorCodes.delegationInvalid)
   return createResult(finalized.output)
 }
 
 function runDelegationNowResolve(options: RunDelegationExecuteOptions): Result<Date> {
   const now = options.now?.() ?? new Date()
-  if (Number.isNaN(now.getTime())) return createResultError("runDelegationExecute", "The delegation clock is invalid.")
+  if (Number.isNaN(now.getTime()))
+    return runResultCreateError(
+      "runDelegationExecute",
+      "The delegation clock is invalid.",
+      runErrorCodes.delegationClockInvalid,
+    )
   return createResult(now)
 }
 
@@ -222,7 +232,8 @@ async function runDelegationAttemptExecute(
         "provider_failed",
         error instanceof Error ? error.message : "The delegated child attempt failed.",
       )
-      if (!(await terminalAppend("error", failure))) return createResultError(op, failure.message)
+      if (!(await terminalAppend("error", failure)))
+        return runResultCreateError(op, failure.message, runErrorCodes.providerOutputPersistFailed)
       outcome = { failure, status: "failed", text }
     }
 
@@ -233,7 +244,8 @@ async function runDelegationAttemptExecute(
         if (!aborted.success) return aborted
         if (aborted.data !== null) {
           const failure = runDelegationAbortFailureCreate(aborted.data)
-          if (!(await terminalAppend("aborted", failure))) return createResultError(op, failure.message)
+          if (!(await terminalAppend("aborted", failure)))
+            return runResultCreateError(op, failure.message, runErrorCodes.providerOutputPersistFailed)
           outcome = { failure, status: "aborted", text }
           break
         }
@@ -244,7 +256,8 @@ async function runDelegationAttemptExecute(
           if (!kind.success) return kind
           const abortKind = kind.data ?? "cancelled"
           const failure = runDelegationAbortFailureCreate(abortKind)
-          if (!(await terminalAppend("aborted", failure))) return createResultError(op, failure.message)
+          if (!(await terminalAppend("aborted", failure)))
+            return runResultCreateError(op, failure.message, runErrorCodes.providerOutputPersistFailed)
           outcome = { failure, status: "aborted", text }
           break
         }
@@ -256,11 +269,17 @@ async function runDelegationAttemptExecute(
             "child_event_invalid",
             "The child attempt emitted an invalid event.",
           )
-          if (!(await terminalAppend("error", failure))) return createResultError(op, failure.message)
+          if (!(await terminalAppend("error", failure)))
+            return runResultCreateError(op, failure.message, runErrorCodes.providerOutputPersistFailed)
           outcome = { failure, status: "failed", text }
           break
         }
-        if (!(await append(parsedEvent.output))) return createResultError(op, "The child event could not be persisted.")
+        if (!(await append(parsedEvent.output)))
+          return runResultCreateError(
+            op,
+            "The child event could not be persisted.",
+            runErrorCodes.providerOutputPersistFailed,
+          )
 
         if (parsedEvent.output.eventType !== "terminal") continue
         const terminal = parsedEvent.output.payload
@@ -294,7 +313,8 @@ async function runDelegationAttemptExecute(
     if (!aborted.success) return aborted
     if (aborted.data !== null) {
       const failure = runDelegationAbortFailureCreate(aborted.data)
-      if (!(await terminalAppend("aborted", failure))) return createResultError(op, failure.message)
+      if (!(await terminalAppend("aborted", failure)))
+        return runResultCreateError(op, failure.message, runErrorCodes.providerOutputPersistFailed)
       return createResult({ failure, status: "aborted", text })
     }
 
@@ -302,10 +322,15 @@ async function runDelegationAttemptExecute(
       "provider_failed",
       "The delegated child attempt ended before completion.",
     )
-    if (!(await terminalAppend("error", failure))) return createResultError(op, failure.message)
+    if (!(await terminalAppend("error", failure)))
+      return runResultCreateError(op, failure.message, runErrorCodes.providerOutputPersistFailed)
     return createResult({ failure, status: "failed", text })
   } catch (_error) {
-    return createResultError(op, "The delegated child attempt could not be executed.")
+    return runResultCreateError(
+      op,
+      "The delegated child attempt could not be executed.",
+      runErrorCodes.attemptExecutionFailed,
+    )
   }
 }
 
@@ -319,10 +344,19 @@ async function runDelegationReusedChildResolve(
   while (current.delegation.finalizedResult === null) {
     if (current.run.status !== "accepted" && current.run.status !== "running") {
       if (current.run.status !== "failed") {
-        return createResultError(op, "The reused delegated child ended without a terminal result.")
+        return runResultCreateError(
+          op,
+          "The reused delegated child ended without a terminal result.",
+          runErrorCodes.terminalResultMissing,
+        )
       }
       const failure = current.attempt.failure ?? current.run.failure
-      if (failure === null) return createResultError(op, "The reused delegated child ended without a terminal result.")
+      if (failure === null)
+        return runResultCreateError(
+          op,
+          "The reused delegated child ended without a terminal result.",
+          runErrorCodes.terminalResultMissing,
+        )
       const retryAdmission = runRetryAdmissionResolve({
         attemptOrdinal: current.attempt.ordinal,
         attemptStatus: current.attempt.status,
@@ -330,7 +364,11 @@ async function runDelegationReusedChildResolve(
         failure,
       })
       if (!retryAdmission.success || retryAdmission.data.decision !== "retry") {
-        return createResultError(op, "The reused delegated child ended without a terminal result.")
+        return runResultCreateError(
+          op,
+          "The reused delegated child ended without a terminal result.",
+          runErrorCodes.terminalResultMissing,
+        )
       }
     }
     const now = runDelegationNowResolve(options)
@@ -340,7 +378,11 @@ async function runDelegationReusedChildResolve(
       if (!observed.success) return observed
       current = observed.data
       if (current.delegation.finalizedResult !== null) break
-      return createResultError(op, "The reused delegated child did not finalize before its immutable deadline.")
+      return runResultCreateError(
+        op,
+        "The reused delegated child did not finalize before its immutable deadline.",
+        runErrorCodes.terminalResultMissing,
+      )
     }
     await new Promise<void>((resolve) => {
       const setTimeoutFn = options.setTimeout ?? globalThis.setTimeout
@@ -365,25 +407,34 @@ export async function runDelegationExecute(
     ...(input.childSnapshot === undefined ? {} : { snapshot: input.childSnapshot }),
     task: input.task,
   })
-  if (!parsedInput.success) return createResultError(op, "The delegated child input is invalid.")
+  if (!parsedInput.success)
+    return runResultCreateError(op, "The delegated child input is invalid.", runErrorCodes.invalidInput)
   if (
     input.parentAttempt.runId !== input.parentRun.id ||
     input.parentAttempt.sessionId !== input.parentRun.sessionId ||
     input.parentAttempt.userId !== input.parentRun.userId
   ) {
-    return createResultError(op, "The trusted parent run and attempt are inconsistent.")
+    return runResultCreateError(
+      op,
+      "The trusted parent run and attempt are inconsistent.",
+      runErrorCodes.stateInconsistent,
+    )
   }
   if (input.parentRun.status !== "running" || input.parentAttempt.status !== "running") {
-    return createResultError(op, "The trusted parent attempt is not running.")
+    return runResultCreateError(op, "The trusted parent attempt is not running.", runErrorCodes.stateInconsistent)
   }
 
   const child = await options.childCreate(parsedInput.output)
-  if (!child.success) return createResultError(op, child.errorMessage)
+  if (!child.success) return child
   if (child.data.delegation.finalizedResult !== null) {
     return runDelegationFinalizedResultResolve(child.data.delegation)
   }
   if (child.data.run.deadlineAt.getTime() !== input.parentRun.deadlineAt.getTime()) {
-    return createResultError(op, "The child run deadline is not inherited from the parent.")
+    return runResultCreateError(
+      op,
+      "The child run deadline is not inherited from the parent.",
+      runErrorCodes.deadlineNotInherited,
+    )
   }
   if (!child.data.created) {
     const reused = await runDelegationReusedChildResolve(parsedInput.output, child.data, options)
@@ -391,7 +442,11 @@ export async function runDelegationExecute(
     return runDelegationFinalizedResultResolve(reused.data.delegation)
   }
   if (child.data.run.status !== "accepted" || child.data.attempt.status !== "accepted") {
-    return createResultError(op, "The delegated child attempt is not accepted for execution.")
+    return runResultCreateError(
+      op,
+      "The delegated child attempt is not accepted for execution.",
+      runErrorCodes.attemptNotAccepted,
+    )
   }
 
   const controller = new AbortController()
@@ -435,7 +490,7 @@ export async function runDelegationExecute(
   }): Promise<Result<void>> => {
     if (providerOutput === undefined) return createResult(undefined)
     const finalized = await providerOutput.finalize(input)
-    if (!finalized.success) return createResultError(op, finalized.errorMessage)
+    if (!finalized.success) return finalized
     return createResult(undefined)
   }
 
@@ -452,12 +507,12 @@ export async function runDelegationExecute(
           status: "aborted",
           text: "",
         })
-        if (!finalized.success) return createResultError(op, finalized.errorMessage)
+        if (!finalized.success) return finalized
         return createResult({ failure, status: "aborted", text: "" })
       }
 
       const running = await options.runTransition(currentRun.id, { status: "running" })
-      if (!running.success) return createResultError(op, running.errorMessage)
+      if (!running.success) return running
       if (running.data.run !== undefined) currentRun = running.data.run
       if (running.data.attempt !== undefined) currentAttempt = running.data.attempt
 
@@ -488,7 +543,7 @@ export async function runDelegationExecute(
           status: "aborted",
           text: attempt.data.text,
         })
-        if (!finalized.success) return createResultError(op, finalized.errorMessage)
+        if (!finalized.success) return finalized
         return createResult({ failure, status: "aborted", text: attempt.data.text })
       }
 
@@ -501,7 +556,7 @@ export async function runDelegationExecute(
           status: "aborted",
           text: attempt.data.text,
         })
-        if (!finalized.success) return createResultError(op, finalized.errorMessage)
+        if (!finalized.success) return finalized
         return createResult({
           failure,
           status: "aborted",
@@ -514,7 +569,7 @@ export async function runDelegationExecute(
         const succeeded = runDelegationResultCreate("succeeded", attempt.data.text)
         if (!succeeded.success) return succeeded
         const finalized = await options.delegationFinalize(child.data.delegation.id, succeeded.data)
-        if (!finalized.success) return createResultError(op, finalized.errorMessage)
+        if (!finalized.success) return finalized
         return succeeded
       }
 
@@ -532,12 +587,12 @@ export async function runDelegationExecute(
         const failed = runDelegationResultCreate("failed", attempt.data.text, failure)
         if (!failed.success) return failed
         const finalized = await options.delegationFinalize(child.data.delegation.id, failed.data)
-        if (!finalized.success) return createResultError(op, finalized.errorMessage)
+        if (!finalized.success) return finalized
         return failed
       }
 
       const transitioned = await options.runTransition(currentRun.id, { failure, status: "failed" })
-      if (!transitioned.success) return createResultError(op, transitioned.errorMessage)
+      if (!transitioned.success) return transitioned
       if (transitioned.data.run !== undefined) currentRun = transitioned.data.run
       if (transitioned.data.attempt !== undefined) currentAttempt = transitioned.data.attempt
       const retry = await options.retryAttemptCreate(currentRun.id, { now: options.now ?? (() => new Date()) })
@@ -547,11 +602,15 @@ export async function runDelegationExecute(
         const failed = runDelegationResultCreate("failed", attempt.data.text, failure)
         if (!failed.success) return failed
         const finalized = await options.delegationFinalize(child.data.delegation.id, failed.data)
-        if (!finalized.success) return createResultError(op, finalized.errorMessage)
+        if (!finalized.success) return finalized
         return failed
       }
       if (retry.data.attempt.status !== "accepted" || retry.data.run.status !== "accepted") {
-        return createResultError(op, "The next delegated child attempt is not accepted for execution.")
+        return runResultCreateError(
+          op,
+          "The next delegated child attempt is not accepted for execution.",
+          runErrorCodes.attemptNotAccepted,
+        )
       }
       currentAttempt = retry.data.attempt
       currentRun = retry.data.run

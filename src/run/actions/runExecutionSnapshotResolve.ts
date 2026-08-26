@@ -1,12 +1,14 @@
-import { createResult, createResultError, type Result } from "@adaptive-ds/result"
+import { createResult, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
 import { agentConfigurationExecutionResolve } from "../../agents/actions/agentConfigurationExecutionResolve.js"
 import { agentConfigurationSchema } from "../../agents/schema/agentConfigurationSchema.js"
 import { agentExecutionTargetSchema } from "../../agents/schema/agentExecutionTargetSchema.js"
 import type { ConfigurationStore } from "../../configuration/configurationStore.js"
 import { configurationStoreRead } from "../../configuration/configurationStoreRead.js"
-import type { ProviderCatalog } from "../../providers/schema/providerCatalogSchema.js"
 import { providerAgentCatalogExecutionResolve } from "../../providers/catalog/providerAgentCatalogExecutionResolve.js"
+import type { ProviderCatalog } from "../../providers/schema/providerCatalogSchema.js"
+import { runErrorCodes } from "../errors/runErrorCodes.js"
+import { runResultCreateError } from "../errors/runResultCreateError.js"
 import type { RunExecutionSnapshot } from "../schema/runExecutionSnapshotSchema.js"
 import { runExecutionSnapshotSchema } from "../schema/runExecutionSnapshotSchema.js"
 
@@ -35,10 +37,11 @@ export function runExecutionSnapshotResolve(
 ): Result<RunExecutionSnapshot> {
   const op = "runExecutionSnapshotResolve"
   const parsedTarget = v.safeParse(agentExecutionTargetSchema, target)
-  if (!parsedTarget.success) return createResultError(op, "The run execution target is invalid.")
+  if (!parsedTarget.success)
+    return runResultCreateError(op, "The run execution target is invalid.", runErrorCodes.executionTargetInvalid)
 
   const read = (options.configurationStoreRead ?? configurationStoreRead)(store)
-  if (!read.success) return createResultError(op, read.errorMessage)
+  if (!read.success) return read
 
   const entry = read.data.configuration.agentConfigurations.find(
     ({ target: configuredTarget }) =>
@@ -46,10 +49,19 @@ export function runExecutionSnapshotResolve(
       configuredTarget.agentId === parsedTarget.output.agentId,
   )
   if (entry === undefined && options.configuration === undefined)
-    return createResultError(op, "The run execution target is not configured.")
+    return runResultCreateError(
+      op,
+      "The run execution target is not configured.",
+      runErrorCodes.executionTargetUnconfigured,
+    )
 
   const configuration = options.configuration ?? entry?.configuration
-  if (configuration === undefined) return createResultError(op, "The run execution target is not configured.")
+  if (configuration === undefined)
+    return runResultCreateError(
+      op,
+      "The run execution target is not configured.",
+      runErrorCodes.executionTargetUnconfigured,
+    )
 
   let snapshotConfiguration = configuration
   let agentPrompt: string | undefined
@@ -65,19 +77,20 @@ export function runExecutionSnapshotResolve(
       configuration,
       execution,
     )
-    if (!resolved.success) return createResultError(op, resolved.errorMessage)
+    if (!resolved.success) return resolved
     snapshotConfiguration = resolved.data.configuration
     agentPrompt = resolved.data.prompt
     catalogRevision = catalog.revision
     modelMetadata = resolved.data.modelMetadata
   } else {
     const resolved = agentConfigurationExecutionResolve(configuration, execution, parsedTarget.output.agentId)
-    if (!resolved.success) return createResultError(op, resolved.errorMessage)
+    if (!resolved.success) return resolved
     snapshotConfiguration = resolved.data
   }
 
   const parsedSnapshotConfiguration = v.safeParse(agentConfigurationSchema, snapshotConfiguration)
-  if (!parsedSnapshotConfiguration.success) return createResultError(op, "The run execution snapshot is invalid.")
+  if (!parsedSnapshotConfiguration.success)
+    return runResultCreateError(op, "The run execution snapshot is invalid.", runErrorCodes.executionSnapshotInvalid)
   snapshotConfiguration = parsedSnapshotConfiguration.output
   if (modelMetadata === undefined && parsedSnapshotConfiguration.output.provider !== "deterministic") {
     catalogRevision = parsedSnapshotConfiguration.output.catalogRevision
@@ -95,7 +108,8 @@ export function runExecutionSnapshotResolve(
       target: parsedTarget.output,
     }),
   )
-  if (!parsedSnapshot.success) return createResultError(op, "The run execution snapshot is invalid.")
+  if (!parsedSnapshot.success)
+    return runResultCreateError(op, "The run execution snapshot is invalid.", runErrorCodes.executionSnapshotInvalid)
 
   return createResult(runExecutionSnapshotDeepFreeze(parsedSnapshot.output))
 }

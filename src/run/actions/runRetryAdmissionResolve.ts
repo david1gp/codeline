@@ -1,5 +1,7 @@
-import { createResult, createResultError, type Result } from "@adaptive-ds/result"
+import { createResult, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
+import { runErrorCodes } from "../errors/runErrorCodes.js"
+import { runResultCreateError } from "../errors/runResultCreateError.js"
 import { runRetryAdmissionInputSchema } from "../schema/runRetryAdmissionInputSchema.js"
 import { type RunRetryAdmission, runRetryAdmissionSchema } from "../schema/runRetryAdmissionSchema.js"
 import { runFailureClassResolve } from "./runFailureClassResolve.js"
@@ -7,7 +9,8 @@ import { runFailureClassResolve } from "./runFailureClassResolve.js"
 export function runRetryAdmissionResolve(input: unknown): Result<RunRetryAdmission> {
   const op = "runRetryAdmissionResolve"
   const parsedInput = v.safeParse(runRetryAdmissionInputSchema, input)
-  if (!parsedInput.success) return createResultError(op, "The run retry admission input is invalid.")
+  if (!parsedInput.success)
+    return runResultCreateError(op, "The run retry admission input is invalid.", runErrorCodes.invalidInput)
 
   const { attemptOrdinal, attemptStatus, budget, failure } = parsedInput.output
   const failureClass = runFailureClassResolve(failure)
@@ -37,6 +40,7 @@ export function runRetryAdmissionResolve(input: unknown): Result<RunRetryAdmissi
     remainingAttempts,
   }
   const parsedAdmission = v.safeParse(runRetryAdmissionSchema, admission)
-  if (!parsedAdmission.success) return createResultError(op, "The run retry admission is invalid.")
+  if (!parsedAdmission.success)
+    return runResultCreateError(op, "The run retry admission is invalid.", runErrorCodes.retryAdmissionInvalid)
   return createResult(parsedAdmission.output)
 }

@@ -1,4 +1,4 @@
-import { createResult, createResultError, type Result } from "@adaptive-ds/result"
+import { createResult, type Result } from "@adaptive-ds/result"
 import { and, count, desc, eq, max, sql } from "drizzle-orm"
 import * as v from "valibot"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
@@ -6,6 +6,8 @@ import { databaseExecutorTransactionRun } from "../../database/databaseExecutorT
 import { sessionTable } from "../../session/db/sessionTable.js"
 import { uuidv7 } from "../../uuid/uuidv7.js"
 import { runChildAdmissionResolve } from "../actions/runChildAdmissionResolve.js"
+import { runErrorCodes } from "../errors/runErrorCodes.js"
+import { runResultCreateError } from "../errors/runResultCreateError.js"
 import { runBudgetSchema } from "../schema/runBudgetSchema.js"
 import type { RunChildAdmission } from "../schema/runChildAdmissionSchema.js"
 import { type RunChildCreateInput, runChildCreateInputSchema } from "../schema/runChildCreateInputSchema.js"
@@ -53,15 +55,25 @@ async function runRepositoryChildExistingLoad(
     .from(runTable)
     .where(and(eq(runTable.id, delegation.childRunId), eq(runTable.sessionId, sessionId), eq(runTable.userId, userId)))
     .limit(1)
-  if (existingRun === undefined) return createResultError(op, "The existing child run could not be found.")
+  if (existingRun === undefined)
+    return runResultCreateError(op, "The existing child run could not be found.", runErrorCodes.childRunNotFound)
   if (expectedTarget !== undefined) {
     const parsedSnapshot = v.safeParse(runExecutionSnapshotSchema, existingRun.snapshot)
-    if (!parsedSnapshot.success) return createResultError(op, "The existing child execution snapshot is invalid.")
+    if (!parsedSnapshot.success)
+      return runResultCreateError(
+        op,
+        "The existing child execution snapshot is invalid.",
+        runErrorCodes.childSnapshotInvalid,
+      )
     if (
       parsedSnapshot.output.target.agentId !== expectedTarget.agentId ||
       parsedSnapshot.output.target.serverId !== expectedTarget.serverId
     ) {
-      return createResultError(op, "The delegation key conflicts with a different agent.")
+      return runResultCreateError(
+        op,
+        "The delegation key conflicts with a different agent.",
+        runErrorCodes.delegationConflict,
+      )
     }
   }
 
@@ -77,7 +89,12 @@ async function runRepositoryChildExistingLoad(
     )
     .orderBy(desc(attemptTable.ordinal))
     .limit(1)
-  if (existingAttempt === undefined) return createResultError(op, "The existing child attempt could not be found.")
+  if (existingAttempt === undefined)
+    return runResultCreateError(
+      op,
+      "The existing child attempt could not be found.",
+      runErrorCodes.childAttemptNotFound,
+    )
 
   return createResult({
     admission: null,
@@ -96,7 +113,8 @@ export async function runRepositoryChildCreate(
 ): Promise<Result<RunChildCreateResult>> {
   const op = "runRepositoryChildCreate"
   const parsedInput = v.safeParse(runChildCreateInputSchema, input)
-  if (!parsedInput.success) return createResultError(op, "The child run creation input is invalid.")
+  if (!parsedInput.success)
+    return runResultCreateError(op, "The child run creation input is invalid.", runErrorCodes.invalidInput)
 
   return databaseExecutorTransactionRun<RunChildCreateResult>(database, async (transaction) => {
     try {
@@ -118,7 +136,8 @@ export async function runRepositoryChildCreate(
         .from(runTable)
         .where(and(eq(runTable.id, rootRunId), eq(runTable.sessionId, sessionId), eq(runTable.userId, userId)))
         .limit(1)
-      if (root === undefined) return createResultError(op, "The root run could not be found.")
+      if (root === undefined)
+        return runResultCreateError(op, "The root run could not be found.", runErrorCodes.notFound)
 
       const [parent] = await transaction
         .select()
@@ -131,7 +150,8 @@ export async function runRepositoryChildCreate(
           ),
         )
         .limit(1)
-      if (parent === undefined) return createResultError(op, "The parent run could not be found.")
+      if (parent === undefined)
+        return runResultCreateError(op, "The parent run could not be found.", runErrorCodes.notFound)
 
       const [existingDelegation] = await transaction
         .select()
@@ -148,13 +168,22 @@ export async function runRepositoryChildCreate(
         .limit(1)
       if (existingDelegation !== undefined) {
         if (runRepositoryChildTaskCanonicalize(existingDelegation.task) !== parsedInput.output.task) {
-          return createResultError(op, "The delegation key conflicts with a different task.")
+          return runResultCreateError(
+            op,
+            "The delegation key conflicts with a different task.",
+            runErrorCodes.delegationConflict,
+          )
         }
         const requestedTarget = parsedInput.output.snapshot?.target
         if (requestedTarget !== undefined)
           return runRepositoryChildExistingLoad(transaction, userId, sessionId, existingDelegation, requestedTarget)
         const parsedParentSnapshot = v.safeParse(runExecutionSnapshotSchema, parent.snapshot)
-        if (!parsedParentSnapshot.success) return createResultError(op, "The parent execution snapshot is invalid.")
+        if (!parsedParentSnapshot.success)
+          return runResultCreateError(
+            op,
+            "The parent execution snapshot is invalid.",
+            runErrorCodes.childSnapshotInvalid,
+          )
         return runRepositoryChildExistingLoad(
           transaction,
           userId,
@@ -176,12 +205,21 @@ export async function runRepositoryChildCreate(
         )
         .orderBy(desc(attemptTable.ordinal))
         .limit(1)
-      if (currentAttempt === undefined) return createResultError(op, "The parent attempt could not be found.")
+      if (currentAttempt === undefined)
+        return runResultCreateError(op, "The parent attempt could not be found.", runErrorCodes.childAttemptNotFound)
       if (currentAttempt.id !== parsedInput.output.parentAttemptId) {
-        return createResultError(op, "The parent attempt is not the current run attempt.")
+        return runResultCreateError(
+          op,
+          "The parent attempt is not the current run attempt.",
+          runErrorCodes.parentAttemptNotCurrent,
+        )
       }
       if (currentAttempt.userId !== userId || currentAttempt.sessionId !== sessionId) {
-        return createResultError(op, "The parent attempt ownership is inconsistent.")
+        return runResultCreateError(
+          op,
+          "The parent attempt ownership is inconsistent.",
+          runErrorCodes.stateInconsistent,
+        )
       }
       if (
         parent.status !== currentAttempt.status ||
@@ -189,16 +227,26 @@ export async function runRepositoryChildCreate(
         jsonCanonicalize(parent.snapshot) !== jsonCanonicalize(currentAttempt.snapshot) ||
         jsonCanonicalize(parent.budget) !== jsonCanonicalize(currentAttempt.budget)
       ) {
-        return createResultError(op, "The parent run and current attempt are inconsistent.")
+        return runResultCreateError(
+          op,
+          "The parent run and current attempt are inconsistent.",
+          runErrorCodes.stateInconsistent,
+        )
       }
 
       const parsedBudget = v.safeParse(runBudgetSchema, root.budget)
-      if (!parsedBudget.success) return createResultError(op, "The root run budget is invalid.")
+      if (!parsedBudget.success)
+        return runResultCreateError(op, "The root run budget is invalid.", runErrorCodes.invalidInput)
       const parsedSnapshot = v.safeParse(runExecutionSnapshotSchema, parent.snapshot)
-      if (!parsedSnapshot.success) return createResultError(op, "The parent execution snapshot is invalid.")
+      if (!parsedSnapshot.success)
+        return runResultCreateError(op, "The parent execution snapshot is invalid.", runErrorCodes.childSnapshotInvalid)
       const childSnapshot = parsedInput.output.snapshot ?? parsedSnapshot.output
       if (childSnapshot.target.serverId !== parsedSnapshot.output.target.serverId) {
-        return createResultError(op, "The child execution snapshot server does not match the parent.")
+        return runResultCreateError(
+          op,
+          "The child execution snapshot server does not match the parent.",
+          runErrorCodes.childTargetMismatch,
+        )
       }
 
       const matchingDelegations = await transaction
@@ -252,9 +300,13 @@ export async function runRepositoryChildCreate(
         now: now.getTime(),
         parentStatus: parent.status,
       })
-      if (!admission.success) return createResultError(op, admission.errorMessage)
+      if (!admission.success) return admission
       if (admission.data.decision !== "admit") {
-        return createResultError(op, `The child run was not admitted: ${admission.data.reason}.`)
+        return runResultCreateError(
+          op,
+          `The child run was not admitted: ${admission.data.reason}.`,
+          runErrorCodes.childNotAdmitted,
+        )
       }
 
       const rootOrdinal = (descendantState?.latestRootOrdinal ?? 0) + 1
@@ -277,7 +329,8 @@ export async function runRepositoryChildCreate(
           userId,
         })
         .returning()
-      if (childRun === undefined) return createResultError(op, "The child run could not be created.")
+      if (childRun === undefined)
+        return runResultCreateError(op, "The child run could not be created.", runErrorCodes.childCreateFailed)
 
       const [childAttempt] = await transaction
         .insert(attemptTable)
@@ -295,7 +348,12 @@ export async function runRepositoryChildCreate(
           userId,
         })
         .returning()
-      if (childAttempt === undefined) return createResultError(op, "The initial child attempt could not be created.")
+      if (childAttempt === undefined)
+        return runResultCreateError(
+          op,
+          "The initial child attempt could not be created.",
+          runErrorCodes.childPersistFailed,
+        )
 
       const [delegation] = await transaction
         .insert(runDelegationTable)
@@ -316,14 +374,20 @@ export async function runRepositoryChildCreate(
           userId,
         })
         .returning()
-      if (delegation === undefined) return createResultError(op, "The child delegation could not be created.")
+      if (delegation === undefined)
+        return runResultCreateError(op, "The child delegation could not be created.", runErrorCodes.childPersistFailed)
 
       const [updatedSession] = await transaction
         .update(sessionTable)
         .set({ revision: sql`${sessionTable.revision} + 1`, updatedAt: now })
         .where(and(eq(sessionTable.id, sessionId), eq(sessionTable.userId, userId)))
         .returning({ id: sessionTable.id })
-      if (updatedSession === undefined) return createResultError(op, "The session revision could not be updated.")
+      if (updatedSession === undefined)
+        return runResultCreateError(
+          op,
+          "The session revision could not be updated.",
+          runErrorCodes.sessionRevisionUpdateFailed,
+        )
 
       return createResult({
         admission: admission.data,
@@ -333,7 +397,7 @@ export async function runRepositoryChildCreate(
         run: childRun,
       })
     } catch (_error) {
-      return createResultError(op, "The child run could not be persisted.")
+      return runResultCreateError(op, "The child run could not be persisted.", runErrorCodes.childPersistFailed)
     }
   })
 }

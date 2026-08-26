@@ -1,9 +1,11 @@
-import { createResult, createResultError, type Result } from "@adaptive-ds/result"
+import { createResult, type Result } from "@adaptive-ds/result"
 import { and, asc, eq } from "drizzle-orm"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { serverTable } from "../../servers/db/serverTable.js"
 import { sessionTable } from "../../session/db/sessionTable.js"
 import type { RunDelegationsResponse } from "../api/runDelegationsResponseSchema.js"
+import { runErrorCodes } from "../errors/runErrorCodes.js"
+import { runResultCreateError } from "../errors/runResultCreateError.js"
 import { runDelegationTable } from "./runDelegationTable.js"
 
 type RunDelegationsLoadResult = Pick<RunDelegationsResponse, "delegations" | "revision">
@@ -26,7 +28,8 @@ export async function runRepositoryDelegationsLoad(
       )
       .where(and(eq(sessionTable.id, sessionId), eq(sessionTable.userId, userId)))
       .limit(1)
-    if (authorizedSession === undefined) return createResultError(op, "The session could not be found.")
+    if (authorizedSession === undefined)
+      return runResultCreateError(op, "The session could not be found.", runErrorCodes.sessionNotFound)
 
     const delegations = await database
       .select({
@@ -43,6 +46,6 @@ export async function runRepositoryDelegationsLoad(
 
     return createResult({ delegations, revision: authorizedSession.revision })
   } catch (_error) {
-    return createResultError(op, "The delegations could not be loaded.")
+    return runResultCreateError(op, "The delegations could not be loaded.", runErrorCodes.delegationsLoadFailed)
   }
 }

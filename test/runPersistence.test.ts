@@ -16,6 +16,7 @@ import { runTransition } from "../src/run/actions/runTransition.js"
 import { attemptTable } from "../src/run/db/attemptTable.js"
 import { runDelegationTable } from "../src/run/db/runDelegationTable.js"
 import { runTable } from "../src/run/db/runTable.js"
+import { runErrorCodes } from "../src/run/errors/runErrorCodes.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
@@ -118,6 +119,7 @@ test.skipIf(!databaseAvailable)(
       streamId: "different-stream",
     })
     expect(conflict).toMatchObject({
+      code: runErrorCodes.clientRunIdConflict,
       success: false,
       errorMessage: "The client run ID conflicts with different immutable run input.",
     })
@@ -126,6 +128,7 @@ test.skipIf(!databaseAvailable)(
     expect(loaded).toMatchObject({ success: true, data: { run: { id: created.data.run.id }, attempt: { ordinal: 1 } } })
     expect(await runLoad(database, "development:unknown-run-user", fixture.sessionId, input.clientRunId)).toMatchObject(
       {
+        code: runErrorCodes.notFound,
         success: false,
         errorMessage: "The run could not be found.",
       },
@@ -150,7 +153,11 @@ test.skipIf(!databaseAvailable)("run creation requires the existing session targ
       ...input,
       clientRunId: "client-run-missing-session",
     }),
-  ).toMatchObject({ success: false, errorMessage: "The session could not be found." })
+  ).toMatchObject({
+    code: runErrorCodes.sessionNotFound,
+    success: false,
+    errorMessage: "The session could not be found.",
+  })
 
   expect(
     await runCreate(database, userId, fixture.sessionId, {
@@ -159,6 +166,7 @@ test.skipIf(!databaseAvailable)("run creation requires the existing session targ
       snapshot: { ...input.snapshot, target: { agentId: fixture.agentId, serverId: fixture.secondaryServerId } },
     }),
   ).toMatchObject({
+    code: runErrorCodes.snapshotTargetMismatch,
     success: false,
     errorMessage: "The run snapshot target does not match the session target.",
   })
@@ -173,6 +181,7 @@ test.skipIf(!databaseAvailable)("run creation requires the existing session targ
       },
     }),
   ).toMatchObject({
+    code: runErrorCodes.snapshotTargetMismatch,
     success: false,
     errorMessage: "The run snapshot target does not match the session target.",
   })
@@ -307,6 +316,7 @@ test.skipIf(!databaseAvailable)(
       }),
     ).toMatchObject({ success: true, data: { attempt: { ordinal: 3, status: "failed" } } })
     expect(await runRetryAttemptCreate(database, userId, fixture.sessionId, runId)).toMatchObject({
+      code: runErrorCodes.retryNotAdmitted,
       success: false,
       errorMessage: "The run retry was not admitted: attempt_budget_exhausted.",
     })
@@ -343,7 +353,11 @@ test.skipIf(!databaseAvailable)("retry attempt creation rejects durable cancella
     await runRetryAttemptCreate(database, userId, fixture.sessionId, created.data.run.id, {
       now: () => new Date(created.data.run.deadlineAt.getTime() - 1),
     }),
-  ).toMatchObject({ success: false, errorMessage: "The run retry was not admitted: cancelled." })
+  ).toMatchObject({
+    code: runErrorCodes.retryNotAdmitted,
+    success: false,
+    errorMessage: "The run retry was not admitted: cancelled.",
+  })
   expect(await database.select().from(attemptTable).where(eq(attemptTable.runId, created.data.run.id))).toHaveLength(1)
 })
 
@@ -371,7 +385,11 @@ test.skipIf(!databaseAvailable)("retry attempt creation rejects at the immutable
     await runRetryAttemptCreate(database, userId, fixture.sessionId, created.data.run.id, {
       now: () => new Date(created.data.run.deadlineAt),
     }),
-  ).toMatchObject({ success: false, errorMessage: "The run retry was not admitted: deadline_exceeded." })
+  ).toMatchObject({
+    code: runErrorCodes.retryNotAdmitted,
+    success: false,
+    errorMessage: "The run retry was not admitted: deadline_exceeded.",
+  })
   expect(await database.select().from(attemptTable).where(eq(attemptTable.runId, created.data.run.id))).toHaveLength(1)
 })
 
@@ -557,6 +575,7 @@ test.skipIf(!databaseAvailable)(
       },
     })
     expect(differentAgent).toMatchObject({
+      code: runErrorCodes.childNotAdmitted,
       errorMessage: "The child run was not admitted: child_run_limit_exhausted.",
       success: false,
     })
@@ -567,6 +586,7 @@ test.skipIf(!databaseAvailable)(
       task: "Inspect a different requested implementation.",
     })
     expect(distinctTask).toMatchObject({
+      code: runErrorCodes.childNotAdmitted,
       errorMessage: "The child run was not admitted: child_run_limit_exhausted.",
       success: false,
     })
@@ -626,6 +646,7 @@ test.skipIf(!databaseAvailable)(
         task: "This task is beyond the root depth budget.",
       }),
     ).toMatchObject({
+      code: runErrorCodes.childNotAdmitted,
       errorMessage: "The child run was not admitted: child_depth_limit_exhausted.",
       success: false,
     })
@@ -639,6 +660,7 @@ test.skipIf(!databaseAvailable)(
       data: { created: true },
     })
     expect(await runChildCreate(database, userId, fixture.sessionId, childInput("boundary-child-4"))).toMatchObject({
+      code: runErrorCodes.childNotAdmitted,
       errorMessage: "The child run was not admitted: child_run_limit_exhausted.",
       success: false,
     })
@@ -648,6 +670,7 @@ test.skipIf(!databaseAvailable)(
       .set({ deadlineAt: new Date(0) })
       .where(eq(runTable.id, parent.data.run.id))
     expect(await runChildCreate(database, userId, fixture.sessionId, childInput("boundary-deadline"))).toMatchObject({
+      code: runErrorCodes.childNotAdmitted,
       errorMessage: "The child run was not admitted: deadline_exceeded.",
       success: false,
     })
@@ -679,6 +702,7 @@ test.skipIf(!databaseAvailable)("child run creation rejects an immutable delegat
   expect(
     await runChildCreate(database, userId, fixture.sessionId, { ...childInput, task: "A conflicting task." }),
   ).toMatchObject({
+    code: runErrorCodes.delegationConflict,
     errorMessage: "The delegation key conflicts with a different task.",
     success: false,
   })
@@ -738,6 +762,7 @@ test.skipIf(!databaseAvailable)(
         text: "A conflicting result.",
       }),
     ).toMatchObject({
+      code: runErrorCodes.delegationFinalizationConflict,
       errorMessage: "The finalized delegation result cannot be overwritten.",
       success: false,
     })
@@ -749,7 +774,11 @@ test.skipIf(!databaseAvailable)(
         child.data.delegation.id,
         result,
       ),
-    ).toMatchObject({ errorMessage: "The session could not be found.", success: false })
+    ).toMatchObject({
+      code: runErrorCodes.sessionNotFound,
+      errorMessage: "The session could not be found.",
+      success: false,
+    })
 
     const failedChild = await runChildCreate(database, userId, fixture.sessionId, {
       delegationKey: "finalize-failed-child",
@@ -806,6 +835,7 @@ test.skipIf(!databaseAvailable)(
     expect(
       await runDelegationFinalize(database, userId, fixture.sessionId, invalidChild.data.delegation.id, result),
     ).toMatchObject({
+      code: runErrorCodes.delegationFinalizationConflict,
       errorMessage: "The child run lifecycle does not allow delegation finalization.",
       success: false,
     })
@@ -916,6 +946,7 @@ test.skipIf(!databaseAvailable)(
     expect(
       await runCancel(database, "development:unknown-run-user", fixture.sessionId, child.data.run.id),
     ).toMatchObject({
+      code: runErrorCodes.notFound,
       errorMessage: "The run could not be found.",
       success: false,
     })
@@ -939,6 +970,10 @@ test.skipIf(!databaseAvailable)(
         parentRunId: child.data.run.id,
         task: "This child must not be admitted beneath cancelled ancestry.",
       }),
-    ).toMatchObject({ errorMessage: "The child run was not admitted: cancelled.", success: false })
+    ).toMatchObject({
+      code: runErrorCodes.childNotAdmitted,
+      errorMessage: "The child run was not admitted: cancelled.",
+      success: false,
+    })
   },
 )

@@ -1,4 +1,4 @@
-import { createResult, createResultError, type Result } from "@adaptive-ds/result"
+import { createResult, type Result } from "@adaptive-ds/result"
 import { and, eq } from "drizzle-orm"
 import type { DatabaseClient, DatabaseTransaction } from "../../database/databaseClient.js"
 import type { journalPostCommitPublishCreate } from "../../journal/actions/journalPostCommitPublishCreate.js"
@@ -10,6 +10,8 @@ import { streamProducerCoalescerCreate } from "../../stream/actions/streamProduc
 import type { StreamProducerDelta } from "../../stream/schema/streamProducerDeltaSchema.js"
 import { attemptTable } from "../db/attemptTable.js"
 import { runTable } from "../db/runTable.js"
+import { runErrorCodes } from "../errors/runErrorCodes.js"
+import { runResultCreateError } from "../errors/runResultCreateError.js"
 import { runTransition } from "./runTransition.js"
 
 type RunProviderOutputScheduler = {
@@ -43,17 +45,23 @@ type RunProviderOutputFinalizeResult = {
 function runProviderOutputRecipientResolve(userId: string) {
   return async (transaction: DatabaseTransaction, resource: { resourceId: string; resourceType: string }) => {
     const op = "runProviderOutputRecipientResolve"
-    if (resource.resourceType !== "run") return createResultError(op, "The run journal resource is invalid.")
+    if (resource.resourceType !== "run")
+      return runResultCreateError(op, "The run journal resource is invalid.", runErrorCodes.journalResourceInvalid)
     try {
       const [run] = await transaction
         .select({ userId: runTable.userId })
         .from(runTable)
         .where(and(eq(runTable.id, resource.resourceId), eq(runTable.userId, userId)))
         .limit(1)
-      if (run === undefined) return createResultError(op, "The run journal resource could not be authorized.")
+      if (run === undefined)
+        return runResultCreateError(op, "The run journal resource could not be authorized.", runErrorCodes.notFound)
       return createResult([run.userId])
     } catch (_error) {
-      return createResultError(op, "The run journal recipient could not be resolved.")
+      return runResultCreateError(
+        op,
+        "The run journal recipient could not be resolved.",
+        runErrorCodes.journalRecipientFailed,
+      )
     }
   }
 }
@@ -184,10 +192,11 @@ async function runProviderOutputSessionRevisionLoad(
       .from(sessionTable)
       .where(and(eq(sessionTable.id, sessionId), eq(sessionTable.userId, userId)))
       .limit(1)
-    if (session === undefined) return createResultError(op, "The session could not be found.")
+    if (session === undefined)
+      return runResultCreateError(op, "The session could not be found.", runErrorCodes.sessionNotFound)
     return createResult(session.revision + (assistantText === undefined ? 0 : 1))
   } catch (_error) {
-    return createResultError(op, "The session revision could not be loaded.")
+    return runResultCreateError(op, "The session revision could not be loaded.", runErrorCodes.sessionUpdateFailed)
   }
 }
 
@@ -206,11 +215,11 @@ export function runProviderOutputCreate(options: RunProviderOutputCreateOptions)
       resources: [resource],
       write: async (_transaction, journal) => {
         const appended = await journal.append({ eventType: "delta", payload: event, resource })
-        if (!appended.success) return createResultError("runProviderOutput", appended.errorMessage)
+        if (!appended.success) return appended
         return createResult(undefined)
       },
     })
-    if (!persisted.success) return createResultError("runProviderOutput", persisted.errorMessage)
+    if (!persisted.success) return persisted
     return createResult(undefined)
   }
 
@@ -221,7 +230,11 @@ export function runProviderOutputCreate(options: RunProviderOutputCreateOptions)
         try {
           return await deltaPersist(event)
         } catch (_error) {
-          return createResultError("runProviderOutput", "The provider delta could not be persisted.")
+          return runResultCreateError(
+            "runProviderOutput",
+            "The provider delta could not be persisted.",
+            runErrorCodes.providerOutputPersistFailed,
+          )
         }
       })
     },
@@ -235,7 +248,11 @@ export function runProviderOutputCreate(options: RunProviderOutputCreateOptions)
     if (!event.success) return event
     if (event.data === null) return createResult(undefined)
     if (event.data.runId !== options.runId || event.data.sessionId !== options.sessionId) {
-      return createResultError("runProviderOutput", "The provider delta belongs to another run.")
+      return runResultCreateError(
+        "runProviderOutput",
+        "The provider delta belongs to another run.",
+        runErrorCodes.stateInconsistent,
+      )
     }
     const appended = coalescer.append(event.data)
     if (!appended.success) return appended
@@ -276,7 +293,7 @@ export function runProviderOutputCreate(options: RunProviderOutputCreateOptions)
           content: input.assistantText,
           role: "assistant",
         })
-        if (!message.success) return createResultError("runProviderOutput", message.errorMessage)
+        if (!message.success) return message
       }
       const transitioned = await runTransition(
         transaction,
@@ -285,7 +302,7 @@ export function runProviderOutputCreate(options: RunProviderOutputCreateOptions)
         options.runId,
         runProviderOutputTransitionInputCreate(input),
       )
-      if (!transitioned.success) return createResultError("runProviderOutput", transitioned.errorMessage)
+      if (!transitioned.success) return transitioned
       return createResult({ run: transitioned.data.run, attempt: transitioned.data.attempt })
     })
     return finalized

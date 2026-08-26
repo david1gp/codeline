@@ -38,6 +38,7 @@ import { runLoad } from "../run/actions/runLoad.js"
 import { runRetryAttemptCreate } from "../run/actions/runRetryAttemptCreate.js"
 import { runTransition } from "../run/actions/runTransition.js"
 import { apiRunRoutesAdd } from "../run/api/apiRunRoutesAdd.js"
+import { runErrorCatalog } from "../run/errors/runErrorCatalog.js"
 import { apiServerRoutesAdd } from "../servers/api/apiServerRoutesAdd.js"
 import { sessionChatAdapterCreate } from "../session/actions/sessionChatAdapterCreate.js"
 import { apiSessionBranchRoutesAdd } from "../session/api/apiSessionBranchRoutesAdd.js"
@@ -47,6 +48,7 @@ import type { streamLiveSubscriptionCreate } from "../stream/actions/streamLiveS
 import type { streamSseConnectionWriterCreate } from "../stream/actions/streamSseConnectionWriterCreate.js"
 import type { AppEnvironment } from "./appEnvironment.js"
 import { apiMetricsRoutesAdd } from "./diagnostics/apiMetricsRoutesAdd.js"
+import { apiErrorCatalogCreate } from "./errors/apiErrorCatalogCreate.js"
 import type { HealthResponse } from "./health/healthResponseSchema.js"
 import { apiReadinessRoutesAdd } from "./readiness/apiReadinessRoutesAdd.js"
 import { apiTestingRoutesAdd } from "./testing/apiTestingRoutesAdd.js"
@@ -108,6 +110,8 @@ export function apiRoutesAdd(
   options: ApiRoutesAddOptions = {},
 ): void {
   const api = new Hono<AppEnvironment>()
+  const errorCatalogResult = apiErrorCatalogCreate(runErrorCatalog)
+  if (!errorCatalogResult.success) throw new Error(errorCatalogResult.errorMessage)
 
   api.use("*", async (context, next) => {
     context.set("streamLiveSubscription", options.streamLiveSubscription)
@@ -165,6 +169,7 @@ export function apiRoutesAdd(
     })
   }
   apiRunRoutesAdd(api, {
+    errorCatalog: errorCatalogResult.data,
     metricsCollector: options.metricsCollector,
     ...(options.journalCursorCodec === undefined ? {} : { journalCursorCodec: options.journalCursorCodec }),
     runCancel: options.runCancel,

@@ -1,8 +1,10 @@
-import { createResult, createResultError, type Result } from "@adaptive-ds/result"
+import { createResult, type Result } from "@adaptive-ds/result"
 import { and, eq, inArray, isNull } from "drizzle-orm"
 import * as v from "valibot"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { databaseExecutorTransactionRun } from "../../database/databaseExecutorTransactionRun.js"
+import { runErrorCodes } from "../errors/runErrorCodes.js"
+import { runResultCreateError } from "../errors/runResultCreateError.js"
 import { type RunCancelInput, runCancelInputSchema } from "../schema/runCancelInputSchema.js"
 import { runCancellationKindSchema } from "../schema/runCancellationKindSchema.js"
 import { runDelegationTable } from "./runDelegationTable.js"
@@ -26,10 +28,11 @@ export async function runRepositoryCancel(
 ): Promise<Result<RunCancelResult>> {
   const op = "runRepositoryCancel"
   const parsedInput = v.safeParse(runCancelInputSchema, input)
-  if (!parsedInput.success) return createResultError(op, "The run cancellation input is invalid.")
+  if (!parsedInput.success)
+    return runResultCreateError(op, "The run cancellation input is invalid.", runErrorCodes.invalidInput)
   const parsedRequestedKind = v.safeParse(runCancellationKindSchema, parsedInput.output.kind)
   if (!parsedRequestedKind.success || parsedRequestedKind.output !== "requested") {
-    return createResultError(op, "The run cancellation kind is invalid.")
+    return runResultCreateError(op, "The run cancellation kind is invalid.", runErrorCodes.cancellationKindInvalid)
   }
 
   return databaseExecutorTransactionRun<RunCancelResult>(database, async (transaction) => {
@@ -52,7 +55,7 @@ export async function runRepositoryCancel(
         .from(runTable)
         .where(and(eq(runTable.id, rootRunId), eq(runTable.sessionId, sessionId), eq(runTable.userId, userId)))
         .limit(1)
-      if (root === undefined) return createResultError(op, "The run could not be found.")
+      if (root === undefined) return runResultCreateError(op, "The run could not be found.", runErrorCodes.notFound)
 
       let target = root
       if (root.id !== runId) {
@@ -61,7 +64,8 @@ export async function runRepositoryCancel(
           .from(runTable)
           .where(and(eq(runTable.id, runId), eq(runTable.sessionId, sessionId), eq(runTable.userId, userId)))
           .limit(1)
-        if (lockedTarget === undefined) return createResultError(op, "The run could not be found.")
+        if (lockedTarget === undefined)
+          return runResultCreateError(op, "The run could not be found.", runErrorCodes.notFound)
         target = lockedTarget
       }
 
@@ -122,7 +126,8 @@ export async function runRepositoryCancel(
             ),
           )
           .returning()
-        if (updatedTarget === undefined) return createResultError(op, "The run could not be cancelled.")
+        if (updatedTarget === undefined)
+          return runResultCreateError(op, "The run could not be cancelled.", runErrorCodes.cancellationFailed)
         target = updatedTarget
         changed = true
       }
@@ -158,7 +163,7 @@ export async function runRepositoryCancel(
         run: target,
       })
     } catch (_error) {
-      return createResultError(op, "The run cancellation could not be persisted.")
+      return runResultCreateError(op, "The run cancellation could not be persisted.", runErrorCodes.cancellationFailed)
     }
   })
 }

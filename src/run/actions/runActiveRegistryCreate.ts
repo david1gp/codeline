@@ -1,4 +1,6 @@
-import { createResult, createResultError, type Result } from "@adaptive-ds/result"
+import { createResult, type Result } from "@adaptive-ds/result"
+import { runErrorCodes } from "../errors/runErrorCodes.js"
+import { runResultCreateError } from "../errors/runResultCreateError.js"
 import type { runProviderOutputCreate } from "./runProviderOutputCreate.js"
 
 type RunActiveRegistryRegistrationInput = {
@@ -66,10 +68,18 @@ export function runActiveRegistryCreate(): RunActiveRegistry {
 
   const register = (input: RunActiveRegistryRegistrationInput): Result<RunActiveRegistryRegistration> => {
     const op = "runActiveRegistryRegister"
-    if (input.runId.length === 0) return createResultError(op, "The run ID is required.")
-    if (input.sessionId.length === 0) return createResultError(op, "The session ID is required.")
-    if (input.userId.length === 0) return createResultError(op, "The user ID is required.")
-    if (entries.has(input.runId)) return createResultError(op, "The run is already registered for execution.")
+    if (input.runId.length === 0)
+      return runResultCreateError(op, "The run ID is required.", runErrorCodes.identifiersRequired)
+    if (input.sessionId.length === 0)
+      return runResultCreateError(op, "The session ID is required.", runErrorCodes.identifiersRequired)
+    if (input.userId.length === 0)
+      return runResultCreateError(op, "The user ID is required.", runErrorCodes.scopeRequired)
+    if (entries.has(input.runId))
+      return runResultCreateError(
+        op,
+        "The run is already registered for execution.",
+        runErrorCodes.registrationConflict,
+      )
 
     const controller = input.controller ?? new AbortController()
     const cancellationKey = runActiveRegistryKeyCreate(input.userId, input.sessionId, input.runId)

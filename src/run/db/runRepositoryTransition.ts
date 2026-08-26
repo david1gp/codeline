@@ -1,9 +1,11 @@
-import { createResult, createResultError, type Result } from "@adaptive-ds/result"
+import { createResult, type Result } from "@adaptive-ds/result"
 import { and, desc, eq } from "drizzle-orm"
 import * as v from "valibot"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { databaseExecutorTransactionRun } from "../../database/databaseExecutorTransactionRun.js"
 import { sessionTable } from "../../session/db/sessionTable.js"
+import { runErrorCodes } from "../errors/runErrorCodes.js"
+import { runResultCreateError } from "../errors/runResultCreateError.js"
 import { type RunTransitionInput, runTransitionInputSchema } from "../schema/runTransitionInputSchema.js"
 import { attemptTable } from "./attemptTable.js"
 import { runTable } from "./runTable.js"
@@ -45,13 +47,18 @@ export async function runRepositoryTransition(
 ): Promise<Result<RunTransitionResult>> {
   const op = "runRepositoryTransition"
   const parsedInput = v.safeParse(runTransitionInputSchema, input)
-  if (!parsedInput.success) return createResultError(op, "The run transition input is invalid.")
+  if (!parsedInput.success)
+    return runResultCreateError(op, "The run transition input is invalid.", runErrorCodes.invalidInput)
   const nextFailure = parsedInput.output.failure ?? null
   if (parsedInput.output.status !== "failed" && parsedInput.output.status !== "aborted" && nextFailure !== null) {
-    return createResultError(op, "Failure metadata is only valid for failed or aborted runs.")
+    return runResultCreateError(
+      op,
+      "Failure metadata is only valid for failed or aborted runs.",
+      runErrorCodes.failureMetadataInvalid,
+    )
   }
   if (parsedInput.output.status === "failed" && nextFailure === null) {
-    return createResultError(op, "Failed runs require failure metadata.")
+    return runResultCreateError(op, "Failed runs require failure metadata.", runErrorCodes.failureMetadataRequired)
   }
 
   return databaseExecutorTransactionRun<RunTransitionResult>(database, async (transaction) => {
@@ -61,14 +68,15 @@ export async function runRepositoryTransition(
         .from(sessionTable)
         .where(and(eq(sessionTable.id, sessionId), eq(sessionTable.userId, userId)))
         .limit(1)
-      if (session === undefined) return createResultError(op, "The session could not be found.")
+      if (session === undefined)
+        return runResultCreateError(op, "The session could not be found.", runErrorCodes.sessionNotFound)
 
       const [run] = await transaction
         .select()
         .from(runTable)
         .where(and(eq(runTable.id, runId), eq(runTable.sessionId, sessionId), eq(runTable.userId, userId)))
         .limit(1)
-      if (run === undefined) return createResultError(op, "The run could not be found.")
+      if (run === undefined) return runResultCreateError(op, "The run could not be found.", runErrorCodes.notFound)
 
       const [attempt] = await transaction
         .select()
@@ -78,19 +86,28 @@ export async function runRepositoryTransition(
         )
         .orderBy(desc(attemptTable.ordinal))
         .limit(1)
-      if (attempt === undefined) return createResultError(op, "The run attempt could not be found.")
+      if (attempt === undefined)
+        return runResultCreateError(op, "The run attempt could not be found.", runErrorCodes.attemptNotFound)
       if (attempt.sessionId !== sessionId || attempt.userId !== userId) {
-        return createResultError(op, "The run attempt ownership is inconsistent.")
+        return runResultCreateError(op, "The run attempt ownership is inconsistent.", runErrorCodes.stateInconsistent)
       }
       if (run.status !== attempt.status || !failureMatches(run.failure, attempt.failure)) {
-        return createResultError(op, "The run and attempt statuses are inconsistent.")
+        return runResultCreateError(
+          op,
+          "The run and attempt statuses are inconsistent.",
+          runErrorCodes.stateInconsistent,
+        )
       }
       if (!statusTransitionIsLegal(run.status, parsedInput.output.status)) {
-        return createResultError(op, "The run status transition is not allowed.")
+        return runResultCreateError(op, "The run status transition is not allowed.", runErrorCodes.transitionInvalid)
       }
       if (run.status === parsedInput.output.status) {
         if (!failureMatches(run.failure, nextFailure)) {
-          return createResultError(op, "The terminal run failure metadata cannot be overwritten.")
+          return runResultCreateError(
+            op,
+            "The terminal run failure metadata cannot be overwritten.",
+            runErrorCodes.failureMetadataImmutable,
+          )
         }
         return createResult<RunTransitionResult>({ changed: false, run, attempt })
       }
@@ -110,7 +127,8 @@ export async function runRepositoryTransition(
         .where(eq(runTable.id, run.id))
         .returning()
       const [updatedRun] = runUpdate
-      if (updatedRun === undefined) return createResultError(op, "The run could not be transitioned.")
+      if (updatedRun === undefined)
+        return runResultCreateError(op, "The run could not be transitioned.", runErrorCodes.transitionFailed)
 
       const attemptUpdate = await transaction
         .update(attemptTable)
@@ -124,10 +142,15 @@ export async function runRepositoryTransition(
         .where(and(eq(attemptTable.id, attempt.id), eq(attemptTable.status, run.status)))
         .returning()
       const [updatedAttempt] = attemptUpdate
-      if (updatedAttempt === undefined) return createResultError(op, "The run attempt could not be transitioned.")
+      if (updatedAttempt === undefined)
+        return runResultCreateError(
+          op,
+          "The run attempt could not be transitioned.",
+          runErrorCodes.attemptPersistenceFailed,
+        )
       return createResult<RunTransitionResult>({ changed: true, run: updatedRun, attempt: updatedAttempt })
     } catch (_error) {
-      return createResultError(op, "The run transition could not be persisted.")
+      return runResultCreateError(op, "The run transition could not be persisted.", runErrorCodes.persistFailed)
     }
   })
 }

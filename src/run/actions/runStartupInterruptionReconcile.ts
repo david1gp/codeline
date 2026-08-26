@@ -1,4 +1,4 @@
-import { createResult, createResultError, type Result } from "@adaptive-ds/result"
+import { createResult, type Result } from "@adaptive-ds/result"
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm"
 import type { DatabaseClient, DatabaseTransaction } from "../../database/databaseClient.js"
 import type { JournalEventRecipientResolver } from "../../journal/actions/journalEventRecipientResolver.js"
@@ -7,6 +7,8 @@ import { journalWriteCreate } from "../../journal/actions/journalWriteCreate.js"
 import { sessionTable } from "../../session/db/sessionTable.js"
 import { attemptTable } from "../db/attemptTable.js"
 import { runTable } from "../db/runTable.js"
+import { runErrorCodes } from "../errors/runErrorCodes.js"
+import { runResultCreateError } from "../errors/runResultCreateError.js"
 
 const activeRunStatuses = ["accepted", "running"] as const
 const interruptionReason = "The API process stopped while the run was active."
@@ -28,7 +30,8 @@ type RunStartupInterruptionMutation = {
 function runStartupInterruptionRecipientResolve(): JournalEventRecipientResolver {
   return async (transaction, resource) => {
     const op = "runStartupInterruptionRecipientResolve"
-    if (resource.resourceType !== "run") return createResultError(op, "The run journal resource is invalid.")
+    if (resource.resourceType !== "run")
+      return runResultCreateError(op, "The run journal resource is invalid.", runErrorCodes.journalResourceInvalid)
 
     try {
       const [run] = await transaction
@@ -36,10 +39,15 @@ function runStartupInterruptionRecipientResolve(): JournalEventRecipientResolver
         .from(runTable)
         .where(eq(runTable.id, resource.resourceId))
         .limit(1)
-      if (run === undefined) return createResultError(op, "The run journal resource could not be authorized.")
+      if (run === undefined)
+        return runResultCreateError(op, "The run journal resource could not be authorized.", runErrorCodes.notFound)
       return createResult([run.userId])
     } catch (_error) {
-      return createResultError(op, "The run journal recipient could not be resolved.")
+      return runResultCreateError(
+        op,
+        "The run journal recipient could not be resolved.",
+        runErrorCodes.journalRecipientFailed,
+      )
     }
   }
 }
@@ -54,7 +62,7 @@ async function runStartupInterruptionActiveIds(database: DatabaseClient): Promis
       .orderBy(asc(runTable.id))
     return createResult(runs.map((run) => run.id))
   } catch (_error) {
-    return createResultError(op, "The active runs could not be loaded.")
+    return runResultCreateError(op, "The active runs could not be loaded.", runErrorCodes.persistFailed)
   }
 }
 
@@ -88,9 +96,10 @@ async function runStartupInterruptionMutate(
 
     for (const run of runs) {
       const attempt = latestAttemptByRunId.get(run.id)
-      if (attempt === undefined) return createResultError(op, "The active run attempt could not be found.")
+      if (attempt === undefined)
+        return runResultCreateError(op, "The active run attempt could not be found.", runErrorCodes.attemptNotFound)
       if (attempt.status !== run.status || attempt.userId !== run.userId || attempt.sessionId !== run.sessionId) {
-        return createResultError(op, "The active run and attempt are inconsistent.")
+        return runResultCreateError(op, "The active run and attempt are inconsistent.", runErrorCodes.stateInconsistent)
       }
     }
 
@@ -103,7 +112,12 @@ async function runStartupInterruptionMutate(
         .set({ revision: sql`${sessionTable.revision} + 1`, updatedAt: now })
         .where(eq(sessionTable.id, sessionId))
         .returning({ id: sessionTable.id, revision: sessionTable.revision })
-      if (session === undefined) return createResultError(op, "The interrupted run session could not be updated.")
+      if (session === undefined)
+        return runResultCreateError(
+          op,
+          "The interrupted run session could not be updated.",
+          runErrorCodes.sessionUpdateFailed,
+        )
       sessionRevisions.set(session.id, session.revision)
     }
 
@@ -125,7 +139,8 @@ async function runStartupInterruptionMutate(
         ),
       )
       .returning({ id: runTable.id })
-    if (updatedRuns.length !== runs.length) return createResultError(op, "The active runs could not be interrupted.")
+    if (updatedRuns.length !== runs.length)
+      return runResultCreateError(op, "The active runs could not be interrupted.", runErrorCodes.persistFailed)
 
     const updatedAttempts = await transaction
       .update(attemptTable)
@@ -146,7 +161,7 @@ async function runStartupInterruptionMutate(
       )
       .returning({ id: attemptTable.id })
     if (updatedAttempts.length !== runs.length)
-      return createResultError(op, "The active run attempts could not be interrupted.")
+      return runResultCreateError(op, "The active run attempts could not be interrupted.", runErrorCodes.persistFailed)
 
     return createResult({
       runs: runs.map((run) => ({
@@ -156,7 +171,7 @@ async function runStartupInterruptionMutate(
       })),
     })
   } catch (_error) {
-    return createResultError(op, "The active runs could not be interrupted.")
+    return runResultCreateError(op, "The active runs could not be interrupted.", runErrorCodes.persistFailed)
   }
 }
 
@@ -183,7 +198,8 @@ export async function runStartupInterruptionReconcile(input: {
     resources: activeRunIds.data.map((runId) => ({ resourceId: runId, resourceType: "run" as const })),
     write: async (_transaction, journal) => {
       const op = "runStartupInterruptionReconcile"
-      if (mutation === undefined) return createResultError(op, "The interruption mutation result is missing.")
+      if (mutation === undefined)
+        return runResultCreateError(op, "The interruption mutation result is missing.", runErrorCodes.mutationMissing)
       for (const run of mutation.runs) {
         const appended = await journal.append({
           eventType: "run-interrupted",
@@ -195,7 +211,7 @@ export async function runStartupInterruptionReconcile(input: {
           },
           resource: { resourceId: run.runId, resourceType: "run" },
         })
-        if (!appended.success) return createResultError(op, appended.errorMessage)
+        if (!appended.success) return appended
       }
       return createResult(undefined)
     },

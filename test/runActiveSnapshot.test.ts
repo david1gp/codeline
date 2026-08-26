@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test"
-import { createResult, createResultError } from "@adaptive-ds/result"
+import { createResult, createResultErrorCode } from "@adaptive-ds/result"
 import { eq } from "drizzle-orm"
 import { Hono } from "hono"
 import { agentTable } from "../src/agents/db/agentTable.js"
@@ -14,6 +14,7 @@ import { apiRunRoutesAdd } from "../src/run/api/apiRunRoutesAdd.js"
 import { runRepositoryActiveListLoad } from "../src/run/db/runRepositoryActiveListLoad.js"
 import { runRepositoryActiveSnapshotLoad } from "../src/run/db/runRepositoryActiveSnapshotLoad.js"
 import { runTable } from "../src/run/db/runTable.js"
+import { runErrorCodes } from "../src/run/errors/runErrorCodes.js"
 import { runActiveSnapshotFetch } from "../src/run/ui/runActiveSnapshotFetch.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
@@ -90,7 +91,8 @@ test("active snapshot route hides unauthorized and malformed results", async () 
     await next()
   })
   apiRunRoutesAdd(missingApp, {
-    runActiveSnapshotLoad: async () => createResultError("runActiveSnapshotLoad", "The run could not be found."),
+    runActiveSnapshotLoad: async () =>
+      createResultErrorCode("runActiveSnapshotLoad", "The target is unavailable.", runErrorCodes.notFound),
   })
   const missing = await missingApp.request("http://codeline.test/sessions/session-1/runs/run-1/snapshot")
   expect(missing.status).toBe(404)
@@ -285,18 +287,21 @@ const activeSnapshotRepositoryTest = async () => {
       data: { runs: [{ runId, status: "running" }] },
     })
     expect(await runRepositoryActiveListLoad(database, otherUserId, organizationId, sessionId)).toMatchObject({
+      code: runErrorCodes.sessionNotFound,
       errorMessage: "The session could not be found.",
       success: false,
     })
     expect(
       await runRepositoryActiveSnapshotLoad(database, otherUserId, organizationId, sessionId, runId),
     ).toMatchObject({
+      code: runErrorCodes.notFound,
       errorMessage: "The run could not be found.",
       success: false,
     })
     expect(
       await runRepositoryActiveSnapshotLoad(database, userId, "other-organization", sessionId, runId),
     ).toMatchObject({
+      code: runErrorCodes.notFound,
       errorMessage: "The run could not be found.",
       success: false,
     })
