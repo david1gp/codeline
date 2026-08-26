@@ -81,12 +81,12 @@ test("reconciles all fixture agents while preserving unrelated configuration ide
   expect(read.success).toBe(true)
   if (!read.success) return
   expect(read.data.configuration.agentConfigurations[0]).toEqual({
-    configuration: { model: "user-managed-model", provider: "deterministic" },
+    configuration: { model: "user-managed-model", provider: "deterministic", tools: { bash: false, webfetch: false } },
     target: { agentId: "user-managed-agent", serverId: "user-managed-server" },
   })
   expect(read.data.configuration.agentConfigurations.slice(1)).toEqual([
     ...exampleDataFixture.agents.map((agent) => ({
-      configuration: agent.configuration,
+      configuration: { ...agent.configuration, tools: { bash: false, webfetch: false } },
       target: { agentId: agent.id, serverId: agent.serverId },
     })),
     ...catalogConfigurations.data.map(({ agent, configuration }) => ({

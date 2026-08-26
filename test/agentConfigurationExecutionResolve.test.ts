@@ -7,6 +7,7 @@ const configuration = {
   generation: { maxTokens: 512, temperature: 0.2 },
   model: "stored-model",
   provider: "cliproxyapi",
+  tools: { bash: false, webfetch: false },
 } as const
 
 test("agent configuration execution resolver replaces only the model", () => {

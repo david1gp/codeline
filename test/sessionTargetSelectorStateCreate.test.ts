@@ -887,6 +887,7 @@ test("workspace configuration updates an agent with only the fixed provider secr
       baseUrl: "https://cli-updated.example.com/v1",
       model: "cli-model",
       provider: "cliproxyapi",
+      tools: { bash: false, webfetch: false },
     },
     name: "Updated agent",
     role: "review",

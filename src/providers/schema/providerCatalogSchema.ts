@@ -1,5 +1,6 @@
 import * as v from "valibot"
 import { agentCatalogPermissionSchema } from "../../agents/schema/agentCatalogPermissionSchema.js"
+import { agentToolDefaultsSchema } from "../../agents/schema/agentToolDefaultsSchema.js"
 import { providerGenerationSchema } from "./providerGenerationSchema.js"
 
 const catalogIdSchema = v.pipe(
@@ -137,6 +138,7 @@ export const providerCatalogSchema = v.strictObject({
       prompt: v.pipe(v.string(), v.trim(), v.minLength(1)),
       provider: v.optional(catalogIdSchema),
       generation: v.optional(providerGenerationSchema),
+      tools: agentToolDefaultsSchema,
       variant: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(80))),
     }),
   ),

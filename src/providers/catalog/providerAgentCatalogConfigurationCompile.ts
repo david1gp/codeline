@@ -15,7 +15,7 @@ function agentModeResolve(agent: CatalogAgent): "primary" | "subagent" {
   return agent.mode ?? "subagent"
 }
 
-function generationResolve(agent: CatalogAgent, effort: CatalogAgent["generation"]): AgentConfiguration["generation"] {
+function generationResolve(effort: CatalogAgent["generation"]): AgentConfiguration["generation"] {
   if (effort === undefined) return undefined
   if (effort.reasoningEffort === undefined) return undefined
   return { reasoningEffort: effort.reasoningEffort }
@@ -44,7 +44,7 @@ export function providerAgentCatalogConfigurationCompile(
     if (!resolved.success) return createResultError("providerAgentCatalogConfigurationCompile", resolved.errorMessage)
 
     const mode = agentModeResolve(agent)
-    const generation = generationResolve(agent, agent.generation)
+    const generation = generationResolve(agent.generation)
     const variant = resolved.data.variant
     const variantGeneration = variant?.effort === undefined ? undefined : { reasoningEffort: variant.effort }
     const modelOptions = {
@@ -81,6 +81,7 @@ export function providerAgentCatalogConfigurationCompile(
       modelMetadata: resolved.data.model,
       modelOptions,
       providerOptions,
+      tools: agent.tools,
       ...(variant === undefined ? {} : { variant: variant.id }),
     }
     const configuration =

@@ -3,15 +3,16 @@ import * as v from "valibot"
 import { agentConfigurationSchema } from "../src/agents/schema/agentConfigurationSchema.js"
 import { cliProxyApiSettingsParse } from "../src/providers/runtime/cliProxyApiSettingsParse.js"
 import { secretReferenceResolve } from "../src/providers/runtime/secretReferenceResolve.js"
+import { toolNameSchema } from "../src/tools/schema/toolNameSchema.js"
 
 test("agent configuration accepts strict deterministic and CLIProxyAPI variants", () => {
-  expect(
-    v.safeParse(agentConfigurationSchema, {
-      provider: "deterministic",
-      model: "deterministic-test",
-      generation: { maxTokens: 128, temperature: 0 },
-    }).success,
-  ).toBe(true)
+  const deterministic = v.safeParse(agentConfigurationSchema, {
+    provider: "deterministic",
+    model: "deterministic-test",
+    generation: { maxTokens: 128, temperature: 0 },
+  })
+  expect(deterministic.success).toBe(true)
+  if (deterministic.success) expect(deterministic.output.tools).toEqual({ bash: false, webfetch: false })
   expect(
     v.safeParse(agentConfigurationSchema, {
       apiKey: "$CLIPROXYAPI_API_KEY",
@@ -37,6 +38,37 @@ test("agent configuration accepts strict deterministic and CLIProxyAPI variants"
       provider: "codex-lb",
     }).success,
   ).toBe(true)
+})
+
+test("tool names and agent tool defaults are strict", () => {
+  for (const name of ["bash", "webfetch", "skill", "delegate_task"]) {
+    expect(v.safeParse(toolNameSchema, name).success).toBe(true)
+  }
+  for (const name of ["glob", "grep", "websearch", "edit", "write"]) {
+    expect(v.safeParse(toolNameSchema, name).success).toBe(false)
+  }
+
+  const explicit = v.safeParse(agentConfigurationSchema, {
+    provider: "deterministic",
+    model: "deterministic-test",
+    tools: { bash: true, webfetch: true },
+  })
+  expect(explicit.success).toBe(true)
+  if (explicit.success) expect(explicit.output.tools).toEqual({ bash: true, webfetch: true })
+  expect(
+    v.safeParse(agentConfigurationSchema, {
+      provider: "deterministic",
+      model: "deterministic-test",
+      tools: { bash: true, unknown: false },
+    }).success,
+  ).toBe(false)
+  expect(
+    v.safeParse(agentConfigurationSchema, {
+      provider: "deterministic",
+      model: "deterministic-test",
+      tools: { bash: "yes" },
+    }).success,
+  ).toBe(false)
 })
 
 test("agent configuration rejects literal credentials, unknown providers, bad URLs, and limits", () => {

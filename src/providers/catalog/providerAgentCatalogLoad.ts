@@ -407,6 +407,7 @@ const agentParse = (name: string, source: string): Result<CatalogAgent> => {
     prompt: parsed.data.prompt,
     ...(provider === undefined ? {} : { provider }),
     ...(normalizedGeneration === undefined ? {} : { generation: normalizedGeneration }),
+    tools: parsed.data.metadata.tools,
     ...(variant === undefined ? {} : { variant }),
   })
 }

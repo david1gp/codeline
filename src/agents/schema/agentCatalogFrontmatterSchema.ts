@@ -1,6 +1,7 @@
 import * as v from "valibot"
 import { providerGenerationSchema } from "../../providers/schema/providerGenerationSchema.js"
 import { agentCatalogPermissionSchema } from "./agentCatalogPermissionSchema.js"
+import { agentToolDefaultsSchema } from "./agentToolDefaultsSchema.js"
 
 export const agentCatalogFrontmatterSchema = v.strictObject({
   description: v.optional(v.pipe(v.string(), v.trim(), v.maxLength(2_000))),
@@ -11,6 +12,7 @@ export const agentCatalogFrontmatterSchema = v.strictObject({
   model: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(200))),
   permission: v.optional(agentCatalogPermissionSchema),
   provider: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(200))),
+  tools: v.optional(agentToolDefaultsSchema, { bash: false, webfetch: false }),
   variant: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(80))),
 })
 

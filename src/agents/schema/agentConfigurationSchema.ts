@@ -1,7 +1,8 @@
 import * as v from "valibot"
-import { providerGenerationSchema } from "../../providers/schema/providerGenerationSchema.js"
 import { providerCatalogModelSchema } from "../../providers/schema/providerCatalogModelSchema.js"
+import { providerGenerationSchema } from "../../providers/schema/providerGenerationSchema.js"
 import { secretReferenceSchema } from "../../providers/schema/secretReferenceSchema.js"
+import { agentToolDefaultsSchema } from "./agentToolDefaultsSchema.js"
 
 const agentModelSchema = v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(200))
 const providerBaseUrlSchema = v.pipe(
@@ -44,6 +45,7 @@ const deterministicAgentConfigurationSchema = v.strictObject({
   provider: v.literal("deterministic"),
   model: agentModelSchema,
   generation: v.optional(providerGenerationSchema),
+  tools: v.optional(agentToolDefaultsSchema),
 })
 
 const cliproxyapiAgentConfigurationSchema = v.strictObject({
@@ -57,6 +59,7 @@ const cliproxyapiAgentConfigurationSchema = v.strictObject({
   modelMetadata: v.optional(providerCatalogModelSchema),
   modelOptions: v.optional(catalogOptionsSchema),
   providerOptions: v.optional(catalogOptionsSchema),
+  tools: v.optional(agentToolDefaultsSchema),
   variant: v.optional(agentModelSchema),
 })
 
@@ -71,13 +74,27 @@ const codexLbAgentConfigurationSchema = v.strictObject({
   modelMetadata: v.optional(providerCatalogModelSchema),
   modelOptions: v.optional(catalogOptionsSchema),
   providerOptions: v.optional(catalogOptionsSchema),
+  tools: v.optional(agentToolDefaultsSchema),
   variant: v.optional(agentModelSchema),
 })
 
-export const agentConfigurationSchema = v.variant("provider", [
+const agentConfigurationVariantSchema = v.variant("provider", [
   deterministicAgentConfigurationSchema,
   cliproxyapiAgentConfigurationSchema,
   codexLbAgentConfigurationSchema,
 ])
+
+export const agentConfigurationSchema = v.pipe(
+  agentConfigurationVariantSchema,
+  v.transform(
+    (configuration): v.InferInput<typeof agentConfigurationVariantSchema> => ({
+      ...configuration,
+      tools: {
+        bash: configuration.tools?.bash ?? false,
+        webfetch: configuration.tools?.webfetch ?? false,
+      },
+    }),
+  ),
+)
 
 export type AgentConfiguration = v.InferOutput<typeof agentConfigurationSchema>

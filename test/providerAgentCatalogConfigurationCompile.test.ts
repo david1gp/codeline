@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test"
 import { resolve } from "node:path"
+import * as v from "valibot"
+import { agentConfigurationSchema } from "../src/agents/schema/agentConfigurationSchema.js"
 import { providerAgentCatalogConfigurationCompile } from "../src/providers/catalog/providerAgentCatalogConfigurationCompile.js"
 import { providerAgentCatalogLoad } from "../src/providers/catalog/providerAgentCatalogLoad.js"
-import { agentConfigurationSchema } from "../src/agents/schema/agentConfigurationSchema.js"
-import * as v from "valibot"
 
 const catalogResult = await providerAgentCatalogLoad(resolve(import.meta.dir, ".."))
 if (!catalogResult.success) throw new Error(catalogResult.errorMessage)
@@ -18,6 +18,7 @@ test("compiles every real catalog agent with inherited defaults and variant effo
     model: "gpt-5.6-luna",
     provider: "codex-lb",
     generation: { reasoningEffort: "medium" },
+    tools: { bash: false, webfetch: false },
   })
   expect(byId.get("sol-high")).toMatchObject({
     model: "gpt-5.6-sol",

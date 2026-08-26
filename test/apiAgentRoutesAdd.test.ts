@@ -31,18 +31,21 @@ const existingAgentId = `agent-api-existing-${uuidv7()}`
 const deterministicConfiguration = {
   model: "development-default",
   provider: "deterministic",
+  tools: { bash: false, webfetch: false },
 } as const
 const cliproxyConfiguration = {
   apiKey: "$CLIPROXYAPI_API_KEY",
   baseUrl: "https://provider.test/v1",
   model: "gpt-test",
   provider: "cliproxyapi",
+  tools: { bash: false, webfetch: false },
 } as const
 const codexConfiguration = {
   apiKey: "$CODEX_LB_API_TOKEN",
   baseUrl: "https://provider.test/v1",
   model: "gpt-test",
   provider: "codex-lb",
+  tools: { bash: false, webfetch: false },
 } as const
 
 beforeAll(async () => {

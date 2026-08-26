@@ -51,7 +51,25 @@ test("retains agent mode, permission rules, and model variants", async () => {
     variant: "high",
     generation: { reasoningEffort: "high" },
     permission: { task: { "*": "deny", explore: "allow" } },
+    tools: { bash: false, webfetch: false },
   })
+})
+
+test("parses explicit agent tool defaults and rejects unknown or invalid defaults", async () => {
+  const enabled = await providerAgentCatalogLoad(
+    await createCatalog({
+      "agents/reviewer.md": "---\ntools:\n  bash: true\n  webfetch: true\n---\nReview the diff.",
+    }),
+  )
+  expect(enabled.success).toBe(true)
+  if (enabled.success) expect(enabled.data.agents[0]?.tools).toEqual({ bash: true, webfetch: true })
+
+  for (const tools of ["bash: yes", "unknown: true"]) {
+    const invalid = await providerAgentCatalogLoad(
+      await createCatalog({ "agents/broken.md": `---\ntools:\n  ${tools}\n---\nPrompt` }),
+    )
+    expect(invalid.success).toBe(false)
+  }
 })
 
 test("rejects invalid or unbounded agent permission metadata and modes", async () => {

@@ -23,7 +23,7 @@ function validConfiguration(model = "deterministic-test"): CodelineConfiguration
   return {
     agentConfigurations: [
       {
-        configuration: { model, provider: "deterministic" },
+        configuration: { model, provider: "deterministic", tools: { bash: false, webfetch: false } },
         target: { agentId: "agent-1", serverId: "server-1" },
       },
     ],
@@ -72,7 +72,7 @@ describe("configurationStore", () => {
     const store = await createStore()
     const duplicate = validConfiguration()
     duplicate.agentConfigurations.push({
-      configuration: { model: "other", provider: "deterministic" },
+      configuration: { model: "other", provider: "deterministic", tools: { bash: false, webfetch: false } },
       target: { agentId: "agent-1", serverId: "server-1" },
     })
     expect(v.safeParse(codelineConfigurationDocumentSchema, duplicate).success).toBe(false)
