@@ -131,6 +131,52 @@ test("simulation inspector keeps the empty backend state after an HTTP loader er
   })
 })
 
+test("simulation inspector refreshes cancellation status and kind without a reload", async () => {
+  await createRoot(async (dispose) => {
+    let loadCount = 0
+    const state = simulateInspectorStateCreate({
+      chat: () => chat,
+      load: async () => {
+        loadCount += 1
+        const cancelled = loadCount > 1
+        return createResult({
+          events: [],
+          runs: [
+            {
+              attempts: [
+                {
+                  id: "attempt-1",
+                  ordinal: 1,
+                  status: cancelled ? "aborted" : "running",
+                  streamId: "stream-1",
+                },
+              ],
+              cancellationKind: cancelled ? "requested" : null,
+              createdAt: 1,
+              id: "run-1",
+              status: cancelled ? "aborted" : "running",
+              streamId: "stream-1",
+            },
+          ],
+        })
+      },
+      sessionId: () => "session-1",
+    })
+
+    await tick()
+    expect(state.run()).toMatchObject({ cancellationKind: null, status: "running" })
+
+    state.refresh()
+    await tick()
+
+    expect(loadCount).toBe(2)
+    expect(state.run()).toMatchObject({ cancellationKind: "requested", status: "aborted" })
+    expect(state.cancellation()).toEqual({ kind: "requested" })
+
+    dispose()
+  })
+})
+
 test("simulation inspector consumes the persisted session run snapshot contract", async () => {
   await createRoot(async (dispose) => {
     const state = simulateInspectorStateCreate({

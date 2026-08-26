@@ -289,6 +289,37 @@ test("routes resource invalidations to the matching registered refresh seams", a
   coordinator.close()
 })
 
+test("refreshes selected session queries after an authoritative run cancellation snapshot", async () => {
+  const calls: string[] = []
+  const { coordinator, source } = coordinatorCreate({
+    reconciliation: reconciliation({
+      activeRunSnapshotLoad: (input) => {
+        calls.push(`snapshot:${input.reason}`)
+        return createResult({
+          lastSequence: 1,
+          partialText: "",
+          runId: input.runId,
+          sessionId: input.sessionId,
+          status: "aborted",
+        })
+      },
+    }),
+  })
+  coordinator.registerSelectedSession({
+    refresh: () => {
+      calls.push("session")
+    },
+    sessionId: "session-1",
+  })
+
+  source.open()
+  source.emit(frame("run-cancelled", 1))
+  await flush()
+
+  expect(calls).toEqual(["snapshot:run-checkpoint", "session"])
+  coordinator.close()
+})
+
 test("refreshes every active seam once during reset bootstrap", async () => {
   const calls: string[] = []
   const { coordinator, source, sources } = coordinatorCreate()

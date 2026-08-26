@@ -175,6 +175,17 @@ export function eventFeedCoordinatorStateCreate(options: EventFeedCoordinatorOpt
 
   const reconciliation: EventFeedReconciliationCallbacks = {
     ...options.reconciliation,
+    activeRunSnapshotLoad: async (input) => {
+      const loaded = await options.reconciliation.activeRunSnapshotLoad(input)
+      if (!loaded.success || resetRefreshPending || input.reason === "reset") return loaded
+      const refreshed = await eventFeedRefreshCallbacksRun(
+        "eventFeedCoordinatorActiveRunSnapshotRefresh",
+        selectedRegistrationsForSession(selectedSession, input.sessionId).map((registration) => registration.refresh),
+      )
+      if (!refreshed.success)
+        return createResultError("eventFeedCoordinatorActiveRunSnapshotRefresh", refreshed.errorMessage)
+      return loaded
+    },
     resourceRevalidate: async (resource) => {
       if (!resetRefreshPending) {
         const refreshed = await eventFeedRefreshCallbacksRun(

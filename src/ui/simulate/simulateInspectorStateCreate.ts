@@ -1,6 +1,8 @@
 import { createResult, type Result } from "@adaptive-ds/result"
 import { createSignalObject } from "@adaptive-ds/solid-ui/utils/createSignalObject"
+import { onCleanup, useContext } from "solid-js"
 import type { RunFailureMetadata } from "../../run/schema/runFailureMetadataSchema.js"
+import { eventFeedCoordinatorContext } from "../eventFeedCoordinatorContext.js"
 import { httpQueryStateCreate } from "../httpQueryStateCreate.js"
 import type { SessionChatState } from "../sessionChatStateCreate.js"
 import { simulateInspectorBackendStateDerive } from "./simulateInspectorBackendStateDerive.js"
@@ -70,6 +72,14 @@ export function simulateInspectorStateCreate(options: SimulateInspectorOptions) 
     key: options.sessionId,
     load: (sessionId, signal) => options.load?.(sessionId, signal) ?? Promise.resolve(simulateInspectorSnapshotEmpty()),
   })
+  const eventFeed = useContext(eventFeedCoordinatorContext)
+  const unregisterEventFeed = eventFeed?.registerSelectedSession({
+    refresh: () => {
+      backendQuery.refresh()
+    },
+    sessionId: options.sessionId,
+  })
+  onCleanup(() => unregisterEventFeed?.())
   const backend = () =>
     simulateInspectorBackendStateDerive({
       events: backendQuery.data()?.events ?? [],
@@ -98,6 +108,9 @@ export function simulateInspectorStateCreate(options: SimulateInspectorOptions) 
     invariantViolations: () => backend().invariantViolations,
     persistedEventCounts: () => backend().persistedEventCounts,
     persistedEventTotal: () => backend().persistedEventTotal,
+    refresh: () => {
+      backendQuery.refresh()
+    },
     run: () => backend().run,
     streamId: () => backend().streamId,
     terminalReason: () => backend().terminalReason,
