@@ -1,4 +1,11 @@
+type BunRuntime = {
+  randomUUIDv7?: () => string
+}
+
 export function uuidv7(): string {
+  const bun = (globalThis as typeof globalThis & { Bun?: BunRuntime }).Bun
+  if (typeof bun?.randomUUIDv7 === "function") return bun.randomUUIDv7()
+
   const bytes = new Uint8Array(16)
   crypto.getRandomValues(bytes)
 
