@@ -27,7 +27,7 @@ Add a small, deterministic agent-runtime foundation with normalized transcripts,
 
 ## Approach
 
-- Current context: implementation is starting with two independent Phase 1 lanes (semantic transcript normalization/invariants and deterministic scenario coverage), followed by the shared Phase 2 manifest and tool-registry contracts.
+- Current context: Phase 1 implementation, full checks, and combined-preview browser verification pass. The required commit/push/deploy cycle is in progress before Phase 2 begins.
 - Build pure schemas, resolvers, and projections before connecting provider loops or UI.
 - Extend `RunExecutionSnapshot` with a versioned execution manifest containing instructions, active skills, command catalog identity, and effective per-agent tools.
 - Use one typed tool registry for `skill`, `bash`, `webfetch`, and `delegate_task`; retain the existing provider event and durable tool-activity protocol.
@@ -39,12 +39,12 @@ Add a small, deterministic agent-runtime foundation with normalized transcripts,
 
 ### Phase 1 — Semantic transcript and deterministic runtime baseline
 
-Status: in progress.
+Status: complete; publishing.
 
-- [ ] Add a pure transcript normalizer that folds normalized provider/run events into stable ordered assistant text, thinking/tool lifecycle, attempt boundaries, cancellation/failure, and terminal outcome while excluding volatile transport fields.
-- [ ] Assert invariants for authoritative attempt selection, stream isolation, one terminal outcome, no failed-attempt text leakage, no tool/thinking leakage into assistant text, and deterministic duplicate-terminal handling.
-- [ ] Extend deterministic scenarios for abort-before-event, abort/event race, abort-after-terminal, retry stream replacement, incomplete tool lifecycle, unexpected end, and duplicate/out-of-order terminal input.
-- [ ] Extend existing inspector derivation to expose invariant violations, authoritative attempt/stream, terminal reason, cancellation state, and persisted event counts without adding a new inspector framework.
+- [x] Add a pure transcript normalizer that folds normalized provider/run events into stable ordered assistant text, thinking/tool lifecycle, attempt boundaries, cancellation/failure, and terminal outcome while excluding volatile transport fields.
+- [x] Assert invariants for authoritative attempt selection, stream isolation, one terminal outcome, no failed-attempt text leakage, no tool/thinking leakage into assistant text, and deterministic duplicate-terminal handling.
+- [x] Extend deterministic scenarios for abort-before-event, abort/event race, abort-after-terminal, retry stream replacement, incomplete tool lifecycle, unexpected end, and duplicate/out-of-order terminal input.
+- [x] Extend existing inspector derivation to expose invariant violations, authoritative attempt/stream, terminal reason, cancellation state, and persisted event counts without adding a new inspector framework.
 - Codeline paths:
   - `src/stream/actions/executionStreamEventNormalize.ts`
   - `src/providers/runtime/providerDeterministicScenarioFixture.ts`
