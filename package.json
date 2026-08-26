@@ -37,7 +37,7 @@
     "dev:ui": "vite",
     "start": "bun run ./dist/server/index.js",
     "deploy": "bash ./ops/deploy.sh",
-    "test": "bun test --max-concurrency=1 --dots --bail=1 --path-ignore-patterns='**/providerRuntimeChatIntegration.test.ts' ./src ./test",
+    "test": "bun test --max-concurrency=1 --isolate --dots --bail=1 --path-ignore-patterns='**/providerRuntimeChatIntegration.test.ts' ./src ./test",
     "test:integration": "bun test --max-concurrency=1 --dots --bail=1 ./test/providerRuntimeChatIntegration.test.ts",
     "test:e2e": "playwright test",
     "typecheck": "bun tsc -p tsconfig.json --noEmit",
