@@ -1,18 +1,20 @@
 import * as v from "valibot"
 import { apiPreconditionFailedResponseSchema } from "./apiPreconditionFailedResponseSchema.js"
 
+const apiStandardErrorCodeSchema = v.pipe(
+  v.string(),
+  v.trim(),
+  v.minLength(1),
+  v.maxLength(200),
+  v.check(
+    (code) => code !== "precondition_failed",
+    "The precondition_failed code uses its dedicated response contract.",
+  ),
+)
+
 const apiStandardErrorResponseSchema = v.strictObject({
   error: v.strictObject({
-    code: v.picklist([
-      "bad_request",
-      "conflict",
-      "database_not_ready",
-      "development_identity_unavailable",
-      "forbidden",
-      "internal_server_error",
-      "not_found",
-      "unauthorized",
-    ]),
+    code: apiStandardErrorCodeSchema,
     details: v.optional(v.record(v.string(), v.unknown())),
     message: v.string(),
     op: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(200))),
