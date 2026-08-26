@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test"
 import { randomBytes } from "node:crypto"
 import { createResult } from "@adaptive-ds/result"
-import { eq } from "drizzle-orm"
+import { asc, eq } from "drizzle-orm"
 import { Hono } from "hono"
 import * as v from "valibot"
 import { agentTable } from "../src/agents/db/agentTable.js"
@@ -17,7 +17,9 @@ import { organizationMemberTable } from "../src/identity/db/organizationMemberTa
 import { organizationTable } from "../src/identity/db/organizationTable.js"
 import { journalCursorCodecCreate } from "../src/journal/actions/journalCursorCodecCreate.js"
 import { messageTable } from "../src/message/db/messageTable.js"
+import { runCreate } from "../src/run/actions/runCreate.js"
 import { attemptTable } from "../src/run/db/attemptTable.js"
+import { runDelegationTable } from "../src/run/db/runDelegationTable.js"
 import { runTable } from "../src/run/db/runTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionChatAdapterCreate } from "../src/session/actions/sessionChatAdapterCreate.js"
@@ -79,6 +81,19 @@ const runApp = appCreate({
   database,
   developmentIdentityUpsert: testDevelopmentIdentityUpsert,
   journalCursorCodec: journalCursorCodec.data,
+})
+const nestedRunApp = appCreate({
+  ...appSseTestDependenciesCreate(journalCursorCodec.data),
+  configuration,
+  configurationStore: runConfigurationStore,
+  database,
+  developmentIdentityUpsert: testDevelopmentIdentityUpsert,
+  journalCursorCodec: journalCursorCodec.data,
+  runCreate: (database, userId, sessionId, input) =>
+    runCreate(database, userId, sessionId, {
+      ...input,
+      budget: { ...input.budget, maxChildDepth: 2, maxChildRuns: 2 },
+    }),
 })
 
 test("requires the authenticated session cursor and journal dependencies at construction", () => {
@@ -503,6 +518,60 @@ test.skipIf(!databaseAvailable)(
       { content: "Persist this chat", role: "user", sequence: 1 },
       { content: "Deterministic response: Persist this chat", role: "assistant", sequence: 2 },
     ])
+  },
+)
+
+test.skipIf(!databaseAvailable)(
+  "session chat keeps a delegated subagent's second ping delegation on the child run",
+  async () => {
+    const created = await nestedRunApp.request("http://codeline.test/api/sessions", {
+      body: JSON.stringify({
+        clientRequestId: `session-chat-nested-delegation-${uuidv7()}`,
+        metadata: {},
+        primaryAgentId: agentId,
+        serverId,
+        title: "Nested delegation",
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+    expect(created.status).toBe(201)
+    const sessionId = ((await created.json()) as { session: { id: string } }).session.id
+    const runId = `session-chat-nested-delegation-run-${uuidv7()}`
+    const response = await nestedRunApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+      body: JSON.stringify({
+        context: [],
+        forwardedProps: {},
+        // The deterministic runtime turns this into root -> `delegate:ping` -> `ping`.
+        messages: [{ content: "delegate:delegate:ping", id: `prompt-${runId}`, role: "user" }],
+        runId,
+        state: {},
+        threadId: sessionId,
+        tools: [],
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+    expect(response.status).toBe(200)
+
+    let delegations = await database
+      .select()
+      .from(runDelegationTable)
+      .where(eq(runDelegationTable.sessionId, sessionId))
+      .orderBy(asc(runDelegationTable.createdAt), asc(runDelegationTable.id))
+    for (let attempt = 0; attempt < 100 && delegations.length < 2; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      delegations = await database
+        .select()
+        .from(runDelegationTable)
+        .where(eq(runDelegationTable.sessionId, sessionId))
+        .orderBy(asc(runDelegationTable.createdAt), asc(runDelegationTable.id))
+    }
+
+    expect(delegations).toHaveLength(2)
+    expect(delegations.map((delegation) => delegation.task)).toEqual(["delegate:ping", "ping"])
+    expect(delegations[1]?.parentRunId).toBe(delegations[0]?.childRunId)
+    expect(delegations[1]?.parentAttemptId).not.toBe(delegations[0]?.parentAttemptId)
   },
 )
 

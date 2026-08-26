@@ -475,18 +475,23 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
       runtimeAgentPrompt = agent?.prompt
     }
 
-    const delegatedTaskExecute = async (input: {
-      agentId?: string
-      signal: AbortSignal
-      task: string
-      toolCallId: string
-    }) => {
-      if (activeRun === undefined || activeAttempt === undefined) throw new Error("The parent chat run is unavailable.")
+    const delegatedTaskExecute = async (
+      input: {
+        agentId?: string
+        signal: AbortSignal
+        task: string
+        toolCallId: string
+      },
+      parent?: { attempt: typeof attemptTable.$inferSelect; run: typeof runTable.$inferSelect },
+    ) => {
+      const parentRun = parent?.run ?? activeRun
+      const parentAttempt = parent?.attempt ?? activeAttempt
+      if (parentRun === undefined || parentAttempt === undefined) throw new Error("The parent chat run is unavailable.")
 
       let childSnapshot: RunExecutionSnapshot | undefined
       if (input.agentId !== undefined) {
         if (options.configurationStore === undefined) throw new Error("The child agent configuration is unavailable.")
-        const parentSnapshot = v.safeParse(runExecutionSnapshotSchema, activeRun.snapshot)
+        const parentSnapshot = v.safeParse(runExecutionSnapshotSchema, parentRun.snapshot)
         if (!parentSnapshot.success) throw new Error("The parent execution snapshot is invalid.")
         const childCatalogAgent = options.providerAgentCatalog?.agents.some(({ id }) => id === input.agentId)
         const resolved = (options.runExecutionSnapshotResolve ?? runExecutionSnapshotResolve)(
@@ -505,13 +510,13 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
       const childExecute = await (options.runDelegationExecute ?? runDelegationExecute)(
         {
           delegationKey: input.toolCallId,
-          parentAttempt: activeAttempt,
-          parentRun: activeRun,
+          parentAttempt,
+          parentRun,
           ...(childSnapshot === undefined ? {} : { childSnapshot }),
           task: input.task,
         },
         {
-          attemptStreamCreate: ({ run, signal, task }) => {
+          attemptStreamCreate: ({ attempt, run, signal, task }) => {
             const snapshot = v.safeParse(runExecutionSnapshotSchema, run.snapshot)
             if (!snapshot.success) throw new Error("The child execution snapshot is invalid.")
             const resolved = providerRuntimeAdapterResolve(snapshot.output.configuration, {
@@ -521,7 +526,13 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
               systemPrompt: snapshot.output.agentPrompt,
             })
             if (!resolved.success) throw new Error(resolved.errorMessage)
-            return sessionChatChildExecutionStreamCreate({ adapter: resolved.data, run, signal, task })
+            const adapter = providerDelegationAdapterCreate({
+              adapter: resolved.data,
+              delegateTask: (input) => delegatedTaskExecute(input, { attempt, run }),
+              model: snapshot.output.configuration.model,
+              toolLoopCreate: options.providerDelegationToolLoopCreate,
+            })
+            return sessionChatChildExecutionStreamCreate({ adapter, run, signal, task })
           },
           cancellationRegister: (registration) =>
             options.runActiveRegistry !== undefined
