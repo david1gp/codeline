@@ -27,7 +27,7 @@ Add a small, deterministic agent-runtime foundation with normalized transcripts,
 
 ## Approach
 
-- Current context: Phase 1 implementation and full checks pass. A deployed cancellation-inspector convergence defect was corrected through the existing reconciliation refresh seam; its follow-up publish and deployed verification are in progress.
+- Current context: Phase 2 implementation and combined-preview verification are complete: immutable manifest propagation, registry-backed `delegate_task`, catalog-validated user/project defaults, and legacy/manifest-lineage compatibility pass. The required commit/push/deploy verification cycle remains; work stops after it.
 - Build pure schemas, resolvers, and projections before connecting provider loops or UI.
 - Extend `RunExecutionSnapshot` with a versioned execution manifest containing instructions, active skills, command catalog identity, and effective per-agent tools.
 - Use one typed tool registry for `skill`, `bash`, `webfetch`, and `delegate_task`; retain the existing provider event and durable tool-activity protocol.
@@ -39,7 +39,7 @@ Add a small, deterministic agent-runtime foundation with normalized transcripts,
 
 ### Phase 1 — Semantic transcript and deterministic runtime baseline
 
-Status: complete; publishing.
+Status: complete.
 
 - [x] Add a pure transcript normalizer that folds normalized provider/run events into stable ordered assistant text, thinking/tool lifecycle, attempt boundaries, cancellation/failure, and terminal outcome while excluding volatile transport fields.
 - [x] Assert invariants for authoritative attempt selection, stream isolation, one terminal outcome, no failed-attempt text leakage, no tool/thinking leakage into assistant text, and deterministic duplicate-terminal handling.
@@ -68,13 +68,14 @@ Status: complete; publishing.
 
 ### Phase 2 — Versioned execution manifest and typed tool registry
 
-Status: pending Phase 1 foundations; schema and registry contracts may proceed independently once Phase 1 increments are integrated.
+Status: complete.
 
-- [ ] Define a versioned execution manifest for resolved instructions, active skill snapshots, command catalog digest, and effective tool names for the primary and selectable subagents.
-- [ ] Extend session creation so the pre-session choices are validated and captured before session insertion, then copied into root, attempt, retry, and child snapshots.
-- [ ] Add a typed tool registry contract with strict input/output schemas, abort propagation, timeout/output bounds, structured failures, and existing provider tool-event compatibility.
-- [ ] Adapt `delegate_task` to the registry without changing delegation budgets, idempotency, cancellation, or durable child lifecycle.
-- [ ] Add configuration schemas for per-agent `bash`/`webfetch` defaults and a user/project default-selection persistence seam; do not add permission rules.
+- [x] Define a versioned execution manifest for resolved instructions, active skill snapshots, command catalog digest, and effective tool names for the primary and selectable subagents.
+- [x] Extend session creation so the pre-session choices are validated and captured before session insertion, then copied into root, attempt, retry, and child snapshots.
+- [x] Add a typed tool registry contract with strict input/output schemas, abort propagation, timeout/output bounds, structured failures, and existing provider tool-event compatibility.
+- [x] Adapt `delegate_task` to the registry without changing delegation budgets, idempotency, cancellation, or durable child lifecycle.
+- [x] Add configuration schemas for per-agent `bash`/`webfetch` defaults.
+- [x] Add a user/project default-selection persistence seam; do not add permission rules.
 - Codeline paths:
   - `src/session/schema/sessionCreateRequestSchema.ts`
   - `src/session/actions/sessionCreate.ts`
