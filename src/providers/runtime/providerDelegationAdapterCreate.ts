@@ -1,15 +1,16 @@
 import type { AnyTextAdapter, ModelMessage } from "@tanstack/ai"
+import { type DelegateTaskToolExecute, delegateTaskToolCreate } from "../../tools/runtime/delegateTaskToolCreate.js"
+import type { ToolRegistry } from "../../tools/runtime/toolRegistry.js"
+import { toolRegistryCreate } from "../../tools/runtime/toolRegistryCreate.js"
 import type { CliProxyApiAdapter, CliProxyApiAdapterInput } from "./cliProxyApiAdapterCreate.js"
-import type {
-  ProviderDelegationToolLoop,
-  ProviderDelegationToolLoopOptions,
-} from "./providerDelegationToolLoopCreate.js"
+import type { ProviderDelegationToolLoop } from "./providerDelegationToolLoopCreate.js"
 import { providerDelegationToolLoopCreate } from "./providerDelegationToolLoopCreate.js"
 
 type ProviderDelegationAdapterCreateOptions = {
   adapter: CliProxyApiAdapter
-  delegateTask: ProviderDelegationToolLoopOptions["delegateTask"]
+  delegateTask?: DelegateTaskToolExecute
   model: string
+  toolRegistry?: ToolRegistry
   toolLoopCreate?: typeof providerDelegationToolLoopCreate
 }
 
@@ -67,9 +68,13 @@ function providerDelegationAdapterModelCreate(options: ProviderDelegationAdapter
 
 export function providerDelegationAdapterCreate(options: ProviderDelegationAdapterCreateOptions): CliProxyApiAdapter {
   const loopCreate = options.toolLoopCreate ?? providerDelegationToolLoopCreate
+  const toolRegistry = options.toolRegistry ?? toolRegistryCreate()
+  if (options.delegateTask !== undefined && toolRegistry.get("delegate_task") === undefined)
+    toolRegistry.register(delegateTaskToolCreate({ execute: options.delegateTask }))
   const loop: ProviderDelegationToolLoop = loopCreate({
     adapter: providerDelegationAdapterModelCreate(options),
-    delegateTask: options.delegateTask,
+    ...(options.delegateTask === undefined ? {} : { delegateTask: options.delegateTask }),
+    toolRegistry,
   })
 
   return (input) =>

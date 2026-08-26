@@ -3,21 +3,26 @@ import { type AnyTextAdapter, EventType, type ModelMessage, type StreamChunk } f
 import { providerDelegationToolLoopCreate } from "../src/providers/runtime/providerDelegationToolLoopCreate.js"
 import { providerExecutionEventFromStreamChunk } from "../src/providers/runtime/providerExecutionEventFromStreamChunk.js"
 import { executionStreamEventNormalize } from "../src/stream/actions/executionStreamEventNormalize.js"
+import { delegateTaskToolCreate } from "../src/tools/runtime/delegateTaskToolCreate.js"
+import { toolRegistryCreate } from "../src/tools/runtime/toolRegistryCreate.js"
 
 type ScriptedAdapter = {
   adapter: AnyTextAdapter
   calls: Array<Array<ModelMessage>>
+  toolCounts: number[]
 }
 
 function scriptedAdapterCreate(scripts: Array<Array<StreamChunk>>): ScriptedAdapter {
   const calls: Array<Array<ModelMessage>> = []
+  const toolCounts: number[] = []
   let scriptIndex = 0
   const adapter = {
     kind: "text" as const,
     model: "scripted-model",
     name: "scripted",
-    chatStream: (options: { messages: Array<ModelMessage> }) => {
+    chatStream: (options: { messages: Array<ModelMessage>; tools?: unknown[] }) => {
       calls.push(options.messages)
+      toolCounts.push(options.tools?.length ?? 0)
       const script = scripts[scriptIndex] ?? []
       scriptIndex += 1
       return (async function* () {
@@ -26,7 +31,7 @@ function scriptedAdapterCreate(scripts: Array<Array<StreamChunk>>): ScriptedAdap
     },
     structuredOutput: async () => ({ data: {}, rawText: "{}" }),
   } as unknown as AnyTextAdapter
-  return { adapter, calls }
+  return { adapter, calls, toolCounts }
 }
 
 function delegatedToolScript(toolArguments: string): Array<StreamChunk> {
@@ -144,6 +149,28 @@ function duplicateToolResultScript(): Array<StreamChunk> {
   ] as Array<StreamChunk>
 }
 
+function delegatedToolScriptWithRepeatedCallId(toolArguments: string): Array<StreamChunk> {
+  return [
+    { runId: "run-delegation", threadId: "thread-delegation", timestamp: 10, type: EventType.RUN_STARTED },
+    {
+      timestamp: 11,
+      toolCallId: "call-delegation-1",
+      toolCallName: "delegate_task",
+      toolName: "delegate_task",
+      type: EventType.TOOL_CALL_START,
+    },
+    { delta: toolArguments, timestamp: 12, toolCallId: "call-delegation-1", type: EventType.TOOL_CALL_ARGS },
+    {
+      finishReason: "tool_calls",
+      outcome: { type: "success" },
+      runId: "run-delegation",
+      threadId: "thread-delegation",
+      timestamp: 13,
+      type: EventType.RUN_FINISHED,
+    },
+  ] as Array<StreamChunk>
+}
+
 function finalTextScript(text: string): Array<StreamChunk> {
   return [
     { runId: "run-delegation", threadId: "thread-delegation", timestamp: 5, type: EventType.RUN_STARTED },
@@ -219,6 +246,66 @@ test("runs delegate_task synchronously and collapses intermediate model lifecycl
   expect(scripted.calls[1]?.some((message) => message.role === "tool" && message.content === "child result")).toBe(true)
 })
 
+test("executes the typed delegate_task definition through the supplied registry", async () => {
+  const scripted = scriptedAdapterCreate([
+    delegatedToolScript('{"agentId":" explore ","task":"inspect the project"}'),
+    finalTextScript("Delegated task complete."),
+  ])
+  const registry = toolRegistryCreate()
+  const delegated: Array<{ agentId?: string; signal: AbortSignal; task: string; toolCallId: string }> = []
+  const registered = registry.register(
+    delegateTaskToolCreate({
+      execute: async (input) => {
+        delegated.push(input)
+        return "child result"
+      },
+    }),
+  )
+  expect(registered.success).toBe(true)
+
+  const chunks = await collect(
+    providerDelegationToolLoopCreate({ adapter: scripted.adapter, toolRegistry: registry })({
+      messages: [{ content: "Please delegate this task.", role: "user" }],
+      runId: "run-delegation",
+      signal: new AbortController().signal,
+      threadId: "thread-delegation",
+    }),
+  )
+
+  expect(delegated).toHaveLength(1)
+  expect(delegated[0]).toMatchObject({
+    agentId: "explore",
+    task: "inspect the project",
+    toolCallId: "call-delegation-1",
+  })
+  expect(delegated[0]?.signal).toBeInstanceOf(AbortSignal)
+  expect(chunks.find((chunk) => chunk.type === EventType.TOOL_CALL_RESULT)).toMatchObject({
+    content: "child result",
+    toolCallId: "call-delegation-1",
+  })
+})
+
+test("does not advertise a disabled registry-backed delegate_task", async () => {
+  const scripted = scriptedAdapterCreate([terminalOnlyScript()])
+  const registry = toolRegistryCreate()
+  const registered = registry.register({
+    ...delegateTaskToolCreate({ execute: () => "must not run" }),
+    enabled: false,
+  })
+  expect(registered.success).toBe(true)
+
+  await collect(
+    providerDelegationToolLoopCreate({ adapter: scripted.adapter, toolRegistry: registry })({
+      messages: [{ content: "Do not delegate.", role: "user" }],
+      runId: "run-delegation",
+      signal: new AbortController().signal,
+      threadId: "thread-delegation",
+    }),
+  )
+
+  expect(scripted.toolCounts).toEqual([0])
+})
+
 test("returns a successful delegation result when the continuation has no assistant text", async () => {
   const scripted = scriptedAdapterCreate([delegatedToolScript('{"task":"return ping"}'), terminalOnlyScript()])
   const loop = providerDelegationToolLoopCreate({
@@ -287,6 +374,37 @@ test("deduplicates delegated result events by tool call ID", async () => {
   expect(chunks.filter((chunk) => chunk.type === EventType.TOOL_CALL_RESULT)).toHaveLength(1)
   expect(chunks.filter((chunk) => chunk.type === EventType.TEXT_MESSAGE_CONTENT).map((chunk) => chunk.delta)).toEqual([
     "ping",
+  ])
+})
+
+test("allows a tool call ID to be reused in a later model round", async () => {
+  const scripted = scriptedAdapterCreate([
+    delegatedToolScript('{"task":"first task"}'),
+    delegatedToolScriptWithRepeatedCallId('{"task":"second task"}'),
+    terminalOnlyScript(),
+  ])
+  const delegatedTasks: Array<string> = []
+  const loop = providerDelegationToolLoopCreate({
+    adapter: scripted.adapter,
+    delegateTask: ({ task }) => {
+      delegatedTasks.push(task)
+      return `${task} result`
+    },
+  })
+
+  const chunks = await collect(
+    loop({
+      messages: [{ content: "Repeat the delegation.", role: "user" }],
+      runId: "run-delegation",
+      signal: new AbortController().signal,
+      threadId: "thread-delegation",
+    }),
+  )
+
+  expect(delegatedTasks).toEqual(["first task", "second task"])
+  expect(chunks.filter((chunk) => chunk.type === EventType.TOOL_CALL_RESULT)).toHaveLength(2)
+  expect(chunks.filter((chunk) => chunk.type === EventType.TEXT_MESSAGE_CONTENT).map((chunk) => chunk.delta)).toEqual([
+    "second task result",
   ])
 })
 

@@ -8,40 +8,38 @@ import {
   toolDefinition,
 } from "@tanstack/ai"
 import * as v from "valibot"
+import { type DelegateTaskToolExecute, delegateTaskToolCreate } from "../../tools/runtime/delegateTaskToolCreate.js"
+import type { ToolRegistry } from "../../tools/runtime/toolRegistry.js"
+import { toolRegistryCreate } from "../../tools/runtime/toolRegistryCreate.js"
+import { delegateTaskInputSchema } from "../../tools/schema/delegateTaskInputSchema.js"
 import { providerExecutionEventFromStreamChunk } from "./providerExecutionEventFromStreamChunk.js"
 
-const DELEGATE_TASK_INPUT_LIMIT = 100_000
 const DELEGATE_TASK_OUTPUT_LIMIT = 16_384
 
-function providerDelegationStreamChunkJsonSafe(chunk: StreamChunk): StreamChunk {
-  return Object.fromEntries(Object.entries(chunk).filter(([, value]) => value !== undefined)) as StreamChunk
-}
-
-const delegateTaskValidationSchema = v.strictObject({
-  agentId: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(200))),
-  task: v.pipe(v.string(), v.minLength(1), v.maxLength(DELEGATE_TASK_INPUT_LIMIT)),
-})
-
-const delegateTaskInputSchema: SchemaInput = {
+const delegateTaskProviderInputSchema: SchemaInput = {
   "~standard": {
     jsonSchema: {
       input: () => ({
         additionalProperties: false,
         properties: {
           agentId: { maxLength: 200, minLength: 1, type: "string" },
-          task: { maxLength: DELEGATE_TASK_INPUT_LIMIT, minLength: 1, type: "string" },
+          task: { maxLength: 100_000, minLength: 1, type: "string" },
         },
         required: ["task"],
         type: "object",
       }),
     },
     validate: (input) => {
-      const parsed = v.safeParse(delegateTaskValidationSchema, input)
+      const parsed = v.safeParse(delegateTaskInputSchema, input)
       return parsed.success ? { value: parsed.output } : { issues: parsed.issues }
     },
     vendor: "codeline",
     version: 1,
   },
+}
+
+function providerDelegationStreamChunkJsonSafe(chunk: StreamChunk): StreamChunk {
+  return Object.fromEntries(Object.entries(chunk).filter(([, value]) => value !== undefined)) as StreamChunk
 }
 
 export type ProviderDelegationToolLoopInput = {
@@ -53,24 +51,51 @@ export type ProviderDelegationToolLoopInput = {
 
 export type ProviderDelegationToolLoopOptions = {
   adapter: AnyTextAdapter
-  delegateTask: (input: {
-    agentId?: string
-    signal: AbortSignal
-    task: string
-    toolCallId: string
-  }) => Promise<string> | string
+  delegateTask?: DelegateTaskToolExecute
+  toolRegistry?: ToolRegistry
 }
 
 export type ProviderDelegationToolLoop = (input: ProviderDelegationToolLoopInput) => AsyncIterable<StreamChunk>
 
+function providerDelegationToolRegistryResolve(options: ProviderDelegationToolLoopOptions): ToolRegistry {
+  const registry = options.toolRegistry ?? toolRegistryCreate()
+  if (options.delegateTask !== undefined && registry.get("delegate_task") === undefined)
+    registry.register(delegateTaskToolCreate({ execute: options.delegateTask }))
+  return registry
+}
+
+function providerDelegationToolCreate(registry: ToolRegistry, signal: AbortSignal) {
+  return toolDefinition({
+    description: "Run one synchronous delegated coding task and return its text result.",
+    inputSchema: delegateTaskProviderInputSchema,
+    name: "delegate_task",
+  }).server(async (rawInput, context) => {
+    const toolCallId = context?.toolCallId
+    if (toolCallId === undefined || toolCallId === "") throw new Error("The delegation tool call ID is required.")
+
+    const executionSignal = context?.abortSignal ?? signal
+    if (executionSignal.aborted) throw new Error("The delegated task was cancelled.")
+
+    const result = await registry.execute("delegate_task", rawInput, {
+      outputLimit: DELEGATE_TASK_OUTPUT_LIMIT,
+      signal: executionSignal,
+      timeoutMs: null,
+      toolCallId,
+    })
+    if (!result.success) throw new Error(result.errorMessage)
+    return result.data
+  })
+}
+
 export function providerDelegationToolLoopCreate(
   options: ProviderDelegationToolLoopOptions,
 ): ProviderDelegationToolLoop {
-  return (input) => providerDelegationToolLoopGenerate(options, input)
+  const toolRegistry = providerDelegationToolRegistryResolve(options)
+  return (input) => providerDelegationToolLoopGenerate({ adapter: options.adapter, toolRegistry }, input)
 }
 
 async function* providerDelegationToolLoopGenerate(
-  options: ProviderDelegationToolLoopOptions,
+  options: { adapter: AnyTextAdapter; toolRegistry: ToolRegistry },
   input: ProviderDelegationToolLoopInput,
 ): AsyncGenerator<StreamChunk> {
   if (input.signal.aborted) return
@@ -80,30 +105,8 @@ async function* providerDelegationToolLoopGenerate(
   input.signal.addEventListener("abort", abort, { once: true })
   if (input.signal.aborted) abort()
 
-  const delegateTask = toolDefinition({
-    description: "Run one synchronous delegated coding task and return its text result.",
-    inputSchema: delegateTaskInputSchema,
-    name: "delegate_task",
-  }).server(async (rawInput, context) => {
-    const parsedInput = v.safeParse(delegateTaskValidationSchema, rawInput)
-    if (!parsedInput.success) throw new Error("The delegate_task input is invalid.")
-
-    const { agentId, task } = parsedInput.output
-    const toolCallId = context?.toolCallId
-    if (toolCallId === undefined || toolCallId === "") throw new Error("The delegation tool call ID is required.")
-
-    const signal = context?.abortSignal ?? input.signal
-    if (signal.aborted) throw new Error("The delegated task was cancelled.")
-
-    const result = await options.delegateTask({
-      ...(agentId === undefined ? {} : { agentId }),
-      signal,
-      task,
-      toolCallId,
-    })
-    if (typeof result !== "string") throw new Error("The delegated task result must be text.")
-    return result.slice(0, DELEGATE_TASK_OUTPUT_LIMIT)
-  })
+  const delegateTask = providerDelegationToolCreate(options.toolRegistry, abortController.signal)
+  const tools = options.toolRegistry.get("delegate_task")?.enabled === true ? [delegateTask] : []
 
   let finalChunk: Extract<StreamChunk, { type: "RUN_FINISHED" }> | undefined
   let emittedError = false
@@ -129,7 +132,7 @@ async function* providerDelegationToolLoopGenerate(
       messages: input.messages,
       runId: input.runId,
       threadId: input.threadId,
-      tools: [delegateTask],
+      tools,
     })) {
       if (chunk.type === EventType.RUN_STARTED) {
         currentRoundHasToolCalls = false
@@ -151,6 +154,7 @@ async function* providerDelegationToolLoopGenerate(
           continuationText = ""
         }
         currentRoundHasToolCalls = true
+        delegatedResultEventIds.delete(chunk.toolCallId)
       }
       if (chunk.type === EventType.TOOL_CALL_RESULT) {
         const providerEvent = providerExecutionEventFromStreamChunk(chunk)
