@@ -23,11 +23,11 @@ Add a small, deterministic agent-runtime foundation with normalized transcripts,
 - Discover commands recursively from project `.agents/commands/**/*.md` and global `~/.agents/commands/**/*.md`, with project commands taking precedence.
 - Support `$ARGUMENTS`, `$1`…`$N`, quoted and multiline arguments, implicit argument append when no placeholder exists, and command frontmatter for description, agent, model, and subtask selection.
 - Allow `!`command`` interpolation only through the same enabled, bounded `bash` runtime. Expansion fails clearly when `bash` is disabled. Persist expanded user text plus command identity and template digest, not an executable template reference alone.
-- After every phase: run focused checks with test concurrency 1, verify the combined repository-managed preview, delegate the `/commits` skill to a fresh Luna subagent to split conventional commits (including pre-existing unrelated changes where appropriate), push, run `bun run deploy`, and verify `https://preview.codeline.work` before continuing.
+- Complete each phase with focused checks, combined-preview verification, commit, push, deployment, migration, and verification before proceeding. Phases 1–2 are complete, committed, pushed, deployed, migrated, and verified; Phases 3–9 remain pending, and work stops after Phase 2.
 
 ## Approach
 
-- Current context: Phase 2 implementation and combined-preview verification are complete: immutable manifest propagation, registry-backed `delegate_task`, catalog-validated user/project defaults, and legacy/manifest-lineage compatibility pass. The required commit/push/deploy verification cycle remains; work stops after it.
+- Current context: Phases 1–2 are complete, committed, pushed, deployed, migrated, and verified. Phases 3–9 remain pending; work stops after Phase 2.
 - Build pure schemas, resolvers, and projections before connecting provider loops or UI.
 - Extend `RunExecutionSnapshot` with a versioned execution manifest containing instructions, active skills, command catalog identity, and effective per-agent tools.
 - Use one typed tool registry for `skill`, `bash`, `webfetch`, and `delegate_task`; retain the existing provider event and durable tool-activity protocol.
@@ -105,7 +105,7 @@ Status: complete.
 
 ### Phase 3 — Hierarchical `AGENTS.md` snapshots
 
-Status: pending Phase 2 manifest contract.
+Status: pending.
 
 - [ ] Implement deterministic discovery for `~/.agents/AGENTS.md`, project ancestry/root `AGENTS.md`, and nested project `AGENTS.md` files with canonical paths, precedence, deduplication, hashes, byte budgets, and explicit validation diagnostics.
 - [ ] Resolve and snapshot instruction contents during pre-session configuration; render global-to-local baseline instructions in stable order.
@@ -134,7 +134,7 @@ Status: pending Phase 2 manifest contract.
 
 ### Phase 4 — Recursive skills, groups, presets, and runtime loading
 
-Status: pending Phase 2 manifest and tool-registry contracts; may run in parallel with Phase 3.
+Status: pending.
 
 - [ ] Discover and validate recursive global/project `SKILL.md` bundles, resources relative to each bundle directory, stable identities, precedence, collisions, and diagnostics.
 - [ ] Model folder groups as relative directory paths and resolve preset includes/excludes deterministically, with parent recursion and individual exclusions taking precedence.
@@ -172,7 +172,7 @@ Status: pending Phase 2 manifest and tool-registry contracts; may run in paralle
 
 ### Phase 5 — Pre-session resource and skill inspection UI
 
-Status: pending Phases 2–4 API contracts.
+Status: pending.
 
 - [ ] Extend the pre-session workspace to choose a preset, recursively toggle folders, override individual skills, and show the effective skill list and estimated description-catalog context before session creation.
 - [ ] Add an inspector for global/project roots, nested groups, skill metadata/content/resources, collisions, validation errors, preset source, and effective activation.
@@ -208,7 +208,7 @@ Status: pending Phases 2–4 API contracts.
 
 ### Phase 6 — Bounded `bash` tool
 
-Status: pending Phase 2 tool registry and Phase 3 instruction snapshots; may run in parallel with Phase 7 afterward.
+Status: pending.
 
 - [ ] Implement `bash` through the typed registry with command, optional project-descendant working directory, bounded timeout, abort propagation, bounded/truncated structured output, exit code, and stable tool events.
 - [ ] Advertise and execute `bash` only when enabled in the current immutable agent snapshot; do not add approvals or persisted permission decisions.
@@ -233,7 +233,7 @@ Status: pending Phase 2 tool registry and Phase 3 instruction snapshots; may run
 
 ### Phase 7 — Bounded `webfetch` tool
 
-Status: pending Phase 2 tool registry; may run in parallel with Phase 6.
+Status: pending.
 
 - [ ] Implement HTTP(S)-only fetch with text/Markdown/HTML formats, redirect handling, content-type validation, response-size and timeout limits, abort propagation, HTML conversion, and structured failures.
 - [ ] Advertise and execute `webfetch` only when enabled in the immutable current-agent snapshot; do not add approvals, web search, or arbitrary provider-native search.
@@ -254,7 +254,7 @@ Status: pending Phase 2 tool registry; may run in parallel with Phase 6.
 
 ### Phase 8 — `.agents/commands` discovery, expansion, and composer UX
 
-Status: pure discovery and expansion may begin after Phase 2 contracts; shell interpolation waits for Phase 6.
+Status: pending.
 
 - [ ] Discover recursive global/project Markdown commands with frontmatter validation, precedence, collisions, stable digests, and typed inspection API responses.
 - [ ] Add a pure command parser/expander for `$ARGUMENTS`, positional placeholders, quoting, multiline input, implicit append, agent/model/subtask metadata, and deterministic errors.
@@ -287,7 +287,7 @@ Status: pure discovery and expansion may begin after Phase 2 contracts; shell in
 
 ### Phase 9 — Failure injection, reload equivalence, and integrated stability closure
 
-Status: pending integrated completion of Phases 1–8.
+Status: pending.
 
 - [ ] Add injectable persistence seams for assistant-message insertion, journal publication, delta deletion, run transition, retry-attempt creation, cancellation, and delegation finalization.
 - [ ] Assert transaction rollback, no phantom finalized messages, retained replayable deltas, idempotent recovery, one terminal state, cancellation/completion races, retry admission races, and finalization retry behavior.
