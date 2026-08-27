@@ -35,11 +35,11 @@ Reduce repeated UI derivation during long-running streamed sessions and prevent 
 - [x] 4. After task 3 implementation, add coverage for normal calls, oversized and cumulative payloads, nested raw payloads, multibyte text, terminal success/failure, serialized and published bounds, replay, and coalescer flush behavior; repair every failure.
 - [x] 5. Run remaining focused and relevant full test groups with concurrency 1 and repair every failure.
 - [x] 6. Only after feature implementation, run and repair end-to-end coverage using the repository-managed combined preview service; verify long-session rendering and final streamed tool output in a browser.
-- [ ] 7. Commit and push the completed work using the `/commits` skill, then deploy it to production.
+- [ ] 7. Commit and push the completed work using the `/commits` skill, then deploy it to production. (Commit/push complete; deployment pending.)
 
 ## Current context
 
-- Tasks 1–6 are complete. Managed-preview E2E passes with one worker, and browser verification confirmed long-session rendering and final streamed tool output. Commit/push is next, followed by production deployment.
+- Tasks 1–6 are complete. Four conventional commits were pushed to `origin/main`; production deployment is next.
 
 ## Paths
 
