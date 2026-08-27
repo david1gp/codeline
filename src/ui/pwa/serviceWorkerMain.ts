@@ -1,5 +1,6 @@
 /// <reference lib="webworker" />
 import { pwaServiceWorkerFetchHandle } from "./pwaServiceWorkerFetchHandle.js"
+import { pwaServiceWorkerSkipWaitingMessage } from "./pwaServiceWorkerUpdateApply.js"
 
 const worker = self as unknown as ServiceWorkerGlobalScope
 
@@ -18,9 +19,14 @@ worker.addEventListener("install", (event) => {
     (async () => {
       const cache = await caches.open(shellCacheName)
       await cache.addAll(precachedPaths).catch(() => undefined)
-      await worker.skipWaiting()
     })(),
   )
+})
+
+worker.addEventListener("message", (event) => {
+  const data = event.data as { type?: unknown } | undefined
+  if (!data || data.type !== pwaServiceWorkerSkipWaitingMessage) return
+  void worker.skipWaiting()
 })
 
 worker.addEventListener("activate", (event) => {

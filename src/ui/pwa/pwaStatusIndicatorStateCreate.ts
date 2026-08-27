@@ -3,12 +3,14 @@ import { onCleanup, onMount } from "solid-js"
 import { pwaBrowserStatusResolve } from "./pwaBrowserStatusResolve.js"
 import type { PwaInstallPromptEvent } from "./pwaInstallPromptEvent.js"
 import { pwaServiceWorkerRegister } from "./pwaServiceWorkerRegister.js"
+import { pwaServiceWorkerUpdateApply } from "./pwaServiceWorkerUpdateApply.js"
 
 export function pwaStatusIndicatorStateCreate() {
   const online = createSignalObject(typeof navigator === "undefined" ? true : navigator.onLine)
   const offlineSince = createSignalObject<number | undefined>(online.get() ? undefined : Date.now())
   const updateReady = createSignalObject(false)
   const installPrompt = createSignalObject<PwaInstallPromptEvent | undefined>(undefined)
+  const registration = createSignalObject<ServiceWorkerRegistration | undefined>(undefined)
 
   onMount(() => {
     const setOnline = () => {
@@ -29,7 +31,10 @@ export function pwaStatusIndicatorStateCreate() {
     window.addEventListener("beforeinstallprompt", captureInstall)
     window.addEventListener("appinstalled", clearInstall)
 
-    void pwaServiceWorkerRegister(() => updateReady.set(true))
+    void pwaServiceWorkerRegister((ready) => {
+      registration.set(ready)
+      updateReady.set(true)
+    })
 
     onCleanup(() => {
       window.removeEventListener("online", setOnline)
@@ -50,7 +55,18 @@ export function pwaStatusIndicatorStateCreate() {
     },
     disconnectedSince: () => (status() === "offline" ? offlineSince.get() : undefined),
     installable: () => installPrompt.get() !== undefined,
-    reloadForUpdate: () => window.location.reload(),
+    reloadForUpdate: () => {
+      updateReady.set(false)
+      pwaServiceWorkerUpdateApply({
+        controllerChanged: (listener) => {
+          const container = navigator.serviceWorker
+          container.addEventListener("controllerchange", listener)
+          return () => container.removeEventListener("controllerchange", listener)
+        },
+        reload: () => window.location.reload(),
+        waiting: () => registration.get()?.waiting ?? undefined,
+      })
+    },
     install: async () => {
       const prompt = installPrompt.get()
       if (!prompt) return
