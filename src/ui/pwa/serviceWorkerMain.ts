@@ -3,7 +3,7 @@ import { pwaServiceWorkerFetchHandle } from "./pwaServiceWorkerFetchHandle.js"
 
 const worker = self as unknown as ServiceWorkerGlobalScope
 
-const shellCacheName = "codeline-shell-v1"
+const shellCacheName = "codeline-shell-v2"
 const precachedPaths = [
   "/",
   "/manifest.webmanifest",

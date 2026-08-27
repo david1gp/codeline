@@ -234,12 +234,22 @@ export function appCreate(options: AppCreateOptions = {}): App {
   })
 
   const uiShellPath = options.uiShellPath ?? "./dist/ui/index.html"
-  app.get("/", serveStatic({ path: uiShellPath }))
+  const serveUiShell = serveStatic({ path: uiShellPath })
+  const serveServiceWorker = serveStatic({ root: "./dist/ui" })
+  app.get("/", async (context, next) => {
+    const response = await serveUiShell(context, next)
+    if (response !== undefined) response.headers.set("Cache-Control", "no-store")
+    return response
+  })
   app.get("/assets/*", serveStatic({ root: "./dist/ui" }))
   app.get("/icons/*", serveStatic({ root: "./dist/ui" }))
   app.get("/favicon.ico", serveStatic({ root: "./dist/ui" }))
   app.get("/manifest.webmanifest", serveStatic({ root: "./dist/ui" }))
-  app.get("/service-worker.js", serveStatic({ root: "./dist/ui" }))
+  app.get("/service-worker.js", async (context, next) => {
+    const response = await serveServiceWorker(context, next)
+    if (response !== undefined) response.headers.set("Cache-Control", "no-store")
+    return response
+  })
   appUiShellFallbackAdd(app, uiShellPath)
 
   app.notFound((context) => {

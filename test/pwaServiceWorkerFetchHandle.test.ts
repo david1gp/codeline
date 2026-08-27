@@ -2,7 +2,7 @@ import { expect, test } from "bun:test"
 import { pwaServiceWorkerFetchHandle } from "../src/ui/pwa/pwaServiceWorkerFetchHandle.js"
 
 const origin = "https://codeline.work"
-const shellCacheName = "codeline-shell-v1"
+const shellCacheName = "codeline-shell-v2"
 
 type CacheCalls = {
   match: number

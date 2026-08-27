@@ -7,6 +7,8 @@ export function appUiShellFallbackAdd(app: App, shellPath: string): void {
 
   app.get("*", async (context, next) => {
     if (!appKnownRouteResolve(new URL(context.req.url).pathname)) return next()
-    return serveShell(context, next)
+    const response = await serveShell(context, next)
+    if (response !== undefined) response.headers.set("Cache-Control", "no-store")
+    return response
   })
 }
