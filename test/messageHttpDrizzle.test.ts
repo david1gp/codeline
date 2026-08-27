@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
 import { randomBytes } from "node:crypto"
-import { createResult } from "@adaptive-ds/result"
-import { eq, inArray } from "drizzle-orm"
+import { createResult, createResultError, type Result } from "@adaptive-ds/result"
+import { asc, eq, inArray } from "drizzle-orm"
 import { Hono } from "hono"
 import * as v from "valibot"
 import { agentTable } from "../src/agents/db/agentTable.js"
@@ -13,14 +13,17 @@ import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentit
 import { organizationTable } from "../src/identity/db/organizationTable.js"
 import { journalBacklogRead } from "../src/journal/actions/journalBacklogRead.js"
 import { journalCursorCodecCreate } from "../src/journal/actions/journalCursorCodecCreate.js"
+import { journalWriteCreate } from "../src/journal/actions/journalWriteCreate.js"
 import { journalEventTable } from "../src/journal/db/journalEventTable.js"
 import { journalSequenceCounterTable } from "../src/journal/db/journalSequenceCounterTable.js"
 import { apiMessageRoutesAdd } from "../src/message/api/apiMessageRoutesAdd.js"
 import { messageAppendResponseSchema } from "../src/message/api/messageAppendResponseSchema.js"
 import { messagePageResponseSchema } from "../src/message/api/messagePageResponseSchema.js"
+import { messageRepositoryAppendMutation } from "../src/message/db/messageRepositoryAppendMutation.js"
 import { messageTable } from "../src/message/db/messageTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionCreate } from "../src/session/actions/sessionCreate.js"
+import { sessionJournalRecipientResolverCreate } from "../src/session/db/sessionJournalRecipientResolverCreate.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
 import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
@@ -286,4 +289,143 @@ test("isolates message writes and serves opaque consistent page cursors with cor
     body: JSON.stringify({ error: { code: "not_found", message: "The requested resource was not found." } }),
     status: 404,
   })
+})
+
+test("serializes overlapping message mutations with monotonic revisions and journal order", async () => {
+  if (userId === undefined || sessionId === undefined) return
+  const authenticatedSessionId = sessionId
+  const authenticatedUserId = userId
+
+  const [beforeSession] = await database
+    .select({ revision: sessionTable.revision })
+    .from(sessionTable)
+    .where(eq(sessionTable.id, authenticatedSessionId))
+  const beforeMessages = await database
+    .select()
+    .from(messageTable)
+    .where(eq(messageTable.sessionId, authenticatedSessionId))
+  const beforeJournal = await database
+    .select({ sequence: journalEventTable.sequence })
+    .from(journalEventTable)
+    .where(eq(journalEventTable.userId, authenticatedUserId))
+  const baselineSequence = Math.max(0, ...beforeJournal.map((event) => event.sequence))
+  const publishedStart = published.length
+  if (beforeSession === undefined) return
+
+  type MessageMutation =
+    Awaited<ReturnType<typeof messageRepositoryAppendMutation>> extends Result<infer Data> ? Data : never
+  let releaseFirstMutation: (() => void) | undefined
+  const firstMutationRelease = new Promise<void>((resolve) => {
+    releaseFirstMutation = resolve
+  })
+  let firstMutationStartedResolve: (() => void) | undefined
+  const firstMutationStarted = new Promise<void>((resolve) => {
+    firstMutationStartedResolve = resolve
+  })
+
+  const append = (input: Parameters<typeof messageRepositoryAppendMutation>[4], hold = false) => {
+    const writer = journalWriteCreate({
+      database,
+      postCommitPublish: publisher,
+      resolveRecipients: sessionJournalRecipientResolverCreate({ organizationId: fixture.organizationId }),
+    })
+    let mutation: MessageMutation | undefined
+    return writer.run<MessageMutation>({
+      mutate: async (transaction) => {
+        const result = await messageRepositoryAppendMutation(
+          transaction,
+          authenticatedUserId,
+          fixture.organizationId,
+          authenticatedSessionId,
+          input,
+        )
+        if (result.success) {
+          mutation = result.data
+          if (hold) {
+            firstMutationStartedResolve?.()
+            await firstMutationRelease
+          }
+        }
+        return result
+      },
+      resources: [{ resourceId: authenticatedSessionId, resourceType: "session" }],
+      write: async (_transaction, journal) => {
+        if (mutation === undefined)
+          return createResultError("messageConcurrencyTest", "The message mutation result is missing.")
+        if (mutation.replayed) return createResult(undefined)
+        const appended = await journal.append({
+          eventType: "invalidate",
+          payload: { resourceId: authenticatedSessionId, resourceType: "session", revision: mutation.revision },
+          resource: { resourceId: authenticatedSessionId, resourceType: "session" },
+        })
+        if (!appended.success) return createResultError("messageConcurrencyTest", appended.errorMessage)
+        return createResult(undefined)
+      },
+    })
+  }
+
+  const firstInput = {
+    clientRequestId: `message-http-concurrent-first-${uuidv7()}`,
+    content: "concurrent first message",
+    role: "user",
+  } as const
+  const secondInput = {
+    clientRequestId: `message-http-concurrent-second-${uuidv7()}`,
+    content: "concurrent second message",
+    role: "assistant",
+  } as const
+  const first = append(firstInput, true)
+  await firstMutationStarted
+  const second = append(secondInput)
+  releaseFirstMutation?.()
+  const firstResult = await first
+  const secondResult = await second
+
+  expect(firstResult.success).toBe(true)
+  expect(secondResult.success).toBe(true)
+  if (!firstResult.success || !secondResult.success || beforeSession === undefined) return
+  expect(firstResult.data.replayed).toBe(false)
+  expect(secondResult.data.replayed).toBe(false)
+  expect(firstResult.data.revision).toBe(beforeSession.revision + 1)
+  expect(secondResult.data.revision).toBe(beforeSession.revision + 2)
+  expect(firstResult.data.responseBody.message.sequence).toBe(beforeMessages.length + 1)
+  expect(secondResult.data.responseBody.message.sequence).toBe(beforeMessages.length + 2)
+
+  const [afterSession] = await database
+    .select({ revision: sessionTable.revision })
+    .from(sessionTable)
+    .where(eq(sessionTable.id, authenticatedSessionId))
+  expect(afterSession?.revision).toBe(beforeSession.revision + 2)
+  const afterMessages = await database
+    .select()
+    .from(messageTable)
+    .where(eq(messageTable.sessionId, authenticatedSessionId))
+  expect(afterMessages).toHaveLength(beforeMessages.length + 2)
+  const addedMessages = afterMessages
+    .filter((message) => message.sequence > beforeMessages.length)
+    .sort((left, right) => left.sequence - right.sequence)
+  expect(addedMessages).toMatchObject([
+    { clientRequestId: firstInput.clientRequestId, content: firstInput.content, sequence: beforeMessages.length + 1 },
+    { clientRequestId: secondInput.clientRequestId, content: secondInput.content, sequence: beforeMessages.length + 2 },
+  ])
+
+  const addedJournal = (
+    await database
+      .select()
+      .from(journalEventTable)
+      .where(eq(journalEventTable.userId, authenticatedUserId))
+      .orderBy(asc(journalEventTable.sequence))
+  ).filter((event) => event.sequence > baselineSequence)
+  expect(addedJournal).toHaveLength(2)
+  expect(addedJournal.map((event) => event.sequence)).toEqual([baselineSequence + 1, baselineSequence + 2])
+  expect(addedJournal.map((event) => (event.payload as { revision: number }).revision)).toEqual([
+    firstResult.data.revision,
+    secondResult.data.revision,
+  ])
+  const addedPublished = published.slice(publishedStart)
+  expect(addedPublished.map((event) => event.sequence)).toEqual([baselineSequence + 1, baselineSequence + 2])
+  expect(addedPublished.map((event) => (event.payload as { revision: number }).revision)).toEqual([
+    firstResult.data.revision,
+    secondResult.data.revision,
+  ])
 })

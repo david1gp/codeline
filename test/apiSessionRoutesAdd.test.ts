@@ -17,14 +17,19 @@ import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentit
 import { organizationMemberTable } from "../src/identity/db/organizationMemberTable.js"
 import { organizationTable } from "../src/identity/db/organizationTable.js"
 import { journalCursorCodecCreate } from "../src/journal/actions/journalCursorCodecCreate.js"
+import { journalEventTable } from "../src/journal/db/journalEventTable.js"
 import { messageTable } from "../src/message/db/messageTable.js"
+import type { CliProxyApiAdapter } from "../src/providers/runtime/cliProxyApiAdapterCreate.js"
 import { providerDelegationToolLoopCreate } from "../src/providers/runtime/providerDelegationToolLoopCreate.js"
+import type { ProviderRuntimeAdapterOptions } from "../src/providers/runtime/providerRuntimeAdapterCreate.js"
+import { runActiveRegistryCreate } from "../src/run/actions/runActiveRegistryCreate.js"
 import { runCreate } from "../src/run/actions/runCreate.js"
 import { attemptTable } from "../src/run/db/attemptTable.js"
 import { runDelegationTable } from "../src/run/db/runDelegationTable.js"
 import { runTable } from "../src/run/db/runTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionChatAdapterCreate } from "../src/session/actions/sessionChatAdapterCreate.js"
+import { apiSessionRenameRoutesAdd } from "../src/session/api/apiSessionRenameRoutesAdd.js"
 import { apiSessionRoutesAdd } from "../src/session/api/apiSessionRoutesAdd.js"
 import { sessionChatCommandResponseSchema } from "../src/session/api/sessionChatCommandResponseSchema.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
@@ -139,6 +144,75 @@ async function responseJsonRead(response: Response): Promise<unknown> {
     return decompressed.json()
   }
   return JSON.parse(new TextDecoder().decode(bytes))
+}
+
+type ControlledAbortStreamHarness = {
+  abortObserved: Promise<void>
+  adapterCreate: (options: ProviderRuntimeAdapterOptions) => CliProxyApiAdapter
+  lateOutputRelease: () => void
+  streamFinished: Promise<void>
+}
+
+function controlledAbortStreamHarnessCreate(): ControlledAbortStreamHarness {
+  let abortObservedResolve: () => void = () => undefined
+  const abortObserved = new Promise<void>((resolve) => {
+    abortObservedResolve = resolve
+  })
+  let lateOutputRelease: () => void = () => undefined
+  const lateOutput = new Promise<void>((resolve) => {
+    lateOutputRelease = resolve
+  })
+  let streamFinishedResolve: () => void = () => undefined
+  const streamFinished = new Promise<void>((resolve) => {
+    streamFinishedResolve = resolve
+  })
+
+  const adapterCreate =
+    (_options: ProviderRuntimeAdapterOptions): CliProxyApiAdapter =>
+    (input) =>
+      (async function* () {
+        const messageId = `assistant-${input.runId}`
+        const onAbort = () => abortObservedResolve()
+        if (input.signal.aborted) {
+          onAbort()
+          return
+        }
+        input.signal.addEventListener("abort", onAbort, { once: true })
+        try {
+          yield { runId: input.runId, threadId: input.sessionId, timestamp: Date.now(), type: EventType.RUN_STARTED }
+          yield { messageId, role: "assistant", timestamp: Date.now(), type: EventType.TEXT_MESSAGE_START }
+          yield { delta: "before-abort", messageId, timestamp: Date.now(), type: EventType.TEXT_MESSAGE_CONTENT }
+          await lateOutput
+          yield { delta: "after-abort", messageId, timestamp: Date.now(), type: EventType.TEXT_MESSAGE_CONTENT }
+          yield {
+            finishReason: "stop",
+            outcome: { type: "success" },
+            runId: input.runId,
+            threadId: input.sessionId,
+            timestamp: Date.now(),
+            type: EventType.RUN_FINISHED,
+          }
+        } finally {
+          input.signal.removeEventListener("abort", onAbort)
+          streamFinishedResolve()
+        }
+      })()
+
+  return { abortObserved, adapterCreate, lateOutputRelease, streamFinished }
+}
+
+async function promiseWithTimeout<T>(promise: Promise<T>, timeoutMs = 3_000, label = "operation"): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(`Timed out waiting for ${label} after ${timeoutMs}ms.`)), timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
 }
 
 beforeAll(async () => {
@@ -454,6 +528,137 @@ test.skipIf(!databaseAvailable)(
   },
 )
 
+test.skipIf(!databaseAvailable)(
+  "rejects one overlapping stale conditional session mutation without losing the revision update",
+  async () => {
+    const created = await app.request("http://codeline.test/api/sessions", {
+      body: JSON.stringify({
+        clientRequestId: `session-http-concurrent-${uuidv7()}`,
+        metadata: {},
+        primaryAgentId: agentId,
+        serverId,
+        title: "Concurrent session",
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+    expect(created.status).toBe(201)
+    const createdBody = (await created.json()) as { session: { id: string } }
+    const sessionId = createdBody.session.id
+    const initial = await app.request(`http://codeline.test/api/sessions/${sessionId}`)
+    expect(initial.status).toBe(200)
+    const initialEtag = initial.headers.get("ETag")
+    expect(initialEtag).toEqual(expect.any(String))
+    if (initialEtag === null) return
+
+    const beforeJournal = await database
+      .select({ sequence: journalEventTable.sequence })
+      .from(journalEventTable)
+      .where(eq(journalEventTable.userId, userId))
+    const baselineSequence = Math.max(0, ...beforeJournal.map((event) => event.sequence))
+
+    let releaseFirstPublication: (() => void) | undefined
+    const firstPublicationRelease = new Promise<void>((resolve) => {
+      releaseFirstPublication = resolve
+    })
+    let firstJournalPublishedResolve: (() => void) | undefined
+    const firstJournalPublished = new Promise<void>((resolve) => {
+      firstJournalPublishedResolve = resolve
+    })
+
+    const deterministicApi = new Hono<AppEnvironment>()
+    deterministicApi.use("*", async (context, next) => {
+      context.set("database", database)
+      context.set("requestIdentity", { organizationId: userId, userId })
+      await next()
+    })
+    const journalPostCommitPublish = async (events: readonly (typeof journalEventTable.$inferSelect)[]) => {
+      const sessionEvent = events.some((event) => {
+        const payload = event.payload
+        return (
+          event.eventType === "invalidate" &&
+          typeof payload === "object" &&
+          payload !== null &&
+          !Array.isArray(payload) &&
+          (payload as { resourceId?: unknown }).resourceId === sessionId
+        )
+      })
+      if (sessionEvent) {
+        firstJournalPublishedResolve?.()
+        await firstPublicationRelease
+      }
+      return createResult(undefined)
+    }
+    apiSessionRoutesAdd(deterministicApi, {
+      database,
+      journalCursorCodec: journalCursorCodec.data,
+      journalPostCommitPublish,
+    })
+    apiSessionRenameRoutesAdd(deterministicApi, {
+      database,
+      journalCursorCodec: journalCursorCodec.data,
+      journalPostCommitPublish,
+    })
+
+    const renamed = deterministicApi.request(`/sessions/${sessionId}`, {
+      body: JSON.stringify({ title: "Concurrent rename" }),
+      headers: { "Content-Type": "application/json", "If-Match": initialEtag },
+      method: "PATCH",
+    })
+    await firstJournalPublished
+    const pinned = deterministicApi.request(`/sessions/${sessionId}/pin`, {
+      body: JSON.stringify({ pinned: false }),
+      headers: { "Content-Type": "application/json", "If-Match": initialEtag },
+      method: "PATCH",
+    })
+    releaseFirstPublication?.()
+    const renamedResponse = await renamed
+    const pinnedResponse = await pinned
+
+    expect(renamedResponse.status).toBe(200)
+    expect(pinnedResponse.status).toBe(412)
+    expect([renamedResponse, pinnedResponse].filter((response) => response.status === 412)).toHaveLength(1)
+    const winnerBody = (await responseJsonRead(renamedResponse)) as {
+      etag: string
+      revision: number
+      session: { pinned: boolean; title: string }
+    }
+    expect(renamedResponse.headers.get("ETag")).toBe(winnerBody.etag)
+    expect(winnerBody).toMatchObject({
+      etag: expect.any(String),
+      revision: 2,
+      session: { pinned: true, title: "Concurrent rename" },
+    })
+    expect(await pinnedResponse.json()).toMatchObject({
+      error: {
+        currentEtag: winnerBody.etag,
+        currentRevision: winnerBody.revision,
+      },
+    })
+
+    const final = await app.request(`http://codeline.test/api/sessions/${sessionId}`)
+    expect(final.status).toBe(200)
+    const finalBody = (await final.json()) as {
+      revision: number
+      session: { pinned: boolean; title: string }
+    }
+    expect(finalBody).toMatchObject({ revision: 2, session: winnerBody.session })
+    const addedJournal = (
+      await database
+        .select()
+        .from(journalEventTable)
+        .where(eq(journalEventTable.userId, userId))
+        .orderBy(asc(journalEventTable.sequence))
+    ).filter((event) => event.sequence > baselineSequence)
+    expect(addedJournal).toHaveLength(1)
+    expect(addedJournal[0]).toMatchObject({
+      eventType: "invalidate",
+      payload: { resourceId: sessionId, resourceType: "session", revision: winnerBody.revision },
+      sequence: baselineSequence + 1,
+    })
+  },
+)
+
 test.skipIf(!databaseAvailable)("session HTTP routes validate requests and cursors", async () => {
   const arbitraryParent = await app.request("http://codeline.test/api/sessions", {
     body: JSON.stringify({
@@ -544,6 +749,146 @@ test.skipIf(!databaseAvailable)(
       { content: "Persist this chat", role: "user", sequence: 1 },
       { content: "Deterministic response: Persist this chat", role: "assistant", sequence: 2 },
     ])
+  },
+)
+
+test.skipIf(!databaseAvailable)(
+  "session chat cancellation aborts a controlled stream without late deltas or duplicate terminal state",
+  async () => {
+    const stream = controlledAbortStreamHarnessCreate()
+    const publishedEvents: Array<typeof journalEventTable.$inferSelect> = []
+    let firstDeltaResolve: (runId: string) => void = () => undefined
+    const firstDelta = new Promise<string>((resolve) => {
+      firstDeltaResolve = resolve
+    })
+    let terminalResolve: () => void = () => undefined
+    const terminalPublished = new Promise<void>((resolve) => {
+      terminalResolve = resolve
+    })
+    const abortRegistry = runActiveRegistryCreate()
+    const abortApp = appCreate({
+      ...appSseTestDependenciesCreate(journalCursorCodec.data),
+      configuration,
+      configurationStore: runConfigurationStore,
+      database,
+      developmentIdentityUpsert: testDevelopmentIdentityUpsert,
+      journalCursorCodec: journalCursorCodec.data,
+      journalPostCommitPublish: async (events) => {
+        publishedEvents.push(...events)
+        for (const event of events) {
+          if (event.eventType === "delta" && typeof event.payload === "object" && event.payload !== null) {
+            const payload = event.payload as { delta?: unknown; runId?: unknown }
+            if (payload.delta === "before-abort" && typeof payload.runId === "string") firstDeltaResolve(payload.runId)
+          }
+          if (event.eventType === "run-cancelled") terminalResolve()
+        }
+        return createResult(undefined)
+      },
+      providerRuntimeAdapterCreate: stream.adapterCreate,
+      runActiveRegistry: abortRegistry,
+    })
+
+    const created = await abortApp.request("http://codeline.test/api/sessions", {
+      body: JSON.stringify({
+        clientRequestId: `session-chat-abort-${uuidv7()}`,
+        metadata: {},
+        primaryAgentId: agentId,
+        serverId,
+        title: "Controlled cancellation",
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+    expect(created.status).toBe(201)
+    const sessionId = ((await created.json()) as { session: { id: string } }).session.id
+    const clientRunId = `session-chat-abort-run-${uuidv7()}`
+
+    try {
+      const response = await abortApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+        body: JSON.stringify({
+          forwardedProps: { codelineExecution: { model: "controlled-abort", provider: "deterministic" } },
+          messages: [{ content: "Abort after the first delta", id: `prompt-${clientRunId}`, role: "user" }],
+          runId: clientRunId,
+          threadId: sessionId,
+        }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      })
+      expect(response.status).toBe(200)
+
+      const durableRunId = await promiseWithTimeout(firstDelta, 3_000, "first delta")
+      const cancellation = await abortApp.request(
+        `http://codeline.test/api/sessions/${sessionId}/runs/${clientRunId}/cancel`,
+        {
+          body: JSON.stringify({}),
+          headers: { "Content-Type": "application/json" },
+          method: "POST",
+        },
+      )
+      expect(cancellation.status).toBe(200)
+      expect(await cancellation.json()).toMatchObject({
+        cancelledRunIds: [durableRunId],
+        signalledRunIds: [durableRunId],
+      })
+
+      await promiseWithTimeout(stream.abortObserved, 3_000, "provider abort")
+      stream.lateOutputRelease()
+      await promiseWithTimeout(terminalPublished, 3_000, "terminal publication")
+      await promiseWithTimeout(stream.streamFinished, 3_000, "stream completion")
+
+      const runEvents = publishedEvents.filter((event) => event.runId === durableRunId)
+      expect(runEvents.map((event) => event.eventType)).toEqual(["delta", "run-cancelled"])
+      expect(
+        runEvents
+          .filter((event) => event.eventType === "delta")
+          .map((event) => (event.payload as { delta?: unknown }).delta),
+      ).toEqual(["before-abort"])
+      expect(runEvents.filter((event) => event.eventType === "run-cancelled")).toHaveLength(1)
+      expect(runEvents.some((event) => event.eventType === "run-completed")).toBe(false)
+
+      const [run] = await database.select().from(runTable).where(eq(runTable.id, durableRunId))
+      const attempts = await database
+        .select()
+        .from(attemptTable)
+        .where(eq(attemptTable.runId, durableRunId))
+        .orderBy(asc(attemptTable.ordinal))
+      expect(run).toMatchObject({
+        cancellationKind: "requested",
+        cancellationSourceRunId: null,
+        failure: null,
+        status: "aborted",
+      })
+      expect(run?.cancellationRequestedAt).toBeInstanceOf(Date)
+      expect(run?.finishedAt).toBeInstanceOf(Date)
+      expect(attempts).toHaveLength(1)
+      expect(attempts[0]).toMatchObject({ failure: null, ordinal: 1, status: "aborted" })
+      expect(attempts[0]?.finishedAt).toEqual(run?.finishedAt)
+      expect(run?.finishedAt?.getTime()).toBeGreaterThanOrEqual(run?.cancellationRequestedAt?.getTime() ?? 0)
+
+      const journalEvents = await database
+        .select({ eventType: journalEventTable.eventType })
+        .from(journalEventTable)
+        .where(eq(journalEventTable.runId, durableRunId))
+        .orderBy(asc(journalEventTable.sequence))
+      expect(journalEvents).toEqual([{ eventType: "run-cancelled" }])
+
+      const repeatedCancellation = await abortApp.request(
+        `http://codeline.test/api/sessions/${sessionId}/runs/${clientRunId}/cancel`,
+        {
+          body: JSON.stringify({}),
+          headers: { "Content-Type": "application/json" },
+          method: "POST",
+        },
+      )
+      expect(repeatedCancellation.status).toBe(200)
+      expect(await repeatedCancellation.json()).toMatchObject({ cancelledRunIds: [], signalledRunIds: [] })
+      expect(
+        publishedEvents.filter((event) => event.runId === durableRunId && event.eventType === "run-cancelled"),
+      ).toHaveLength(1)
+    } finally {
+      stream.lateOutputRelease()
+      await promiseWithTimeout(stream.streamFinished, 1_000, "cleanup stream completion").catch(() => undefined)
+    }
   },
 )
 
