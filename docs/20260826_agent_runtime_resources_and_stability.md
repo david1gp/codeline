@@ -28,7 +28,7 @@ Add a small, deterministic agent-runtime foundation with normalized transcripts,
 
 ## Approach
 
-- Current context: Phases 1–8 are complete. Phase 9 backend stability work is complete: failure injection/races and normalized transcript equivalence across live, snapshot/SSE, and finalized states cover streaming, thinking/tools, retry, cancellation, and commands. Post-implementation E2E coverage remains.
+- Current context: Phases 1–9 are complete. Full verification passes: 1403 non-E2E tests, 5 opt-in provider integration tests, typecheck, build, managed-preview health, and 20 E2E tests with concurrency 1.
 - Build pure schemas, resolvers, and projections before connecting provider loops or UI.
 - Extend `RunExecutionSnapshot` with a versioned execution manifest containing instructions, active skills, command catalog identity, and effective per-agent tools.
 - Use one typed tool registry for `skill`, `bash`, `webfetch`, and `delegate_task`; retain the existing provider event and durable tool-activity protocol.
@@ -288,13 +288,13 @@ Status: complete; unit/integration tests and managed-preview E2E verification pa
 
 ### Phase 9 — Failure injection, reload equivalence, and integrated stability closure
 
-Status: in progress; backend stability and reload equivalence complete; managed-preview browser coverage pending.
+Status: complete; full unit/integration, opt-in provider, build, managed-preview, and E2E verification pass.
 
 - [x] Add injectable persistence seams for assistant-message insertion, journal publication, delta deletion, run transition, retry-attempt creation, cancellation, and delegation finalization.
 - [x] Assert transaction rollback, no phantom finalized messages, retained replayable deltas, idempotent recovery, one terminal state, cancellation/completion races, retry admission races, and finalization retry behavior.
 - [x] Compare normalized semantic transcripts before reload, after snapshot/SSE handoff, and after finalization for streaming, thinking/tool, retry, cancellation, and command/tool scenarios.
-- [ ] Add managed-preview browser coverage for reload during tool activity, retry, cancellation after reload, immutable resource selection, and concurrent-tab convergence.
-- [ ] Keep real-provider integration opt-in and non-gating; deterministic scenarios remain the release stability gate.
+- [x] Add managed-preview browser coverage for reload during tool activity, retry, cancellation after reload, immutable resource selection, and concurrent-tab convergence.
+- [x] Keep real-provider integration opt-in and non-gating; deterministic scenarios remain the release stability gate.
 - Codeline paths:
   - `src/journal/`
   - `src/eventFeed/`
