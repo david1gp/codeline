@@ -1,5 +1,6 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
+import { toolResultWorkingDirectoryResolve } from "../../tools/runtime/toolResultWorkingDirectoryResolve.js"
 import { type ProviderExecutionEvent, providerExecutionEventSchema } from "../schema/providerExecutionEventSchema.js"
 
 const streamChunkTypeSchema = v.object({ type: v.string() })
@@ -21,6 +22,7 @@ const toolResultChunkSchema = v.object({
   state: v.optional(v.string()),
   toolCallId: v.string(),
   type: v.literal("TOOL_CALL_RESULT"),
+  workingDirectory: v.optional(v.pipe(v.string(), v.minLength(1), v.maxLength(4_096))),
 })
 const runErrorChunkSchema = v.object({
   code: v.optional(v.string()),
@@ -100,11 +102,13 @@ export function providerExecutionEventFromStreamChunk(input: unknown): Result<Pr
   if (chunkType.output.type === "TOOL_CALL_RESULT") {
     const parsed = v.safeParse(toolResultChunkSchema, input)
     if (!parsed.success) return createResultError(op, v.summarize(parsed.issues))
+    const workingDirectory = parsed.output.workingDirectory ?? toolResultWorkingDirectoryResolve(parsed.output.content)
     return providerExecutionEventParse({
       outcome: parsed.output.state?.toLowerCase().includes("error") === true ? "error" : "success",
       result: parsed.output.content,
       toolCallId: parsed.output.toolCallId,
       type: "tool_result",
+      ...(workingDirectory === undefined ? {} : { workingDirectory }),
     })
   }
   if (chunkType.output.type === "RUN_ERROR") {

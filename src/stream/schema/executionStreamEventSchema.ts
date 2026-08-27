@@ -47,6 +47,7 @@ export const executionStreamEventSchema = v.variant("eventType", [
       result: executionStreamBoundedContentSchema,
       toolCallId: executionStreamIdentifierSchema,
       truncated: v.boolean(),
+      workingDirectory: v.optional(v.pipe(v.string(), v.minLength(1), v.maxLength(4_096))),
     }),
   }),
   v.strictObject({

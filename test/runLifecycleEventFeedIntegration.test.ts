@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
 import { randomBytes } from "node:crypto"
 import { createResult } from "@adaptive-ds/result"
-import { eq } from "drizzle-orm"
+import { asc, eq } from "drizzle-orm"
 import { agentTable } from "../src/agents/db/agentTable.js"
 import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
 import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
@@ -341,3 +341,141 @@ test.skipIf(!databaseAvailable)(
     feed.close()
   },
 )
+
+test.skipIf(!databaseAvailable)("durably records bash tool start, result, and terminal lifecycle events", async () => {
+  const runId = `run-feed-bash-${uuidv7()}`
+  const created = await runCreate(database, fixture.userId, fixture.sessionId, runInput(runId, `stream-${runId}`))
+  expect(created).toMatchObject({ success: true, data: { created: true } })
+  if (!created.success) return
+  expect(
+    await runTransition(database, fixture.userId, fixture.sessionId, created.data.run.id, { status: "running" }),
+  ).toMatchObject({ success: true })
+  const cursorCodec = await journalCursorCodecCreate({ randomBytes, secret: `run-feed-bash-secret-${uuidv7()}` })
+  expect(cursorCodec.success).toBe(true)
+  if (!cursorCodec.success) return
+
+  const provider = runProviderOutputCreate({
+    database,
+    journalPostCommitPublish: journalPostCommitPublishCreate({
+      cursorCodec: cursorCodec.data,
+      liveSubscription: { publish: () => undefined },
+    }),
+    requestId: `request-${created.data.run.id}`,
+    runId: created.data.run.id,
+    scheduler: new TestScheduler(),
+    sessionId: fixture.sessionId,
+    userId: fixture.userId,
+  })
+  expect(
+    await provider.append({
+      toolCallId: "call-bash-durable",
+      toolCallName: "bash",
+      toolName: "bash",
+      type: "TOOL_CALL_START",
+    }),
+  ).toMatchObject({ success: true })
+  expect(
+    await provider.append({
+      content: JSON.stringify({
+        exitCode: 0,
+        stderr: "",
+        stdout: "durable output",
+        truncated: false,
+        workingDirectory: "/tmp/project",
+      }),
+      state: "output-available",
+      toolCallId: "call-bash-durable",
+      type: "TOOL_CALL_RESULT",
+    }),
+  ).toMatchObject({ success: true })
+  const lifecycleDeltas = await database
+    .select({ eventType: journalEventTable.eventType, payload: journalEventTable.payload })
+    .from(journalEventTable)
+    .where(eq(journalEventTable.runId, created.data.run.id))
+    .orderBy(asc(journalEventTable.sequence))
+  expect(lifecycleDeltas.map((event) => event.eventType)).toEqual(["delta", "delta"])
+  expect(JSON.stringify(lifecycleDeltas[0]?.payload)).toContain("call-bash-durable")
+  expect(JSON.stringify(lifecycleDeltas[1]?.payload)).toContain("durable output")
+
+  expect(await provider.finalize({ assistantText: "Finished bash.", status: "succeeded" })).toMatchObject({
+    success: true,
+  })
+
+  const journalEvents = await database
+    .select({ eventType: journalEventTable.eventType, payload: journalEventTable.payload })
+    .from(journalEventTable)
+    .where(eq(journalEventTable.runId, created.data.run.id))
+    .orderBy(asc(journalEventTable.sequence))
+  expect(journalEvents.map((event) => event.eventType)).toEqual(["run-completed"])
+})
+
+test.skipIf(!databaseAvailable)("replays webfetch tool lifecycle deltas with stable durable payloads", async () => {
+  const runId = `run-feed-webfetch-${uuidv7()}`
+  const created = await runCreate(database, fixture.userId, fixture.sessionId, runInput(runId, `stream-${runId}`))
+  expect(created).toMatchObject({ success: true, data: { created: true } })
+  if (!created.success) return
+  expect(
+    await runTransition(database, fixture.userId, fixture.sessionId, created.data.run.id, { status: "running" }),
+  ).toMatchObject({ success: true })
+  const cursorCodec = await journalCursorCodecCreate({ randomBytes, secret: `run-feed-webfetch-secret-${uuidv7()}` })
+  expect(cursorCodec.success).toBe(true)
+  if (!cursorCodec.success) return
+
+  const provider = runProviderOutputCreate({
+    database,
+    journalPostCommitPublish: journalPostCommitPublishCreate({
+      cursorCodec: cursorCodec.data,
+      liveSubscription: { publish: () => undefined },
+    }),
+    requestId: `request-${created.data.run.id}`,
+    runId: created.data.run.id,
+    scheduler: new TestScheduler(),
+    sessionId: fixture.sessionId,
+    userId: fixture.userId,
+  })
+  expect(
+    await provider.append({
+      toolCallId: "call-webfetch-durable",
+      toolCallName: "webfetch",
+      toolName: "webfetch",
+      type: "TOOL_CALL_START",
+    }),
+  ).toMatchObject({ success: true })
+  expect(
+    await provider.append({
+      content: JSON.stringify({
+        contentType: "text/plain",
+        format: "text",
+        output: "replayable content",
+        truncated: false,
+        url: "https://example.test/durable",
+      }),
+      state: "output-available",
+      toolCallId: "call-webfetch-durable",
+      type: "TOOL_CALL_RESULT",
+    }),
+  ).toMatchObject({ success: true })
+
+  const readDeltas = async () =>
+    database
+      .select({ eventType: journalEventTable.eventType, payload: journalEventTable.payload })
+      .from(journalEventTable)
+      .where(eq(journalEventTable.runId, created.data.run.id))
+      .orderBy(asc(journalEventTable.sequence))
+  const firstReplay = await readDeltas()
+  const secondReplay = await readDeltas()
+  expect(secondReplay).toEqual(firstReplay)
+  expect(firstReplay.map((event) => event.eventType)).toEqual(["delta", "delta"])
+  expect(firstReplay[0]?.payload).toMatchObject({
+    deltaKind: "tool",
+    messageId: expect.stringMatching(/^tool-[0-9a-f]{24}-start$/),
+  })
+  expect(firstReplay[1]?.payload).toMatchObject({
+    deltaKind: "tool",
+    messageId: expect.stringMatching(/^tool-[0-9a-f]{24}-result$/),
+  })
+  expect(JSON.stringify(firstReplay)).toContain("replayable content")
+  expect(JSON.stringify(firstReplay)).not.toContain("timestamp")
+
+  expect(await provider.finalize({ status: "succeeded" })).toMatchObject({ success: true })
+})

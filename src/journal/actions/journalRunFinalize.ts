@@ -6,6 +6,8 @@ import { apiRevisionSchema } from "../../api/schema/apiRevisionSchema.js"
 import type { DatabaseClient, DatabaseTransaction } from "../../database/databaseClient.js"
 import { journalEventTable } from "../db/journalEventTable.js"
 import type { JournalEventRecipientResolver } from "./journalEventRecipientResolver.js"
+import type { journalEventsAppendPersist } from "./journalEventsAppendPersist.js"
+import { journalRunDeltasDelete } from "./journalRunDeltasDelete.js"
 import { journalSequenceLocksAcquire } from "./journalSequenceLocksAcquire.js"
 import { journalWriteCreate } from "./journalWriteCreate.js"
 
@@ -63,7 +65,9 @@ type JournalRunFinalizeOperation<T> = (transaction: DatabaseTransaction) => Prom
 type JournalEvent = typeof journalEventTable.$inferSelect
 
 type JournalRunFinalizeDependencies = {
+  appendPersist?: typeof journalEventsAppendPersist
   database: DatabaseClient
+  runDeltasDelete?: typeof journalRunDeltasDelete
   postCommitPublish: (events: readonly JournalEvent[]) => Result<void> | Promise<Result<void>>
   resolveRecipients: JournalEventRecipientResolver
 }
@@ -111,6 +115,7 @@ async function journalRunDuplicateCheck(transaction: DatabaseTransaction, runId:
 
 export function journalRunFinalize(dependencies: JournalRunFinalizeDependencies) {
   const writer = journalWriteCreate(dependencies)
+  const runDeltasDelete = dependencies.runDeltasDelete ?? journalRunDeltasDelete
 
   const finalize = async <T>(
     input: JournalRunFinalizeInput,
@@ -143,19 +148,8 @@ export function journalRunFinalize(dependencies: JournalRunFinalizeDependencies)
       resources: [{ resourceId: parsedInput.output.runId, resourceType: "run" }],
       write: async (transaction, journal) => {
         if (priorRecipientIds.length > 0) {
-          try {
-            await transaction
-              .delete(journalEventTable)
-              .where(
-                and(
-                  inArray(journalEventTable.userId, priorRecipientIds),
-                  eq(journalEventTable.eventType, "delta"),
-                  eq(journalEventTable.runId, parsedInput.output.runId),
-                ),
-              )
-          } catch (_error) {
-            return createResultError(op, "The obsolete journal deltas could not be deleted.")
-          }
+          const deleted = await runDeltasDelete(transaction, parsedInput.output.runId, priorRecipientIds)
+          if (!deleted.success) return createResultError(op, deleted.errorMessage)
         }
 
         const appended = await journal.append({

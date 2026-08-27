@@ -43,6 +43,7 @@ type JournalWritePlan<T> = {
 }
 
 type JournalWriteCreateDependencies = {
+  appendPersist?: typeof journalEventsAppendPersist
   database: DatabaseClient
   postCommitPublish: JournalPublicationCallback
   resolveRecipients: JournalEventRecipientResolver
@@ -179,6 +180,8 @@ async function journalRecipientsPrepare(
 }
 
 export function journalWriteCreate(dependencies: JournalWriteCreateDependencies) {
+  const appendPersist = dependencies.appendPersist ?? journalEventsAppendPersist
+
   const publicationComplete = async <T>(
     committed: Result<T>,
     reservation: JournalPublicationReservation | undefined,
@@ -221,7 +224,7 @@ export function journalWriteCreate(dependencies: JournalWriteCreateDependencies)
               "journalWriteCreate",
               "The journal event resource must be prepared before the journal write.",
             )
-          const appended = await journalEventsAppendPersist(transaction, parsedInput.output, recipientSet.userIds, true)
+          const appended = await appendPersist(transaction, parsedInput.output, recipientSet.userIds, true)
           if (appended.success) events.push(...appended.data.events)
           return appended
         },

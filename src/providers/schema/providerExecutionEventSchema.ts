@@ -27,6 +27,7 @@ export const providerExecutionEventSchema = v.variant("type", [
     result: v.unknown(),
     toolCallId: providerExecutionIdentifierSchema,
     type: v.literal("tool_result"),
+    workingDirectory: v.optional(v.pipe(v.string(), v.minLength(1), v.maxLength(4_096))),
   }),
   v.strictObject({
     path: v.pipe(v.string(), v.minLength(1), v.maxLength(4_096)),
