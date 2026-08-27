@@ -146,7 +146,21 @@ function authenticationUnsafeRequest(method: string): boolean {
 
 function authenticationOriginMatches(context: Context<AppEnvironment>, configuration: RuntimeConfiguration): boolean {
   if (configuration.publicOrigin === undefined) return false
-  return context.req.header("Origin") === new URL(configuration.publicOrigin).origin
+  const publicOrigin = new URL(configuration.publicOrigin)
+  const requestHost = context.req.header("Host")
+  if (context.req.header("Origin") !== publicOrigin.origin || requestHost === undefined) return false
+
+  const requestAuthorityValue = `${publicOrigin.protocol}//${requestHost}`
+  if (!URL.canParse(requestAuthorityValue)) return false
+  const requestAuthority = new URL(requestAuthorityValue)
+  return (
+    requestAuthority.origin === publicOrigin.origin &&
+    requestAuthority.username === "" &&
+    requestAuthority.password === "" &&
+    requestAuthority.pathname === "/" &&
+    requestAuthority.search === "" &&
+    requestAuthority.hash === ""
+  )
 }
 
 function authenticationUnauthorized(context: Context<AppEnvironment>) {

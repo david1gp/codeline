@@ -132,6 +132,7 @@ test.skipIf(!databaseAvailable)(
     }
     const createHeaders = {
       Cookie: "__Host-codeline-session=opaque-session",
+      Host: "codeline.test",
       Origin: "https://codeline.test",
       "Content-Type": "application/json",
     }

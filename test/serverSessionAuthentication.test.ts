@@ -199,7 +199,7 @@ test("OIDC unsafe cookie requests require the exact configured Origin and logout
         userId: session.userId,
       } as never),
   })
-  const headers = { Cookie: "__Host-codeline-session=credential" }
+  const headers = { Cookie: "__Host-codeline-session=credential", Host: "codeline.test" }
 
   const rejected = await app.request("https://codeline.test/api/auth/logout", {
     headers: { ...headers, Origin: "https://attacker.codeline.test" },

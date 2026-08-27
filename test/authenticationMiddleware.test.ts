@@ -16,6 +16,8 @@ const legacyIssuer = "https://legacy.codeline.test"
 const authworksIssuer = "https://authworks.codeline.test"
 const zitadelIssuer = "https://zitadel.codeline.test"
 const userId = "oidc:user-1"
+const managedPublicOrigin = "https://preview.codeline.work"
+const managedProtectedUrl = `${managedPublicOrigin}/protected`
 
 const configuration = {
   authMode: "oidc",
@@ -100,6 +102,130 @@ test("authentication accepts the valid configured organization membership", asyn
 
   expect(response.status).toBe(200)
   expect(await response.json()).toMatchObject({ organizationId: configuredOrganizationId, userId })
+})
+
+test("authentication enforces the managed Host and Origin for unsafe requests", async () => {
+  const app = authenticationApp([membership(configuredOrganizationId, configuredIssuer)], {
+    configuration: { ...configuration, publicOrigin: managedPublicOrigin },
+  })
+  const cases = [
+    {
+      name: "managed Host and Origin",
+      headers: {
+        Cookie: "__Host-codeline-session=opaque-session",
+        Host: "preview.codeline.work",
+        Origin: managedPublicOrigin,
+        "X-Forwarded-Host": "preview.codeline.work",
+        "X-Forwarded-Proto": "https",
+      },
+      status: 200,
+    },
+    {
+      name: "case-insensitive managed Host",
+      headers: {
+        Cookie: "__Host-codeline-session=opaque-session",
+        Host: "PREVIEW.CODELINE.WORK",
+        Origin: managedPublicOrigin,
+      },
+      status: 200,
+    },
+    {
+      name: "cross-origin Origin",
+      headers: {
+        Cookie: "__Host-codeline-session=opaque-session",
+        Host: "preview.codeline.work",
+        Origin: "https://attacker.test",
+      },
+      status: 403,
+    },
+    {
+      name: "opaque Origin",
+      headers: { Cookie: "__Host-codeline-session=opaque-session", Host: "preview.codeline.work", Origin: "null" },
+      status: 403,
+    },
+    {
+      name: "missing Origin",
+      headers: { Cookie: "__Host-codeline-session=opaque-session", Host: "preview.codeline.work" },
+      status: 403,
+    },
+    {
+      name: "malformed Origin",
+      headers: { Cookie: "__Host-codeline-session=opaque-session", Host: "preview.codeline.work", Origin: "https://[" },
+      status: 403,
+    },
+    {
+      name: "mismatched Host",
+      headers: {
+        Cookie: "__Host-codeline-session=opaque-session",
+        Host: "attacker.test",
+        Origin: managedPublicOrigin,
+        "X-Forwarded-Host": "preview.codeline.work",
+        "X-Forwarded-Proto": "https",
+      },
+      status: 403,
+    },
+    {
+      name: "malformed Host",
+      headers: {
+        Cookie: "__Host-codeline-session=opaque-session",
+        Host: "preview.codeline.work@attacker.test",
+        Origin: managedPublicOrigin,
+      },
+      status: 403,
+    },
+    {
+      name: "alternate loopback Origin",
+      headers: {
+        Cookie: "__Host-codeline-session=opaque-session",
+        Host: "preview.codeline.work",
+        Origin: "https://127.0.0.1",
+      },
+      status: 403,
+    },
+    {
+      name: "alternate loopback Host",
+      headers: {
+        Cookie: "__Host-codeline-session=opaque-session",
+        Host: "127.0.0.1",
+        Origin: managedPublicOrigin,
+      },
+      status: 403,
+    },
+    {
+      name: "missing Host",
+      headers: { Cookie: "__Host-codeline-session=opaque-session", Origin: managedPublicOrigin },
+      status: 403,
+    },
+  ] as const
+
+  for (const requestCase of cases) {
+    const response = await app.request(managedProtectedUrl, {
+      headers: requestCase.headers,
+      method: "POST",
+    })
+
+    expect(response.status, requestCase.name).toBe(requestCase.status)
+  }
+})
+
+test("authentication honors a configured non-default public port", async () => {
+  const publicOrigin = "https://codeline.test:8443"
+  const app = authenticationApp([membership(configuredOrganizationId, configuredIssuer)], {
+    configuration: { ...configuration, publicOrigin },
+  })
+  const request = (host: string) =>
+    app.request(`${publicOrigin}/protected`, {
+      headers: {
+        Cookie: "__Host-codeline-session=opaque-session",
+        Host: host,
+        Origin: publicOrigin,
+      },
+      method: "POST",
+    })
+
+  expect((await request("codeline.test:8443")).status).toBe(200)
+  expect((await request("codeline.test")).status).toBe(403)
+  expect((await request("codeline.test:9443")).status).toBe(403)
 })
 
 test("authentication accepts a legacy raw issuer row for a trailing-slash configured issuer", async () => {
@@ -280,7 +406,7 @@ function authenticationApp(
       organizationMemberLoad: options.organizationMemberLoad,
     }),
   )
-  app.get("/protected", (context) => context.json(context.var.requestIdentity))
+  app.all("/protected", (context) => context.json(context.var.requestIdentity))
   return app
 }
 
