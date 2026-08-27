@@ -102,6 +102,90 @@ export const providerDeterministicScenarioFixture = {
     ],
     maxAttempts: 1,
   },
+  "bash-webfetch": {
+    attempts: [
+      {
+        ordinal: 1,
+        steps: [
+          { delayMs: 0, event: { eventType: "thinking_status", payload: { status: "started" } } },
+          {
+            delayMs: 0,
+            event: { eventType: "tool_start", payload: { toolCallId: "bash-1", toolName: "bash" } },
+          },
+          {
+            delayMs: 0,
+            event: {
+              eventType: "tool_output",
+              payload: {
+                output: JSON.stringify({ command: "printf workspace-ok", workingDirectory: "src" }),
+                toolCallId: "bash-1",
+                truncated: false,
+              },
+            },
+          },
+          {
+            delayMs: 0,
+            event: {
+              eventType: "tool_result",
+              payload: {
+                outcome: "success",
+                result: JSON.stringify({
+                  exitCode: 0,
+                  stderr: "",
+                  stdout: "workspace-ok\n",
+                  truncated: false,
+                  workingDirectory: "src",
+                }),
+                toolCallId: "bash-1",
+                truncated: false,
+                workingDirectory: "src",
+              },
+            },
+          },
+          {
+            delayMs: 0,
+            event: { eventType: "tool_start", payload: { toolCallId: "webfetch-1", toolName: "webfetch" } },
+          },
+          {
+            delayMs: 0,
+            event: {
+              eventType: "tool_output",
+              payload: {
+                output: JSON.stringify({ format: "markdown", url: "https://example.test/docs" }),
+                toolCallId: "webfetch-1",
+                truncated: false,
+              },
+            },
+          },
+          {
+            delayMs: 0,
+            event: {
+              eventType: "tool_result",
+              payload: {
+                outcome: "success",
+                result: JSON.stringify({
+                  contentType: "text/html",
+                  format: "markdown",
+                  output: "# Deterministic docs\n\nFetched content.",
+                  truncated: false,
+                  url: "https://example.test/docs",
+                }),
+                toolCallId: "webfetch-1",
+                truncated: false,
+              },
+            },
+          },
+          { delayMs: 0, event: { eventType: "thinking_status", payload: { status: "finished" } } },
+          {
+            delayMs: 0,
+            event: { eventType: "text_delta", payload: { delta: "The command tools returned deterministic results." } },
+          },
+          { delayMs: 0, event: { eventType: "terminal", payload: { status: "completed" } } },
+        ],
+      },
+    ],
+    maxAttempts: 1,
+  },
   "retry-success": {
     attempts: [
       {
@@ -360,6 +444,110 @@ export const providerDeterministicScenarioFixture = {
             event: {
               eventType: "text_delta",
               payload: { delta: "The detached deterministic run finished after the reload." },
+            },
+          },
+          { delayMs: 20, event: { eventType: "terminal", payload: { status: "completed" } } },
+        ],
+      },
+    ],
+    maxAttempts: 1,
+  },
+  /**
+   * A retryable first attempt whose replacement attempt stays open long enough for
+   * a browser reload. The reloaded tab must reattach to the same durable run and
+   * observe only the authoritative second attempt's output.
+   */
+  "retry-reload": {
+    attempts: [
+      {
+        ordinal: 1,
+        steps: [
+          {
+            delayMs: 20,
+            event: { eventType: "text_delta", payload: { delta: "The discarded first attempt started. " } },
+          },
+          {
+            delayMs: 20,
+            event: {
+              eventType: "terminal",
+              payload: {
+                code: "provider_timeout",
+                message: "The deterministic provider timed out before the retry.",
+                status: "error",
+              },
+            },
+          },
+        ],
+      },
+      {
+        ordinal: 2,
+        steps: [
+          {
+            delayMs: 20,
+            event: { eventType: "text_delta", payload: { delta: "The retried attempt started. " } },
+          },
+          {
+            delayMs: 8_000,
+            event: {
+              eventType: "text_delta",
+              payload: { delta: "The retried attempt finished after the reload." },
+            },
+          },
+          { delayMs: 20, event: { eventType: "terminal", payload: { status: "completed" } } },
+        ],
+      },
+    ],
+    maxAttempts: 2,
+  },
+  /**
+   * Tool activity that provably spans a browser reload: the tool starts and emits
+   * output immediately, the tool result only arrives seconds later, and assistant
+   * text exists on both sides of that gap. A reload therefore happens while the
+   * tool call is still open, and the reattached tab observes its completion.
+   */
+  "tool-activity-reload": {
+    attempts: [
+      {
+        ordinal: 1,
+        steps: [
+          { delayMs: 20, event: { eventType: "thinking_status", payload: { status: "started" } } },
+          {
+            delayMs: 20,
+            event: { eventType: "tool_start", payload: { toolCallId: "tool-activity-reload-1", toolName: "bash" } },
+          },
+          {
+            delayMs: 20,
+            event: {
+              eventType: "tool_output",
+              payload: {
+                output: JSON.stringify({ command: "printf tool-activity", workingDirectory: "." }),
+                toolCallId: "tool-activity-reload-1",
+                truncated: false,
+              },
+            },
+          },
+          {
+            delayMs: 20,
+            event: { eventType: "text_delta", payload: { delta: "The tool activity run started. " } },
+          },
+          {
+            delayMs: 8_000,
+            event: {
+              eventType: "tool_result",
+              payload: {
+                outcome: "success",
+                result: "The deterministic tool call finished after the reload.",
+                toolCallId: "tool-activity-reload-1",
+                truncated: false,
+              },
+            },
+          },
+          { delayMs: 20, event: { eventType: "thinking_status", payload: { status: "finished" } } },
+          {
+            delayMs: 20,
+            event: {
+              eventType: "text_delta",
+              payload: { delta: "The tool activity run finished after the reload." },
             },
           },
           { delayMs: 20, event: { eventType: "terminal", payload: { status: "completed" } } },
