@@ -1,27 +1,35 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
+import { mkdtempSync, rmSync } from "node:fs"
+import os from "node:os"
+import path from "node:path"
 import { createResult } from "@adaptive-ds/result"
 import { asc, eq, inArray } from "drizzle-orm"
 import { agentTable } from "../src/agents/db/agentTable.js"
+import { appCreate } from "../src/app/appCreate.js"
 import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
+import { databaseConnectionCreate } from "../src/database/databaseConnectionCreate.js"
+import { databaseMigrate } from "../src/database/databaseMigrate.js"
 import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { organizationTable } from "../src/identity/db/organizationTable.js"
 import { journalEventTable } from "../src/journal/db/journalEventTable.js"
 import { journalSequenceCounterTable } from "../src/journal/db/journalSequenceCounterTable.js"
-import { appCreate } from "../src/app/appCreate.js"
-import { runCreate } from "../src/run/actions/runCreate.js"
 import { runActiveRegistryCreate } from "../src/run/actions/runActiveRegistryCreate.js"
+import { runCreate } from "../src/run/actions/runCreate.js"
 import { runStartupInterruptionReconcile } from "../src/run/actions/runStartupInterruptionReconcile.js"
 import { runTransition } from "../src/run/actions/runTransition.js"
 import { attemptTable } from "../src/run/db/attemptTable.js"
 import { runTable } from "../src/run/db/runTable.js"
-import { serverTable } from "../src/servers/db/serverTable.js"
 import { serverStart } from "../src/server/serverStart.js"
+import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
-import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
 
-const connection = databaseTestConnectionCreate()
+const databaseDirectory = mkdtempSync(path.join(os.tmpdir(), "codeline-startup-interruption-"))
+const testDatabasePath = path.join(databaseDirectory, "database.sqlite")
+const migrated = await databaseMigrate(testDatabasePath)
+if (!migrated.success) throw new Error(migrated.errorMessage)
+const connection = databaseConnectionCreate(testDatabasePath)
 const database = connection.db
 const databaseAvailable = await databaseReadyCheck(database).then((result) => result.success)
 const fixture = {
@@ -64,8 +72,8 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  if (databaseAvailable) await database.delete(applicationUserTable).where(eq(applicationUserTable.id, fixture.userId))
   await databaseConnectionClose(connection)
+  rmSync(databaseDirectory, { force: true, recursive: true })
 })
 
 test.skipIf(!databaseAvailable)("interrupts active runs atomically and retains their partial output", async () => {
