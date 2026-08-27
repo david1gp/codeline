@@ -66,6 +66,7 @@ export default defineConfig(({ mode }) => {
     build: {
       outDir: "dist/ui",
       emptyOutDir: false,
+      chunkSizeWarningLimit: 999,
     },
   }
 })
