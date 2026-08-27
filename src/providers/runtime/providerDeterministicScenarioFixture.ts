@@ -543,8 +543,11 @@ export const providerDeterministicScenarioFixture = {
             },
           },
           { delayMs: 20, event: { eventType: "thinking_status", payload: { status: "finished" } } },
+          // The completed tool call stays durably observable for several seconds
+          // before finalization deletes this run's deltas, so the reattached tab
+          // can render the closed lifecycle rather than racing the deletion.
           {
-            delayMs: 20,
+            delayMs: 5_000,
             event: {
               eventType: "text_delta",
               payload: { delta: "The tool activity run finished after the reload." },

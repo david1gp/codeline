@@ -261,6 +261,10 @@ test("a reload during open tool activity reattaches the run and observes the too
 
     const composer = page.getByRole("form", { name: "Chat composer" })
     await expect(composer).toBeVisible({ timeout: syncTimeout })
+    // The display mode is device-local and survives the reload, so selecting it now
+    // means the reattached tab renders the durable stream immediately instead of
+    // racing the run with a post-reload interaction.
+    await page.getByRole("button", { name: "Stream view" }).click()
     const messageInput = composer.getByLabel("Message")
     await expect(messageInput).toBeEnabled({ timeout: syncTimeout })
     await messageInput.fill(prompt)
@@ -294,7 +298,6 @@ test("a reload during open tool activity reattaches the run and observes the too
 
     // The reattached tab renders the durable stream, so the still-open tool call and
     // then its late result are both observable in the same reloaded page.
-    await page.getByRole("button", { name: "Stream view" }).click()
     const stream = page.getByRole("region", { name: "Execution stream" })
     await expect(stream.getByText(toolScenario.toolName, { exact: true }).first()).toBeVisible({
       timeout: syncTimeout,
