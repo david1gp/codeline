@@ -57,6 +57,8 @@ import { apiSkillRoutesAdd } from "../skills/api/apiSkillRoutesAdd.js"
 import type { streamLiveSubscriptionCreate } from "../stream/actions/streamLiveSubscriptionCreate.js"
 import type { streamSseConnectionWriterCreate } from "../stream/actions/streamSseConnectionWriterCreate.js"
 import type { AppEnvironment } from "./appEnvironment.js"
+import type { apiClientLogJournalWrite } from "./diagnostics/apiClientLogJournalWrite.js"
+import { apiDiagnosticsRoutesAdd } from "./diagnostics/apiDiagnosticsRoutesAdd.js"
 import { apiMetricsRoutesAdd } from "./diagnostics/apiMetricsRoutesAdd.js"
 import { apiErrorCatalogCreate } from "./errors/apiErrorCatalogCreate.js"
 import type { HealthResponse } from "./health/healthResponseSchema.js"
@@ -121,6 +123,7 @@ type ApiRoutesAddOptions = {
   streamSseNow?: () => number
   streamSseScheduler?: Parameters<typeof streamSseConnectionWriterCreate>[0]["scheduler"]
   metricsCollector?: ReturnType<typeof metricsCollectorCreate>
+  clientLogJournalWrite?: typeof apiClientLogJournalWrite
 }
 
 export function apiRoutesAdd(
@@ -147,6 +150,7 @@ export function apiRoutesAdd(
   })
 
   apiReadinessRoutesAdd(api, databaseReadyCheck)
+  apiDiagnosticsRoutesAdd(api, { clientLogJournalWrite: options.clientLogJournalWrite })
   if (options.metricsCollector !== undefined) apiMetricsRoutesAdd(api, options.metricsCollector)
   apiAuthRoutesAdd(api, {
     configuration: options.configuration,

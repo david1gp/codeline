@@ -2,6 +2,7 @@ import { Hono } from "hono"
 import { serveStatic } from "hono/bun"
 import { apiRoutesAdd } from "../api/apiRoutesAdd.js"
 import type { App, AppEnvironment } from "../api/appEnvironment.js"
+import type { apiClientLogJournalWrite } from "../api/diagnostics/apiClientLogJournalWrite.js"
 import type { ApiErrorResponse } from "../api/errors/apiErrorResponseSchema.js"
 import type { HealthResponse } from "../api/health/healthResponseSchema.js"
 import { commandCatalogDiscover } from "../commands/actions/commandCatalogDiscover.js"
@@ -107,6 +108,7 @@ export type AppCreateOptions = {
   streamSseNow?: () => number
   streamSseScheduler?: Parameters<typeof streamSseConnectionWriterCreate>[0]["scheduler"]
   metricsCollector?: ReturnType<typeof metricsCollectorCreate>
+  clientLogJournalWrite?: typeof apiClientLogJournalWrite
   uiShellPath?: string
 }
 
@@ -231,6 +233,7 @@ export function appCreate(options: AppCreateOptions = {}): App {
     streamSseNow: options.streamSseNow,
     streamSseScheduler: options.streamSseScheduler,
     metricsCollector: options.metricsCollector,
+    clientLogJournalWrite: options.clientLogJournalWrite,
   })
 
   const uiShellPath = options.uiShellPath ?? "./dist/ui/index.html"
