@@ -24,7 +24,8 @@ test("http query loads for a key, exposes loading then complete, and stays idle 
 
     await tick()
     expect(loaded).toEqual([])
-    expect(state.isLoading()).toBe(true)
+    expect(state.isIdle()).toBe(true)
+    expect(state.isLoading()).toBe(false)
     expect(state.data()).toBeUndefined()
 
     keySet("a")
@@ -33,6 +34,56 @@ test("http query loads for a key, exposes loading then complete, and stays idle 
     expect(loaded).toEqual(["a"])
     expect(state.isComplete()).toBe(true)
     expect(state.data()).toBe("value:a")
+
+    dispose()
+  })
+})
+
+test("http query reports idle while disabled and loads once it is enabled", async () => {
+  await createRoot(async (dispose) => {
+    const [enabled, enabledSet] = createSignal(false)
+    const loaded: string[] = []
+    const state = httpQueryStateCreate<string>({
+      enabled,
+      key: () => "a",
+      load: async (current) => {
+        loaded.push(current)
+        return createResult(`value:${current}`)
+      },
+    })
+
+    await tick()
+    expect(loaded).toEqual([])
+    expect(state.isIdle()).toBe(true)
+    expect(state.isLoading()).toBe(false)
+
+    enabledSet(true)
+    expect(state.isIdle()).toBe(false)
+    expect(state.isLoading()).toBe(true)
+    await tick()
+    expect(loaded).toEqual(["a"])
+    expect(state.isComplete()).toBe(true)
+
+    dispose()
+  })
+})
+
+test("http query returns to idle when it is disabled again after a completed read", async () => {
+  await createRoot(async (dispose) => {
+    const [enabled, enabledSet] = createSignal(true)
+    const state = httpQueryStateCreate<string>({
+      enabled,
+      key: () => "a",
+      load: async (current) => createResult(`value:${current}`),
+    })
+
+    await tick()
+    expect(state.isComplete()).toBe(true)
+
+    enabledSet(false)
+    expect(state.isIdle()).toBe(true)
+    expect(state.isLoading()).toBe(false)
+    expect(state.data()).toBeUndefined()
 
     dispose()
   })

@@ -65,6 +65,6 @@ export type SessionResourceSelectorView = {
   roots: () => SkillCatalogInspectionResponse["roots"]
   skillBundles: () => SkillCatalogInspectionResponse["bundles"]
   skillToggle: (name: string, enabled: boolean) => void
-  status: () => "error" | "loading" | "offline" | "ready"
+  status: () => "error" | "idle" | "loading" | "offline" | "ready"
   toolToggle: (agentId: string, tool: "bash" | "webfetch", enabled: boolean) => void
 }

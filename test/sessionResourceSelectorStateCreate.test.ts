@@ -334,9 +334,13 @@ function stateCreate(options: {
   overrides?: FetchOverrides
   projectPath?: string | null
   requests?: string[]
+  serverId?: string | null
   sessionId?: string | null
 }) {
   const [selectedSessionId, selectedSessionIdSet] = createSignal(options.sessionId ?? null)
+  const [selectedServerId, selectedServerIdSet] = createSignal(
+    options.serverId === undefined ? "example-server" : options.serverId,
+  )
   const [projectPath, projectPathSet] = createSignal(
     options.projectPath === undefined ? "/workspace/codeline" : options.projectPath,
   )
@@ -346,12 +350,12 @@ function stateCreate(options: {
       fetch: fetchCreate(options.requests ?? [], options.overrides ?? {}),
       projectPath,
       selectedAgentId: () => "example-agent-primary",
-      selectedServerId: () => "example-server",
+      selectedServerId,
       selectedSessionId,
     })
     return rootDispose
   })
-  return { dispose, projectPathSet, selectedSessionIdSet, state: state! }
+  return { dispose, projectPathSet, selectedServerIdSet, selectedSessionIdSet, state: state! }
 }
 
 test("the pre-session workspace resolves the project id and loads the effective selection", async () => {
@@ -580,6 +584,61 @@ test("a failed inspection read reports an error and retry reloads the queries", 
 
   expect(created.state.status()).toBe("ready")
   expect(created.state.errorMessage()).toBeNull()
+  created.dispose()
+})
+
+test("without a project reference the workspace stays idle instead of loading forever", async () => {
+  const requests: string[] = []
+  const created = stateCreate({ projectPath: null, requests })
+  await effectsSettle()
+
+  expect(created.state.status()).toBe("idle")
+  expect(created.state.errorMessage()).toBeNull()
+  expect(requests.some((url) => url.startsWith("/api/project"))).toBe(false)
+  expect(requests.some((url) => url.startsWith("/api/agent-instructions"))).toBe(false)
+  created.dispose()
+})
+
+test("a project selected after the initial idle render loads the effective selection", async () => {
+  const created = stateCreate({ projectPath: null })
+  await effectsSettle()
+  expect(created.state.status()).toBe("idle")
+
+  created.projectPathSet("/workspace/codeline")
+  await effectsSettle()
+
+  expect(created.state.status()).toBe("ready")
+  expect(created.state.presetName()).toBe("default")
+  created.dispose()
+})
+
+test("a server selected after the project keeps the workspace ready without a stuck loading state", async () => {
+  const created = stateCreate({ serverId: null })
+  await effectsSettle()
+
+  expect(created.state.status()).toBe("ready")
+  expect(created.state.agentTools()).toEqual([])
+
+  created.selectedServerIdSet("example-server")
+  await effectsSettle()
+
+  expect(created.state.status()).toBe("ready")
+  expect(created.state.agentTools().map(({ agentId }) => agentId)).toEqual([
+    "example-agent-primary",
+    "example-agent-explore",
+  ])
+  created.dispose()
+})
+
+test("an existing session read is idle rather than loading while no session is selected", async () => {
+  const created = stateCreate({ projectPath: null })
+  await effectsSettle()
+
+  created.selectedSessionIdSet("example-session")
+  await effectsSettle()
+
+  expect(created.state.status()).toBe("ready")
+  expect(created.state.isMutable()).toBe(false)
   created.dispose()
 })
 

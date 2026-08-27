@@ -289,7 +289,11 @@ export function sessionResourceSelectorStateCreate(
       if (sessionDetailQuery.isError()) return "error"
       return sessionDetailQuery.data() === undefined ? "loading" : "ready"
     }
-    if (projectId() === null) return projectQuery.isError() ? "error" : "loading"
+    if (projectQuery.isError()) return "error"
+    // No project reference means no inspection read is in flight, so the panel
+    // reports that there is nothing to select instead of loading forever.
+    if (projectQuery.isIdle()) return "idle"
+    if (projectId() === null) return "loading"
     if (queries.some((query) => query.isError())) return "error"
     if (queries.some((query) => query.isLoading() && query.data() === undefined)) return "loading"
     return "ready"

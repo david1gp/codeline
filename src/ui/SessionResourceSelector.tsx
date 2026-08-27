@@ -39,6 +39,12 @@ export function SessionResourceSelector(props: { idPrefix?: string; state: Sessi
           </p>
         </Match>
 
+        <Match when={props.state.status() === "idle"}>
+          <p class="m-0 text-xs text-faint" role="status">
+            Select a project to review its skills, presets, and instruction sources.
+          </p>
+        </Match>
+
         <Match when={props.state.status() === "loading"}>
           <p class="m-0 text-xs text-faint" role="status" aria-live="polite">
             Loading skills, presets, and instruction sources...

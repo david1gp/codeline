@@ -5,7 +5,7 @@ import type { ApiRevision } from "../api/schema/apiRevisionSchema.js"
 import { httpQueryCacheCreate } from "./httpQueryCacheCreate.js"
 import { signalObjectCreate } from "./signalObjectCreate.js"
 
-type HttpQueryStatus = "complete" | "error" | "unknown"
+type HttpQueryStatus = "complete" | "error" | "idle" | "unknown"
 
 type HttpQueryLoadResponse<T> = { data: T; etag: ApiEtag; revision: ApiRevision; status: 200 } | { status: 304 }
 
@@ -59,7 +59,9 @@ export function httpQueryStateCreate<T>(options: HttpQueryStateOptions<T>) {
     }
 
     if (!enabled) {
-      status.set("unknown")
+      // A disabled or keyless query has no read in flight, so it reports idle
+      // instead of loading and callers never render an indefinite spinner.
+      status.set("idle")
       errorMessage.set(undefined)
       data.set(undefined)
       return
@@ -128,6 +130,7 @@ export function httpQueryStateCreate<T>(options: HttpQueryStateOptions<T>) {
     invalidate,
     isComplete: () => status.get() === "complete",
     isError: () => status.get() === "error",
+    isIdle: () => status.get() === "idle",
     isLoading: () => status.get() === "unknown",
     refresh: reload,
     retry: reload,
