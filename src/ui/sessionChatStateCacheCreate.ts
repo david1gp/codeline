@@ -1,11 +1,13 @@
-import { createRoot, onCleanup } from "solid-js/dist/solid.js"
 import type { Accessor } from "solid-js"
+import { createRoot, onCleanup } from "solid-js/dist/solid.js"
 import type { CodelineExecution } from "../providers/schema/codelineExecutionSchema.js"
-import type { sessionChatStateCreate, SessionChatState } from "./sessionChatStateCreate.js"
+import type { ChatCommandCatalogSource } from "./chatCommandView.js"
+import type { SessionChatState, sessionChatStateCreate } from "./sessionChatStateCreate.js"
 
 type SessionChatStateCacheOptions = {
   chatStateCreate: typeof sessionChatStateCreate
   codelineExecution: Accessor<CodelineExecution | null>
+  commandCatalog?: ChatCommandCatalogSource
   durableMessages: () => ReadonlyArray<{ content: string; role: string }>
 }
 
@@ -33,6 +35,7 @@ export function sessionChatStateCacheCreate(options: SessionChatStateCacheOption
       sessionId,
       state: options.chatStateCreate({
         codelineExecution: options.codelineExecution,
+        ...(options.commandCatalog === undefined ? {} : { commandCatalog: options.commandCatalog }),
         durableMessages: options.durableMessages,
         sessionId,
       }),

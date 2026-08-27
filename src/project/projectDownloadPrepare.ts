@@ -1,8 +1,8 @@
 import * as fs from "node:fs"
 import * as fsPromises from "node:fs/promises"
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
-import type { ProjectDownloadDescriptorData } from "./projectDownloadDescriptorSchema.js"
 import { projectDefaultLimits } from "./projectDefaultLimits.js"
+import type { ProjectDownloadDescriptorData } from "./projectDownloadDescriptorSchema.js"
 import type { ProjectLimits } from "./projectLimitsSchema.js"
 import { projectPathResolve } from "./projectPathResolve.js"
 

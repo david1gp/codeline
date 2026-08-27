@@ -266,9 +266,10 @@ async function* cliProxyApiAdapterProviderGenerate(
     resolvedBearerSecret: secret,
     ...(options.settings.transport === undefined ? {} : { transport: options.settings.transport }),
   })
+  const systemPrompt = input.systemPrompt ?? options.systemPrompt
   const stream = adapter.chatStream({
     logger: cliProxyApiAdapterLoggerCreate(),
-    messages: cliProxyApiModelMessagesResolve({ ...input, systemPrompt: options.systemPrompt }),
+    messages: cliProxyApiModelMessagesResolve({ ...input, systemPrompt }),
     model: options.settings.model,
     modelOptions: {
       ...cliProxyApiRequestModelOptionsResolve({
@@ -283,7 +284,7 @@ async function* cliProxyApiAdapterProviderGenerate(
       ...(input.tools !== undefined && input.tools.length > 0 ? { parallel_tool_calls: false } : {}),
     },
     request: { signal: input.signal },
-    ...(options.systemPrompt === undefined ? {} : { systemPrompts: [options.systemPrompt] }),
+    ...(systemPrompt === undefined ? {} : { systemPrompts: [systemPrompt] }),
     runId: input.runId,
     threadId: input.sessionId,
     ...(input.tools === undefined ? {} : { tools: input.tools }),

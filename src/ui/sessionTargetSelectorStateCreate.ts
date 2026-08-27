@@ -2,7 +2,7 @@ import { createResultError, type Result } from "@adaptive-ds/result"
 import type { Accessor } from "solid-js"
 import { batch, createEffect, onCleanup, untrack } from "solid-js/dist/solid.js"
 import * as v from "valibot"
-import { agentDetailResponseSchema, type AgentDetailResponse } from "../agents/api/agentDetailResponseSchema.js"
+import { type AgentDetailResponse, agentDetailResponseSchema } from "../agents/api/agentDetailResponseSchema.js"
 import type { AgentListResponse } from "../agents/api/agentListResponseSchema.js"
 import { agentDetailFetch } from "../agents/client/agentDetailFetch.js"
 import { agentListFetch } from "../agents/client/agentListFetch.js"
@@ -16,6 +16,7 @@ import type { ServerListResponse } from "../servers/api/serverListResponseSchema
 import { serverListFetch } from "../servers/client/serverListFetch.js"
 import type { SessionDetailResponse } from "../session/api/sessionDetailResponseSchema.js"
 import { sessionTargetCreateResponseSchema } from "../session/api/sessionTargetCreateResponseSchema.js"
+import type { SessionExecutionSelection } from "../session/schema/sessionExecutionSelectionSchema.js"
 import { sessionDetailFetch } from "../session/ui/sessionDetailFetch.js"
 import { httpQueryAccountCacheCreate } from "./httpQueryAccountCacheCreate.js"
 import { httpQueryRepresentationResolve } from "./httpQueryRepresentationResolve.js"
@@ -41,6 +42,9 @@ type AgentDraft = {
   secretReference: "$CLIPROXYAPI_API_KEY" | "$CODEX_LB_API_TOKEN"
 }
 
+/** Typed command identity forwarded to session creation, mirroring the request schema. */
+type SessionTargetCommandInvocation = { arguments: string; name: string }
+
 type SessionTargetSelectorStateOptions = {
   /** Scopes the shared revision/ETag cache to the signed-in application user. */
   accountId?: Accessor<string | null>
@@ -49,6 +53,14 @@ type SessionTargetSelectorStateOptions = {
   fetch?: SessionTargetSelectorFetch
   isNewSessionRoute?: Accessor<boolean>
   isOnline?: Accessor<boolean>
+  /**
+   * Pre-session resource choices resolved before creation. They are sent with the
+   * create request so the server captures them in the immutable session manifest.
+   */
+  pendingExecutionSelection?: Accessor<SessionExecutionSelection | undefined>
+  pendingSkillSelection?: Accessor<
+    { override: { disabledSkills: string[]; enabledSkills: string[] }; presetName: string } | undefined
+  >
   selectedSessionId: Accessor<string | null>
   sessionNew?: () => void
   sessionSelect: (sessionId: string) => void
@@ -161,8 +173,6 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
   let pendingCreateKey: string | null = null
   let pendingCreateRequestId: string | null = null
   let sessionCreateGeneration = 0
-  let automaticCreateKey: string | null = null
-  let automaticRouteIsNew: boolean | undefined
   let sessionCreateInFlight: {
     generation: number
     key: string
@@ -171,7 +181,6 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
   let isDisposed = false
   const sessionCreateTargetInvalidate = () => {
     sessionCreateGeneration += 1
-    automaticCreateKey = null
     if (sessionCreateStatus.get() === "creating") sessionCreateStatus.set("idle")
     sessionCreateErrorMessage.set(undefined)
   }
@@ -385,11 +394,32 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
     return result.success ? result.output : null
   }
 
-  const sessionCreateKeyResolve = (target: { agentId: string; serverId: string }, projectPath: string) =>
-    `${target.serverId}/${target.agentId}/${projectPath}`
+  // The resource selection is part of the create request body, so it participates in the
+  // create key. A changed selection therefore mints a new idempotency key instead of
+  // replaying the previous request and silently discarding the new choices.
+  const pendingResourceSelectionKey = () =>
+    JSON.stringify({
+      execution: options.pendingExecutionSelection?.() ?? null,
+      skills: options.pendingSkillSelection?.() ?? null,
+    })
 
-  const pendingCreateRequestIdResolve = (target: { agentId: string; serverId: string }, projectPath: string) => {
-    const key = sessionCreateKeyResolve(target, projectPath)
+  // A command is part of the create request body, so it participates in the create key.
+  // Two different commands must never replay one another's idempotent create response.
+  const sessionCreateKeyResolve = (
+    target: { agentId: string; serverId: string },
+    projectPath: string,
+    command?: SessionTargetCommandInvocation,
+  ) =>
+    `${target.serverId}/${target.agentId}/${projectPath}/${pendingResourceSelectionKey()}/${
+      command === undefined ? "" : JSON.stringify(command)
+    }`
+
+  const pendingCreateRequestIdResolve = (
+    target: { agentId: string; serverId: string },
+    projectPath: string,
+    command?: SessionTargetCommandInvocation,
+  ) => {
+    const key = sessionCreateKeyResolve(target, projectPath, command)
     if (pendingCreateKey !== key || pendingCreateRequestId === null) {
       pendingCreateKey = key
       pendingCreateRequestId = clientRequestIdCreate()
@@ -647,7 +677,10 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
     }
   }
 
-  const sessionCreateStart = (projectPathOverride?: string): Promise<string | null> => {
+  const sessionCreateStart = (
+    projectPathOverride?: string,
+    command?: SessionTargetCommandInvocation,
+  ): Promise<string | null> => {
     const target = pendingTarget()
     const projectPath = projectPathOverride ?? activeProjectPath()
     if (target === null || isDisposed) return Promise.resolve(null)
@@ -657,15 +690,14 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
       return Promise.resolve(null)
     }
 
-    const key = sessionCreateKeyResolve(target, projectPath)
+    const key = sessionCreateKeyResolve(target, projectPath, command)
     const generation = sessionCreateGeneration
     const existing = sessionCreateInFlight
     if (existing?.key === key && existing.generation === generation) return existing.promise
 
-    const clientRequestId = pendingCreateRequestIdResolve(target, projectPath)
+    const clientRequestId = pendingCreateRequestIdResolve(target, projectPath, command)
     const requiresNewSessionRoute =
       options.isNewSessionRoute !== undefined && (options.isNewSessionRoute() || options.sessionNew !== undefined)
-    if (requiresNewSessionRoute) automaticCreateKey = key
     sessionCreateStatus.set("creating")
     let taskCancelled = false
     const sessionCreateIsCurrent = () => {
@@ -686,9 +718,16 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
     const task = Promise.resolve().then(async () => {
       if (taskCancelled) return null
       try {
+        const executionSelection = options.pendingExecutionSelection?.()
+        const skillSelection = options.pendingSkillSelection?.()
         const response = await fetchImplementation("/api/sessions", {
           body: JSON.stringify({
             clientRequestId,
+            // Command identity is validated and expanded on the server, which captures
+            // the resulting agent/model/subtask overrides in the immutable selection.
+            ...(command === undefined ? {} : { command }),
+            ...(executionSelection === undefined ? {} : { executionSelection }),
+            ...(skillSelection === undefined ? {} : { skillSelection }),
             primaryAgentId: target.agentId,
             projectPath,
             serverId: target.serverId,
@@ -744,26 +783,9 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
     return task
   }
 
-  createEffect(() => {
-    const isNewRoute = options.isNewSessionRoute?.() ?? false
-    if (automaticRouteIsNew !== undefined && automaticRouteIsNew !== isNewRoute) automaticCreateKey = null
-    automaticRouteIsNew = isNewRoute
-    const target = pendingTarget()
-    const projectPath = activeProjectPath()
-    if (
-      !isNewRoute ||
-      options.selectedSessionId() !== null ||
-      target === null ||
-      projectPath === null ||
-      sessionCreateStatus.get() === "error"
-    )
-      return
-    const key = sessionCreateKeyResolve(target, projectPath)
-    if (automaticCreateKey === key) return
-    automaticCreateKey = key
-    void sessionCreateStart()
-  })
-
+  // Entering /new no longer creates a session on its own. The pre-session workspace must
+  // stay mutable so the preset, skills, and tools can be resolved before creation, and a
+  // session created eagerly here would capture an immutable default selection instead.
   return {
     agents: agents.get,
     agentSelect: (agentId: string) => {

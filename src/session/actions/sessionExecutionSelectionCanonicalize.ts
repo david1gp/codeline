@@ -12,14 +12,11 @@ function sessionExecutionSelectionCatalogValidate(
   primaryAgentId: string,
   catalog: ProviderCatalog,
 ): Result<void> {
+  // A primary agent may be defined only in the database, for example the checked-in
+  // deterministic simulation agents. The catalog therefore constrains the agents it
+  // actually owns and stays silent about the ones it does not describe.
   const primary = catalog.agents.find(({ id }) => id === primaryAgentId)
-  if (primary === undefined)
-    return createResultErrorCode(
-      "sessionExecutionSelectionCanonicalize",
-      "The session execution selection primary agent is unavailable in the provider catalog.",
-      sessionExecutionSelectionErrorCodes.primaryAgentUnavailable,
-    )
-  if (!primary.enabled)
+  if (primary !== undefined && !primary.enabled)
     return createResultErrorCode(
       "sessionExecutionSelectionCanonicalize",
       "The session execution selection primary agent is disabled in the provider catalog.",

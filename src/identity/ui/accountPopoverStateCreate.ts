@@ -1,5 +1,5 @@
-import type { AuthShellView } from "./authShellView.js"
 import { signalObjectCreate } from "../../ui/signalObjectCreate.js"
+import type { AuthShellView } from "./authShellView.js"
 
 export function accountPopoverStateCreate(auth: () => AuthShellView) {
   const open = signalObjectCreate(false)

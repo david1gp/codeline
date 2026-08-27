@@ -1,6 +1,6 @@
 import { createSignal } from "solid-js/dist/solid.js"
-import type { NoteViewMode } from "./noteViewModeSchema.js"
 import { noteViewModeRead } from "./noteViewModeRead.js"
+import type { NoteViewMode } from "./noteViewModeSchema.js"
 import { noteViewModeWrite } from "./noteViewModeWrite.js"
 
 export function noteViewModeStateCreate() {

@@ -1,6 +1,6 @@
 import { createSignalObject } from "@adaptive-ds/solid-ui/utils/createSignalObject"
-import type { SessionDisplayMode } from "./sessionDisplayModeSchema.js"
 import { sessionDisplayModeRead } from "./sessionDisplayModeRead.js"
+import type { SessionDisplayMode } from "./sessionDisplayModeSchema.js"
 import { sessionDisplayModeWrite } from "./sessionDisplayModeWrite.js"
 
 export function sessionDisplayModeStateCreate() {

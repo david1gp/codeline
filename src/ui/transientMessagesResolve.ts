@@ -36,9 +36,9 @@ function durableAssistantsSupersede(
   for (const matchExact of [true, false]) {
     for (const candidate of candidates) {
       if (superseded.has(candidate.id)) continue
-      const index = available.findIndex((durableContent) =>
-        matchExact ? durableContent === candidate.content : durableContent.startsWith(candidate.content),
-      )
+      const index = matchExact
+        ? available.indexOf(candidate.content)
+        : available.findIndex((durableContent) => durableContent.startsWith(candidate.content))
       if (index === -1) continue
       available.splice(index, 1)
       superseded.add(candidate.id)

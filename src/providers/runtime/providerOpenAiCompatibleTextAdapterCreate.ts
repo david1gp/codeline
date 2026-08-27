@@ -137,7 +137,21 @@ async function* providerChatStreamCreate(
         },
       }),
   })
-  for await (const chunk of stream) yield providerStreamChunkSanitize(chunk, state.code)
+  for await (const chunk of stream) {
+    if (options.request?.signal?.aborted) {
+      yield providerStreamChunkSanitize(
+        {
+          code: "chat_interrupted",
+          message: providerFailureMessages.chat_interrupted,
+          timestamp: Date.now(),
+          type: EventType.RUN_ERROR,
+        },
+        "chat_interrupted",
+      )
+      return
+    }
+    yield providerStreamChunkSanitize(chunk, state.code)
+  }
 }
 
 export function providerOpenAiCompatibleTextAdapterCreate(

@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm"
 import { check, index, integer, sqliteTable, text, unique } from "drizzle-orm/sqlite-core"
 import { agentTable } from "../../agents/db/agentTable.js"
 import { sessionTable } from "../../session/db/sessionTable.js"
+import type { MessageMetadata } from "../schema/messageMetadataSchema.js"
 
 export const messageTable = sqliteTable(
   "message",
@@ -17,7 +18,7 @@ export const messageTable = sqliteTable(
     sequence: integer("sequence").notNull(),
     content: text("content").notNull(),
     clientRequestId: text("client_request_id").notNull(),
-    metadata: text("metadata", { mode: "json" }).notNull().default({}),
+    metadata: text("metadata", { mode: "json" }).$type<MessageMetadata>().notNull().default({}),
     finalizedAt: integer("finalized_at", { mode: "timestamp_ms" }).defaultNow().notNull(),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).defaultNow().notNull(),
   },

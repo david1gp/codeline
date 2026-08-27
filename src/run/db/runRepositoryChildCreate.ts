@@ -1,5 +1,5 @@
 import { createResult, type Result } from "@adaptive-ds/result"
-import { and, count, desc, eq, max, sql } from "drizzle-orm"
+import { and, count, desc, eq, isNull, max, sql } from "drizzle-orm"
 import * as v from "valibot"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { databaseExecutorTransactionRun } from "../../database/databaseExecutorTransactionRun.js"
@@ -10,7 +10,7 @@ import { runExecutionManifestChildResolve } from "../actions/runExecutionManifes
 import { runExecutionManifestToolDefaultsResolve } from "../actions/runExecutionManifestToolDefaultsResolve.js"
 import { runErrorCodes } from "../errors/runErrorCodes.js"
 import { runResultCreateError } from "../errors/runResultCreateError.js"
-import { runBudgetSchema } from "../schema/runBudgetSchema.js"
+import { type RunBudget, runBudgetSchema } from "../schema/runBudgetSchema.js"
 import type { RunChildAdmission } from "../schema/runChildAdmissionSchema.js"
 import { type RunChildCreateInput, runChildCreateInputSchema } from "../schema/runChildCreateInputSchema.js"
 import type { RunExecutionSnapshot } from "../schema/runExecutionSnapshotSchema.js"
@@ -25,6 +25,17 @@ type RunChildCreateResult = {
   created: boolean
   delegation: typeof runDelegationTable.$inferSelect
   run: typeof runTable.$inferSelect
+}
+
+type RunRepositoryChildCreateOptions = {
+  beforeAdmissionCommit?: () => Promise<void>
+}
+
+type RunRepositoryChildAdmissionState = {
+  admission: RunChildAdmission
+  currentAttempt: typeof attemptTable.$inferSelect
+  parent: typeof runTable.$inferSelect
+  root: typeof runTable.$inferSelect
 }
 
 type RunRepositoryChildTarget = {
@@ -74,6 +85,26 @@ function runRepositoryChildSnapshotPolicyValidate(
       op,
       "The child configuration tools do not match the immutable execution manifest.",
       runErrorCodes.childToolEscalation,
+    )
+  if (
+    parentSnapshot.executionManifest !== undefined &&
+    jsonCanonicalize(childSnapshot.executionManifest.instructions) !==
+      jsonCanonicalize(parentSnapshot.executionManifest.instructions)
+  )
+    return runResultCreateError(
+      op,
+      "The child instruction snapshot does not match the immutable parent instruction snapshot.",
+      runErrorCodes.childSnapshotInvalid,
+    )
+  if (
+    parentSnapshot.executionManifest !== undefined &&
+    jsonCanonicalize(childSnapshot.executionManifest.skills) !==
+      jsonCanonicalize(parentSnapshot.executionManifest.skills)
+  )
+    return runResultCreateError(
+      op,
+      "The child skill snapshot does not match the immutable parent skill snapshot.",
+      runErrorCodes.childSnapshotInvalid,
     )
   if (!explicit) return createResult(undefined)
 
@@ -161,11 +192,143 @@ async function runRepositoryChildExistingLoad(
   })
 }
 
+async function runRepositoryChildAdmissionStateRead(
+  transaction: DatabaseExecutor,
+  userId: string,
+  sessionId: string,
+  parentRunId: string,
+  parentAttemptId: string,
+  rootRunId: string,
+  budget: RunBudget,
+  depth: number,
+  now: Date,
+): Promise<Result<RunRepositoryChildAdmissionState>> {
+  const op = "runRepositoryChildCreate"
+  const [root] = await transaction
+    .select()
+    .from(runTable)
+    .where(and(eq(runTable.id, rootRunId), eq(runTable.sessionId, sessionId), eq(runTable.userId, userId)))
+    .limit(1)
+  if (root === undefined) return runResultCreateError(op, "The root run could not be found.", runErrorCodes.notFound)
+
+  const [parent] = await transaction
+    .select()
+    .from(runTable)
+    .where(and(eq(runTable.id, parentRunId), eq(runTable.sessionId, sessionId), eq(runTable.userId, userId)))
+    .limit(1)
+  if (parent === undefined)
+    return runResultCreateError(op, "The parent run could not be found.", runErrorCodes.notFound)
+
+  const [currentAttempt] = await transaction
+    .select()
+    .from(attemptTable)
+    .where(
+      and(
+        eq(attemptTable.id, parentAttemptId),
+        eq(attemptTable.runId, parentRunId),
+        eq(attemptTable.sessionId, sessionId),
+        eq(attemptTable.userId, userId),
+      ),
+    )
+    .limit(1)
+  if (currentAttempt === undefined)
+    return runResultCreateError(op, "The parent attempt could not be found.", runErrorCodes.childAttemptNotFound)
+
+  const [latestAttempt] = await transaction
+    .select({ id: attemptTable.id })
+    .from(attemptTable)
+    .where(
+      and(eq(attemptTable.runId, parentRunId), eq(attemptTable.sessionId, sessionId), eq(attemptTable.userId, userId)),
+    )
+    .orderBy(desc(attemptTable.ordinal))
+    .limit(1)
+  if (latestAttempt === undefined)
+    return runResultCreateError(op, "The parent attempt could not be found.", runErrorCodes.childAttemptNotFound)
+  if (latestAttempt.id !== parentAttemptId)
+    return runResultCreateError(
+      op,
+      "The parent attempt is not the current run attempt.",
+      runErrorCodes.parentAttemptNotCurrent,
+    )
+  if (
+    parent.status !== currentAttempt.status ||
+    jsonCanonicalize(parent.failure) !== jsonCanonicalize(currentAttempt.failure) ||
+    jsonCanonicalize(parent.snapshot) !== jsonCanonicalize(currentAttempt.snapshot) ||
+    jsonCanonicalize(parent.budget) !== jsonCanonicalize(currentAttempt.budget)
+  ) {
+    return runResultCreateError(
+      op,
+      "The parent run and current attempt are inconsistent.",
+      runErrorCodes.stateInconsistent,
+    )
+  }
+
+  const [descendantState] = await transaction
+    .select({ descendantCount: count(runDelegationTable.id) })
+    .from(runDelegationTable)
+    .where(eq(runDelegationTable.rootRunId, root.id))
+  const admission = runChildAdmissionResolve({
+    attemptStatus: currentAttempt.status,
+    budget,
+    cancelled: root.cancellationRequestedAt !== null || parent.cancellationRequestedAt !== null,
+    deadlineAt: root.deadlineAt.getTime(),
+    depth,
+    descendantCount: descendantState?.descendantCount ?? 0,
+    now: now.getTime(),
+    parentStatus: parent.status,
+  })
+  if (!admission.success) return admission
+  return createResult({
+    admission: admission.data,
+    currentAttempt,
+    parent,
+    root,
+  })
+}
+
+async function runRepositoryChildAdmissionGuard(
+  transaction: DatabaseExecutor,
+  root: typeof runTable.$inferSelect,
+  parent: typeof runTable.$inferSelect,
+  currentAttempt: typeof attemptTable.$inferSelect,
+): Promise<Result<boolean>> {
+  const [guardedParent] = await transaction
+    .update(runTable)
+    .set({ id: sql`${runTable.id}` })
+    .where(and(eq(runTable.id, parent.id), eq(runTable.status, "running"), isNull(runTable.cancellationRequestedAt)))
+    .returning({ id: runTable.id })
+  if (guardedParent === undefined) return createResult(false)
+
+  if (root.id !== parent.id) {
+    const [guardedRoot] = await transaction
+      .update(runTable)
+      .set({ id: sql`${runTable.id}` })
+      .where(and(eq(runTable.id, root.id), isNull(runTable.cancellationRequestedAt)))
+      .returning({ id: runTable.id })
+    if (guardedRoot === undefined) return createResult(false)
+  }
+
+  const [guardedAttempt] = await transaction
+    .update(attemptTable)
+    .set({ id: sql`${attemptTable.id}` })
+    .where(
+      and(
+        eq(attemptTable.id, currentAttempt.id),
+        eq(attemptTable.runId, parent.id),
+        eq(attemptTable.status, "running"),
+      ),
+    )
+    .returning({ id: attemptTable.id })
+  if (guardedAttempt === undefined) return createResult(false)
+  return createResult(true)
+}
+
 export async function runRepositoryChildCreate(
   database: DatabaseExecutor,
   userId: string,
   sessionId: string,
   input: RunChildCreateInput,
+  options: RunRepositoryChildCreateOptions = {},
 ): Promise<Result<RunChildCreateResult>> {
   const op = "runRepositoryChildCreate"
   const parsedInput = v.safeParse(runChildCreateInputSchema, input)
@@ -395,6 +558,60 @@ export async function runRepositoryChildCreate(
         parsedInput.output.snapshot !== undefined,
       )
       if (!childSnapshotPolicy.success) return childSnapshotPolicy
+
+      const boundary = await runRepositoryChildAdmissionStateRead(
+        transaction,
+        userId,
+        sessionId,
+        parent.id,
+        parsedInput.output.parentAttemptId,
+        root.id,
+        parsedBudget.output,
+        depth,
+        new Date(),
+      )
+      if (!boundary.success) return boundary
+      if (boundary.data.admission.decision !== "admit") {
+        return runResultCreateError(
+          op,
+          `The child run was not admitted: ${boundary.data.admission.reason}.`,
+          runErrorCodes.childNotAdmitted,
+        )
+      }
+      await options.beforeAdmissionCommit?.()
+      const guarded = await runRepositoryChildAdmissionGuard(
+        transaction,
+        boundary.data.root,
+        boundary.data.parent,
+        boundary.data.currentAttempt,
+      )
+      if (!guarded.success) return guarded
+      if (!guarded.data) {
+        const observed = await runRepositoryChildAdmissionStateRead(
+          transaction,
+          userId,
+          sessionId,
+          parent.id,
+          parsedInput.output.parentAttemptId,
+          root.id,
+          parsedBudget.output,
+          depth,
+          new Date(),
+        )
+        if (!observed.success) return observed
+        if (observed.data.admission.decision !== "admit") {
+          return runResultCreateError(
+            op,
+            `The child run was not admitted: ${observed.data.admission.reason}.`,
+            runErrorCodes.childNotAdmitted,
+          )
+        }
+        return runResultCreateError(
+          op,
+          "The child run admission changed before persistence.",
+          runErrorCodes.childNotAdmitted,
+        )
+      }
 
       const rootOrdinal = (descendantState?.latestRootOrdinal ?? 0) + 1
       const childRunId = uuidv7()

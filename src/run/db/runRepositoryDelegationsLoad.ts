@@ -7,8 +7,19 @@ import type { RunDelegationsResponse } from "../api/runDelegationsResponseSchema
 import { runErrorCodes } from "../errors/runErrorCodes.js"
 import { runResultCreateError } from "../errors/runResultCreateError.js"
 import { runDelegationTable } from "./runDelegationTable.js"
+import { runTable } from "./runTable.js"
 
 type RunDelegationsLoadResult = Pick<RunDelegationsResponse, "delegations" | "revision">
+
+function runDelegationChildAgentIdResolve(snapshot: unknown): string | undefined {
+  if (typeof snapshot !== "object" || snapshot === null) return undefined
+  const target = (snapshot as Record<string, unknown>).target
+  if (typeof target !== "object" || target === null) return undefined
+  const agentId = (target as Record<string, unknown>).agentId
+  if (typeof agentId !== "string") return undefined
+  const normalized = agentId.trim()
+  return normalized.length === 0 ? undefined : normalized
+}
 
 export async function runRepositoryDelegationsLoad(
   database: DatabaseExecutor,
@@ -31,9 +42,10 @@ export async function runRepositoryDelegationsLoad(
     if (authorizedSession === undefined)
       return runResultCreateError(op, "The session could not be found.", runErrorCodes.sessionNotFound)
 
-    const delegations = await database
+    const rows = await database
       .select({
         childRunId: runDelegationTable.childRunId,
+        childSnapshot: runTable.snapshot,
         delegationKey: runDelegationTable.delegationKey,
         id: runDelegationTable.id,
         parentAttemptId: runDelegationTable.parentAttemptId,
@@ -41,8 +53,14 @@ export async function runRepositoryDelegationsLoad(
         task: runDelegationTable.task,
       })
       .from(runDelegationTable)
+      .leftJoin(runTable, eq(runTable.id, runDelegationTable.childRunId))
       .where(and(eq(runDelegationTable.sessionId, sessionId), eq(runDelegationTable.userId, userId)))
       .orderBy(asc(runDelegationTable.createdAt), asc(runDelegationTable.id))
+
+    const delegations = rows.map(({ childSnapshot, ...delegation }) => {
+      const childAgentId = runDelegationChildAgentIdResolve(childSnapshot)
+      return childAgentId === undefined ? delegation : { ...delegation, childAgentId }
+    })
 
     return createResult({ delegations, revision: authorizedSession.revision })
   } catch (_error) {

@@ -1,6 +1,6 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
-import { agentConfigurationSchema, type AgentConfiguration } from "../../agents/schema/agentConfigurationSchema.js"
+import { type AgentConfiguration, agentConfigurationSchema } from "../../agents/schema/agentConfigurationSchema.js"
 import { codelineExecutionSchema } from "../schema/codelineExecutionSchema.js"
 import type { ProviderCatalog } from "../schema/providerCatalogSchema.js"
 import { providerAgentCatalogConfigurationCompile } from "./providerAgentCatalogConfigurationCompile.js"

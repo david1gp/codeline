@@ -183,6 +183,26 @@ function runDelegationFinalizedResultResolve(
   return createResult(finalized.output)
 }
 
+function runDelegationParentAdmissionActive(input: RunDelegationExecuteInput): boolean {
+  return (
+    input.parentRun.status === "running" &&
+    input.parentAttempt.status === "running" &&
+    input.parentRun.cancellationRequestedAt === null
+  )
+}
+
+async function runDelegationChildAdmissionAbortFinalize(
+  child: RunDelegationChild,
+  options: RunDelegationExecuteOptions,
+): Promise<Result<RunDelegationResult>> {
+  const failure = runDelegationAbortFailureCreate("cancelled")
+  const result = runDelegationResultCreate("aborted", "", failure)
+  if (!result.success) return result
+  const finalized = await options.delegationFinalize(child.delegation.id, result.data)
+  if (!finalized.success) return finalized
+  return result
+}
+
 function runDelegationNowResolve(options: RunDelegationExecuteOptions): Result<Date> {
   const now = options.now?.() ?? new Date()
   if (Number.isNaN(now.getTime()))
@@ -408,19 +428,26 @@ async function runDelegationReusedChildResolve(
   while (current.delegation.finalizedResult === null) {
     if (current.run.status !== "accepted" && current.run.status !== "running") {
       if (current.run.status !== "failed") {
-        return runResultCreateError(
-          op,
-          "The reused delegated child ended without a terminal result.",
-          runErrorCodes.terminalResultMissing,
-        )
+        await new Promise<void>((resolve) => {
+          const setTimeoutFn = options.setTimeout ?? globalThis.setTimeout
+          setTimeoutFn(resolve, REUSED_RESULT_POLL_INTERVAL_MS)
+        })
+        const observed = await options.childCreate(input)
+        if (!observed.success) return observed
+        current = observed.data
+        continue
       }
       const failure = current.attempt.failure ?? current.run.failure
-      if (failure === null)
-        return runResultCreateError(
-          op,
-          "The reused delegated child ended without a terminal result.",
-          runErrorCodes.terminalResultMissing,
-        )
+      if (failure === null) {
+        await new Promise<void>((resolve) => {
+          const setTimeoutFn = options.setTimeout ?? globalThis.setTimeout
+          setTimeoutFn(resolve, REUSED_RESULT_POLL_INTERVAL_MS)
+        })
+        const observed = await options.childCreate(input)
+        if (!observed.success) return observed
+        current = observed.data
+        continue
+      }
       const retryAdmission = runRetryAdmissionResolve({
         attemptOrdinal: current.attempt.ordinal,
         attemptStatus: current.attempt.status,
@@ -428,11 +455,14 @@ async function runDelegationReusedChildResolve(
         failure,
       })
       if (!retryAdmission.success || retryAdmission.data.decision !== "retry") {
-        return runResultCreateError(
-          op,
-          "The reused delegated child ended without a terminal result.",
-          runErrorCodes.terminalResultMissing,
-        )
+        await new Promise<void>((resolve) => {
+          const setTimeoutFn = options.setTimeout ?? globalThis.setTimeout
+          setTimeoutFn(resolve, REUSED_RESULT_POLL_INTERVAL_MS)
+        })
+        const observed = await options.childCreate(input)
+        if (!observed.success) return observed
+        current = observed.data
+        continue
       }
     }
     const now = runDelegationNowResolve(options)
@@ -495,6 +525,9 @@ export async function runDelegationExecute(
   if (!child.success) return child
   if (child.data.delegation.finalizedResult !== null) {
     return runDelegationFinalizedResultResolve(child.data.delegation)
+  }
+  if (child.data.created && !runDelegationParentAdmissionActive(input)) {
+    return runDelegationChildAdmissionAbortFinalize(child.data, options)
   }
   if (child.data.run.deadlineAt.getTime() !== input.parentRun.deadlineAt.getTime()) {
     return runResultCreateError(

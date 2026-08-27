@@ -9,11 +9,11 @@ import { noteRepresentationEtagCreate } from "../api/noteRepresentationEtagCreat
 import { noteApiRecordCreate } from "./noteApiRecordCreate.js"
 import { noteOrganizationAuthorize } from "./noteOrganizationAuthorize.js"
 import { notePreconditionConflictCreate } from "./notePreconditionConflictCreate.js"
+import { noteProjectPathNormalize } from "./noteProjectPathNormalize.js"
 import { noteRepositoryIdempotencyConflictCreate } from "./noteRepositoryIdempotencyConflictCreate.js"
 import type { NoteRepositoryMutationResult } from "./noteRepositoryMutationResult.js"
 import { noteRowsCompact } from "./noteRowsCompact.js"
 import { noteRowsOrder } from "./noteRowsOrder.js"
-import { noteProjectPathNormalize } from "./noteProjectPathNormalize.js"
 import { noteTable } from "./noteTable.js"
 
 const noteDeleteOperation = "note.delete"

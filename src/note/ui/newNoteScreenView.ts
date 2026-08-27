@@ -1,5 +1,5 @@
-import type { NoteViewMode } from "./noteViewModeSchema.js"
 import type { noteContentFieldStateCreate } from "./noteContentFieldStateCreate.js"
+import type { NoteViewMode } from "./noteViewModeSchema.js"
 
 /**
  * Rendering contract of the new-note screen, so production state and demo

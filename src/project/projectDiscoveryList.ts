@@ -1,8 +1,8 @@
 import { createResult, type Result } from "@adaptive-ds/result"
 import {
   type ProjectDiscoveryEntriesReadOptions,
-  type ProjectDiscoveryEntry,
   type ProjectDiscoveryEntriesReadResult,
+  type ProjectDiscoveryEntry,
   projectDiscoveryEntriesRead,
 } from "./projectDiscoveryEntriesRead.js"
 import { projectDiscoveryLimits } from "./projectDiscoveryLimits.js"

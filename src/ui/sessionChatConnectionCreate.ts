@@ -1,6 +1,7 @@
 import { EventType, type StreamChunk } from "@tanstack/ai"
 import type { ConnectConnectionAdapter } from "@tanstack/ai-client"
 import { apiHttpClientCreate } from "../api/client/apiHttpClientCreate.js"
+import type { CommandInvocation } from "../commands/schema/commandInvocationSchema.js"
 import { runActiveSnapshotFetch } from "../run/ui/runActiveSnapshotFetch.js"
 import {
   type SessionChatCommandResponse,
@@ -9,8 +10,15 @@ import {
 import { sessionChatRequestSchema } from "../session/schema/sessionChatRequestSchema.js"
 
 type SessionChatConnectionOptions = {
+  /**
+   * Typed command identity for the turn being started. The browser sends only the
+   * command name and raw arguments; expansion, shell interpolation, override
+   * validation, and template-digest persistence stay server-owned.
+   */
+  command?: () => CommandInvocation | undefined
   fetcher?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
   onStateChange?: (status: "error" | "recovering" | "stale" | "streaming" | "terminal") => void
+  pollingDelay?: (signal: AbortSignal | undefined) => Promise<void>
   sessionId: string
 }
 
@@ -77,6 +85,7 @@ async function* sessionChatConnectionRunPoll(
   fetcher: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
   signal: AbortSignal | undefined,
   onStateChange: SessionChatConnectionOptions["onStateChange"],
+  pollingDelay: (signal: AbortSignal | undefined) => Promise<void>,
 ): AsyncGenerator<StreamChunk> {
   onStateChange?.("streaming")
   let partialText = ""
@@ -117,7 +126,7 @@ async function* sessionChatConnectionRunPoll(
       )
       return
     }
-    await sessionChatConnectionWait(signal, 100)
+    await pollingDelay(signal)
   }
 }
 
@@ -136,8 +145,10 @@ export function sessionChatConnectionCreate(options: SessionChatConnectionOption
       return
     }
     const forwardedProps = runContext?.forwardedProps
+    const invocation = options.command?.()
     const command = await client.post({
       body: {
+        ...(invocation === undefined ? {} : { command: invocation }),
         ...(data === undefined ? {} : { context: [data] }),
         ...(forwardedProps === undefined ? {} : { forwardedProps }),
         messages: messages.map(sessionChatMessageCreate),
@@ -154,7 +165,9 @@ export function sessionChatConnectionCreate(options: SessionChatConnectionOption
       yield sessionChatConnectionErrorCreate(command.code ?? "chat_command_error", command.errorMessage)
       return
     }
-    yield* sessionChatConnectionRunPoll(command.data, fetcher, signal, options.onStateChange)
+    const pollingDelay =
+      options.pollingDelay ?? ((pollSignal: AbortSignal | undefined) => sessionChatConnectionWait(pollSignal, 100))
+    yield* sessionChatConnectionRunPoll(command.data, fetcher, signal, options.onStateChange, pollingDelay)
   }
   return { connect }
 }

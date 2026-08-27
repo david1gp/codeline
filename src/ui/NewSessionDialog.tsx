@@ -4,10 +4,10 @@ import { Button } from "#ui/interactive/button/Button.jsx"
 import { buttonVariant } from "#ui/interactive/button/buttonCva.js"
 import { CorvuDialog } from "#ui/interactive/dialog/CorvuDialog.jsx"
 import type { ActiveProjectState } from "./activeProjectStateCreate.js"
-import { newProjectDialogStateCreate } from "./newProjectDialogStateCreate.js"
 import { NewProjectForm } from "./NewProjectForm.js"
-import type { SessionTargetSelectorState } from "./sessionTargetSelectorStateCreate.js"
+import { newProjectDialogStateCreate } from "./newProjectDialogStateCreate.js"
 import { newSessionDialogStateCreate } from "./newSessionDialogStateCreate.js"
+import type { SessionTargetSelectorState } from "./sessionTargetSelectorStateCreate.js"
 
 export function NewSessionDialog(props: {
   activeProject: ActiveProjectState

@@ -4,6 +4,7 @@ import { apiRoutesAdd } from "../api/apiRoutesAdd.js"
 import type { App, AppEnvironment } from "../api/appEnvironment.js"
 import type { ApiErrorResponse } from "../api/errors/apiErrorResponseSchema.js"
 import type { HealthResponse } from "../api/health/healthResponseSchema.js"
+import { commandCatalogDiscover } from "../commands/actions/commandCatalogDiscover.js"
 import type { ConfigurationStore } from "../configuration/configurationStore.js"
 import type { RuntimeConfiguration } from "../configuration/runtimeConfigurationSchema.js"
 import type { DatabaseClient } from "../database/databaseClient.js"
@@ -19,6 +20,7 @@ import { oidcLoginTransactionConsume } from "../identity/db/oidcLoginTransaction
 import { oidcLoginTransactionCreate } from "../identity/db/oidcLoginTransactionCreate.js"
 import { oidcProviderDiscoveryCreate } from "../identity/oidc/oidcProviderDiscoveryCreate.js"
 import type { OidcProviderFetch } from "../identity/oidc/oidcProviderFetch.js"
+import { agentInstructionsDiscover } from "../instructions/actions/agentInstructionsDiscover.js"
 import type { journalBacklogRead } from "../journal/actions/journalBacklogRead.js"
 import type { JournalCursorCodec } from "../journal/actions/journalCursorCodecCreate.js"
 import type { journalPostCommitPublishCreate } from "../journal/actions/journalPostCommitPublishCreate.js"
@@ -39,13 +41,18 @@ import { runExecutionSnapshotResolve } from "../run/actions/runExecutionSnapshot
 import { runLoad } from "../run/actions/runLoad.js"
 import { runRetryAttemptCreate } from "../run/actions/runRetryAttemptCreate.js"
 import { runTransition } from "../run/actions/runTransition.js"
+import type { serverShutdownCoordinatorCreate } from "../server/serverShutdownCoordinatorCreate.js"
 import { sessionChatAdapterCreate } from "../session/actions/sessionChatAdapterCreate.js"
+import { skillCatalogDiscover } from "../skills/actions/skillCatalogDiscover.js"
+import { skillPresetCatalogLoad } from "../skills/actions/skillPresetCatalogLoad.js"
 import type { streamLiveSubscriptionCreate } from "../stream/actions/streamLiveSubscriptionCreate.js"
 import type { streamSseConnectionWriterCreate } from "../stream/actions/streamSseConnectionWriterCreate.js"
 import { appKnownRouteResolve } from "./appKnownRouteResolve.js"
 import { appUiShellFallbackAdd } from "./appUiShellFallbackAdd.js"
 
 export type AppCreateOptions = {
+  agentInstructionsDiscover?: typeof agentInstructionsDiscover
+  commandCatalogDiscover?: typeof commandCatalogDiscover
   configuration?: RuntimeConfiguration
   configurationStore?: ConfigurationStore
   database?: DatabaseClient
@@ -68,6 +75,11 @@ export type AppCreateOptions = {
   oidcReturnToPathIsKnown?: typeof appKnownRouteResolve
   projectLimits?: ProjectLimits
   projectRootDirs?: readonly string[]
+  globalAgentsPath?: string
+  globalCommandsPath?: string
+  globalSkillsPath?: string
+  skillCatalogDiscover?: typeof skillCatalogDiscover
+  skillPresetCatalogLoad?: typeof skillPresetCatalogLoad
   providerConfiguration?: unknown
   providerAgentCatalog?: ProviderCatalog
   providerEnvironment?: Readonly<Record<string, string | undefined>>
@@ -85,6 +97,7 @@ export type AppCreateOptions = {
   runLoad?: typeof runLoad
   runRetryAttemptCreate?: typeof runRetryAttemptCreate
   runTransition?: typeof runTransition
+  shutdownCoordinator?: ReturnType<typeof serverShutdownCoordinatorCreate>
   sessionChatAdapter?: typeof sessionChatAdapterCreate
   journalCursorCodec?: JournalCursorCodec
   journalBacklogRead?: typeof journalBacklogRead
@@ -100,6 +113,23 @@ export type AppCreateOptions = {
 export function appCreate(options: AppCreateOptions = {}): App {
   const app = new Hono<AppEnvironment>()
   const runActiveRegistry = options.runActiveRegistry ?? runActiveRegistryCreate()
+  const shutdownCoordinator = options.shutdownCoordinator
+
+  if (shutdownCoordinator !== undefined) {
+    app.use("*", async (context, next) => {
+      if (!shutdownCoordinator.admit()) {
+        const response = {
+          error: {
+            code: "service_unavailable",
+            message: "The service is shutting down.",
+          },
+        } satisfies ApiErrorResponse
+        return context.json(response, 503)
+      }
+
+      return next()
+    })
+  }
 
   app.get("/health", (context) => {
     const response = {
@@ -151,6 +181,13 @@ export function appCreate(options: AppCreateOptions = {}): App {
     database: options.database,
     projectLimits: options.projectLimits,
     projectRootDirs: options.projectRootDirs,
+    agentInstructionsDiscover: options.agentInstructionsDiscover,
+    commandCatalogDiscover: options.commandCatalogDiscover,
+    globalAgentsPath: options.globalAgentsPath,
+    globalCommandsPath: options.globalCommandsPath,
+    globalSkillsPath: options.globalSkillsPath,
+    skillCatalogDiscover: options.skillCatalogDiscover,
+    skillPresetCatalogLoad: options.skillPresetCatalogLoad,
     providerConfiguration: options.providerConfiguration,
     providerAgentCatalog: options.providerAgentCatalog,
     providerEnvironment: options.providerEnvironment,
@@ -167,6 +204,7 @@ export function appCreate(options: AppCreateOptions = {}): App {
     runLoad: options.runLoad,
     runRetryAttemptCreate: options.runRetryAttemptCreate,
     runTransition: options.runTransition,
+    shutdownCoordinator,
     identitySessionRevoke: options.identitySessionRevoke,
     identitySessionCreate: options.identitySessionCreate,
     identitySessionLoad: options.identitySessionLoad,

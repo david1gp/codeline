@@ -2,6 +2,7 @@ import { For, Show } from "solid-js"
 import { MessageBody } from "../message/ui/MessageBody.js"
 import { ProviderModelSelector } from "../providers/ui/ProviderModelSelector.js"
 import type { providerModelSelectorStateCreate } from "../providers/ui/providerModelSelectorStateCreate.js"
+import { ChatCommandSuggestions } from "./ChatCommandSuggestions.js"
 import { SessionTargetSelector } from "./SessionTargetSelector.js"
 import { sessionChatPendingMessagesCreate } from "./sessionChatPendingMessagesCreate.js"
 import type { SessionChatState } from "./sessionChatStateCreate.js"
@@ -86,18 +87,25 @@ export function SessionChat(props: {
         </Show>
 
         <form class="grid gap-2" aria-label="Chat composer" onSubmit={props.state.submitHandle}>
+          <Show when={props.state.command}>{(command) => <ChatCommandSuggestions state={command()} />}</Show>
           <div class="flex min-w-0 items-end gap-2 rounded-[14px] border border-line bg-surface px-3 py-2.5 shadow-[0_1px_2px_var(--shadow-color),0_8px_24px_-12px_var(--shadow-color-strong)] focus-within:border-accent-border">
             <textarea
               class="max-h-[200px] min-h-6 w-full flex-1 resize-none border-none bg-transparent text-sm leading-relaxed text-foreground outline-none placeholder:text-placeholder disabled:text-disabled"
               aria-label="Message"
               placeholder={
                 props.state.readOnlyNotice?.() === undefined
-                  ? "Send a message. Enter sends, Shift+Enter adds a newline."
+                  ? "Send a message, or type / to run a command. Enter sends, Shift+Enter adds a newline."
                   : "Read-only. Sending is unavailable."
               }
               rows={2}
               disabled={props.state.isBusy() || props.state.readOnlyNotice?.() !== undefined}
               value={props.state.draft()}
+              // The textarea stays a textbox: the suggestion list is a separately
+              // labelled listbox the caret navigates through `aria-activedescendant`,
+              // so assistive technology announces the highlighted command without
+              // the composer claiming an unsupported combobox role.
+              aria-controls={props.state.command?.isSuggesting() === true ? props.state.command.listboxId() : undefined}
+              aria-activedescendant={props.state.command?.highlightedOptionId()}
               onInput={(event) => props.state.draftUpdate(event.currentTarget.value)}
               onKeyDown={props.state.keyDownHandle}
             />

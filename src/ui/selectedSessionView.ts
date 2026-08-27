@@ -16,6 +16,8 @@ export type SelectedSessionViewMessage = {
 
 export type SelectedSessionViewSession = {
   id: string
+  /** Project the session was created in; scopes its composer command catalog. */
+  projectPath?: string
   title: string
 }
 

@@ -1,7 +1,7 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import { eq } from "drizzle-orm"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
-import { applicationUserTable, type ApplicationUser } from "./applicationUserTable.js"
+import { type ApplicationUser, applicationUserTable } from "./applicationUserTable.js"
 
 export async function applicationUserRepositoryLoad(
   database: Pick<DatabaseExecutor, "query">,

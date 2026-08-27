@@ -31,6 +31,7 @@ export function demoSessionChatStateCreate(variant: () => DemoSessionScreenVaria
   return {
     attemptCount: () => (isStreaming() ? 1 : 0),
     canSubmit: () => draft.get().trim().length > 0 && !isStreaming(),
+    command: undefined,
     failures: () => [],
     isAborted: () => false,
     isThinking: isStreaming,

@@ -4,9 +4,9 @@ import { markdownHtmlRender } from "../src/markdown/markdownHtmlRender.js"
 import { noteContentFieldStateCreate } from "../src/note/ui/noteContentFieldStateCreate.js"
 import { noteContentTitleDerive } from "../src/note/ui/noteContentTitleDerive.js"
 import { noteViewModeRead } from "../src/note/ui/noteViewModeRead.js"
+import type { NoteViewMode } from "../src/note/ui/noteViewModeSchema.js"
 import { noteViewModeStateCreate } from "../src/note/ui/noteViewModeStateCreate.js"
 import { noteViewModeStorageKey } from "../src/note/ui/noteViewModeStorageKey.js"
-import type { NoteViewMode } from "../src/note/ui/noteViewModeSchema.js"
 
 test("note content field shows the editor, the preview, or both per view mode", () => {
   const root = createRoot((dispose) => {

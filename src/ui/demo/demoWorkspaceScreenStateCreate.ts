@@ -7,6 +7,7 @@ import { demoFilesScreenStateCreate } from "./demoFilesScreenStateCreate.js"
 import { demoProviderModelSelectorStateCreate } from "./demoProviderModelSelectorStateCreate.js"
 import { demoSelectedSessionStateCreate } from "./demoSelectedSessionStateCreate.js"
 import { demoSessionListStateCreate } from "./demoSessionListStateCreate.js"
+import { demoSessionResourceSelectorStateCreate } from "./demoSessionResourceSelectorStateCreate.js"
 import type { DemoSessionScreenVariant } from "./demoSessionScreenVariant.js"
 import { demoSessionTargetSelectorStateCreate } from "./demoSessionTargetSelectorStateCreate.js"
 
@@ -27,6 +28,7 @@ export function demoWorkspaceScreenStateCreate(variant: () => DemoSessionScreenV
       variant,
     }),
     sessionList: demoSessionListStateCreate({ selectedSessionId, variant }),
+    sessionResourceSelector: demoSessionResourceSelectorStateCreate(variant),
     sessionTargetSelector: demoSessionTargetSelectorStateCreate(variant, selectedSessionId),
   }
 }

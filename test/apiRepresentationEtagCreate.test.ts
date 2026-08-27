@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto"
 import { expect, test } from "bun:test"
+import { createHash } from "node:crypto"
 import { apiRepresentationEtagCreate } from "../src/api/representation/apiRepresentationEtagCreate.js"
 
 const cases = [

@@ -283,6 +283,34 @@ test("admits a delegated child with its immutable execution snapshot", async () 
   expect(harness.admittedSnapshot).toEqual(childSnapshot)
 })
 
+test("does not activate a child admitted after parent cancellation", async () => {
+  const harness = harnessCreate()
+  let admissionStartedResolve: () => void = () => undefined
+  const admissionStarted = new Promise<void>((resolve) => {
+    admissionStartedResolve = resolve
+  })
+  let releaseAdmissionResolve: () => void = () => undefined
+  const admissionGate = new Promise<void>((resolve) => {
+    releaseAdmissionResolve = resolve
+  })
+  const originalChildCreate = harness.optionsForAction.childCreate
+  harness.optionsForAction.childCreate = async (input) => {
+    admissionStartedResolve()
+    await admissionGate
+    harness.parent.parentRun.cancellationRequestedAt = new Date("2030-01-01T00:00:02.000Z")
+    return originalChildCreate(input)
+  }
+
+  const resultPromise = execute(harness)
+  await admissionStarted
+  releaseAdmissionResolve()
+  const result = await resultPromise
+
+  expect(result).toMatchObject({ success: true, data: { failure: { code: "child_aborted" }, status: "aborted" } })
+  expect(harness.calls).toHaveLength(0)
+  expect(harness.delegation.finalizedResult).toMatchObject({ failure: { code: "child_aborted" }, status: "aborted" })
+})
+
 test("rejects an explicit child that is absent from the persisted selectable-subagent manifest", async () => {
   const harness = harnessCreate()
   const result = await execute(harness, {
@@ -388,6 +416,70 @@ test("cancellation aborts a child attempt and finalizes the delegation", async (
   expect(result).toMatchObject({ success: true, data: { status: "aborted", failure: { code: "child_aborted" } } })
   expect(harness.calls).toEqual([1])
   expect(harness.messages).toHaveLength(0)
+})
+
+test("concurrent cancellation reuses an already-started child and finalizes it once", async () => {
+  const harness = harnessCreate({ reuseAfterFirstCreate: true })
+  let providerStartedResolve: () => void = () => undefined
+  const providerStarted = new Promise<void>((resolve) => {
+    providerStartedResolve = resolve
+  })
+  harness.setStreamFactory(async function* (_attempt, signal) {
+    providerStartedResolve()
+    await new Promise<void>((resolve) => {
+      if (signal.aborted) resolve()
+      else signal.addEventListener("abort", () => resolve(), { once: true })
+    })
+  })
+
+  let finalizationStartedResolve: () => void = () => undefined
+  const finalizationStarted = new Promise<void>((resolve) => {
+    finalizationStartedResolve = resolve
+  })
+  let releaseFinalizationResolve: () => void = () => undefined
+  const finalizationGate = new Promise<void>((resolve) => {
+    releaseFinalizationResolve = resolve
+  })
+  let abortedObservedResolve: () => void = () => undefined
+  const abortedObserved = new Promise<void>((resolve) => {
+    abortedObservedResolve = resolve
+  })
+  const originalChildCreate = harness.optionsForAction.childCreate
+  harness.optionsForAction.childCreate = async (input) => {
+    const result = await originalChildCreate(input)
+    if (result.success && !result.data.created && harness.childRun.status === "aborted") abortedObservedResolve()
+    return result
+  }
+  let finalizations = 0
+  harness.optionsForAction.delegationFinalize = async (_delegationId, result) => {
+    finalizations += 1
+    harness.childRun.status = result.status
+    harness.childAttempt.status = result.status
+    harness.childRun.failure = "failure" in result ? result.failure : null
+    harness.childAttempt.failure = harness.childRun.failure
+    if (result.status === "aborted") {
+      finalizationStartedResolve()
+      await finalizationGate
+    }
+    harness.delegation.finalizedResult = result
+    return createResult({})
+  }
+
+  const firstPromise = execute(harness)
+  await providerStarted
+  const repeatedPromise = executeWithDelegationKey(harness, "new-tool-call-key")
+  while (harness.reusedStatuses.length === 0) await Promise.resolve()
+  harness.cancel()
+  await finalizationStarted
+  await abortedObserved
+  releaseFinalizationResolve()
+
+  const [first, repeated] = await Promise.all([firstPromise, repeatedPromise])
+
+  expect(first).toMatchObject({ success: true, data: { failure: { code: "child_aborted" }, status: "aborted" } })
+  expect(repeated).toEqual(first)
+  expect(finalizations).toBe(1)
+  expect(harness.calls).toEqual([1])
 })
 
 test("deadline aborts before child execution and does not retry", async () => {

@@ -1,6 +1,6 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
-import { messageApiRecordSchema, type MessageApiRecord } from "./messageApiRecordSchema.js"
+import { type MessageApiRecord, messageApiRecordSchema } from "./messageApiRecordSchema.js"
 
 type MessageApiRecordSource = {
   agentId: string

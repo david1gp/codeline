@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
-import { eventFeedReconciliationCreate } from "../src/ui/eventFeedReconciliationCreate.js"
 import { eventFeedStateCreate } from "../src/stream/client/eventFeedStateCreate.js"
+import { eventFeedReconciliationCreate } from "../src/ui/eventFeedReconciliationCreate.js"
 
 function journalEvent(id: string, sequence: number, payload: Record<string, unknown>): Record<string, unknown> {
   return { id, sequence, ...payload }

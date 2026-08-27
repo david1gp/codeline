@@ -13,9 +13,11 @@ import { sessionRenameRequest } from "../session/ui/sessionRenameRequest.js"
 import { apiFetchContext } from "./apiFetchContext.js"
 import { applicationAccountContext } from "./applicationAccountContext.js"
 import { appShellContext } from "./appShellContext.js"
+import type { ChatCommandCatalogSource } from "./chatCommandView.js"
 import { eventFeedCoordinatorContext } from "./eventFeedCoordinatorContext.js"
 import { httpQueryStateCreate } from "./httpQueryStateCreate.js"
 import type { SelectedSessionView } from "./selectedSessionView.js"
+import { sessionActiveRunReattachStateCreate } from "./sessionActiveRunReattachStateCreate.js"
 import { sessionChatStateCacheCreate } from "./sessionChatStateCacheCreate.js"
 import { sessionChatStateCreate } from "./sessionChatStateCreate.js"
 import { sessionChatStateReadOnlyWrap } from "./sessionChatStateReadOnlyWrap.js"
@@ -23,7 +25,6 @@ import { sessionDisplayModeStateCreate } from "./sessionDisplayModeStateCreate.j
 import { sessionInitialMessageStateCreate } from "./sessionInitialMessageStateCreate.js"
 import type { SessionNavigationState } from "./sessionNavigationStateCreate.js"
 import { sessionPinToggleStateCreate } from "./sessionPinToggleStateCreate.js"
-import { sessionActiveRunReattachStateCreate } from "./sessionActiveRunReattachStateCreate.js"
 import { sessionSettledCacheViewStateCreate } from "./sessionSettledCacheViewStateCreate.js"
 import { sessionSettledCompletionCacheRegistry } from "./sessionSettledCompletionCacheRegistry.js"
 import { sessionStreamStateCreate } from "./sessionStreamStateCreate.js"
@@ -32,8 +33,13 @@ import { signalObjectCreate } from "./signalObjectCreate.js"
 
 type SelectedSessionStateOptions = {
   codelineExecution: Accessor<CodelineExecution | null>
+  /** Project command catalog backing composer slash-command autocomplete. */
+  commandCatalog?: ChatCommandCatalogSource
   navigation: Accessor<SessionNavigationState>
-  sessionCreateStart: (projectPathOverride?: string) => Promise<string | null>
+  sessionCreateStart: (
+    projectPathOverride?: string,
+    command?: { arguments: string; name: string },
+  ) => Promise<string | null>
   sessionCreateErrorMessage: () => string | undefined
   sessionTargetAvailable: () => boolean
   rightPanelClose: () => void
@@ -156,6 +162,7 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
   const chatCreateLive = sessionChatStateCacheCreate({
     chatStateCreate: sessionChatStateCreate,
     codelineExecution: options.codelineExecution,
+    ...(options.commandCatalog === undefined ? {} : { commandCatalog: options.commandCatalog }),
     durableMessages,
   })
   const readOnlyChats = new Map<string, ReturnType<typeof sessionChatStateReadOnlyWrap>>()
@@ -175,6 +182,7 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
   })
   const streamDelegations = () =>
     (delegations() ?? []).map((delegation) => ({
+      ...(delegation.childAgentId === undefined ? {} : { childAgentId: delegation.childAgentId }),
       childRunId: delegation.childRunId,
       delegationKey: delegation.delegationKey,
       id: delegation.id,
@@ -215,6 +223,7 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
   })
   const initialMessage = sessionInitialMessageStateCreate({
     chatCreate,
+    ...(options.commandCatalog === undefined ? {} : { commandCatalog: options.commandCatalog }),
     selectedSessionId,
     sessionCreateErrorMessage: options.sessionCreateErrorMessage,
     sessionCreateStart: options.sessionCreateStart,

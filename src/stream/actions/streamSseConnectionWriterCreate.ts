@@ -85,7 +85,6 @@ export function streamSseConnectionWriterCreate(dependencies: StreamSseConnectio
   let subscriptionUnsubscribe: (() => void) | undefined
   let metricsConnectionOpened = false
   let queuedBytes = 0
-  let liveQueuedBytes = 0
   let replayQueuedBytes = 0
   let lastWrittenSequence = dependencies.baselineSequence
   let replayUpperBound: number | undefined
@@ -139,7 +138,6 @@ export function streamSseConnectionWriterCreate(dependencies: StreamSseConnectio
     replayQueue.clear()
     heartbeatQueue.length = 0
     queuedBytes = 0
-    liveQueuedBytes = 0
     replayQueuedBytes = 0
     for (const resolve of replayCapacityWaiters.splice(0)) resolve()
     resolveDisconnected()
@@ -173,7 +171,6 @@ export function streamSseConnectionWriterCreate(dependencies: StreamSseConnectio
       if (sequence > lastWrittenSequence) continue
       eventQueue.delete(sequence)
       queuedBytes -= event.bytes.byteLength
-      liveQueuedBytes -= event.bytes.byteLength
     }
   }
 
@@ -304,7 +301,6 @@ export function streamSseConnectionWriterCreate(dependencies: StreamSseConnectio
           if (liveEvent === event) {
             eventQueue.delete(event.sequence)
             queuedBytes -= event.bytes.byteLength
-            liveQueuedBytes -= event.bytes.byteLength
           }
           if (lastWrittenSequence === undefined || event.sequence > lastWrittenSequence)
             lastWrittenSequence = event.sequence
@@ -373,7 +369,6 @@ export function streamSseConnectionWriterCreate(dependencies: StreamSseConnectio
 
     eventQueue.set(sequence, { allowBaseline: false, bytes: frame.data, sequence })
     queuedBytes += frame.data.byteLength
-    liveQueuedBytes += frame.data.byteLength
     if (!backlogOpen) drainStart()
     return createResult(undefined)
   }
@@ -423,7 +418,6 @@ export function streamSseConnectionWriterCreate(dependencies: StreamSseConnectio
       if (sequence > upperBound) continue
       eventQueue.delete(sequence)
       queuedBytes -= event.bytes.byteLength
-      liveQueuedBytes -= event.bytes.byteLength
     }
     return createResult(undefined)
   }

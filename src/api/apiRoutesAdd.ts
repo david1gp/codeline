@@ -2,6 +2,8 @@ import type { Result } from "@adaptive-ds/result"
 import { Hono } from "hono"
 import { apiAgentRoutesAdd } from "../agents/api/apiAgentRoutesAdd.js"
 import { appKnownRouteResolve } from "../app/appKnownRouteResolve.js"
+import { commandCatalogDiscover } from "../commands/actions/commandCatalogDiscover.js"
+import { apiCommandRoutesAdd } from "../commands/api/apiCommandRoutesAdd.js"
 import type { ConfigurationStore } from "../configuration/configurationStore.js"
 import type { RuntimeConfiguration } from "../configuration/runtimeConfigurationSchema.js"
 import type { DatabaseClient } from "../database/databaseClient.js"
@@ -11,6 +13,8 @@ import { apiAuthRoutesAdd } from "../identity/api/apiAuthRoutesAdd.js"
 import { oidcLoginTransactionCreate } from "../identity/db/oidcLoginTransactionCreate.js"
 import { oidcProviderDiscoveryCreate } from "../identity/oidc/oidcProviderDiscoveryCreate.js"
 import type { OidcProviderFetch } from "../identity/oidc/oidcProviderFetch.js"
+import { agentInstructionsDiscover } from "../instructions/actions/agentInstructionsDiscover.js"
+import { apiAgentInstructionRoutesAdd } from "../instructions/api/apiAgentInstructionRoutesAdd.js"
 import type { journalBacklogRead } from "../journal/actions/journalBacklogRead.js"
 import type { JournalCursorCodec } from "../journal/actions/journalCursorCodecCreate.js"
 import type { journalPostCommitPublishCreate } from "../journal/actions/journalPostCommitPublishCreate.js"
@@ -40,12 +44,16 @@ import { runSessionSnapshotLoad } from "../run/actions/runSessionSnapshotLoad.js
 import { runTransition } from "../run/actions/runTransition.js"
 import { apiRunRoutesAdd } from "../run/api/apiRunRoutesAdd.js"
 import { runErrorCatalog } from "../run/errors/runErrorCatalog.js"
+import type { serverShutdownCoordinatorCreate } from "../server/serverShutdownCoordinatorCreate.js"
 import { apiServerRoutesAdd } from "../servers/api/apiServerRoutesAdd.js"
 import { sessionChatAdapterCreate } from "../session/actions/sessionChatAdapterCreate.js"
 import { apiSessionBranchRoutesAdd } from "../session/api/apiSessionBranchRoutesAdd.js"
+import { apiSessionExecutionSelectionDefaultRoutesAdd } from "../session/api/apiSessionExecutionSelectionDefaultRoutesAdd.js"
 import { apiSessionRenameRoutesAdd } from "../session/api/apiSessionRenameRoutesAdd.js"
 import { apiSessionRoutesAdd } from "../session/api/apiSessionRoutesAdd.js"
-import { apiSessionExecutionSelectionDefaultRoutesAdd } from "../session/api/apiSessionExecutionSelectionDefaultRoutesAdd.js"
+import { skillCatalogDiscover } from "../skills/actions/skillCatalogDiscover.js"
+import { skillPresetCatalogLoad } from "../skills/actions/skillPresetCatalogLoad.js"
+import { apiSkillRoutesAdd } from "../skills/api/apiSkillRoutesAdd.js"
 import type { streamLiveSubscriptionCreate } from "../stream/actions/streamLiveSubscriptionCreate.js"
 import type { streamSseConnectionWriterCreate } from "../stream/actions/streamSseConnectionWriterCreate.js"
 import type { AppEnvironment } from "./appEnvironment.js"
@@ -56,11 +64,18 @@ import { apiReadinessRoutesAdd } from "./readiness/apiReadinessRoutesAdd.js"
 import { apiTestingRoutesAdd } from "./testing/apiTestingRoutesAdd.js"
 
 type ApiRoutesAddOptions = {
+  agentInstructionsDiscover?: typeof agentInstructionsDiscover
+  commandCatalogDiscover?: typeof commandCatalogDiscover
   configuration?: RuntimeConfiguration
   configurationStore?: ConfigurationStore
   database?: DatabaseClient
   projectLimits?: ProjectLimits
   projectRootDirs?: readonly string[]
+  globalAgentsPath?: string
+  globalCommandsPath?: string
+  globalSkillsPath?: string
+  skillCatalogDiscover?: typeof skillCatalogDiscover
+  skillPresetCatalogLoad?: typeof skillPresetCatalogLoad
   providerConfiguration?: unknown
   providerAgentCatalog?: ProviderCatalog
   providerEnvironment?: Readonly<Record<string, string | undefined>>
@@ -81,6 +96,7 @@ type ApiRoutesAddOptions = {
   runRetryAttemptCreate?: typeof runRetryAttemptCreate
   runSessionSnapshotLoad?: typeof runSessionSnapshotLoad
   runTransition?: typeof runTransition
+  shutdownCoordinator?: ReturnType<typeof serverShutdownCoordinatorCreate>
   identitySessionRevoke?: typeof identitySessionRevoke
   identitySessionCreate?: typeof import("../identity/actions/identitySessionCreate.js").identitySessionCreate
   identitySessionLoad?: typeof import("../identity/actions/identitySessionLoad.js").identitySessionLoad
@@ -215,6 +231,23 @@ export function apiRoutesAdd(
     })
   }
   apiProjectRoutesAdd(api, { limits: options.projectLimits, rootDirs: options.projectRootDirs ?? [] })
+  apiCommandRoutesAdd(api, {
+    commandCatalogDiscover: options.commandCatalogDiscover,
+    globalCommandsPath: options.globalCommandsPath,
+    rootDirs: options.projectRootDirs ?? [],
+  })
+  apiAgentInstructionRoutesAdd(api, {
+    agentInstructionsDiscover: options.agentInstructionsDiscover,
+    globalAgentsPath: options.globalAgentsPath,
+    rootDirs: options.projectRootDirs ?? [],
+  })
+  apiSkillRoutesAdd(api, {
+    database: options.database,
+    globalSkillsPath: options.globalSkillsPath,
+    rootDirs: options.projectRootDirs ?? [],
+    skillCatalogDiscover: options.skillCatalogDiscover,
+    skillPresetCatalogLoad: options.skillPresetCatalogLoad,
+  })
   apiProviderRoutesAdd(api, {
     configuration: options.providerConfiguration ?? { model: "development-default", provider: "deterministic" },
     environment: options.providerEnvironment ?? Bun.env,

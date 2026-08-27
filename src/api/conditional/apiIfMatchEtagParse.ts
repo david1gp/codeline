@@ -1,6 +1,6 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
-import { apiEtagSchema, type ApiEtag } from "../schema/apiEtagSchema.js"
+import { type ApiEtag, apiEtagSchema } from "../schema/apiEtagSchema.js"
 
 export function apiIfMatchEtagParse(header: string | undefined): Result<ApiEtag | undefined> {
   const op = "apiIfMatchEtagParse"

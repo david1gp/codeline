@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
 import { randomBytes } from "node:crypto"
-import { inArray } from "drizzle-orm"
+import { eq, inArray } from "drizzle-orm"
 import { agentTable } from "../src/agents/db/agentTable.js"
 import { appCreate } from "../src/app/appCreate.js"
 import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
@@ -203,22 +203,19 @@ test.skipIf(!databaseAvailable)("two members of one organization share server, a
     expect(mutation.status).toBe(404)
   }
 
+  // A run must carry the exact manifest the session captured at creation, so it is read
+  // back rather than restated here.
+  const [persistedSession] = await database
+    .select()
+    .from(sessionTable)
+    .where(eq(sessionTable.id, firstSessionBody.session.id))
   const root = await runCreate(database, memberUserId, firstSessionBody.session.id, {
     budget: { maxChildDepth: 1, maxChildRuns: 1, maxDurationMs: 60_000 },
     clientRunId: `server-access-private-run-${uuidv7()}`,
     snapshot: {
       configuration: { model: "server-access-model", provider: "deterministic" },
       configurationRevision: "server-access-revision",
-      executionManifest: {
-        commandCatalog: { digest: null, version: 1 },
-        instructions: { snapshots: [], version: 1 },
-        skills: { snapshots: [], version: 1 },
-        tools: {
-          primary: { agentId, tools: ["skill", "delegate_task"] },
-          selectableSubagents: [],
-        },
-        version: 1,
-      },
+      executionManifest: persistedSession?.executionManifest ?? undefined,
       target: { agentId, serverId },
     },
     streamId: `server-access-private-stream-${uuidv7()}`,

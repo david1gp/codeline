@@ -1,12 +1,21 @@
 import type { Accessor } from "solid-js"
 import { createEffect } from "solid-js/dist/solid.js"
+import type { CommandInvocation } from "../commands/schema/commandInvocationSchema.js"
+import { chatCommandComposerStateCreate } from "./chatCommandComposerStateCreate.js"
+import { chatCommandKeyDownHandle } from "./chatCommandKeyDownHandle.js"
+import type { ChatCommandCatalogSource, ChatCommandComposerView } from "./chatCommandView.js"
 import type { SessionChatState } from "./sessionChatStateCreate.js"
 import { signalObjectCreate } from "./signalObjectCreate.js"
 
 type SessionInitialMessageStateOptions = {
   chatCreate: (sessionId: string) => SessionChatState
+  /** Project command catalog backing slash-command autocomplete before a session exists. */
+  commandCatalog?: ChatCommandCatalogSource
   selectedSessionId: Accessor<string | null>
-  sessionCreateStart: (projectPathOverride?: string) => Promise<string | null>
+  sessionCreateStart: (
+    projectPathOverride?: string,
+    command?: { arguments: string; name: string },
+  ) => Promise<string | null>
   sessionCreateErrorMessage: () => string | undefined
   sessionReady: (sessionId: string) => Promise<boolean>
   sessionTargetAvailable: () => boolean
@@ -18,6 +27,20 @@ export function sessionInitialMessageStateCreate(options: SessionInitialMessageS
   const isPending = signalObjectCreate(false)
   let createdSessionId: string | null = null
   let submission: Promise<void> | null = null
+
+  const command: ChatCommandComposerView | undefined =
+    options.commandCatalog === undefined
+      ? undefined
+      : chatCommandComposerStateCreate({
+          catalog: options.commandCatalog,
+          draft: draft.get,
+          draftUpdate: (value: string) => {
+            if (submission !== null) return
+            draft.set(value)
+            errorMessage.set(undefined)
+          },
+          idPrefix: "initial-command",
+        })
 
   createEffect(() => {
     const selectedSessionId = options.selectedSessionId()
@@ -31,6 +54,14 @@ export function sessionInitialMessageStateCreate(options: SessionInitialMessageS
     const preservedDraft = draft.get()
     const prompt = preservedDraft.trim()
     if (prompt.length === 0) return Promise.resolve()
+    // A command draft is validated before any session exists, so a malformed
+    // invocation never creates an empty conversation that cannot run it.
+    const blocking = command?.errorMessage()
+    if (blocking !== undefined) {
+      errorMessage.set(blocking)
+      return Promise.resolve()
+    }
+    const invocation: CommandInvocation | undefined = command?.invocation()
 
     errorMessage.set(undefined)
     isPending.set(true)
@@ -38,7 +69,10 @@ export function sessionInitialMessageStateCreate(options: SessionInitialMessageS
       let sessionId = createdSessionId
       if (sessionId === null) {
         if (!options.sessionTargetAvailable()) throw new Error("Select an available agent before sending.")
-        sessionId = await options.sessionCreateStart()
+        // The command travels with creation so its agent/model/subtask overrides are
+        // validated and captured in the immutable session selection and manifest
+        // before the session exists, not after the first turn has already started.
+        sessionId = await options.sessionCreateStart(undefined, invocation)
         if (sessionId === null) {
           throw new Error(options.sessionCreateErrorMessage() ?? "The conversation could not be created. Try again.")
         }
@@ -49,8 +83,11 @@ export function sessionInitialMessageStateCreate(options: SessionInitialMessageS
         throw new Error("The new conversation is not ready yet. Try sending again.")
       }
 
+      // The expansion is submitted through the normal chat path of the created
+      // session, so command identity and template digest are persisted by the same
+      // route that handles every other turn.
       const chat = options.chatCreate(sessionId)
-      chat.draftUpdate(preservedDraft)
+      chat.draftUpdate(invocation === undefined ? preservedDraft : `/${invocation.name} ${invocation.arguments}`.trim())
       draft.set("")
       isPending.set(false)
       await chat.submit()
@@ -72,7 +109,8 @@ export function sessionInitialMessageStateCreate(options: SessionInitialMessageS
 
   const chat: SessionChatState = {
     attemptCount: () => 0,
-    canSubmit: () => draft.get().trim().length > 0 && submission === null,
+    canSubmit: () => draft.get().trim().length > 0 && submission === null && command?.errorMessage() === undefined,
+    command,
     draft: draft.get,
     draftUpdate: (value: string) => {
       if (submission !== null) return
@@ -86,6 +124,7 @@ export function sessionInitialMessageStateCreate(options: SessionInitialMessageS
     isStopping: () => false,
     isThinking: isPending.get,
     keyDownHandle: (event: KeyboardEvent) => {
+      if (command !== undefined && chatCommandKeyDownHandle(event, command)) return
       if (event.key !== "Enter" || event.shiftKey || event.isComposing) return
       event.preventDefault()
       void submit()

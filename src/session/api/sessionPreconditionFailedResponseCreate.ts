@@ -1,8 +1,8 @@
+import * as v from "valibot"
 import { apiPreconditionFailedResponseCreate } from "../../api/conditional/apiPreconditionFailedResponseCreate.js"
+import type { ApiPreconditionFailedResponse } from "../../api/errors/apiPreconditionFailedResponseSchema.js"
 import { apiEtagSchema } from "../../api/schema/apiEtagSchema.js"
 import { apiRevisionSchema } from "../../api/schema/apiRevisionSchema.js"
-import type { ApiPreconditionFailedResponse } from "../../api/errors/apiPreconditionFailedResponseSchema.js"
-import * as v from "valibot"
 
 const sessionPreconditionDetailsSchema = v.strictObject({
   currentEtag: apiEtagSchema,

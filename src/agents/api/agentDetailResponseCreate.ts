@@ -1,8 +1,8 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
 import { apiRepresentationEtagCreate } from "../../api/representation/apiRepresentationEtagCreate.js"
+import { type AgentDetailResponse, agentDetailResponseSchema } from "./agentDetailResponseSchema.js"
 import { agentDetailSchemaVersion } from "./agentDetailSchemaVersion.js"
-import { agentDetailResponseSchema, type AgentDetailResponse } from "./agentDetailResponseSchema.js"
 import { agentRepresentationRevisionCreate } from "./agentRepresentationRevisionCreate.js"
 
 type AgentDetailResponseCreateInput = {

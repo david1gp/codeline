@@ -20,7 +20,7 @@ export function appStateCreate() {
         const next = response.ok && result.success ? "connected" : "unavailable"
         health.set(next)
         unavailableSince.set(next === "unavailable" ? Date.now() : undefined)
-      } catch (error) {
+      } catch (_error) {
         if (!controller.signal.aborted) {
           health.set("unavailable")
           unavailableSince.set(Date.now())

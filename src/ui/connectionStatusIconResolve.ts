@@ -9,8 +9,8 @@ import { mdiLanDisconnect } from "@adaptive-ds/mdi/mdiLanDisconnect.js"
 import { mdiServerOff } from "@adaptive-ds/mdi/mdiServerOff.js"
 import { mdiSync } from "@adaptive-ds/mdi/mdiSync.js"
 import { mdiUpdate } from "@adaptive-ds/mdi/mdiUpdate.js"
-import { connectionStatusKind, type ConnectionStatusKind } from "./connectionStatusKind.js"
-import { connectionStatusSource, type ConnectionStatusSource } from "./connectionStatusSource.js"
+import { type ConnectionStatusKind, connectionStatusKind } from "./connectionStatusKind.js"
+import { type ConnectionStatusSource, connectionStatusSource } from "./connectionStatusSource.js"
 
 export function connectionStatusLineIconResolve(input: {
   kind: ConnectionStatusKind

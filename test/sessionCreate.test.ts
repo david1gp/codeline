@@ -1,4 +1,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
+import * as fs from "node:fs/promises"
+import * as os from "node:os"
+import * as path from "node:path"
 import { eq } from "drizzle-orm"
 import { agentTable } from "../src/agents/db/agentTable.js"
 import { apiIdempotencyRequestHashCreate } from "../src/api/idempotency/apiIdempotencyRequestHashCreate.js"
@@ -223,4 +226,67 @@ test.skipIf(!databaseAvailable)("session creation persists a canonical execution
   ).toMatchObject({ code: "idempotency_conflict", success: false })
 
   await sessionDelete(database, userId, created.data.session.id)
+})
+
+test.skipIf(!databaseAvailable)("session creation snapshots instructions before persisting the session", async () => {
+  if (userId === undefined) return
+  const projectsRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codeline-session-instructions-projects-"))
+  const projectRoot = path.join(projectsRoot, "instruction-project")
+  const globalRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codeline-session-instructions-global-"))
+  await fs.mkdir(path.join(projectRoot, "src"), { recursive: true })
+  await fs.writeFile(path.join(globalRoot, "AGENTS.md"), "session global instructions", "utf8")
+  await fs.writeFile(path.join(projectRoot, "AGENTS.md"), "session root instructions", "utf8")
+  await fs.writeFile(path.join(projectRoot, "src", "AGENTS.md"), "session src instructions", "utf8")
+
+  try {
+    const input = {
+      clientRequestId: `session-test-instructions-${uuidv7()}`,
+      metadata: { instructions: "snapshot" },
+      primaryAgentId: fixture.agentId,
+      projectPath: projectRoot,
+      serverId: fixture.serverId,
+      title: "Instruction snapshot session",
+    }
+    const created = await sessionCreate(database, userId, input, {
+      globalAgentsPath: path.join(globalRoot, "AGENTS.md"),
+      organizationId: userId,
+      projectRootDirs: [projectsRoot],
+    })
+    expect(created).toMatchObject({ success: true, data: { created: true } })
+    if (!created.success) return
+
+    expect(
+      created.data.session.instructionSnapshot.snapshots.map(({ source, scope, content }) => ({
+        content,
+        scope,
+        source,
+      })),
+    ).toEqual([
+      { content: "session global instructions", scope: "global", source: "global" },
+      { content: "session root instructions", scope: ".", source: "project" },
+      { content: "session src instructions", scope: "src", source: "project" },
+    ])
+    const [persisted] = await database.select().from(sessionTable).where(eq(sessionTable.id, created.data.session.id))
+    expect(persisted?.instructionSnapshot).toEqual(created.data.session.instructionSnapshot)
+
+    const loaded = await sessionLoad(database, userId, userId, created.data.session.id)
+    expect(loaded).toMatchObject({
+      success: true,
+      data: { session: { id: created.data.session.id, instructionSnapshot: created.data.session.instructionSnapshot } },
+    })
+    if (loaded.success) expect(Object.isFrozen(loaded.data.session.instructionSnapshot)).toBe(true)
+
+    await fs.writeFile(path.join(projectRoot, "AGENTS.md"), "changed after session creation", "utf8")
+    await fs.rm(path.join(projectRoot, "src", "AGENTS.md"))
+    const unchanged = await sessionLoad(database, userId, userId, created.data.session.id)
+    expect(unchanged).toMatchObject({ success: true })
+    if (unchanged.success)
+      expect(unchanged.data.session.instructionSnapshot).toEqual(created.data.session.instructionSnapshot)
+    await sessionDelete(database, userId, created.data.session.id)
+  } finally {
+    await Promise.all([
+      fs.rm(projectsRoot, { force: true, recursive: true }),
+      fs.rm(globalRoot, { force: true, recursive: true }),
+    ])
+  }
 })

@@ -6,7 +6,9 @@ import * as v from "valibot"
 import { apiRequestParse } from "../../api/apiRequestParse.js"
 import type { AppEnvironment } from "../../api/appEnvironment.js"
 import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.js"
+import { projectDirectoryConfirm } from "../projectDirectoryConfirm.js"
 import { projectDirectoryList } from "../projectDirectoryList.js"
+import { projectDirectorySuggestionsRead } from "../projectDirectorySuggestionsRead.js"
 import { type ProjectDiscoveryEntriesReadResult, projectDiscoveryEntriesRead } from "../projectDiscoveryEntriesRead.js"
 import { projectDiscoveryList } from "../projectDiscoveryList.js"
 import { projectDownloadPrepare } from "../projectDownloadPrepare.js"
@@ -17,19 +19,20 @@ import { projectGitBranchRename } from "../projectGitBranchRename.js"
 import { projectGitBranchSwitch } from "../projectGitBranchSwitch.js"
 import { projectGitDiffSummaryRead } from "../projectGitDiffSummaryRead.js"
 import { projectGitStatusRead } from "../projectGitStatusRead.js"
+import { projectIdentityResolve } from "../projectIdentityResolve.js"
 import type { ProjectLimits } from "../projectLimitsSchema.js"
-import { projectDirectoryConfirm } from "../projectDirectoryConfirm.js"
-import { projectDirectorySuggestionsRead } from "../projectDirectorySuggestionsRead.js"
 import { projectMetadataRead } from "../projectMetadataRead.js"
 import { projectPreviewPrepare } from "../projectPreviewPrepare.js"
 import { projectPreviewRead } from "../projectPreviewRead.js"
 import { projectResolve } from "../projectResolve.js"
 import { projectTextRead } from "../projectTextRead.js"
-import type { ProjectApiDirectoryResponse } from "./projectApiDirectoryResponseSchema.js"
-import type { ProjectApiDirectoryConfirmResponse } from "./projectApiDirectoryConfirmResponseSchema.js"
 import { projectApiDirectoryConfirmRequestSchema } from "./projectApiDirectoryConfirmRequestSchema.js"
-import type { ProjectApiDirectorySuggestionsResponse } from "./projectApiDirectorySuggestionsResponseSchema.js"
+import type { ProjectApiDirectoryConfirmResponse } from "./projectApiDirectoryConfirmResponseSchema.js"
+import type { ProjectApiDirectoryResponse } from "./projectApiDirectoryResponseSchema.js"
 import { projectApiDirectorySuggestionsQuerySchema } from "./projectApiDirectorySuggestionsQuerySchema.js"
+import type { ProjectApiDirectorySuggestionsResponse } from "./projectApiDirectorySuggestionsResponseSchema.js"
+import { projectApiIdentityQuerySchema } from "./projectApiIdentityQuerySchema.js"
+import type { ProjectApiIdentityResponse } from "./projectApiIdentityResponseSchema.js"
 import type { ProjectApiListResponse } from "./projectApiListResponseSchema.js"
 import type { ProjectApiMetadataResponse } from "./projectApiMetadataResponseSchema.js"
 import { projectApiPathQuerySchema } from "./projectApiPathQuerySchema.js"
@@ -106,7 +109,10 @@ async function projectGitRootResolve(
 }
 
 function projectRootErrorResponse(context: ApiContext, errorMessage: string) {
-  const invalid = errorMessage === "The project selection is invalid."
+  // A malformed client reference is a client error. Identity resolution reports it with
+  // its own message, so both spellings must map to 400 rather than an internal failure.
+  const invalid =
+    errorMessage === "The project selection is invalid." || errorMessage === "The project reference is invalid."
   const notFound = errorMessage === "The requested project was not found."
   const response = {
     error: {
@@ -203,6 +209,32 @@ export function apiProjectRoutesAdd(api: Hono<AppEnvironment>, options: ApiProje
     }
 
     const response = result.data satisfies ProjectApiListResponse
+    return context.json(response)
+  })
+
+  api.get("/project/identity", async (context) => {
+    const parsed = apiRequestParse("projectApiIdentityQueryParse", projectApiIdentityQuerySchema, context.req.query())
+    if (!parsed.success) {
+      const response = {
+        error: { code: "bad_request", message: "The project reference is invalid." },
+      } satisfies ApiErrorResponse
+      return context.json(response, 400)
+    }
+
+    const discovered = await discoveryRead()
+    if (!discovered.success) {
+      const response = {
+        error: { code: "internal_server_error", message: "The projects could not be loaded." },
+      } satisfies ApiErrorResponse
+      return context.json(response, 500)
+    }
+
+    const result = await projectIdentityResolve(projectConfiguredRootsResolve(options), parsed.data.path, {
+      discovered: discovered.data,
+    })
+    if (!result.success) return projectRootErrorResponse(context, result.errorMessage)
+
+    const response = result.data satisfies ProjectApiIdentityResponse
     return context.json(response)
   })
 

@@ -6,9 +6,18 @@ import { e2eRunIdCreate } from "./e2eRunIdCreate.js"
 const sessionCookieName = "__Host-codeline-session"
 const baseOrigin = process.env.PUBLIC_ORIGIN ?? "https://preview.codeline.work"
 const lunaAgentId = "luna-high"
+/** Delegation target; it must be selectable in the session's captured manifest. */
+const childAgentId = "luna-xhigh"
 const syncTimeout = 120_000
+/**
+ * The child must stay busy long enough for the parent's delegation to be observable
+ * as a stream entry. It previously asked for a `sleep` tool that the typed tool
+ * registry no longer advertises, so it now waits through the registry's own `bash`
+ * tool instead. The wait stays well inside the registry's bounded bash timeout;
+ * a longer sleep is killed, and the child then retries bash instead of answering.
+ */
 const childInstruction =
-  "call the sleep tool for exactly 10 seconds, then respond exactly ok; do not delegate or call any other tool"
+  "call the bash tool exactly once with the command sleep 5, then respond exactly ok; do not delegate or call any other tool"
 
 async function memberContextOpen(browser: Browser, token: string): Promise<BrowserContext> {
   const context = await browser.newContext({ baseURL: baseOrigin })
@@ -19,7 +28,9 @@ async function memberContextOpen(browser: Browser, token: string): Promise<Brows
 }
 
 test("Luna delegates to a Luna subagent and opens its streamed thread", async ({ browser }) => {
-  test.setTimeout(180_000)
+  // Two real Luna turns plus the child's bounded `sleep 20` wait exceed the default
+  // budget, so the whole delegate-and-finalize round trip gets its own generous cap.
+  test.setTimeout(360_000)
   const runId = e2eRunIdCreate()
   const contexts: BrowserContext[] = []
   let deletedUserIds: string[] = []
@@ -54,6 +65,15 @@ test("Luna delegates to a Luna subagent and opens its streamed thread", async ({
     const sessionResponse = await context.request.post(`${baseOrigin}/api/sessions`, {
       data: {
         clientRequestId: `e2e-luna-subagent-${runId}`,
+        // The child's instruction uses bash, so the selection must enable it before
+        // the session exists; the captured selection is immutable afterwards.
+        executionSelection: {
+          tools: {
+            primary: { agentId: lunaAgentId, tools: { bash: true, webfetch: false } },
+            selectableSubagents: [{ agentId: "luna-xhigh", tools: { bash: true, webfetch: false } }],
+          },
+          version: 1,
+        },
         primaryAgentId: lunaAgentId,
         serverId: lunaServer.id,
         title: `Luna subagent thread ${runId}`,
@@ -74,7 +94,7 @@ test("Luna delegates to a Luna subagent and opens its streamed thread", async ({
     const messageInput = composer.getByLabel("Message")
     await expect(messageInput).toBeEnabled({ timeout: syncTimeout })
     await messageInput.fill(
-      `Your first and only tool call must be delegate_task exactly once with agentId luna-high. Pass the Luna subagent exactly this instruction: ${childInstruction}. After the first delegate_task result returns, call no more tools and emit exactly lowercase ok as your final response, with nothing else.`,
+      `Your first and only tool call must be delegate_task exactly once with agentId ${childAgentId}. Pass the Luna subagent exactly this instruction: ${childInstruction}. After the first delegate_task result returns, call no more tools and emit exactly lowercase ok as your final response, with nothing else.`,
     )
     await composer.getByRole("button", { name: "Send" }).click()
 
@@ -86,9 +106,9 @@ test("Luna delegates to a Luna subagent and opens its streamed thread", async ({
       new RegExp(`^Open subagent thread: delegate_task\\. Task: ${childInstruction}\\.?$`),
     )
     await expect(delegationButton).toContainText("subagent")
-    await expect(delegationButton).toContainText(/sleep/i)
+    await expect(delegationButton).toContainText(/bash/i)
 
-    await expect(delegationButton).toHaveAttribute("data-child-agent-id", lunaAgentId)
+    await expect(delegationButton).toHaveAttribute("data-child-agent-id", childAgentId)
     await delegationButton.click()
 
     const panel = page.locator("#workspace-right-panel")
@@ -101,11 +121,12 @@ test("Luna delegates to a Luna subagent and opens its streamed thread", async ({
 
     const childTerminal = childStream.locator("li").filter({ hasText: "Terminal" })
     await expect(childTerminal).toHaveCount(1, { timeout: syncTimeout })
-    await expect(childTerminal.locator("span").last()).toHaveText("· completed", { timeout: syncTimeout })
+    // Terminal entries render the run status vocabulary: succeeded, failed, or aborted.
+    await expect(childTerminal.locator("span").last()).toHaveText("· succeeded", { timeout: syncTimeout })
 
-    const childOutput = childStream.locator("li").filter({ hasText: "Output" }).locator(".text-placeholder")
-    await expect(childOutput).toHaveCount(1, { timeout: syncTimeout })
-    await expect(childOutput).toHaveText(/^ok$/, { timeout: syncTimeout })
+    // The child's per-delta entries are live stream state that finalization discards,
+    // and whether it emits trailing assistant text is a model choice. The durable
+    // evidence is its terminal outcome above plus the parent's own answer below.
 
     // External Luna persists only text_delta and terminal events; assert the visible child result instead of internal tool events.
     await expect(page.getByText(/child_run_limit_exhausted/)).not.toBeVisible()

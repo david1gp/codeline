@@ -1,11 +1,13 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
 import type { SessionExecutionSelection } from "../schema/sessionExecutionSelectionSchema.js"
+import { sessionExecutionResourceSummaryCreate } from "./sessionExecutionResourceSummaryCreate.js"
 import { type SessionShell, sessionShellSchema } from "./sessionShellSchema.js"
 
 type SessionShellSource = {
   archivedAt: Date | string | null
   createdAt: Date | string
+  executionManifest?: unknown
   executionSelection?: SessionExecutionSelection | null
   id: string
   metadata: unknown
@@ -27,9 +29,16 @@ export function sessionShellCreate(session: SessionShellSource): Result<SessionS
   if (createdAt === undefined || updatedAt === undefined || (session.archivedAt !== null && archivedAt === undefined))
     return createResultError(op, "The session representation timestamp is invalid.")
 
+  const executionResources = sessionExecutionResourceSummaryCreate({
+    executionManifest: session.executionManifest,
+    projectPath: session.projectPath,
+  })
+  if (!executionResources.success) return createResultError(op, "The session execution resource summary is invalid.")
+
   const parsed = v.safeParse(sessionShellSchema, {
     archivedAt: archivedAt ?? null,
     createdAt,
+    executionResources: executionResources.data,
     executionSelection: session.executionSelection ?? null,
     id: session.id,
     metadata: session.metadata,

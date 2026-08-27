@@ -3,8 +3,11 @@ import { and, eq } from "drizzle-orm"
 import * as v from "valibot"
 import { mutationIdempotencyTable } from "../../api/db/mutationIdempotencyTable.js"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
+import { agentInstructionsSnapshotResolve } from "../../instructions/actions/agentInstructionsSnapshotResolve.js"
 import { messageCopyFinalizedPrefix } from "../../message/actions/messageCopyFinalizedPrefix.js"
+import { runExecutionManifestSchema } from "../../run/schema/runExecutionManifestSchema.js"
 import { serverTable } from "../../servers/db/serverTable.js"
+import { skillSelectionSchema } from "../../skills/schema/skillSelectionSchema.js"
 import { uuidv7 } from "../../uuid/uuidv7.js"
 import { sessionCreateMutationResponseCreate } from "../api/sessionCreateMutationResponseCreate.js"
 import {
@@ -48,6 +51,16 @@ export async function sessionRepositoryBranch(
       .where(and(eq(sessionTable.id, sourceSessionId), eq(sessionTable.userId, userId)))
       .limit(1)
     if (source === undefined) return createResultError(op, "The session could not be found.")
+    const instructionSnapshot = agentInstructionsSnapshotResolve(source.session.instructionSnapshot)
+    if (!instructionSnapshot.success)
+      return createResultError(op, "The source session instruction snapshot is invalid.")
+    const skillSelection = v.safeParse(skillSelectionSchema, source.session.skillSelection)
+    if (!skillSelection.success) return createResultError(op, "The source session skill selection is invalid.")
+    const executionManifest =
+      source.session.executionManifest === null
+        ? { success: true as const, output: null }
+        : v.safeParse(runExecutionManifestSchema, source.session.executionManifest)
+    if (!executionManifest.success) return createResultError(op, "The source session execution manifest is invalid.")
     if (input.idempotencyKey !== undefined && input.requestHash === undefined)
       return createResultError(op, "The idempotency request hash is required.")
 
@@ -80,12 +93,15 @@ export async function sessionRepositoryBranch(
       .values({
         clientRequestId: input.clientRequestId,
         executionSelection: source.session.executionSelection,
+        executionManifest: executionManifest.output,
+        instructionSnapshot: instructionSnapshot.data,
         id: input.id ?? uuidv7(),
         metadata: source.session.metadata,
         parentSessionId: source.session.id,
         projectPath: source.session.projectPath,
         primaryAgentId: source.session.primaryAgentId,
         serverId: source.session.serverId,
+        skillSelection: skillSelection.output,
         title: source.session.title,
         userId,
       })

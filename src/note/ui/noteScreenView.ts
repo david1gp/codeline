@@ -1,7 +1,7 @@
 import type { ProjectApiListResponse } from "../../project/api/projectApiListResponseSchema.js"
 import type { HttpQueryDataStatus } from "../../ui/httpQueryDataStatusResolve.js"
-import type { NoteViewMode } from "./noteViewModeSchema.js"
 import type { noteContentFieldStateCreate } from "./noteContentFieldStateCreate.js"
+import type { NoteViewMode } from "./noteViewModeSchema.js"
 
 /**
  * Rendering contract of the note detail screen, so production state and

@@ -1,6 +1,6 @@
+import type { ApiPreconditionFailedResponse } from "../errors/apiPreconditionFailedResponseSchema.js"
 import type { ApiEtag } from "../schema/apiEtagSchema.js"
 import type { ApiRevision } from "../schema/apiRevisionSchema.js"
-import type { ApiPreconditionFailedResponse } from "../errors/apiPreconditionFailedResponseSchema.js"
 
 export function apiPreconditionFailedResponseCreate(input: {
   currentEtag?: ApiEtag

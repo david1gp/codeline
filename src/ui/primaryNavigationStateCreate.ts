@@ -4,8 +4,8 @@ import { mdiNoteTextOutline } from "@adaptive-ds/mdi/mdiNoteTextOutline.js"
 import { useLocation } from "@solidjs/router"
 import { useContext } from "solid-js"
 import { primaryNavigationPathIsActive } from "./primaryNavigationPathIsActive.js"
-import { sessionSidebarDestinationResolve } from "./sessionSidebarDestinationResolve.js"
 import { sessionDrawerContext } from "./sessionDrawerContext.js"
+import { sessionSidebarDestinationResolve } from "./sessionSidebarDestinationResolve.js"
 import { workspacePageStateCreate } from "./workspacePageStateCreate.js"
 
 type PrimaryNavigationActivationEvent = MouseEvent & { currentTarget: HTMLAnchorElement }

@@ -5,10 +5,10 @@ import { mutationIdempotencyTable } from "../../api/db/mutationIdempotencyTable.
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { serverTable } from "../../servers/db/serverTable.js"
 import { uuidv7 } from "../../uuid/uuidv7.js"
+import { sessionRenameResponseCreate } from "../api/sessionRenameResponseCreate.js"
+import { type SessionRenameResponse, sessionRenameResponseSchema } from "../api/sessionRenameResponseSchema.js"
 import { sessionRepresentationEtagCreate } from "../api/sessionRepresentationEtagCreate.js"
 import { sessionPreconditionConflictCreate } from "./sessionPreconditionConflictCreate.js"
-import { sessionRenameResponseSchema, type SessionRenameResponse } from "../api/sessionRenameResponseSchema.js"
-import { sessionRenameResponseCreate } from "../api/sessionRenameResponseCreate.js"
 import { sessionTable } from "./sessionTable.js"
 
 const sessionRenameOperation = "session.rename"

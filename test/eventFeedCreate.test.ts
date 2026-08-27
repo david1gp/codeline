@@ -327,6 +327,99 @@ test("keeps one EventSource through reconnecting errors and closes it exactly on
   expect(feed.dataState.status.status).toBe("offline")
 })
 
+test("preserves partial state and cursor across a non-auth SSE disconnect and reopen", () => {
+  const { feed, source, sources } = createFakeFeed()
+
+  source.open()
+  source.emit(frame("delta", 1, { delta: "partial" }))
+
+  expect(feed.dataState.activeRuns.get("run-1")).toMatchObject({
+    checkpoint: null,
+    lastSequence: 1,
+    partialText: "partial",
+    phase: "active",
+    terminalStatus: null,
+  })
+  expect(feed.dataState.asOfCursor).toBe("cursor-1")
+  expect(feed.dataState.lastEventId).toBe("cursor-1")
+  expect(feed.getUrl()).toBe("/api/events?after=cursor-1")
+
+  source.error()
+
+  expect(feed.getState().status).toBe("reconnecting")
+  expect(feed.dataState.activeRuns.get("run-1")).toMatchObject({
+    lastSequence: 1,
+    partialText: "partial",
+    phase: "active",
+    terminalStatus: null,
+  })
+  expect(feed.getUrl()).toBe("/api/events?after=cursor-1")
+
+  source.open()
+
+  expect(feed.getState().status).toBe("connected")
+  expect(feed.dataState.activeRuns.get("run-1")).toMatchObject({
+    lastSequence: 1,
+    partialText: "partial",
+    phase: "active",
+    terminalStatus: null,
+  })
+  expect(feed.getUrl()).toBe("/api/events?after=cursor-1")
+  expect(sources).toHaveLength(1)
+  feed.close()
+})
+
+test("suppresses retained EventSource callbacks after close", () => {
+  const events: StreamSseFrame[] = []
+  const errors: Result<unknown>[] = []
+  const states: string[] = []
+  let authenticationErrors = 0
+  const { feed, source, sources } = createFakeFeed(undefined, {
+    onAuthenticationError: () => {
+      authenticationErrors += 1
+    },
+    onError: (result) => errors.push(result),
+    onEvent: (event) => events.push(event),
+    onStateChange: (state) => states.push(state.status),
+  })
+
+  source.open()
+  const eventListener = [...(source.listeners.get("delta") ?? [])][0]
+  const openListener = source.onopen
+  const errorListener = source.onerror
+  if (eventListener === undefined || openListener === null || errorListener === null)
+    throw new Error("The fake EventSource callbacks were not installed.")
+
+  feed.close()
+  const closedDataState = feed.dataState
+  const closedState = feed.getState()
+  const closedUrl = feed.getUrl()
+  const callbackCounts = {
+    errors: errors.length,
+    events: events.length,
+    states: states.length,
+  }
+
+  const lateMessage = new Event("delta") as Event & { data?: unknown; lastEventId?: unknown }
+  lateMessage.data = JSON.stringify(frame("delta", 2).data)
+  lateMessage.lastEventId = "cursor-2"
+  eventListener(lateMessage)
+  openListener(new Event("open"))
+  errorListener(new Event("error"))
+  feed.close()
+
+  expect(feed.getState()).toEqual(closedState)
+  expect(feed.dataState).toEqual(closedDataState)
+  expect(feed.getUrl()).toBe(closedUrl)
+  expect(feed.getState().status).toBe("offline")
+  expect(sources).toHaveLength(1)
+  expect(source.closeCount).toBe(1)
+  expect(errors).toHaveLength(callbackCounts.errors)
+  expect(events).toHaveLength(callbackCounts.events)
+  expect(states).toHaveLength(callbackCounts.states)
+  expect(authenticationErrors).toBe(0)
+})
+
 test("closes the transport on offline and reopens after the retained cursor when online", () => {
   const { feed, source, sources } = createFakeFeed()
 

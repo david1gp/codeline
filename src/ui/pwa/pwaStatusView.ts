@@ -1,4 +1,3 @@
-import type { BadgeVariant } from "@adaptive-ds/solid-ui/static/badge/badgeCva"
 import type { PwaBrowserStatus } from "./pwaBrowserStatusResolve.js"
 
 /**

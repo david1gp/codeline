@@ -1,8 +1,8 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
+import { sessionRenameRequestSchema } from "../session/schema/sessionRenameRequestSchema.js"
 import { sessionEtagFetch } from "../session/ui/sessionEtagFetch.js"
 import { sessionRenameRequest } from "../session/ui/sessionRenameRequest.js"
-import { sessionRenameRequestSchema } from "../session/schema/sessionRenameRequestSchema.js"
 
 export async function sessionSidebarSessionRename(
   sessionId: string,

@@ -10,6 +10,9 @@ export function sessionChatStateReadOnlyWrap(state: SessionChatState, notice: ()
   return {
     ...state,
     canSubmit: () => false,
+    // The command affordance is a mutation path: it rewrites the draft and resolves
+    // an invocation, neither of which may happen while browsing read-only.
+    command: undefined,
     draft: () => "",
     draftUpdate: () => undefined,
     errorMessage: () => undefined,

@@ -1,13 +1,13 @@
-import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import type { CodelineConfigurationDocument } from "../configuration/codelineConfigurationDocumentSchema.js"
 import type { ConfigurationStore } from "../configuration/configurationStore.js"
 import { configurationStoreRead } from "../configuration/configurationStoreRead.js"
 import { configurationStoreWrite } from "../configuration/configurationStoreWrite.js"
-import type { ProviderCatalog } from "../providers/schema/providerCatalogSchema.js"
 import { providerAgentCatalogConfigurationCompile } from "../providers/catalog/providerAgentCatalogConfigurationCompile.js"
 import { providerAgentCatalogLoad } from "../providers/catalog/providerAgentCatalogLoad.js"
+import type { ProviderCatalog } from "../providers/schema/providerCatalogSchema.js"
 import { exampleDataFixture } from "./exampleDataFixture.js"
 
 type ConfigurationEntry = CodelineConfigurationDocument["agentConfigurations"][number]

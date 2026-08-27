@@ -1,27 +1,37 @@
 import { expect, test } from "bun:test"
+import { createHash } from "node:crypto"
+import * as fs from "node:fs/promises"
+import * as os from "node:os"
+import * as path from "node:path"
 import { type AnyTextAdapter, EventType, type ModelMessage, type StreamChunk } from "@tanstack/ai"
 import { providerDelegationToolLoopCreate } from "../src/providers/runtime/providerDelegationToolLoopCreate.js"
 import { providerExecutionEventFromStreamChunk } from "../src/providers/runtime/providerExecutionEventFromStreamChunk.js"
+import { skillCatalogDiscover } from "../src/skills/actions/skillCatalogDiscover.js"
 import { executionStreamEventNormalize } from "../src/stream/actions/executionStreamEventNormalize.js"
+import { bashToolCreate } from "../src/tools/runtime/bashToolCreate.js"
 import { delegateTaskToolCreate } from "../src/tools/runtime/delegateTaskToolCreate.js"
 import { toolRegistryCreate } from "../src/tools/runtime/toolRegistryCreate.js"
+import { webfetchToolCreate } from "../src/tools/runtime/webfetchToolCreate.js"
 
 type ScriptedAdapter = {
   adapter: AnyTextAdapter
   calls: Array<Array<ModelMessage>>
+  systemPrompts: Array<string | undefined>
   toolCounts: number[]
 }
 
 function scriptedAdapterCreate(scripts: Array<Array<StreamChunk>>): ScriptedAdapter {
   const calls: Array<Array<ModelMessage>> = []
+  const systemPrompts: Array<string | undefined> = []
   const toolCounts: number[] = []
   let scriptIndex = 0
   const adapter = {
     kind: "text" as const,
     model: "scripted-model",
     name: "scripted",
-    chatStream: (options: { messages: Array<ModelMessage>; tools?: unknown[] }) => {
+    chatStream: (options: { messages: Array<ModelMessage>; systemPrompts?: string[]; tools?: unknown[] }) => {
       calls.push(options.messages)
+      systemPrompts.push(options.systemPrompts?.join("\n"))
       toolCounts.push(options.tools?.length ?? 0)
       const script = scripts[scriptIndex] ?? []
       scriptIndex += 1
@@ -31,7 +41,7 @@ function scriptedAdapterCreate(scripts: Array<Array<StreamChunk>>): ScriptedAdap
     },
     structuredOutput: async () => ({ data: {}, rawText: "{}" }),
   } as unknown as AnyTextAdapter
-  return { adapter, calls, toolCounts }
+  return { adapter, calls, systemPrompts, toolCounts }
 }
 
 function delegatedToolScript(toolArguments: string): Array<StreamChunk> {
@@ -45,6 +55,50 @@ function delegatedToolScript(toolArguments: string): Array<StreamChunk> {
       type: EventType.TOOL_CALL_START,
     },
     { delta: toolArguments, timestamp: 3, toolCallId: "call-delegation-1", type: EventType.TOOL_CALL_ARGS },
+    {
+      finishReason: "tool_calls",
+      outcome: { type: "success" },
+      runId: "run-delegation",
+      threadId: "thread-delegation",
+      timestamp: 4,
+      type: EventType.RUN_FINISHED,
+    },
+  ] as Array<StreamChunk>
+}
+
+function bashToolScript(toolArguments: string): Array<StreamChunk> {
+  return [
+    { runId: "run-delegation", threadId: "thread-delegation", timestamp: 1, type: EventType.RUN_STARTED },
+    {
+      timestamp: 2,
+      toolCallId: "call-bash-1",
+      toolCallName: "bash",
+      toolName: "bash",
+      type: EventType.TOOL_CALL_START,
+    },
+    { delta: toolArguments, timestamp: 3, toolCallId: "call-bash-1", type: EventType.TOOL_CALL_ARGS },
+    {
+      finishReason: "tool_calls",
+      outcome: { type: "success" },
+      runId: "run-delegation",
+      threadId: "thread-delegation",
+      timestamp: 4,
+      type: EventType.RUN_FINISHED,
+    },
+  ] as Array<StreamChunk>
+}
+
+function webfetchToolScript(toolArguments: string): Array<StreamChunk> {
+  return [
+    { runId: "run-delegation", threadId: "thread-delegation", timestamp: 1, type: EventType.RUN_STARTED },
+    {
+      timestamp: 2,
+      toolCallId: "call-webfetch-1",
+      toolCallName: "webfetch",
+      toolName: "webfetch",
+      type: EventType.TOOL_CALL_START,
+    },
+    { delta: toolArguments, timestamp: 3, toolCallId: "call-webfetch-1", type: EventType.TOOL_CALL_ARGS },
     {
       finishReason: "tool_calls",
       outcome: { type: "success" },
@@ -202,6 +256,28 @@ function terminalOnlyScript(): Array<StreamChunk> {
   ] as Array<StreamChunk>
 }
 
+function skillToolScript(toolArguments: string): Array<StreamChunk> {
+  return [
+    { runId: "run-delegation", threadId: "thread-delegation", timestamp: 1, type: EventType.RUN_STARTED },
+    {
+      timestamp: 2,
+      toolCallId: "call-skill-1",
+      toolCallName: "skill",
+      toolName: "skill",
+      type: EventType.TOOL_CALL_START,
+    },
+    { delta: toolArguments, timestamp: 3, toolCallId: "call-skill-1", type: EventType.TOOL_CALL_ARGS },
+    {
+      finishReason: "tool_calls",
+      outcome: { type: "success" },
+      runId: "run-delegation",
+      threadId: "thread-delegation",
+      timestamp: 4,
+      type: EventType.RUN_FINISHED,
+    },
+  ] as Array<StreamChunk>
+}
+
 async function collect(stream: AsyncIterable<StreamChunk>): Promise<Array<StreamChunk>> {
   const chunks: Array<StreamChunk> = []
   for await (const chunk of stream) chunks.push(chunk)
@@ -303,6 +379,181 @@ test("does not advertise a disabled registry-backed delegate_task", async () => 
     }),
   )
 
+  expect(scripted.toolCounts).toEqual([0])
+})
+
+test("rejects a disabled bash and does not advertise it to the provider", async () => {
+  const scripted = scriptedAdapterCreate([terminalOnlyScript()])
+  const registry = toolRegistryCreate()
+  const registered = registry.register({
+    ...bashToolCreate({ projectRoot: "/tmp" }),
+    enabled: false,
+  })
+  expect(registered.success).toBe(true)
+
+  const rejected = await registry.execute(
+    "bash",
+    { command: "printf never" },
+    {
+      signal: new AbortController().signal,
+      toolCallId: "call-disabled-bash",
+    },
+  )
+  expect(rejected).toMatchObject({
+    code: "tool.disabled",
+    errorMessage: "The bash tool is disabled.",
+    success: false,
+  })
+
+  await collect(
+    providerDelegationToolLoopCreate({ adapter: scripted.adapter, enabledTools: [], toolRegistry: registry })({
+      messages: [{ content: "Do not run bash.", role: "user" }],
+      runId: "run-delegation",
+      signal: new AbortController().signal,
+      threadId: "thread-delegation",
+    }),
+  )
+  expect(scripted.toolCounts).toEqual([0])
+})
+
+test("executes enabled webfetch and emits replay-safe normalized lifecycle events", async () => {
+  const scripted = scriptedAdapterCreate([
+    webfetchToolScript('{"format":"text","url":"https://example.test/fetch"}'),
+    finalTextScript("Fetched successfully."),
+  ])
+  const requests: string[] = []
+  const chunks = await collect(
+    providerDelegationToolLoopCreate({
+      adapter: scripted.adapter,
+      enabledTools: ["webfetch"],
+      webfetch: {
+        fetch: async (input) => {
+          requests.push(typeof input === "string" ? input : input.toString())
+          return new Response("fetched content", { headers: { "content-type": "text/plain" } })
+        },
+      },
+    })({
+      messages: [{ content: "Fetch the page.", role: "user" }],
+      runId: "run-delegation",
+      signal: new AbortController().signal,
+      threadId: "thread-delegation",
+    }),
+  )
+
+  expect(requests).toEqual(["https://example.test/fetch"])
+  expect(scripted.toolCounts).toEqual([1, 1])
+  const toolResult = chunks.find((chunk) => chunk.type === EventType.TOOL_CALL_RESULT)
+  expect(toolResult).toMatchObject({ toolCallId: "call-webfetch-1" })
+  expect(JSON.stringify(toolResult)).toContain("fetched content")
+
+  const normalized = chunks.flatMap((chunk) => {
+    const providerEvent = providerExecutionEventFromStreamChunk(chunk)
+    if (!providerEvent.success || providerEvent.data === null) return []
+    const durableEvent = executionStreamEventNormalize(providerEvent.data)
+    return durableEvent.success ? [durableEvent.data] : []
+  })
+  expect(normalized.map((event) => event.eventType)).toEqual(["tool_start", "tool_result", "text_delta", "terminal"])
+  const replayNormalized = chunks.map((chunk, index) => ({ ...chunk, timestamp: 10_000 + index }))
+  const replayEvents = replayNormalized.flatMap((chunk) => {
+    const providerEvent = providerExecutionEventFromStreamChunk(chunk)
+    if (!providerEvent.success || providerEvent.data === null) return []
+    const durableEvent = executionStreamEventNormalize(providerEvent.data)
+    return durableEvent.success ? [durableEvent.data] : []
+  })
+  expect(replayEvents).toEqual(normalized)
+  expect(JSON.stringify(normalized)).not.toContain("timestamp")
+  expect(normalized.at(1)).toMatchObject({
+    eventType: "tool_result",
+    payload: { outcome: "success", toolCallId: "call-webfetch-1", truncated: false },
+  })
+})
+
+test("emits a replay-safe error lifecycle for a failed webfetch", async () => {
+  const scripted = scriptedAdapterCreate([
+    webfetchToolScript('{"url":"https://example.test/image.png"}'),
+    finalTextScript("The fetch failed safely."),
+  ])
+  const chunks = await collect(
+    providerDelegationToolLoopCreate({
+      adapter: scripted.adapter,
+      enabledTools: ["webfetch"],
+      webfetch: {
+        fetch: async () => new Response("binary", { headers: { "content-type": "image/png" } }),
+      },
+    })({
+      messages: [{ content: "Fetch the image.", role: "user" }],
+      runId: "run-delegation",
+      signal: new AbortController().signal,
+      threadId: "thread-delegation",
+    }),
+  )
+
+  const normalized = chunks.flatMap((chunk) => {
+    const providerEvent = providerExecutionEventFromStreamChunk(chunk)
+    if (!providerEvent.success || providerEvent.data === null) return []
+    const durableEvent = executionStreamEventNormalize(providerEvent.data)
+    return durableEvent.success ? [durableEvent.data] : []
+  })
+  expect(normalized.map((event) => event.eventType)).toEqual(["tool_start", "tool_result", "text_delta", "terminal"])
+  expect(normalized.at(1)).toMatchObject({
+    eventType: "tool_result",
+    payload: { outcome: "error", toolCallId: "call-webfetch-1" },
+  })
+  expect(JSON.stringify(normalized)).not.toContain("binary")
+
+  const replayEvents = chunks.flatMap((chunk, index) => {
+    const providerEvent = providerExecutionEventFromStreamChunk({ ...chunk, timestamp: 20_000 + index })
+    if (!providerEvent.success || providerEvent.data === null) return []
+    const durableEvent = executionStreamEventNormalize(providerEvent.data)
+    return durableEvent.success ? [durableEvent.data] : []
+  })
+  expect(replayEvents).toEqual(normalized)
+})
+
+test("does not advertise or execute a disabled webfetch tool", async () => {
+  const scripted = scriptedAdapterCreate([terminalOnlyScript()])
+  let executions = 0
+  const registry = toolRegistryCreate()
+  const registered = registry.register({
+    ...webfetchToolCreate({
+      execute: async () => {
+        executions += 1
+        return {
+          success: true,
+          data: {
+            contentType: "text/plain",
+            format: "text" as const,
+            output: "must not run",
+            truncated: false,
+            url: "https://example.test/disabled",
+          },
+        }
+      },
+    }),
+    enabled: false,
+  })
+  expect(registered.success).toBe(true)
+
+  const rejected = await registry.execute(
+    "webfetch",
+    { url: "https://example.test/disabled" },
+    { signal: new AbortController().signal, toolCallId: "call-disabled-webfetch" },
+  )
+  expect(rejected).toMatchObject({
+    code: "tool.disabled",
+    errorMessage: "The webfetch tool is disabled.",
+    success: false,
+  })
+
+  await collect(
+    providerDelegationToolLoopCreate({ adapter: scripted.adapter, enabledTools: [], toolRegistry: registry })({
+      messages: [{ content: "Do not fetch.", role: "user" }],
+      runId: "run-delegation",
+      signal: new AbortController().signal,
+      threadId: "thread-delegation",
+    }),
+  )
+  expect(executions).toBe(0)
   expect(scripted.toolCounts).toEqual([0])
 })
 
@@ -594,4 +845,170 @@ test("keeps provider tool events compatible with the existing normalization seam
   expect(normalized.map((event) => event.eventType)).toEqual(["tool_start", "tool_result", "text_delta", "terminal"])
   expect(normalized.filter((event) => event.eventType === "terminal")).toHaveLength(1)
   expect(normalized.at(-1)).toMatchObject({ eventType: "terminal", payload: { status: "completed" } })
+})
+
+test("hands off snapshotted nested instructions after a bash working-directory result", async () => {
+  const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codeline-provider-bash-"))
+  const nestedDirectory = path.join(projectRoot, "nested")
+  await fs.mkdir(nestedDirectory, { recursive: true })
+  const rootContent = "Root instructions for bash."
+  const nestedContent = "Nested instructions for the next model turn."
+  const snapshotEntry = (canonicalPath: string, content: string, precedence: number, scope: string) => ({
+    canonicalPath,
+    content,
+    digest: `sha256-${createHash("sha256").update(content, "utf8").digest("hex")}`,
+    precedence,
+    scope,
+    size: Buffer.byteLength(content, "utf8"),
+    source: "project" as const,
+  })
+
+  try {
+    const scripted = scriptedAdapterCreate([
+      bashToolScript('{"command":"printf bash-result","workingDirectory":"nested"}'),
+      terminalOnlyScript(),
+    ])
+    const chunks = await collect(
+      providerDelegationToolLoopCreate({
+        adapter: scripted.adapter,
+        bash: { projectRoot },
+        enabledTools: ["bash"],
+        instructionContext: {
+          projectRoot,
+          snapshot: {
+            snapshots: [
+              snapshotEntry(path.join(projectRoot, "AGENTS.md"), rootContent, 1, "."),
+              snapshotEntry(path.join(nestedDirectory, "AGENTS.md"), nestedContent, 2, "nested"),
+            ],
+            version: 1,
+          },
+        },
+      })({
+        messages: [{ content: "Run bash in nested.", role: "user" }],
+        runId: "run-delegation",
+        signal: new AbortController().signal,
+        threadId: "thread-delegation",
+      }),
+    )
+
+    expect(chunks.find((chunk) => chunk.type === EventType.TOOL_CALL_RESULT)).toMatchObject({
+      toolCallId: "call-bash-1",
+    })
+    expect(scripted.toolCounts).toEqual([1, 1])
+    expect(scripted.systemPrompts[0]).toContain(rootContent)
+    expect(scripted.systemPrompts[0]).not.toContain(nestedContent)
+    expect(scripted.systemPrompts[1]).toContain(rootContent)
+    expect(scripted.systemPrompts[1]).toContain(nestedContent)
+  } finally {
+    await fs.rm(projectRoot, { force: true, recursive: true })
+  }
+})
+
+test("does not carry a bash working-directory overlay into a retry round", async () => {
+  const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codeline-provider-bash-retry-"))
+  const nestedDirectory = path.join(projectRoot, "nested")
+  await fs.mkdir(nestedDirectory, { recursive: true })
+  const rootContent = "Root retry instructions."
+  const nestedContent = "Stale nested retry instructions."
+  const instruction = (canonicalPath: string, content: string, precedence: number, scope: string) => ({
+    canonicalPath,
+    content,
+    digest: `sha256-${createHash("sha256").update(content, "utf8").digest("hex")}`,
+    precedence,
+    scope,
+    size: Buffer.byteLength(content, "utf8"),
+    source: "project" as const,
+  })
+
+  try {
+    const scripted = scriptedAdapterCreate([
+      bashToolScript('{"command":"true","workingDirectory":"nested"}'),
+      terminalOnlyScript(),
+      terminalOnlyScript(),
+    ])
+    const loop = providerDelegationToolLoopCreate({
+      adapter: scripted.adapter,
+      bash: { projectRoot },
+      enabledTools: ["bash"],
+      instructionContext: {
+        projectRoot,
+        snapshot: {
+          snapshots: [
+            instruction(path.join(projectRoot, "AGENTS.md"), rootContent, 1, "."),
+            instruction(path.join(nestedDirectory, "AGENTS.md"), nestedContent, 2, "nested"),
+          ],
+          version: 1,
+        },
+      },
+    })
+
+    await collect(
+      loop({
+        messages: [{ content: "First attempt.", role: "user" }],
+        runId: "run-delegation",
+        signal: new AbortController().signal,
+        threadId: "thread-delegation",
+      }),
+    )
+    await collect(
+      loop({
+        messages: [{ content: "Retry without the old tool result.", role: "user" }],
+        runId: "run-delegation",
+        signal: new AbortController().signal,
+        threadId: "thread-delegation",
+      }),
+    )
+
+    expect(scripted.systemPrompts[1]).toContain(nestedContent)
+    expect(scripted.systemPrompts[2]).toContain(rootContent)
+    expect(scripted.systemPrompts[2]).not.toContain(nestedContent)
+  } finally {
+    await fs.rm(projectRoot, { force: true, recursive: true })
+  }
+})
+
+test("advertises the active skill catalog and executes the snapshotted skill tool in provider rounds", async () => {
+  const rootDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "codeline-provider-skill-"))
+  const globalSkillsPath = path.join(rootDirectory, "global", "skills")
+  const projectRoot = path.join(rootDirectory, "project")
+  const skillDirectory = path.join(projectRoot, ".agents", "skills", "demo")
+  await fs.mkdir(skillDirectory, { recursive: true })
+  await fs.writeFile(
+    path.join(skillDirectory, "SKILL.md"),
+    ["---", "name: demo", "description: Provider demo skill", "---", "Use the snapshotted provider instructions."].join(
+      "\n",
+    ),
+    "utf8",
+  )
+
+  try {
+    const catalog = await skillCatalogDiscover({ globalSkillsPath, projectRoot })
+    expect(catalog.success).toBe(true)
+    if (!catalog.success) return
+    const demo = catalog.data.skills.find(({ name }) => name === "demo")
+    if (demo === undefined) return
+
+    const scripted = scriptedAdapterCreate([
+      skillToolScript('{"name":"demo"}'),
+      finalTextScript("Skill loaded successfully."),
+    ])
+    const chunks = await collect(
+      providerDelegationToolLoopCreate({ adapter: scripted.adapter, skillSnapshots: [demo] })({
+        messages: [{ content: "Load the skill.", role: "user" }],
+        runId: "run-delegation",
+        signal: new AbortController().signal,
+        threadId: "thread-delegation",
+      }),
+    )
+
+    expect(scripted.toolCounts).toEqual([1, 1])
+    expect(scripted.systemPrompts[0]).toContain("Available skills:")
+    expect(scripted.systemPrompts[0]).toContain("- demo: Provider demo skill")
+    expect(JSON.stringify(scripted.calls[1])).toContain("Use the snapshotted provider instructions.")
+    expect(chunks.filter((chunk) => chunk.type === EventType.TEXT_MESSAGE_CONTENT).map((chunk) => chunk.delta)).toEqual(
+      ["Skill loaded successfully."],
+    )
+  } finally {
+    await fs.rm(rootDirectory, { force: true, recursive: true })
+  }
 })

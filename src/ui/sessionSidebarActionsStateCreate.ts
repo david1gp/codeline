@@ -1,10 +1,10 @@
+import type { Result } from "@adaptive-ds/result"
 import { sessionSidebarProjectLabelOverridesLoad } from "./sessionSidebarProjectLabelOverridesLoad.js"
 import { sessionSidebarProjectLabelOverridesSave } from "./sessionSidebarProjectLabelOverridesSave.js"
 import { sessionSidebarProjectLabelResolve } from "./sessionSidebarProjectLabelResolve.js"
 import { sessionSidebarSessionDelete } from "./sessionSidebarSessionDelete.js"
 import { sessionSidebarSessionRename } from "./sessionSidebarSessionRename.js"
 import { signalObjectCreate } from "./signalObjectCreate.js"
-import type { Result } from "@adaptive-ds/result"
 
 type SessionSidebarDialog =
   | { kind: "closed" }

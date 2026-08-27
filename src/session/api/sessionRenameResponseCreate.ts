@@ -1,7 +1,7 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
 import { sessionDetailResponseCreate } from "./sessionDetailResponseCreate.js"
-import { sessionRenameResponseSchema, type SessionRenameResponse } from "./sessionRenameResponseSchema.js"
+import { type SessionRenameResponse, sessionRenameResponseSchema } from "./sessionRenameResponseSchema.js"
 
 export function sessionRenameResponseCreate(
   session: typeof import("../db/sessionTable.js").sessionTable.$inferSelect,

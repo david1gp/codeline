@@ -25,7 +25,7 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": true,
+      "preset": "recommended",
       "suspicious": {
         "noExplicitAny": "off"
       },
@@ -39,6 +39,21 @@
       }
     }
   },
+  "overrides": [
+    {
+      "includes": ["ui/**"],
+      "assist": {
+        "actions": {
+          "source": {
+            "organizeImports": "off"
+          }
+        }
+      },
+      "linter": {
+        "enabled": false
+      }
+    }
+  ],
   "vcs": {
     "enabled": true,
     "clientKind": "git",

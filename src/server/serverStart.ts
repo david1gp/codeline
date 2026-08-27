@@ -23,6 +23,7 @@ import { runStartupInterruptionReconcile } from "../run/actions/runStartupInterr
 import { streamLiveSubscriptionCreate } from "../stream/actions/streamLiveSubscriptionCreate.js"
 import { streamSseConnectionWriterCreate } from "../stream/actions/streamSseConnectionWriterCreate.js"
 import { streamSseSchedulerCreate } from "../stream/actions/streamSseSchedulerCreate.js"
+import { serverShutdownCoordinatorCreate } from "./serverShutdownCoordinatorCreate.js"
 
 type Server = {
   stop: (closeActiveConnections?: boolean) => Promise<void>
@@ -55,16 +56,19 @@ type ServerStartOptions = {
     streamSseConnectionWriterCreate: typeof streamSseConnectionWriterCreate
     streamSseNow: () => number
     streamSseScheduler: Parameters<typeof streamSseConnectionWriterCreate>[0]["scheduler"]
+    shutdownCoordinator: ReturnType<typeof serverShutdownCoordinatorCreate>
     metricsCollector: ReturnType<typeof metricsCollectorCreate>
   }) => App
   configuration?: RuntimeConfiguration
   configurationStore?: ConfigurationStore
   database?: DatabaseConnection
+  databaseConnectionClose?: typeof databaseConnectionClose
   projectRootDirs?: readonly string[]
   providerAgentCatalog?: ProviderCatalog
   journalCursorCodec?: JournalCursorCodec
   runStartupInterruptionReconcile?: typeof runStartupInterruptionReconcile
   serve?: Serve
+  serverShutdownCoordinator?: ReturnType<typeof serverShutdownCoordinatorCreate>
   signalSource?: SignalSource
   metricsCollector?: ReturnType<typeof metricsCollectorCreate>
 }
@@ -145,6 +149,7 @@ export async function serverStart(options: ServerStartOptions = {}): Promise<Ser
     liveSubscription: streamLiveSubscription,
   })
   const metricsCollector = options.metricsCollector ?? metricsCollectorCreate()
+  const shutdownCoordinator = options.serverShutdownCoordinator ?? serverShutdownCoordinatorCreate()
   const application = createApp({
     configuration: configuration.data,
     configurationStore,
@@ -158,6 +163,7 @@ export async function serverStart(options: ServerStartOptions = {}): Promise<Ser
     streamSseConnectionWriterCreate,
     streamSseNow: Date.now,
     streamSseScheduler,
+    shutdownCoordinator,
     metricsCollector,
   })
   const reconciled = await (options.runStartupInterruptionReconcile ?? runStartupInterruptionReconcile)({
@@ -174,13 +180,34 @@ export async function serverStart(options: ServerStartOptions = {}): Promise<Ser
 
   const signalSource = options.signalSource ?? process
   let shutdownPromise: Promise<void> | undefined
-  const shutdown = async () => {
+  const shutdown = () => {
     if (shutdownPromise !== undefined) return shutdownPromise
     shutdownPromise = (async () => {
       try {
-        await server.stop(true)
+        const result = await shutdownCoordinator.shutdown(async () => {
+          const cleanupErrors: unknown[] = []
+          try {
+            await server.stop(true)
+          } catch (error: unknown) {
+            cleanupErrors.push(error)
+          }
+
+          try {
+            const closed = await (options.databaseConnectionClose ?? databaseConnectionClose)(database.data)
+            if (!closed.success) cleanupErrors.push(new Error(closed.errorMessage))
+          } catch (error: unknown) {
+            cleanupErrors.push(error)
+          }
+
+          if (cleanupErrors.length === 1) throw cleanupErrors[0]
+          if (cleanupErrors.length > 1) throw new AggregateError(cleanupErrors, "Server cleanup failed.")
+        })
+        if (!result.success) {
+          const errors = result.diagnostics.errors.map(({ error }) => error)
+          if (errors.length === 1) throw errors[0]
+          throw new AggregateError(errors, "Server shutdown failed.")
+        }
       } finally {
-        await databaseConnectionClose(database.data)
         signalSource.removeListener("SIGINT", shutdown)
         signalSource.removeListener("SIGTERM", shutdown)
       }

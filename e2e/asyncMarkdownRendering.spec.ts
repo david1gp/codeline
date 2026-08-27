@@ -52,13 +52,18 @@ test("the managed preview renders submitted Markdown with the bundled worker", a
     const chatResponse = await chatResponsePromise
     expect(chatResponse.ok()).toBe(true)
 
-    const inFlight = page.getByRole("list", { name: "In-flight messages" })
-    await expect(inFlight).toBeVisible({ timeout: syncTimeout })
-    const submittedMessage = inFlight.locator("li").first()
-    const submittedFallback = submittedMessage.locator(".markdown-content--message-fallback")
-    await expect(submittedFallback).toBeVisible({ timeout: syncTimeout })
-    await expect(submittedFallback).toHaveText(markdownPrompt)
+    // The submitted message is rendered while it is still in flight and then keeps
+    // that rendering once it is finalized. A deterministic run can settle before the
+    // browser is sampled, so the message is located in whichever list currently
+    // holds it instead of racing the in-flight window.
+    const submittedMessage = page
+      .locator('[aria-label="In-flight messages"] li, [aria-label="Finalized messages"] article')
+      .filter({ hasText: "Browser worker Markdown" })
+      .first()
+    await expect(submittedMessage).toBeVisible({ timeout: syncTimeout })
 
+    // The raw fallback is a transient pre-render state, so only its replacement by
+    // worker-rendered HTML is asserted; the fallback itself may never be observed.
     const submittedHtml = submittedMessage.locator(
       ".markdown-content--message:not(.markdown-content--message-fallback)",
     )
@@ -66,7 +71,7 @@ test("the managed preview renders submitted Markdown with the bundled worker", a
     await expect(submittedHtml.locator("h1")).toHaveText("Browser worker Markdown")
     await expect(submittedHtml.locator("strong")).toBeVisible({ timeout: syncTimeout })
     await expect(submittedHtml.locator("strong")).toHaveText("bold fallback")
-    await expect(submittedFallback).toHaveCount(0)
+    await expect(submittedMessage.locator(".markdown-content--message-fallback")).toHaveCount(0)
 
     const bundledWorker = await bundledWorkerPromise
     expect(bundledWorker.url()).toContain("markdownHtmlRender.worker")

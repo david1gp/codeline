@@ -1,6 +1,6 @@
 import { afterAll, expect, mock, test } from "bun:test"
-import { createRoot, createSignal } from "solid-js/dist/solid.js"
 import * as solidRuntime from "solid-js/dist/solid.js"
+import { createRoot, createSignal } from "solid-js/dist/solid.js"
 
 mock.module("solid-js", () => solidRuntime)
 mock.module("@adaptive-ds/solid-ui/utils/createSignalObject", () => ({

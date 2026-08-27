@@ -1,4 +1,5 @@
 import * as v from "valibot"
+import { commandInvocationSchema } from "../../commands/schema/commandInvocationSchema.js"
 import { codelineExecutionSchema } from "../../providers/schema/codelineExecutionSchema.js"
 
 const sessionChatMessageSchema = v.object({
@@ -13,6 +14,7 @@ const sessionChatForwardedPropsSchema = v.intersect([
 ])
 
 export const sessionChatRequestSchema = v.object({
+  command: v.optional(commandInvocationSchema),
   context: v.optional(v.array(v.unknown()), []),
   forwardedProps: v.optional(sessionChatForwardedPropsSchema),
   messages: v.pipe(v.array(sessionChatMessageSchema), v.minLength(1), v.maxLength(1_000)),

@@ -1,6 +1,7 @@
 import { createSignalObject } from "@adaptive-ds/solid-ui/utils/createSignalObject"
 import { useChat } from "@tanstack/ai-solid"
 import { createEffect, createMemo } from "solid-js"
+import type { CommandInvocation } from "../commands/schema/commandInvocationSchema.js"
 import type { CodelineExecution } from "../providers/schema/codelineExecutionSchema.js"
 import { runCancelCommand } from "../run/client/runCancelCommand.js"
 import { chatComposerStop } from "./chatComposerStop.js"
@@ -11,6 +12,15 @@ import type { TransientMessage } from "./transientMessagesResolve.js"
 
 type ChatComposerOptions = {
   codelineExecution?: () => CodelineExecution | null
+  /**
+   * Slash-command resolution for the current draft. A blocking validation message
+   * refuses submission locally, and a resolved invocation is sent as typed command
+   * identity so the server expands, interpolates, and persists the digest.
+   */
+  command?: {
+    errorMessage: () => string | undefined
+    invocation: () => CommandInvocation | undefined
+  }
   fetcher?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
   runCancel?: typeof runCancelCommand
   sessionId: string
@@ -36,7 +46,12 @@ export function chatComposerStateCreate(options: ChatComposerOptions) {
   )
   const stopError = createSignalObject<string | undefined>(undefined)
   const stopping = createSignalObject(false)
+  const commandError = createSignalObject<string | undefined>(undefined)
+  // Captured at submit time: the draft is cleared before the turn starts, so the
+  // resolved invocation can no longer be derived from it when the request is sent.
+  let pendingCommand: CommandInvocation | undefined
   const connection = sessionChatConnectionCreate({
+    command: () => pendingCommand,
     fetcher: options.fetcher,
     onStateChange: recoveryStatus.set,
     sessionId: options.sessionId,
@@ -75,6 +90,15 @@ export function chatComposerStateCreate(options: ChatComposerOptions) {
     const preservedDraft = draft.get()
     const prompt = preservedDraft.trim()
     if (prompt.length === 0 || chat.isLoading() || stopping.get()) return
+    // A command draft that cannot expand deterministically is refused here, so the
+    // user keeps the draft and sees the same message the server would have returned.
+    const blocking = options.command?.errorMessage()
+    if (blocking !== undefined) {
+      commandError.set(blocking)
+      return
+    }
+    pendingCommand = options.command?.invocation()
+    commandError.set(undefined)
     draft.set("")
     stopError.set(undefined)
     activity.turnReset()
@@ -84,6 +108,8 @@ export function chatComposerStateCreate(options: ChatComposerOptions) {
     } catch (error) {
       draft.set(preservedDraft)
       throw error
+    } finally {
+      pendingCommand = undefined
     }
   }
 
@@ -111,13 +137,18 @@ export function chatComposerStateCreate(options: ChatComposerOptions) {
 
   return {
     activity,
-    canSubmit: () => draft.get().trim().length > 0 && !chat.isLoading(),
+    canSubmit: () =>
+      draft.get().trim().length > 0 && !chat.isLoading() && options.command?.errorMessage() === undefined,
     draft: draft.get,
-    errorMessage: () => stopError.get() ?? (recoveryStatus.get() === "stale" ? undefined : chat.error()?.message),
+    errorMessage: () =>
+      commandError.get() ?? stopError.get() ?? (recoveryStatus.get() === "stale" ? undefined : chat.error()?.message),
     isBusy: chat.isLoading,
     recoveryStatus: recoveryStatus.get,
     runId: chat.runId,
-    setDraft: draft.set,
+    setDraft: (value: string) => {
+      commandError.set(undefined)
+      draft.set(value)
+    },
     isStopping: stopping.get,
     stop,
     submit,

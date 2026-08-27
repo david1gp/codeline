@@ -1,0 +1,113 @@
+import { createSignalObject } from "@adaptive-ds/solid-ui/utils/createSignalObject"
+import type { SessionResourceSelectorView } from "../sessionResourceSelectorView.js"
+import { sessionResourceSkillCatalogEstimate } from "../sessionResourceSkillCatalogEstimate.js"
+import { sessionResourceSkillTreeDerive } from "../sessionResourceSkillTreeDerive.js"
+import type { DemoSessionScreenVariant } from "./demoSessionScreenVariant.js"
+
+const demoSkills = [
+  {
+    bundlePath: ".agents/skills/code",
+    description: "Refactor and review TypeScript with the repository conventions.",
+    name: "code-style",
+    source: "project" as const,
+  },
+  {
+    bundlePath: ".agents/skills/code",
+    description: "Split changes into conventional commits and push them.",
+    name: "commits",
+    source: "project" as const,
+  },
+  {
+    bundlePath: "global/skills/browser",
+    description: "Drive a real browser for end-to-end verification.",
+    name: "agent-browser",
+    source: "global" as const,
+  },
+]
+
+const demoGroups = [
+  { path: ".agents/skills/code", precedence: 1, source: "project" as const },
+  { path: "global/skills/browser", precedence: 0, source: "global" as const },
+]
+
+export function demoSessionResourceSelectorStateCreate(
+  variant: () => DemoSessionScreenVariant,
+): SessionResourceSelectorView {
+  const activeSkillNames = createSignalObject<readonly string[]>(["code-style", "commits"])
+  const inspectorOpen = createSignalObject(false)
+  const tools = createSignalObject<Readonly<Record<string, { bash: boolean; webfetch: boolean }>>>({
+    "demo-primary": { bash: true, webfetch: false },
+    "demo-subagent": { bash: false, webfetch: true },
+  })
+
+  const activeSkills = () => demoSkills.filter(({ name }) => activeSkillNames.get().includes(name))
+  const namesSet = (names: readonly string[]) => activeSkillNames.set([...new Set(names)])
+
+  return {
+    activeSkills,
+    agentTools: () => [
+      {
+        agentId: "demo-primary",
+        isPrimary: true,
+        name: "Local agent",
+        role: "primary",
+        ...tools.get()["demo-primary"]!,
+      },
+      {
+        agentId: "demo-subagent",
+        isPrimary: false,
+        name: "Explore",
+        role: "subagent",
+        ...tools.get()["demo-subagent"]!,
+      },
+    ],
+    collisions: () => [],
+    descriptionCatalog: () => sessionResourceSkillCatalogEstimate(activeSkills()),
+    diagnostics: () => [],
+    errorMessage: () => (variant() === "error" ? "The session resources could not be loaded." : null),
+    existingExecutionResources: () => null,
+    existingExecutionSelection: () => null,
+    folders: () =>
+      sessionResourceSkillTreeDerive({
+        activeSkillNames: activeSkillNames.get(),
+        excludedSkillNames: [],
+        groups: demoGroups,
+        skills: demoSkills,
+      }),
+    folderToggle: (folderPath, enabled) => {
+      const descendants = demoSkills
+        .filter(({ bundlePath }) => bundlePath === folderPath || bundlePath.startsWith(`${folderPath}/`))
+        .map(({ name }) => name)
+      namesSet(
+        enabled
+          ? [...activeSkillNames.get(), ...descendants]
+          : activeSkillNames.get().filter((name) => !descendants.includes(name)),
+      )
+    },
+    groups: () => demoGroups,
+    instructionDiagnostics: () => [],
+    instructionSnapshots: () => [],
+    inspectorOpen: inspectorOpen.get,
+    inspectorOpenChange: inspectorOpen.set,
+    isMutable: () => true,
+    missingFolderPaths: () => [],
+    missingSkillNames: () => [],
+    pendingExecutionSelection: () => undefined,
+    pendingSkillSelection: () => undefined,
+    presetDiagnostics: () => [],
+    presetName: () => "default",
+    presetSelect: () => undefined,
+    presets: () => [{ excludeSkills: [], includeFolders: [], includeSkills: [], name: "default", version: 1 }],
+    presetSource: () => "default",
+    retry: () => undefined,
+    roots: () => [],
+    skillBundles: () => [],
+    skillToggle: (name, enabled) =>
+      namesSet(
+        enabled ? [...activeSkillNames.get(), name] : activeSkillNames.get().filter((current) => current !== name),
+      ),
+    status: () => (variant() === "error" ? "error" : "ready"),
+    toolToggle: (agentId, tool, enabled) =>
+      tools.set({ ...tools.get(), [agentId]: { ...tools.get()[agentId]!, [tool]: enabled } }),
+  }
+}

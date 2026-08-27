@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test"
+import * as crypto from "node:crypto"
 import { mkdtempSync, rmSync } from "node:fs"
 import { join } from "node:path"
 import type { CodelineConfigurationDocument } from "../src/configuration/codelineConfigurationDocumentSchema.js"
@@ -221,4 +222,44 @@ test("run execution snapshot captures validated selection tools in its manifest"
       },
     },
   })
+})
+
+test("run execution snapshot captures an immutable instruction manifest", async () => {
+  const store = await createStore()
+  const written = await configurationStoreWrite(store, configuration("instruction-model"))
+  expect(written.success).toBe(true)
+  if (!written.success) return
+
+  const content = "Use the snapshotted project instructions."
+  const instructionInput = {
+    diagnostics: [],
+    snapshots: [
+      {
+        canonicalPath: "/tmp/codeline-run-instructions/AGENTS.md",
+        content,
+        digest: `sha256-${crypto.createHash("sha256").update(content, "utf8").digest("hex")}`,
+        precedence: 1,
+        scope: ".",
+        size: Buffer.byteLength(content, "utf8"),
+        source: "project" as const,
+      },
+    ],
+    version: 1 as const,
+  }
+  const resolved = runExecutionSnapshotResolve({ agentId: "agent-1", serverId: "server-1" }, store, {
+    agentInstructions: instructionInput,
+  })
+
+  expect(resolved).toMatchObject({
+    success: true,
+    data: {
+      executionManifest: { instructions: { snapshots: instructionInput.snapshots, version: 1 } },
+    },
+  })
+  if (!resolved.success) return
+  expect(Object.isFrozen(resolved.data.executionManifest?.instructions)).toBe(true)
+  expect(Object.isFrozen(resolved.data.executionManifest?.instructions.snapshots[0])).toBe(true)
+
+  instructionInput.snapshots[0]!.content = "Changed after run admission."
+  expect(resolved.data.executionManifest?.instructions.snapshots[0]?.content).toBe(content)
 })

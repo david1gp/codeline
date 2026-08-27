@@ -3,6 +3,8 @@ import { apiEtagSchema } from "../../api/schema/apiEtagSchema.js"
 import { apiRevisionSchema } from "../../api/schema/apiRevisionSchema.js"
 
 const runDelegationResponseSchema = v.strictObject({
+  /** Child run's immutable target agent, so the UI never has to infer it from live feed rows. */
+  childAgentId: v.optional(v.string()),
   childRunId: v.string(),
   delegationKey: v.string(),
   id: v.string(),

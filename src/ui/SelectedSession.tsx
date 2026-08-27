@@ -2,17 +2,21 @@ import { mdiPinOffOutline } from "@adaptive-ds/mdi/mdiPinOffOutline.js"
 import { mdiPinOutline } from "@adaptive-ds/mdi/mdiPinOutline.js"
 import { For, Match, Show, Switch } from "solid-js"
 import { ButtonIconOnly } from "#ui/interactive/button/ButtonIconOnly.jsx"
+import { Details } from "#ui/interactive/details/Details.jsx"
 import { FinalizedMessage } from "../message/ui/FinalizedMessage.js"
 import type { providerModelSelectorStateCreate } from "../providers/ui/providerModelSelectorStateCreate.js"
 import { SessionRenameControl } from "../session/ui/SessionRenameControl.js"
 import { SessionChat } from "./SessionChat.js"
 import { SessionDisplayModeSwitcher } from "./SessionDisplayModeSwitcher.js"
+import { SessionResourceSelector } from "./SessionResourceSelector.js"
 import { SessionStreamView } from "./SessionStreamView.js"
 import type { SelectedSessionView } from "./selectedSessionView.js"
+import type { SessionResourceSelectorView } from "./sessionResourceSelectorView.js"
 import type { SessionTargetSelectorState } from "./sessionTargetSelectorStateCreate.js"
 
 export function SelectedSession(props: {
   providerModel?: ReturnType<typeof providerModelSelectorStateCreate>
+  resources?: SessionResourceSelectorView
   sessionTarget?: SessionTargetSelectorState
   state: SelectedSessionView
 }) {
@@ -21,13 +25,24 @@ export function SelectedSession(props: {
       <div class="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         <Switch>
           <Match when={!props.state.hasSelection()}>
-            <div class="flex flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-8 text-center">
+            <div class="flex flex-1 flex-col items-center overflow-y-auto px-4 py-8">
               <div class="w-full max-w-[820px]">
-                <p class="m-0 text-[11px] font-semibold tracking-[0.14em] text-faint uppercase">No conversation</p>
-                <h2 class="mt-2 mb-0 text-2xl font-semibold tracking-[-0.02em]">Select a conversation</h2>
-                <p class="mx-auto mt-3 mb-0 max-w-[540px] text-sm leading-relaxed text-faint">
-                  Choose a session from the sidebar, or start a new one.
-                </p>
+                <div class="text-center">
+                  <p class="m-0 text-[11px] font-semibold tracking-[0.14em] text-faint uppercase">No conversation</p>
+                  <h2 class="mt-2 mb-0 text-2xl font-semibold tracking-[-0.02em]">Select a conversation</h2>
+                  <p class="mx-auto mt-3 mb-0 max-w-[540px] text-sm leading-relaxed text-faint">
+                    Choose a session from the sidebar, or start a new one.
+                  </p>
+                </div>
+
+                {/* The selection is still mutable here, so the next session is configured before it exists. */}
+                <Show when={props.resources}>
+                  {(resources) => (
+                    <div class="mt-6 text-left">
+                      <SessionResourceSelector idPrefix="workspace-setup-resources" state={resources()} />
+                    </div>
+                  )}
+                </Show>
               </div>
             </div>
           </Match>
@@ -154,6 +169,22 @@ export function SelectedSession(props: {
                     <span class="mt-3 block py-2 text-[13px] text-faint" role="status">
                       Updating messages...
                     </span>
+                  </Show>
+
+                  <Show when={props.resources}>
+                    {(resources) => (
+                      <div class="mt-6">
+                        <Details
+                          class="!bg-surface-raised !border-line"
+                          summaryClass="!p-3 !text-sm"
+                          title="Session resources"
+                        >
+                          <div class="px-3 pb-3">
+                            <SessionResourceSelector idPrefix="selected-session-resources" state={resources()} />
+                          </div>
+                        </Details>
+                      </div>
+                    )}
                   </Show>
                 </div>
               </div>

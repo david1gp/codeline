@@ -3,8 +3,8 @@ import { type JSX } from "solid-js"
 import { buttonVariant } from "#ui/interactive/button/buttonCva.js"
 import { CorvuDialog } from "#ui/interactive/dialog/CorvuDialog.jsx"
 import type { ActiveProjectState } from "./activeProjectStateCreate.js"
-import { newProjectDialogStateCreate } from "./newProjectDialogStateCreate.js"
 import { NewProjectForm } from "./NewProjectForm.js"
+import { newProjectDialogStateCreate } from "./newProjectDialogStateCreate.js"
 
 export function NewProjectDialog(props: {
   activeProject: ActiveProjectState

@@ -9,6 +9,7 @@ export default defineConfig({
     "./src/servers/db/*Table.ts",
     "./src/agents/db/*Table.ts",
     "./src/session/db/*Table.ts",
+    "./src/skills/db/*Table.ts",
     "./src/message/db/*Table.ts",
     "./src/note/db/*Table.ts",
     "./src/run/db/*Table.ts",

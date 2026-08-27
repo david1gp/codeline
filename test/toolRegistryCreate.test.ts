@@ -140,6 +140,57 @@ test("returns a deterministic timeout failure and aborts the tool signal", async
   expect(aborted).toBe(true)
 })
 
+test("keeps cancellation and timeout terminal races deterministic when executors finish late", async () => {
+  let resolveCancellation: (result: Result<unknown>) => void = () => undefined
+  let cancellationSignal: AbortSignal | undefined
+  const cancellationRegistry = toolRegistryCreate()
+  expect(
+    registryRegister(cancellationRegistry, {
+      execute: (_input, signal) => {
+        cancellationSignal = signal
+        return new Promise((resolve) => {
+          resolveCancellation = resolve
+        })
+      },
+    }).success,
+  ).toBe(true)
+
+  const cancellationController = new AbortController()
+  const cancellationExecution = cancellationRegistry.execute(
+    "bash",
+    { value: "run" },
+    context(cancellationController.signal, { timeoutMs: null }),
+  )
+  await new Promise<void>((resolve) => setTimeout(resolve, 0))
+  cancellationController.abort("user-requested")
+  resolveCancellation(createResult({ result: "late success" }))
+  const cancelled = await cancellationExecution
+  expect(cancelled).toMatchObject({ code: toolErrorCodes.aborted, success: false })
+  expect(cancellationSignal?.aborted).toBe(true)
+
+  let resolveTimeout: (result: Result<unknown>) => void = () => undefined
+  let timeoutSignal: AbortSignal | undefined
+  const timeoutRegistry = toolRegistryCreate()
+  expect(
+    registryRegister(timeoutRegistry, {
+      execute: (_input, signal) => {
+        timeoutSignal = signal
+        return new Promise((resolve) => {
+          resolveTimeout = resolve
+        })
+      },
+    }).success,
+  ).toBe(true)
+  const timedOut = await timeoutRegistry.execute(
+    "bash",
+    { value: "run" },
+    context(new AbortController().signal, { timeoutMs: 1 }),
+  )
+  resolveTimeout(createResult({ result: "late success" }))
+  expect(timedOut).toMatchObject({ code: toolErrorCodes.timeout, success: false })
+  expect(timeoutSignal?.aborted).toBe(true)
+})
+
 test("allows a caller-owned abort signal to provide the lifecycle deadline", async () => {
   const registry = toolRegistryCreate()
   let callbackAborted = false

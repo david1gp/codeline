@@ -2,7 +2,7 @@ import { createResult, createResultError, type Result } from "@adaptive-ds/resul
 
 export function oidcIssuerCanonicalize(value: string): Result<string> {
   const op = "oidcIssuerCanonicalize"
-  if (value !== value.trim() || /[\u0000-\u0020]/.test(value)) {
+  if (value !== value.trim() || Array.from(value).some((character) => character <= " ")) {
     return createResultError(op, "The OIDC issuer is invalid.")
   }
 

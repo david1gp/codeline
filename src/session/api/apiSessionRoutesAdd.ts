@@ -1,3 +1,5 @@
+import * as os from "node:os"
+import * as path from "node:path"
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import type { Context } from "hono"
 import { Hono } from "hono"
@@ -13,8 +15,16 @@ import { apiIdempotencyRequestHashCreate } from "../../api/idempotency/apiIdempo
 import { apiRepresentationHeadersCreate } from "../../api/representation/apiRepresentationHeadersCreate.js"
 import { apiCompleteSnapshotResponseCreate } from "../../api/response/apiCompleteSnapshotResponseCreate.js"
 import { apiIdempotencyKeySchema } from "../../api/schema/apiIdempotencyKeySchema.js"
+import { commandCatalogDiscover } from "../../commands/actions/commandCatalogDiscover.js"
+import { commandExecutionOverridesValidate } from "../../commands/actions/commandExecutionOverridesValidate.js"
+import { commandExpand } from "../../commands/actions/commandExpand.js"
+import { commandInvocationParse } from "../../commands/actions/commandInvocationParse.js"
+import { commandShellInterpolationResolve } from "../../commands/actions/commandShellInterpolationResolve.js"
+import { commandSubtaskSelectionValidate } from "../../commands/actions/commandSubtaskSelectionValidate.js"
+import { commandMessageMetadataSchema } from "../../commands/schema/commandMessageMetadataSchema.js"
 import type { ConfigurationStore } from "../../configuration/configurationStore.js"
 import type { DatabaseClient } from "../../database/databaseClient.js"
+import { agentInstructionsDiscover } from "../../instructions/actions/agentInstructionsDiscover.js"
 import type { JournalCursorCodec } from "../../journal/actions/journalCursorCodecCreate.js"
 import type { journalPostCommitPublishCreate } from "../../journal/actions/journalPostCommitPublishCreate.js"
 import type { metricsCollectorCreate } from "../../metrics/metricsCollectorCreate.js"
@@ -24,9 +34,11 @@ import { providerDelegationAdapterCreate } from "../../providers/runtime/provide
 import { providerDelegationToolLoopCreate } from "../../providers/runtime/providerDelegationToolLoopCreate.js"
 import { providerDeterministicScenarioResolve } from "../../providers/runtime/providerDeterministicScenarioResolve.js"
 import { providerExecutionEventFromStreamChunk } from "../../providers/runtime/providerExecutionEventFromStreamChunk.js"
+import type { ProviderInstructionContext } from "../../providers/runtime/providerInstructionContext.js"
 import type { ProviderModelDiscoveryOptions } from "../../providers/runtime/providerModelDiscovery.js"
 import { providerRuntimeAdapterCreate } from "../../providers/runtime/providerRuntimeAdapterCreate.js"
 import { providerRuntimeAdapterResolve } from "../../providers/runtime/providerRuntimeAdapterResolve.js"
+import type { CodelineExecution } from "../../providers/schema/codelineExecutionSchema.js"
 import type { ProviderCatalog } from "../../providers/schema/providerCatalogSchema.js"
 import { runActiveRegistryCreate } from "../../run/actions/runActiveRegistryCreate.js"
 import { runCancellationCoordinatorCreate } from "../../run/actions/runCancellationCoordinatorCreate.js"
@@ -45,10 +57,19 @@ import type { attemptTable } from "../../run/db/attemptTable.js"
 import type { runTable } from "../../run/db/runTable.js"
 import type { RunExecutionSnapshot } from "../../run/schema/runExecutionSnapshotSchema.js"
 import { runExecutionSnapshotSchema } from "../../run/schema/runExecutionSnapshotSchema.js"
+import type { serverShutdownCoordinatorCreate } from "../../server/serverShutdownCoordinatorCreate.js"
+import { skillCatalogDiscover } from "../../skills/actions/skillCatalogDiscover.js"
+import { skillPresetCatalogLoad } from "../../skills/actions/skillPresetCatalogLoad.js"
+import type { SkillDescriptionCatalog } from "../../skills/schema/skillDescriptionCatalogSchema.js"
+import type { SkillSnapshot } from "../../skills/schema/skillSnapshotSchema.js"
 import { executionStreamEventNormalize } from "../../stream/actions/executionStreamEventNormalize.js"
 import type { ExecutionStreamEvent } from "../../stream/schema/executionStreamEventSchema.js"
+import { bashToolCreate } from "../../tools/runtime/bashToolCreate.js"
+import { toolRegistryCreate } from "../../tools/runtime/toolRegistryCreate.js"
+import type { ToolName } from "../../tools/schema/toolNameSchema.js"
 import { sessionArchive } from "../actions/sessionArchive.js"
 import type { sessionChatAdapterCreate } from "../actions/sessionChatAdapterCreate.js"
+import { sessionChatCommandSubtaskAdapterCreate } from "../actions/sessionChatCommandSubtaskAdapterCreate.js"
 import { sessionChatLunaPingAdapterCreate } from "../actions/sessionChatLunaPingAdapterCreate.js"
 import { sessionChatLunaPingDetect } from "../actions/sessionChatLunaPingDetect.js"
 import { sessionChatPrepare } from "../actions/sessionChatPrepare.js"
@@ -142,9 +163,14 @@ function idempotencyKeyParse(context: ApiContext, bodyKey?: string): string | un
 }
 
 type ApiSessionRoutesOptions = {
+  agentInstructionsDiscover?: typeof agentInstructionsDiscover
+  commandCatalogDiscover?: typeof commandCatalogDiscover
   database: DatabaseClient
   configurationStore?: ConfigurationStore
   providerAgentCatalog?: ProviderCatalog
+  globalAgentsPath?: string
+  globalCommandsPath?: string
+  globalSkillsPath?: string
   providerEnvironment?: Readonly<Record<string, string | undefined>>
   providerFetch?: NonNullable<ProviderModelDiscoveryOptions["fetch"]>
   projectRootDirs?: readonly string[]
@@ -160,6 +186,9 @@ type ApiSessionRoutesOptions = {
   runLoad?: typeof runLoad
   runRetryAttemptCreate?: typeof runRetryAttemptCreate
   runTransition?: typeof runTransition
+  shutdownCoordinator?: ReturnType<typeof serverShutdownCoordinatorCreate>
+  skillCatalogDiscover?: typeof skillCatalogDiscover
+  skillPresetCatalogLoad?: typeof skillPresetCatalogLoad
   sessionChatAdapter?: typeof sessionChatAdapterCreate
   journalPostCommitPublish: ReturnType<typeof journalPostCommitPublishCreate>
   journalCursorCodec: JournalCursorCodec
@@ -182,6 +211,20 @@ function sessionChatChildExecutionErrorCreate(code: string, message: string): Ex
   return {
     eventType: "terminal",
     payload: { code, message, status: "error" },
+  }
+}
+
+function sessionInstructionProjectRootResolve(projectPath: string): string {
+  return path.resolve(projectPath === "~" ? os.homedir() : projectPath)
+}
+
+function sessionInstructionContextCreate(
+  projectPath: string,
+  snapshot: ProviderInstructionContext["snapshot"],
+): ProviderInstructionContext {
+  return {
+    projectRoot: sessionInstructionProjectRootResolve(projectPath),
+    snapshot,
   }
 }
 
@@ -240,6 +283,12 @@ type SessionChatAdmission = {
   snapshot: RunExecutionSnapshot
 }
 
+type SessionChatCommandSubtask = {
+  agentId?: string
+  execution?: CodelineExecution
+  task: string
+}
+
 async function sessionChatAdmissionResolve(
   userId: string,
   sessionId: string,
@@ -247,6 +296,9 @@ async function sessionChatAdmissionResolve(
   target: { agentId: string; serverId: string },
   forwardedExecution: unknown,
   persistedExecutionSelection: unknown,
+  persistedSkillSelection: unknown,
+  persistedExecutionManifest: unknown,
+  persistedInstructionSnapshot: unknown,
   options: ApiSessionRoutesOptions,
   runLoadAction: typeof runLoad,
 ): Promise<Result<SessionChatAdmission>> {
@@ -278,6 +330,11 @@ async function sessionChatAdmissionResolve(
       catalog: options.providerAgentCatalog,
       execution: forwardedExecution,
       ...(executionSelection.data === null ? {} : { executionSelection: executionSelection.data }),
+      ...(persistedExecutionManifest === null || persistedExecutionManifest === undefined
+        ? {}
+        : { executionManifest: persistedExecutionManifest }),
+      agentInstructions: persistedInstructionSnapshot,
+      skillSelection: persistedSkillSelection,
     },
   )
   if (!resolved.success) return createResultError(op, resolved.errorMessage)
@@ -296,6 +353,16 @@ function sessionChatCommandResponseCreate(runId: string, sessionId: string): Res
   if (!parsed.success)
     return createResultError("sessionChatCommandResponseCreate", "The chat command response is invalid.")
   return createResult(parsed.output)
+}
+
+function sessionCommandExecutionResolve(metadata: unknown, primaryAgentId: string): unknown {
+  if (typeof metadata !== "object" || metadata === null || !("command" in metadata)) return undefined
+  const parsed = v.safeParse(commandMessageMetadataSchema, { command: metadata.command })
+  if (!parsed.success) return undefined
+  const execution = parsed.output.command.execution
+  if (parsed.output.command.overrides.subtask !== true || execution === undefined) return execution
+  if (execution.agentId !== undefined && execution.agentId !== primaryAgentId) return undefined
+  return execution
 }
 
 export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessionRoutesOptions): void {
@@ -347,8 +414,10 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     if (!parsed.success) return badRequest(context, "The session request is invalid.")
 
     const requestHash = apiIdempotencyRequestHashCreate({
+      command: parsed.data.command,
       metadata: parsed.data.metadata,
       executionSelection: parsed.data.executionSelection,
+      skillSelection: parsed.data.skillSelection,
       primaryAgentId: parsed.data.primaryAgentId,
       projectPath: parsed.data.projectPath,
       serverId: parsed.data.serverId,
@@ -361,21 +430,35 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
         resolveRecipients: sessionJournalRecipientResolverCreate({
           organizationId,
           pendingSessionAuthorization: {
-            primaryAgentId: parsed.data.primaryAgentId,
+            ...(parsed.data.command === undefined ? { primaryAgentId: parsed.data.primaryAgentId } : {}),
             serverId: parsed.data.serverId,
             userId,
           },
         }),
       },
       organizationId,
+      agentInstructionsDiscover: options.agentInstructionsDiscover,
+      commandCatalogDiscover: options.commandCatalogDiscover,
+      globalCommandsPath: options.globalCommandsPath,
+      globalAgentsPath: options.globalAgentsPath,
+      globalSkillsPath: options.globalSkillsPath,
       providerAgentCatalog: options.providerAgentCatalog,
       projectRootDirs: options.projectRootDirs,
       requestHash,
+      signal: context.req.raw.signal,
+      skillCatalogDiscover: options.skillCatalogDiscover,
+      skillPresetCatalogLoad: options.skillPresetCatalogLoad,
     })
     if (!result.success) {
       if (result.code === "idempotency_conflict") return idempotencyConflict(context)
+      // A command's shell interpolation fails with a structured tool code, so a
+      // disabled or failing bash runtime is a bad request rather than a server fault.
+      if (typeof result.code === "string" && result.code.startsWith("tool."))
+        return badRequest(context, result.errorMessage)
       if (result.errorMessage.includes("execution selection"))
         return badRequest(context, "The session execution selection is invalid.")
+      if (result.errorMessage.includes("command") || result.errorMessage.includes("model override"))
+        return badRequest(context, result.errorMessage)
       if (result.errorMessage.includes("project path"))
         return badRequest(context, "The session project path is invalid.")
       if (result.errorMessage.includes("could not be found") || result.errorMessage.includes("could not be authorized"))
@@ -405,8 +488,9 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     const finalMessage = parsed.data.messages.at(-1)
     if (finalMessage?.role !== "user" || typeof finalMessage.content !== "string")
       return badRequest(context, "The chat request must end with one plain-text user prompt.")
-    const prompt = finalMessage.content.trim()
-    if (prompt.length === 0) return badRequest(context, "The chat request must end with one plain-text user prompt.")
+    const originalPrompt = finalMessage.content.trim()
+    if (originalPrompt.length === 0)
+      return badRequest(context, "The chat request must end with one plain-text user prompt.")
 
     let adapter = options.sessionChatAdapter
     let runtimeConfiguration: AgentConfiguration | undefined
@@ -415,15 +499,133 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     let activeRun: typeof runTable.$inferSelect | undefined
     let activeAttempt: typeof attemptTable.$inferSelect | undefined
     let runtimeAgentPrompt: string | undefined
+    let runtimeSkillDescriptionCatalog: SkillDescriptionCatalog | undefined
+    let runtimeSkillSnapshots: readonly SkillSnapshot[] | undefined
+    let runtimeToolNames: readonly ToolName[] = []
+    let prompt = originalPrompt
+    let commandMessageMetadata: unknown
+    let commandForwardedExecution: unknown
+    let commandSubtask: SessionChatCommandSubtask | undefined
     const loaded = await sessionLoad(options.database, userId, organizationId, sessionId)
     if (!loaded.success)
       return loaded.errorMessage.includes("could not be found") ? notFound(context) : internalServerError(context)
     if (loaded.data.session.archivedAt !== null) return conflict(context, "The session is archived.")
+    commandForwardedExecution = sessionCommandExecutionResolve(
+      loaded.data.session.metadata,
+      loaded.data.session.primaryAgentId,
+    )
+    let runtimeInstructionContext = sessionInstructionContextCreate(
+      loaded.data.session.projectPath,
+      loaded.data.session.instructionSnapshot,
+    )
+    runtimeSkillDescriptionCatalog = loaded.data.session.executionManifest?.skills.descriptionCatalog
+    runtimeSkillSnapshots = loaded.data.session.executionManifest?.skills.snapshots
+    runtimeToolNames = loaded.data.session.executionManifest?.tools.primary.tools ?? []
+
+    let commandInvocation = parsed.data.command
+    if (commandInvocation === undefined) {
+      const parsedInvocation = commandInvocationParse(originalPrompt)
+      if (!parsedInvocation.success) return badRequest(context, parsedInvocation.errorMessage)
+      commandInvocation = parsedInvocation.data ?? undefined
+    }
+    if (commandInvocation !== undefined) {
+      const catalog = await (options.commandCatalogDiscover ?? commandCatalogDiscover)({
+        ...(options.globalCommandsPath === undefined ? {} : { globalCommandsPath: options.globalCommandsPath }),
+        projectRoot: sessionInstructionProjectRootResolve(loaded.data.session.projectPath),
+      })
+      if (!catalog.success) return internalServerError(context)
+      const persistedCatalogDigest = loaded.data.session.executionManifest?.commandCatalog.digest
+      if (
+        persistedCatalogDigest !== null &&
+        persistedCatalogDigest !== undefined &&
+        persistedCatalogDigest !== catalog.data.digest
+      )
+        return conflict(context, "The command catalog changed after this session was created.")
+      const command = catalog.data.commands.find(({ name }) => name === commandInvocation?.name)
+      if (command === undefined) return badRequest(context, "The requested command could not be found.")
+      const expanded = commandExpand({
+        arguments: commandInvocation.arguments,
+        catalogDigest: catalog.data.digest,
+        command,
+      })
+      if (!expanded.success) return badRequest(context, expanded.errorMessage)
+      const isSubtask = expanded.data.overrides.subtask === true
+      const commandAgentDiffers =
+        expanded.data.overrides.agent !== undefined &&
+        expanded.data.overrides.agent !== loaded.data.session.primaryAgentId
+      const overrides = await commandExecutionOverridesValidate(
+        options.database,
+        {
+          overrides: expanded.data.overrides,
+          primaryAgentId: loaded.data.session.primaryAgentId,
+          serverId: loaded.data.session.serverId,
+        },
+        {
+          allowAgentOverride: isSubtask,
+          catalog: options.providerAgentCatalog,
+          ...(commandAgentDiffers ? {} : { configuration: loaded.data.agent.configuration }),
+        },
+      )
+      if (!overrides.success) return badRequest(context, overrides.errorMessage)
+      if (isSubtask) {
+        const subtaskSelection = commandSubtaskSelectionValidate({
+          primaryAgentId: loaded.data.session.primaryAgentId,
+          selection: loaded.data.session.executionSelection,
+          subtaskAgentId: overrides.data.agentId,
+          ...(options.providerAgentCatalog === undefined ? {} : { catalog: options.providerAgentCatalog }),
+        })
+        if (!subtaskSelection.success) return badRequest(context, subtaskSelection.errorMessage)
+        commandForwardedExecution =
+          overrides.data.agentId === loaded.data.session.primaryAgentId ? overrides.data.execution : undefined
+      } else {
+        commandForwardedExecution = overrides.data.execution
+      }
+
+      const commandRegistry = toolRegistryCreate()
+      const registered = commandRegistry.register({
+        ...bashToolCreate({ projectRoot: sessionInstructionProjectRootResolve(loaded.data.session.projectPath) }),
+        enabled: runtimeToolNames.includes("bash"),
+      })
+      if (!registered.success) return internalServerError(context)
+      const shell = await commandShellInterpolationResolve(expanded.data.expandedText, {
+        registry: commandRegistry,
+        signal: context.req.raw.signal,
+        workingDirectory: sessionInstructionProjectRootResolve(loaded.data.session.projectPath),
+      })
+      if (!shell.success) {
+        if (shell.code === "tool.disabled") return badRequest(context, shell.errorMessage)
+        if (shell.code === "tool.aborted" || shell.code === "tool.timeout") return conflict(context, shell.errorMessage)
+        return badRequest(context, shell.errorMessage)
+      }
+      prompt = shell.data.trim()
+      if (prompt.length === 0) return badRequest(context, "The expanded command is empty.")
+      if (isSubtask) {
+        commandSubtask = {
+          ...(overrides.data.agentId === loaded.data.session.primaryAgentId ? {} : { agentId: overrides.data.agentId }),
+          ...(overrides.data.execution === undefined ? {} : { execution: overrides.data.execution }),
+          task: prompt,
+        }
+      }
+      const metadata = v.safeParse(commandMessageMetadataSchema, {
+        command: {
+          argumentsText: expanded.data.argumentsText,
+          catalogDigest: catalog.data.digest,
+          ...(overrides.data.execution === undefined ? {} : { execution: overrides.data.execution }),
+          expandedUserText: prompt,
+          name: expanded.data.commandName,
+          overrides: expanded.data.overrides,
+          templateDigest: expanded.data.templateDigest,
+          version: 1,
+        },
+      })
+      if (!metadata.success) return internalServerError(context)
+      commandMessageMetadata = metadata.output
+    }
     const lunaPing = sessionChatLunaPingDetect({
       primaryAgentId: loaded.data.session.primaryAgentId,
       prompt,
     })
-    if (lunaPing) adapter = sessionChatLunaPingAdapterCreate
+    if (commandSubtask === undefined && lunaPing) adapter = sessionChatLunaPingAdapterCreate
 
     if (options.configurationStore !== undefined) {
       const admission = await sessionChatAdmissionResolve(
@@ -431,8 +633,11 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
         sessionId,
         parsed.data.runId,
         { agentId: loaded.data.session.primaryAgentId, serverId: loaded.data.session.serverId },
-        parsed.data.forwardedProps?.codelineExecution,
+        commandForwardedExecution ?? parsed.data.forwardedProps?.codelineExecution,
         loaded.data.session.executionSelection,
+        loaded.data.session.skillSelection,
+        loaded.data.session.executionManifest,
+        loaded.data.session.instructionSnapshot,
         options,
         runLoadAction,
       )
@@ -447,6 +652,14 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
       }
       runtimeConfiguration = admission.data.runtimeConfiguration
       runtimeAgentPrompt = admission.data.agentPrompt
+      runtimeSkillDescriptionCatalog = admission.data.snapshot.executionManifest?.skills.descriptionCatalog
+      runtimeSkillSnapshots = admission.data.snapshot.executionManifest?.skills.snapshots
+      runtimeToolNames = admission.data.snapshot.executionManifest?.tools.primary.tools ?? []
+      if (admission.data.snapshot.executionManifest?.instructions !== undefined)
+        runtimeInstructionContext = sessionInstructionContextCreate(
+          loaded.data.session.projectPath,
+          admission.data.snapshot.executionManifest.instructions,
+        )
 
       const runInput = {
         budget: sessionChatRootBudgetResolve(runtimeConfiguration ?? admission.data.snapshot.configuration),
@@ -470,7 +683,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
           options.providerAgentCatalog,
           loaded.data.session.primaryAgentId,
           loaded.data.agent.configuration,
-          parsed.data.forwardedProps?.codelineExecution,
+          commandForwardedExecution ?? parsed.data.forwardedProps?.codelineExecution,
         )
         if (!resolved.success) return badRequest(context, resolved.errorMessage)
         runtimeConfiguration = resolved.data.configuration
@@ -478,7 +691,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
       } else {
         const resolvedConfiguration = agentConfigurationExecutionResolve(
           loaded.data.agent.configuration,
-          parsed.data.forwardedProps?.codelineExecution,
+          commandForwardedExecution ?? parsed.data.forwardedProps?.codelineExecution,
           loaded.data.session.primaryAgentId,
         )
         if (!resolvedConfiguration.success) {
@@ -499,6 +712,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     const delegatedTaskExecute = async (
       input: {
         agentId?: string
+        execution?: unknown
         signal: AbortSignal
         task: string
         toolCallId: string
@@ -511,7 +725,6 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
 
       let childSnapshot: RunExecutionSnapshot | undefined
       if (input.agentId !== undefined) {
-        if (options.configurationStore === undefined) throw new Error("The child agent configuration is unavailable.")
         const parentSnapshot = v.safeParse(runExecutionSnapshotSchema, parentRun.snapshot)
         if (!parentSnapshot.success) throw new Error("The parent execution snapshot is invalid.")
         const childManifest = runExecutionManifestChildResolve(parentSnapshot.output.executionManifest, input.agentId)
@@ -525,6 +738,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
             configurationRevision: parentSnapshot.output.configurationRevision,
             executionManifest: childManifest.data,
             ...(childCatalogAgent === true ? { configuration: parentSnapshot.output.configuration } : {}),
+            ...(input.execution === undefined ? {} : { execution: input.execution }),
           },
         )
         if (!resolved.success) throw new Error(resolved.errorMessage)
@@ -546,27 +760,62 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
             const resolved = providerRuntimeAdapterResolve(snapshot.output.configuration, {
               environment: options.providerEnvironment ?? Bun.env,
               ...(options.providerFetch === undefined ? {} : { fetch: options.providerFetch }),
+              instructionContext: sessionInstructionContextCreate(
+                loaded.data.session.projectPath,
+                snapshot.output.executionManifest?.instructions ?? runtimeInstructionContext.snapshot,
+              ),
               runtimeAdapterCreate: options.providerRuntimeAdapterCreate,
               systemPrompt: snapshot.output.agentPrompt,
             })
             if (!resolved.success) throw new Error(resolved.errorMessage)
             const adapter = providerDelegationAdapterCreate({
               adapter: resolved.data,
+              bash: { projectRoot: sessionInstructionProjectRootResolve(loaded.data.session.projectPath) },
               delegateTask: (input) => delegatedTaskExecute(input, { attempt, run }),
+              enabledTools: snapshot.output.executionManifest?.tools.primary.tools ?? [],
+              instructionContext: sessionInstructionContextCreate(
+                loaded.data.session.projectPath,
+                snapshot.output.executionManifest?.instructions ?? runtimeInstructionContext.snapshot,
+              ),
               model: snapshot.output.configuration.model,
+              ...(snapshot.output.executionManifest?.skills.descriptionCatalog === undefined
+                ? {}
+                : { skillDescriptionCatalog: snapshot.output.executionManifest.skills.descriptionCatalog }),
+              ...(snapshot.output.executionManifest?.skills.snapshots === undefined
+                ? {}
+                : { skillSnapshots: snapshot.output.executionManifest.skills.snapshots }),
+              systemPrompt: snapshot.output.agentPrompt,
               toolLoopCreate: options.providerDelegationToolLoopCreate,
+              webfetch: {},
             })
             return sessionChatChildExecutionStreamCreate({ adapter, run, signal, task })
           },
           cancellationRegister: (registration) =>
-            options.runActiveRegistry !== undefined
-              ? (() => {
-                  const registered = options.runActiveRegistry.register(registration)
-                  if (!registered.success) throw new Error(registered.errorMessage)
-                  return registered.data.cleanup
-                })()
-              : (options.runCancellationCoordinator?.register(registration) ?? (() => undefined)),
-          childCreate: (childInput) => runChildCreateAction(options.database, userId, sessionId, childInput),
+            (() => {
+              const unregisterShutdown = options.shutdownCoordinator?.register(registration.controller)
+              try {
+                const unregisterExecution =
+                  options.runActiveRegistry !== undefined
+                    ? (() => {
+                        const registered = options.runActiveRegistry.register(registration)
+                        if (!registered.success) throw new Error(registered.errorMessage)
+                        return registered.data.cleanup
+                      })()
+                    : (options.runCancellationCoordinator?.register(registration) ?? (() => undefined))
+                return () => {
+                  unregisterExecution()
+                  unregisterShutdown?.()
+                }
+              } catch (error: unknown) {
+                unregisterShutdown?.()
+                throw error
+              }
+            })(),
+          childCreate: (childInput) =>
+            runChildCreateAction(options.database, userId, sessionId, childInput, {
+              postCommitPublish: options.journalPostCommitPublish,
+              resolveRecipients: sessionJournalRecipientResolverCreate({ organizationId }),
+            }),
           delegationFinalize: (delegationId, result) =>
             runDelegationFinalizeAction(options.database, userId, sessionId, delegationId, result),
           retryAttemptCreate: (runId, retryOptions) =>
@@ -593,9 +842,18 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
       return childExecute.data.text
     }
 
+    if (commandSubtask !== undefined) {
+      adapter = sessionChatCommandSubtaskAdapterCreate({
+        ...(commandSubtask.agentId === undefined ? {} : { agentId: commandSubtask.agentId }),
+        execute: delegatedTaskExecute,
+        ...(commandSubtask.execution === undefined ? {} : { execution: commandSubtask.execution }),
+      })
+    }
+
     const prepared = await sessionChatPrepare(options.database, userId, sessionId, {
       clientRequestId: parsed.data.runId,
       content: prompt,
+      ...(commandMessageMetadata === undefined ? {} : { metadata: commandMessageMetadata }),
     })
     if (!prepared.success) {
       if (prepared.errorMessage.includes("could not be found")) return notFound(context)
@@ -627,6 +885,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
       const resolved = providerRuntimeAdapterResolve(runtimeConfiguration, {
         environment: options.providerEnvironment ?? Bun.env,
         ...(options.providerFetch === undefined ? {} : { fetch: options.providerFetch }),
+        instructionContext: runtimeInstructionContext,
         runtimeAdapterCreate: options.providerRuntimeAdapterCreate,
         ...(runtimeAgentPrompt === undefined ? {} : { systemPrompt: runtimeAgentPrompt }),
       })
@@ -639,15 +898,27 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
         activeRun !== undefined && deterministicScenario === null
           ? providerDelegationAdapterCreate({
               adapter: resolved.data,
+              bash: { projectRoot: sessionInstructionProjectRootResolve(loaded.data.session.projectPath) },
               delegateTask: delegatedTaskExecute,
+              enabledTools: runtimeToolNames,
+              instructionContext: runtimeInstructionContext,
               model: runtimeConfiguration.model,
+              ...(runtimeSkillDescriptionCatalog === undefined
+                ? {}
+                : { skillDescriptionCatalog: runtimeSkillDescriptionCatalog }),
+              ...(runtimeSkillSnapshots === undefined ? {} : { skillSnapshots: runtimeSkillSnapshots }),
+              systemPrompt: runtimeAgentPrompt,
               toolLoopCreate: options.providerDelegationToolLoopCreate,
+              webfetch: {},
             })
           : resolved.data
     }
 
     let executionSignal: AbortSignal
     let unregisterCancellation: (() => void) | undefined
+    let unregisterShutdown: (() => void) | undefined
+    const executionAbortController = new AbortController()
+    unregisterShutdown = options.shutdownCoordinator?.register(executionAbortController)
     const createdProviderOutput =
       admittedRun === undefined
         ? undefined
@@ -667,16 +938,19 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     if (options.runActiveRegistry !== undefined) {
       const registered = options.runActiveRegistry.register({
         ...(createdProviderOutput === undefined ? {} : { providerOutput: createdProviderOutput }),
+        controller: executionAbortController,
         runId: commandRunId,
         sessionId,
         userId,
       })
-      if (!registered.success) return internalServerError(context)
+      if (!registered.success) {
+        unregisterShutdown?.()
+        return internalServerError(context)
+      }
       providerOutput = registered.data.lifecycle.providerOutput
       executionSignal = registered.data.lifecycle.signal
       unregisterCancellation = registered.data.cleanup
     } else {
-      const executionAbortController = new AbortController()
       executionSignal = executionAbortController.signal
       unregisterCancellation = options.runCancellationCoordinator?.register({
         controller: executionAbortController,
@@ -790,6 +1064,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
         }
       } finally {
         unregisterCancellation?.()
+        unregisterShutdown?.()
       }
     }
 

@@ -172,3 +172,154 @@ test("a failed dispatch keeps the created session and draft for retry", async ()
   expect(created.state.chat.draft()).toBe("")
   created.dispose()
 })
+
+const commandDigest = `sha256-${"e".repeat(64)}`
+
+function commandCatalogCreate(options: { isBashEnabled?: boolean } = {}) {
+  return {
+    commands: () => [
+      {
+        description: "Review a change",
+        name: "review",
+        path: ".agents/commands/review.md",
+        precedence: 1,
+        size: 10,
+        source: "project" as const,
+        template: "Review $1 and $2.",
+        templateDigest: commandDigest,
+        validation: "valid" as const,
+      },
+      {
+        name: "release",
+        path: ".agents/commands/release.md",
+        precedence: 1,
+        size: 10,
+        source: "project" as const,
+        template: "Release !`git describe`.",
+        templateDigest: commandDigest,
+        validation: "valid" as const,
+      },
+    ],
+    errorMessage: () => undefined,
+    isBashEnabled: () => options.isBashEnabled ?? true,
+    retry: () => undefined,
+    status: () => "ready" as const,
+  }
+}
+
+function commandStateCreate(options: {
+  catalog?: ReturnType<typeof commandCatalogCreate>
+  submit?: () => Promise<void>
+}) {
+  const [selected, setSelected] = createSignal<string | null>(null)
+  const chat = chatStateCreate(options.submit ?? (async () => undefined))
+  const created: Array<{ command?: { arguments: string; name: string }; projectPath?: string }> = []
+  let state: ReturnType<typeof sessionInitialMessageStateCreate> | undefined
+  const dispose = createRoot((rootDispose) => {
+    state = sessionInitialMessageStateCreate({
+      chatCreate: () => chat,
+      commandCatalog: options.catalog ?? commandCatalogCreate(),
+      selectedSessionId: selected,
+      sessionCreateErrorMessage: () => undefined,
+      sessionCreateStart: async (projectPath, command) => {
+        created.push({
+          ...(command === undefined ? {} : { command }),
+          ...(projectPath === undefined ? {} : { projectPath }),
+        })
+        setSelected("session-command")
+        return "session-command"
+      },
+      sessionReady: async () => true,
+      sessionTargetAvailable: () => true,
+    })
+    return rootDispose
+  })
+  return { chat, created, dispose, state: state! }
+}
+
+test("a pre-session command draft creates the session with the typed invocation and hands off the expansion", async () => {
+  const submitted: string[] = []
+  const created = commandStateCreate({
+    submit: async () => {
+      submitted.push("submit")
+    },
+  })
+  created.state.chat.draftUpdate('/review alpha "beta gamma"')
+
+  expect(created.state.chat.command?.preview()?.expandedText).toBe("Review alpha and beta gamma.")
+  expect(created.state.chat.canSubmit()).toBe(true)
+
+  await created.state.chat.submit()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+
+  // The command travels with creation so its overrides are captured in the
+  // immutable selection before the session exists.
+  expect(created.created).toEqual([{ command: { arguments: 'alpha "beta gamma"', name: "review" } }])
+  // The turn is dispatched through the normal chat path of the created session.
+  expect(created.chat.draft()).toBe('/review alpha "beta gamma"')
+  expect(submitted).toEqual(["submit"])
+  created.dispose()
+})
+
+test("a pre-session prose draft creates the session without any command identity", async () => {
+  const created = commandStateCreate({})
+  created.state.chat.draftUpdate("just prose")
+
+  await created.state.chat.submit()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+
+  expect(created.created).toEqual([{}])
+  expect(created.chat.draft()).toBe("just prose")
+  created.dispose()
+})
+
+test("an invalid pre-session command draft never creates a session and keeps the draft", async () => {
+  const created = commandStateCreate({})
+  created.state.chat.draftUpdate("/nope ")
+
+  expect(created.state.chat.canSubmit()).toBe(false)
+  await created.state.chat.submit()
+
+  expect(created.created).toEqual([])
+  expect(created.state.chat.draft()).toBe("/nope ")
+  expect(created.state.chat.errorMessage()).toBe('The command "/nope" could not be found in this project.')
+  created.dispose()
+})
+
+test("a pre-session interpolation command is refused while bash is disabled for the primary agent", async () => {
+  const created = commandStateCreate({ catalog: commandCatalogCreate({ isBashEnabled: false }) })
+  created.state.chat.draftUpdate("/release now")
+
+  await created.state.chat.submit()
+
+  expect(created.created).toEqual([])
+  expect(created.state.chat.errorMessage()).toContain("requires the bash tool to be enabled")
+  created.dispose()
+})
+
+test("the pre-session composer gives the command affordance ownership of the arrow keys", () => {
+  const created = commandStateCreate({})
+  created.state.chat.draftUpdate("/re")
+
+  let prevented = false
+  created.state.chat.keyDownHandle({
+    isComposing: false,
+    key: "ArrowDown",
+    preventDefault: () => {
+      prevented = true
+    },
+    shiftKey: false,
+  } as KeyboardEvent)
+  expect(prevented).toBe(true)
+
+  created.state.chat.keyDownHandle({
+    isComposing: false,
+    key: "Enter",
+    preventDefault: () => undefined,
+    shiftKey: false,
+  } as KeyboardEvent)
+  // The first Enter completes the highlighted command instead of submitting a prefix.
+  expect(created.created).toEqual([])
+  expect(created.state.chat.draft()).toBe("/review ")
+  created.dispose()
+})

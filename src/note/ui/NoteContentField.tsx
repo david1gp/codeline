@@ -28,7 +28,7 @@ export function NoteContentField(props: NoteContentFieldProps) {
         />
       </div>
 
-      <div
+      <section
         id="note-content-preview"
         hidden={!props.state.isPreviewVisible()}
         aria-label="Note preview"

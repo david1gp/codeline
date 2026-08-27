@@ -1,10 +1,10 @@
 import { afterAll, expect, test } from "bun:test"
 import { and, eq } from "drizzle-orm"
-import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
-import { organizationTable } from "../src/identity/db/organizationTable.js"
+import { agentTable } from "../src/agents/db/agentTable.js"
 import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
 import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
-import { agentTable } from "../src/agents/db/agentTable.js"
+import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
+import { organizationTable } from "../src/identity/db/organizationTable.js"
 import { runChildCreate } from "../src/run/actions/runChildCreate.js"
 import { runCreate } from "../src/run/actions/runCreate.js"
 import { runDelegationsLoad } from "../src/run/actions/runDelegationsLoad.js"
@@ -102,6 +102,8 @@ test.skipIf(!databaseAvailable)("loads only authorized session delegations in cr
       .map((child) => child.data.delegation)
       .sort((left, right) => left.id.localeCompare(right.id))
       .map((delegation) => ({
+        // The load joins the child run so the UI can label the delegation's target agent.
+        childAgentId: agentId,
         childRunId: delegation.childRunId,
         delegationKey: delegation.delegationKey,
         id: delegation.id,

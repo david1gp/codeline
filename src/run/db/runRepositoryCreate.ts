@@ -11,6 +11,7 @@ import { runErrorCodes } from "../errors/runErrorCodes.js"
 import { runResultCreateError } from "../errors/runResultCreateError.js"
 import { runBudgetSchema } from "../schema/runBudgetSchema.js"
 import { type RunCreateInput, runCreateInputSchema } from "../schema/runCreateInputSchema.js"
+import { runExecutionManifestSchema } from "../schema/runExecutionManifestSchema.js"
 import { attemptTable } from "./attemptTable.js"
 import { runTable } from "./runTable.js"
 
@@ -35,7 +36,13 @@ function runImmutableInputMatches(
 }
 
 function runRepositoryExecutionManifestPolicyValidate(
-  session: { executionSelection: unknown; primaryAgentId: string },
+  session: {
+    executionManifest: unknown
+    executionSelection: unknown
+    instructionSnapshot: unknown
+    primaryAgentId: string
+    skillSelection: unknown
+  },
   snapshot: RunCreateInput["snapshot"],
 ): Result<void> {
   const op = "runRepositoryCreate"
@@ -67,7 +74,11 @@ function runRepositoryExecutionManifestPolicyValidate(
       runErrorCodes.executionSnapshotInvalid,
     )
 
+  const persistedManifest = v.safeParse(runExecutionManifestSchema, session.executionManifest)
   const expectedManifest = runExecutionManifestSelectionResolve({
+    agentInstructions: session.instructionSnapshot,
+    command: persistedManifest.success ? persistedManifest.output.command : undefined,
+    commandCatalogDigest: persistedManifest.success ? persistedManifest.output.commandCatalog.digest : undefined,
     primaryAgentId: session.primaryAgentId,
     selection: selection.data ?? {
       tools: {
@@ -76,6 +87,7 @@ function runRepositoryExecutionManifestPolicyValidate(
       },
       version: 1,
     },
+    skillSelection: session.skillSelection,
   })
   if (!expectedManifest.success) return expectedManifest
   if (snapshot.executionManifest === undefined) {
@@ -86,6 +98,15 @@ function runRepositoryExecutionManifestPolicyValidate(
       runErrorCodes.executionSnapshotInvalid,
     )
   }
+  if (
+    session.executionManifest !== null &&
+    jsonCanonicalize(snapshot.executionManifest) !== jsonCanonicalize(session.executionManifest)
+  )
+    return runResultCreateError(
+      op,
+      "The run execution manifest does not match the immutable session execution manifest.",
+      runErrorCodes.executionSnapshotInvalid,
+    )
   if (jsonCanonicalize(snapshot.executionManifest) !== jsonCanonicalize(expectedManifest.data))
     return runResultCreateError(
       op,
@@ -121,9 +142,12 @@ export async function runRepositoryCreate(
       const [session] = await transaction
         .select({
           executionSelection: sessionTable.executionSelection,
+          executionManifest: sessionTable.executionManifest,
+          instructionSnapshot: sessionTable.instructionSnapshot,
           id: sessionTable.id,
           primaryAgentId: sessionTable.primaryAgentId,
           serverId: sessionTable.serverId,
+          skillSelection: sessionTable.skillSelection,
         })
         .from(sessionTable)
         .where(and(eq(sessionTable.id, sessionId), eq(sessionTable.userId, userId)))

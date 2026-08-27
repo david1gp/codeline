@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto"
-import { and, eq, gt, isNull } from "drizzle-orm"
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
+import { and, eq, gt, isNull } from "drizzle-orm"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { identitySessionTable } from "./identitySessionTable.js"
 

@@ -47,6 +47,9 @@ test("child admission keeps the one-child budget closed for distinct requests", 
 
 test.each([
   ["parent_not_running", { parentStatus: "accepted" }],
+  ["parent_not_running", { parentStatus: "aborted" }],
+  ["parent_not_running", { parentStatus: "failed" }],
+  ["parent_not_running", { parentStatus: "succeeded" }],
   ["current_attempt_not_running", { attemptStatus: "accepted" }],
   ["cancelled", { cancelled: true }],
   ["deadline_exceeded", { now: 2_000 }],

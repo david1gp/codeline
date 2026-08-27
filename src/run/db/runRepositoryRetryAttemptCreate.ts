@@ -34,7 +34,63 @@ type RunRetryAttemptCreateResult = {
 }
 
 type RunRetryAttemptCreateOptions = {
+  attemptCreate?: (
+    transaction: DatabaseExecutor,
+    input: typeof attemptTable.$inferInsert,
+  ) => Promise<Result<typeof attemptTable.$inferSelect>>
   now?: () => Date
+  runReopen?: (
+    transaction: DatabaseExecutor,
+    input: { now: Date; runId: string },
+  ) => Promise<Result<typeof runTable.$inferSelect>>
+}
+
+async function runRetryAttemptPersist(
+  transaction: DatabaseExecutor,
+  input: typeof attemptTable.$inferInsert,
+): Promise<Result<typeof attemptTable.$inferSelect>> {
+  const op = "runRepositoryRetryAttemptCreate"
+  try {
+    const [attempt] = await transaction.insert(attemptTable).values(input).returning()
+    if (attempt === undefined)
+      return runResultCreateError(
+        op,
+        "The next run attempt could not be created.",
+        runErrorCodes.retryAttemptPersistenceFailed,
+      )
+    return createResult(attempt)
+  } catch (_error) {
+    return runResultCreateError(
+      op,
+      "The next run attempt could not be created.",
+      runErrorCodes.retryAttemptPersistenceFailed,
+    )
+  }
+}
+
+async function runRetryRunReopen(
+  transaction: DatabaseExecutor,
+  input: { now: Date; runId: string },
+): Promise<Result<typeof runTable.$inferSelect>> {
+  const op = "runRepositoryRetryAttemptCreate"
+  try {
+    const [run] = await transaction
+      .update(runTable)
+      .set({
+        failure: null,
+        finishedAt: null,
+        startedAt: null,
+        status: "accepted",
+        updatedAt: input.now,
+      })
+      .where(and(eq(runTable.id, input.runId), eq(runTable.status, "failed")))
+      .returning()
+    if (run === undefined)
+      return runResultCreateError(op, "The run could not be reopened for retry.", runErrorCodes.retryReopenFailed)
+    return createResult(run)
+  } catch (_error) {
+    return runResultCreateError(op, "The run could not be reopened for retry.", runErrorCodes.retryReopenFailed)
+  }
 }
 
 export async function runRepositoryRetryAttemptCreate(
@@ -103,6 +159,10 @@ export async function runRepositoryRetryAttemptCreate(
         )
       }
 
+      if (run.cancellationRequestedAt !== null) {
+        return runResultCreateError(op, "The run retry was not admitted: cancelled.", runErrorCodes.retryNotAdmitted)
+      }
+
       if (run.status === "accepted" && latestAttempt.ordinal > 1) {
         if (
           jsonCanonicalize(run.snapshot) !== jsonCanonicalize(latestAttempt.snapshot) ||
@@ -136,9 +196,6 @@ export async function runRepositoryRetryAttemptCreate(
         )
       }
 
-      if (run.cancellationRequestedAt !== null) {
-        return runResultCreateError(op, "The run retry was not admitted: cancelled.", runErrorCodes.retryNotAdmitted)
-      }
       const now = options.now?.() ?? new Date()
       if (Number.isNaN(now.getTime()))
         return runResultCreateError(op, "The retry clock is invalid.", runErrorCodes.clockInvalid)
@@ -151,42 +208,28 @@ export async function runRepositoryRetryAttemptCreate(
       }
 
       const nextAttemptOrdinal = admission.data.nextAttemptOrdinal
-      const [attempt] = await transaction
-        .insert(attemptTable)
-        .values({
-          budget: run.budget,
-          failure: null,
-          id: uuidv7(),
-          ordinal: nextAttemptOrdinal,
-          runId: run.id,
-          sessionId,
-          snapshot: run.snapshot,
-          streamId: runRetryAttemptStreamIdCreate(run.id, nextAttemptOrdinal),
-          userId,
-        })
-        .returning()
-      if (attempt === undefined)
-        return runResultCreateError(
-          op,
-          "The next run attempt could not be created.",
-          runErrorCodes.retryAttemptPersistenceFailed,
-        )
+      const attemptCreated = await (options.attemptCreate ?? runRetryAttemptPersist)(transaction, {
+        budget: run.budget,
+        failure: null,
+        id: uuidv7(),
+        ordinal: nextAttemptOrdinal,
+        runId: run.id,
+        sessionId,
+        snapshot: run.snapshot,
+        streamId: runRetryAttemptStreamIdCreate(run.id, nextAttemptOrdinal),
+        userId,
+      })
+      if (!attemptCreated.success) return attemptCreated
 
-      const [updatedRun] = await transaction
-        .update(runTable)
-        .set({
-          failure: null,
-          finishedAt: null,
-          startedAt: null,
-          status: "accepted",
-          updatedAt: now,
-        })
-        .where(and(eq(runTable.id, run.id), eq(runTable.status, "failed")))
-        .returning()
-      if (updatedRun === undefined)
-        return runResultCreateError(op, "The run could not be reopened for retry.", runErrorCodes.retryReopenFailed)
+      const runReopened = await (options.runReopen ?? runRetryRunReopen)(transaction, { now, runId: run.id })
+      if (!runReopened.success) return runReopened
 
-      return createResult({ admission: admission.data, attempt, created: true, run: updatedRun })
+      return createResult({
+        admission: admission.data,
+        attempt: attemptCreated.data,
+        created: true,
+        run: runReopened.data,
+      })
     } catch (_error) {
       return runResultCreateError(
         op,

@@ -199,7 +199,7 @@ async function toolRegistryExecutionRun(
           {
             outputLimit: context.outputLimit,
             signal: executionController.signal,
-            ...(context.timeoutMs === null ? {} : { timeoutMs: context.timeoutMs }),
+            timeoutMs: context.timeoutMs,
             toolCallId: context.toolCallId,
           },
           input,
@@ -253,7 +253,7 @@ export function toolRegistryCreate(): ToolRegistry {
         toolErrorCodes.registrationConflict,
         `The ${parsed.data.name} tool is already registered.`,
       )
-    tools.set(parsed.data.name, parsed.data)
+    tools.set(parsed.data.name, Object.freeze(parsed.data))
     return createResult(undefined)
   }
 

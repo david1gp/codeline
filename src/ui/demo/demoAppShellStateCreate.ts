@@ -1,10 +1,10 @@
-import type { AppShellView } from "../appShellView.js"
+import { activeProjectStateCreate } from "../activeProjectStateCreate.js"
 import { appConnectionDetailsResolve } from "../appConnectionDetailsResolve.js"
+import type { AppShellView } from "../appShellView.js"
 import { connectionStatusIndicatorStateCreate } from "../connectionStatusIndicatorStateCreate.js"
 import type { EventFeedConnectionView } from "../eventFeedConnectionView.js"
 import type { DemoSessionScreenVariant } from "./demoSessionScreenVariant.js"
 import { demoThemeSwitcherStateCreate } from "./demoThemeSwitcherStateCreate.js"
-import { activeProjectStateCreate } from "../activeProjectStateCreate.js"
 
 /** Supplies deterministic header status without API, event feed, or service workers. */
 export function demoAppShellStateCreate(variant: () => DemoSessionScreenVariant): AppShellView {

@@ -1,6 +1,6 @@
 import { createResult, createResultErrorCode, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
-import { streamSseFrameSchema, type StreamSseFrame } from "../api/streamSseFrameSchema.js"
+import { type StreamSseFrame, streamSseFrameSchema } from "../api/streamSseFrameSchema.js"
 
 type EventFeedEventInput = {
   data?: unknown

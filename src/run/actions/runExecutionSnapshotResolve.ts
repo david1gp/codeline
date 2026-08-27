@@ -4,8 +4,11 @@ import { agentConfigurationExecutionResolve } from "../../agents/actions/agentCo
 import { agentConfigurationSchema } from "../../agents/schema/agentConfigurationSchema.js"
 import { agentExecutionTargetSchema } from "../../agents/schema/agentExecutionTargetSchema.js"
 import { agentToolDefaultsSchema } from "../../agents/schema/agentToolDefaultsSchema.js"
+import { commandExecutionManifestSchema } from "../../commands/schema/commandExecutionManifestSchema.js"
 import type { ConfigurationStore } from "../../configuration/configurationStore.js"
 import { configurationStoreRead } from "../../configuration/configurationStoreRead.js"
+import { agentInstructionsSnapshotResolve } from "../../instructions/actions/agentInstructionsSnapshotResolve.js"
+import type { AgentInstructionsResolvedSnapshot } from "../../instructions/schema/agentInstructionsResolvedSnapshotSchema.js"
 import { providerAgentCatalogExecutionResolve } from "../../providers/catalog/providerAgentCatalogExecutionResolve.js"
 import type { ProviderCatalog } from "../../providers/schema/providerCatalogSchema.js"
 import type { ToolName } from "../../tools/schema/toolNameSchema.js"
@@ -18,12 +21,16 @@ import { runExecutionManifestSelectionResolve } from "./runExecutionManifestSele
 import { runExecutionManifestToolDefaultsResolve } from "./runExecutionManifestToolDefaultsResolve.js"
 
 type RunExecutionSnapshotResolveOptions = {
+  agentInstructions?: unknown
+  command?: unknown
+  commandCatalogDigest?: string | null
   catalog?: ProviderCatalog
   configuration?: unknown
   configurationRevision?: unknown
   configurationStoreRead?: typeof configurationStoreRead
   executionManifest?: unknown
   executionSelection?: unknown
+  skillSelection?: unknown
   execution?: unknown
   override?: unknown
   providerAgentCatalog?: ProviderCatalog
@@ -41,9 +48,12 @@ function runExecutionManifestDefaultToolsResolve(defaults: v.InferInput<typeof a
 function runExecutionManifestDefaultCreate(
   target: { agentId: string },
   configuration: { tools?: v.InferInput<typeof agentToolDefaultsSchema> },
+  commandCatalogDigest?: string | null,
+  command?: RunExecutionManifest["command"],
 ): RunExecutionManifest {
   return {
-    commandCatalog: { digest: null, version: 1 },
+    commandCatalog: { digest: commandCatalogDigest ?? null, version: 1 },
+    ...(command === undefined ? {} : { command }),
     instructions: { snapshots: [], version: 1 },
     skills: { snapshots: [], version: 1 },
     tools: {
@@ -74,26 +84,86 @@ function runExecutionManifestResolve(
   configuration: { tools?: v.InferInput<typeof agentToolDefaultsSchema> },
   options: RunExecutionSnapshotResolveOptions,
 ): RunExecutionManifest | null {
-  const selection =
-    options.executionSelection === undefined
+  const parsedCommand =
+    options.command === undefined ? undefined : v.safeParse(commandExecutionManifestSchema, options.command)
+  if (options.command !== undefined && !parsedCommand?.success) return null
+  const persistedManifest =
+    options.executionManifest === undefined
       ? undefined
-      : runExecutionManifestSelectionResolve({ primaryAgentId: target.agentId, selection: options.executionSelection })
+      : v.safeParse(runExecutionManifestSchema, options.executionManifest)
+  if (options.executionManifest !== undefined && !persistedManifest?.success) return null
+  const command = parsedCommand?.success
+    ? parsedCommand.output
+    : persistedManifest?.success
+      ? persistedManifest.output.command
+      : undefined
+  const commandCatalogDigest =
+    options.commandCatalogDigest ?? (persistedManifest?.success ? persistedManifest.output.commandCatalog.digest : null)
+  let instructions: AgentInstructionsResolvedSnapshot | undefined
+  if (options.agentInstructions !== undefined) {
+    const resolvedInstructions = agentInstructionsSnapshotResolve(options.agentInstructions)
+    if (!resolvedInstructions.success) return null
+    instructions = resolvedInstructions.data
+  }
+
+  const manifestSelection =
+    options.executionSelection ??
+    (options.skillSelection === undefined
+      ? undefined
+      : {
+          tools: {
+            primary: { agentId: target.agentId, tools: configuration.tools ?? {} },
+            selectableSubagents: [],
+          },
+          version: 1 as const,
+        })
+  const selection =
+    manifestSelection === undefined
+      ? undefined
+      : runExecutionManifestSelectionResolve({
+          agentInstructions: options.agentInstructions,
+          catalog: options.catalog ?? options.providerAgentCatalog,
+          command,
+          commandCatalogDigest,
+          primaryAgentId: target.agentId,
+          selection: manifestSelection,
+          ...(options.skillSelection === undefined ? {} : { skillSelection: options.skillSelection }),
+        })
   if (selection !== undefined && !selection.success) return null
 
   if (options.executionManifest !== undefined) {
-    const parsedManifest = v.safeParse(runExecutionManifestSchema, options.executionManifest)
-    if (!parsedManifest.success || parsedManifest.output.tools.primary.agentId !== target.agentId) return null
+    if (!persistedManifest?.success || persistedManifest.output.tools.primary.agentId !== target.agentId) return null
+    if (
+      command !== undefined &&
+      runExecutionSnapshotJsonCanonicalize(persistedManifest.output.command) !==
+        runExecutionSnapshotJsonCanonicalize(command)
+    )
+      return null
     if (
       selection !== undefined &&
-      runExecutionSnapshotJsonCanonicalize(parsedManifest.output) !==
+      runExecutionSnapshotJsonCanonicalize(persistedManifest.output) !==
         runExecutionSnapshotJsonCanonicalize(selection.data)
     )
       return null
-    return parsedManifest.output
+    if (
+      instructions !== undefined &&
+      runExecutionSnapshotJsonCanonicalize(persistedManifest.output.instructions) !==
+        runExecutionSnapshotJsonCanonicalize(instructions)
+    )
+      return null
+    return persistedManifest.output
   }
 
-  if (selection !== undefined) return selection.data
-  return runExecutionManifestDefaultCreate(target, configuration)
+  if (selection !== undefined) {
+    if (instructions === undefined) return selection.data
+    return { ...selection.data, instructions }
+  }
+  if (instructions === undefined)
+    return runExecutionManifestDefaultCreate(target, configuration, commandCatalogDigest, command)
+  return {
+    ...runExecutionManifestDefaultCreate(target, configuration, commandCatalogDigest, command),
+    instructions,
+  }
 }
 
 function runExecutionSnapshotDeepFreeze<T>(value: T): T {
@@ -106,7 +176,7 @@ function runExecutionSnapshotDeepFreeze<T>(value: T): T {
 
 export function runExecutionSnapshotResolve(
   target: unknown,
-  store: ConfigurationStore,
+  store?: ConfigurationStore,
   options: RunExecutionSnapshotResolveOptions = {},
 ): Result<RunExecutionSnapshot> {
   const op = "runExecutionSnapshotResolve"
@@ -114,10 +184,10 @@ export function runExecutionSnapshotResolve(
   if (!parsedTarget.success)
     return runResultCreateError(op, "The run execution target is invalid.", runErrorCodes.executionTargetInvalid)
 
-  const read = (options.configurationStoreRead ?? configurationStoreRead)(store)
-  if (!read.success) return read
+  const read = store === undefined ? undefined : (options.configurationStoreRead ?? configurationStoreRead)(store)
+  if (read !== undefined && !read.success) return read
 
-  const entry = read.data.configuration.agentConfigurations.find(
+  const entry = read?.data.configuration.agentConfigurations.find(
     ({ target: configuredTarget }) =>
       configuredTarget.serverId === parsedTarget.output.serverId &&
       configuredTarget.agentId === parsedTarget.output.agentId,
@@ -198,7 +268,7 @@ export function runExecutionSnapshotResolve(
       ...(agentPrompt === undefined ? {} : { agentPrompt }),
       ...(catalogRevision === undefined ? {} : { catalogRevision }),
       configuration: snapshotConfiguration,
-      configurationRevision: options.configurationRevision ?? read.data.revision,
+      configurationRevision: options.configurationRevision ?? read?.data.revision,
       executionManifest,
       ...(modelMetadata === undefined ? {} : { modelMetadata }),
       target: parsedTarget.output,

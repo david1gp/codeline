@@ -1,6 +1,6 @@
 import { createSignalObject } from "@adaptive-ds/solid-ui/utils/createSignalObject"
-import { noteLineCount } from "../../note/ui/noteLineCount.js"
 import { noteContentFieldStateCreate } from "../../note/ui/noteContentFieldStateCreate.js"
+import { noteLineCount } from "../../note/ui/noteLineCount.js"
 import { noteProjectChoicesResolve } from "../../note/ui/noteProjectChoicesResolve.js"
 import type { NoteScreenView } from "../../note/ui/noteScreenView.js"
 import { noteTitleStateCreate } from "../../note/ui/noteTitleStateCreate.js"

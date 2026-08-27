@@ -7,7 +7,7 @@ export async function sessionChatPrepare(
   database: DatabaseExecutor,
   userId: string,
   sessionId: string,
-  input: { clientRequestId: string; content: string },
+  input: { clientRequestId: string; content: string; metadata?: unknown },
 ): Promise<
   Result<{ history: Array<typeof messageTable.$inferSelect>; userMessage: typeof messageTable.$inferSelect }>
 > {

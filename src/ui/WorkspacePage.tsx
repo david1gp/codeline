@@ -80,10 +80,16 @@ export function WorkspacePage(props: { state: WorkspaceScreenView }) {
             configurationStatus: props.state.sessionTargetSelector.configurationReadiness().status,
             readOnlyReason: props.state.selectedSession.readOnlyReason(),
           })}
-          fallback={<WorkspaceSetupPanel configuration={props.state.sessionTargetSelector.configurationReadiness()} />}
+          fallback={
+            <WorkspaceSetupPanel
+              configuration={props.state.sessionTargetSelector.configurationReadiness()}
+              resources={props.state.sessionResourceSelector}
+            />
+          }
         >
           <SelectedSession
             providerModel={props.state.providerModelSelector}
+            resources={props.state.sessionResourceSelector}
             sessionTarget={props.state.sessionTargetSelector}
             state={props.state.selectedSession}
           />

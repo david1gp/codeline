@@ -1,8 +1,12 @@
 import { type AnySQLiteColumn, foreignKey, index, integer, sqliteTable, text, unique } from "drizzle-orm/sqlite-core"
 import { agentTable } from "../../agents/db/agentTable.js"
 import { applicationUserTable } from "../../identity/db/applicationUserTable.js"
+import type { AgentInstructionsResolvedSnapshot } from "../../instructions/schema/agentInstructionsResolvedSnapshotSchema.js"
+import type { RunExecutionManifest } from "../../run/schema/runExecutionManifestSchema.js"
 import { serverTable } from "../../servers/db/serverTable.js"
+import type { SkillSelection } from "../../skills/schema/skillSelectionSchema.js"
 import type { SessionExecutionSelection } from "../schema/sessionExecutionSelectionSchema.js"
+import type { SessionMetadata } from "../schema/sessionMetadataSchema.js"
 
 export const sessionTable = sqliteTable(
   "session",
@@ -24,7 +28,24 @@ export const sessionTable = sqliteTable(
     title: text("title").notNull(),
     clientRequestId: text("client_request_id").notNull(),
     executionSelection: text("execution_selection", { mode: "json" }).$type<SessionExecutionSelection | null>(),
-    metadata: text("metadata", { mode: "json" }).notNull().default({}),
+    skillSelection: text("skill_selection", { mode: "json" })
+      .$type<SkillSelection>()
+      .notNull()
+      .default({
+        activeSkills: [],
+        excludedSkillNames: [],
+        missingFolderPaths: [],
+        missingSkillNames: [],
+        presetName: "default",
+        userOverride: { disabledSkills: [], enabledSkills: [] },
+        version: 1,
+      }),
+    executionManifest: text("execution_manifest", { mode: "json" }).$type<RunExecutionManifest | null>(),
+    instructionSnapshot: text("instruction_snapshot", { mode: "json" })
+      .$type<AgentInstructionsResolvedSnapshot>()
+      .notNull()
+      .default({ snapshots: [], version: 1 }),
+    metadata: text("metadata", { mode: "json" }).$type<SessionMetadata>().notNull().default({}),
     pinned: integer("pinned", { mode: "boolean" }).notNull().default(true),
     revision: integer("revision").notNull().default(1),
     archivedAt: integer("archived_at", { mode: "timestamp_ms" }),

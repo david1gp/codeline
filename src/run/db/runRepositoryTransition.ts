@@ -111,6 +111,9 @@ export async function runRepositoryTransition(
         }
         return createResult<RunTransitionResult>({ changed: false, run, attempt })
       }
+      if (run.cancellationRequestedAt !== null && parsedInput.output.status !== "aborted") {
+        return runResultCreateError(op, "The cancelled run cannot be transitioned.", runErrorCodes.transitionInvalid)
+      }
 
       const now = new Date()
       const timing = parsedInput.output.status === "running" ? { startedAt: now } : {}

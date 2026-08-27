@@ -4,7 +4,11 @@ import * as v from "valibot"
 import { agentTable } from "../../agents/db/agentTable.js"
 import { mutationIdempotencyTable } from "../../api/db/mutationIdempotencyTable.js"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
+import { agentInstructionsSnapshotResolve } from "../../instructions/actions/agentInstructionsSnapshotResolve.js"
+import { runExecutionManifestSelectionResolve } from "../../run/actions/runExecutionManifestSelectionResolve.js"
+import { runExecutionManifestSchema } from "../../run/schema/runExecutionManifestSchema.js"
 import { serverTable } from "../../servers/db/serverTable.js"
+import { skillSelectionSchema } from "../../skills/schema/skillSelectionSchema.js"
 import { uuidv7 } from "../../uuid/uuidv7.js"
 import { sessionExecutionSelectionCanonicalize } from "../actions/sessionExecutionSelectionCanonicalize.js"
 import { sessionCreateMutationResponseCreate } from "../api/sessionCreateMutationResponseCreate.js"
@@ -12,9 +16,19 @@ import {
   type SessionCreateMutationResponse,
   sessionCreateMutationResponseSchema,
 } from "../api/sessionCreateMutationResponseSchema.js"
+import { sessionMetadataSchema } from "../schema/sessionMetadataSchema.js"
 import { sessionTable } from "./sessionTable.js"
 
 const sessionCreateOperation = "session.create"
+
+function jsonCanonicalize(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value)
+  if (Array.isArray(value)) return `[${value.map(jsonCanonicalize).join(",")}]`
+  return `{${Object.keys(value as Record<string, unknown>)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${jsonCanonicalize((value as Record<string, unknown>)[key])}`)
+    .join(",")}}`
+}
 
 type SessionCreateMutationResult = {
   created: boolean
@@ -30,20 +44,66 @@ export async function sessionRepositoryCreate(
   input: {
     clientRequestId: string
     executionSelection?: unknown
+    executionManifest?: unknown
+    instructionSnapshot: unknown
     id?: string
     idempotencyKey?: string
-    metadata: Record<string, string>
+    metadata: unknown
     pinned?: boolean
     primaryAgentId: string
     projectPath?: string
     requestHash?: string
     serverId: string
+    skillSelection?: unknown
     title: string
   },
 ): Promise<Result<SessionCreateMutationResult>> {
   const op = "sessionRepositoryCreate"
   const executionSelection = sessionExecutionSelectionCanonicalize(input.executionSelection, input.primaryAgentId)
   if (!executionSelection.success) return executionSelection
+  const metadata = v.safeParse(sessionMetadataSchema, input.metadata ?? {})
+  if (!metadata.success) return createResultError(op, "The session metadata is invalid.")
+  const instructionSnapshot = agentInstructionsSnapshotResolve(input.instructionSnapshot)
+  if (!instructionSnapshot.success) return createResultError(op, "The agent instruction snapshot is invalid.")
+  const skillSelection = v.safeParse(
+    skillSelectionSchema,
+    input.skillSelection ?? {
+      activeSkills: [],
+      excludedSkillNames: [],
+      missingFolderPaths: [],
+      missingSkillNames: [],
+      presetName: "default",
+      userOverride: { disabledSkills: [], enabledSkills: [] },
+      version: 1,
+    },
+  )
+  if (!skillSelection.success) return createResultError(op, "The session skill selection is invalid.")
+  let executionManifest: v.InferOutput<typeof runExecutionManifestSchema> | null = null
+  if (input.executionManifest !== undefined && input.executionManifest !== null) {
+    const parsedManifest = v.safeParse(runExecutionManifestSchema, input.executionManifest)
+    if (!parsedManifest.success) return createResultError(op, "The session execution manifest is invalid.")
+    executionManifest = parsedManifest.output
+  }
+  if (executionManifest !== null) {
+    const expectedManifest = runExecutionManifestSelectionResolve({
+      agentInstructions: instructionSnapshot.data,
+      command: executionManifest.command,
+      commandCatalogDigest: executionManifest.commandCatalog.digest,
+      primaryAgentId: input.primaryAgentId,
+      selection: executionSelection.data ?? {
+        tools: {
+          primary: { agentId: input.primaryAgentId, tools: {} },
+          selectableSubagents: [],
+        },
+        version: 1,
+      },
+      skillSelection: skillSelection.output,
+    })
+    if (!expectedManifest.success)
+      return createResultError(op, "The session execution manifest does not match the resolved session choices.")
+    if (jsonCanonicalize(executionManifest) !== jsonCanonicalize(expectedManifest.data))
+      return createResultError(op, "The session execution manifest does not match the resolved session choices.")
+  }
 
   try {
     if (input.idempotencyKey !== undefined && input.requestHash === undefined)
@@ -91,10 +151,13 @@ export async function sessionRepositoryCreate(
       .values({
         clientRequestId: input.clientRequestId,
         executionSelection: executionSelection.data,
+        executionManifest,
+        instructionSnapshot: instructionSnapshot.data,
         id: input.id ?? uuidv7(),
-        metadata: input.metadata,
+        metadata: metadata.output,
         primaryAgentId: input.primaryAgentId,
         projectPath: input.projectPath ?? "~",
+        skillSelection: skillSelection.output,
         serverId: input.serverId,
         title: input.title,
         userId,

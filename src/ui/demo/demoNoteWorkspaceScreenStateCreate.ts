@@ -3,8 +3,8 @@ import { noteGroupsDerive } from "../../note/ui/noteGroupsDerive.js"
 import { noteMoveBoundsResolve } from "../../note/ui/noteMoveBoundsResolve.js"
 import type { NoteWorkspaceScreenView } from "../../note/ui/noteWorkspaceScreenView.js"
 import { demoNoteProjectsFixture } from "./demoNoteProjectsFixture.js"
-import { demoNotesFixture } from "./demoNotesFixture.js"
 import { demoNoteScreenStateCreate } from "./demoNoteScreenStateCreate.js"
+import { demoNotesFixture } from "./demoNotesFixture.js"
 import type { DemoSessionScreenVariant } from "./demoSessionScreenVariant.js"
 
 const demoActiveNote = demoNotesFixture[0]

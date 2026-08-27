@@ -6,9 +6,9 @@ import type { ToolExecutionContext } from "./toolExecutionContext.js"
 type ToolSchema = v.BaseSchema<unknown, unknown, v.BaseIssue<unknown>>
 
 export type RegisteredTool = {
-  enabled: boolean
-  execute: (context: ToolExecutionContext, input: unknown) => Promise<Result<unknown>> | Result<unknown>
-  inputSchema: ToolSchema
-  name: ToolName
-  outputSchema: ToolSchema
+  readonly enabled: boolean
+  readonly execute: (context: ToolExecutionContext, input: unknown) => Promise<Result<unknown>> | Result<unknown>
+  readonly inputSchema: ToolSchema
+  readonly name: ToolName
+  readonly outputSchema: ToolSchema
 }

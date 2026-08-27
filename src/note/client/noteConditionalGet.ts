@@ -1,7 +1,7 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
-import { apiEtagSchema } from "../../api/schema/apiEtagSchema.js"
 import type { ApiEtag } from "../../api/schema/apiEtagSchema.js"
+import { apiEtagSchema } from "../../api/schema/apiEtagSchema.js"
 import type { ApiRevision } from "../../api/schema/apiRevisionSchema.js"
 import type { NoteRepresentationResponse } from "./noteRepresentationResponse.js"
 

@@ -1,0 +1,5 @@
+version: 1
+name: full
+description: Every discovered project and global skill.
+includeFolders:
+  - "."

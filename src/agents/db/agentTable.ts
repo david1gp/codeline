@@ -1,6 +1,5 @@
 import { sql } from "drizzle-orm"
-import { check, index, integer, sqliteTable, text, unique } from "drizzle-orm/sqlite-core"
-import { type AnySQLiteColumn } from "drizzle-orm/sqlite-core"
+import { type AnySQLiteColumn, check, index, integer, sqliteTable, text, unique } from "drizzle-orm/sqlite-core"
 import { serverTable } from "../../servers/db/serverTable.js"
 
 export const agentTable = sqliteTable(

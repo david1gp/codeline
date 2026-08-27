@@ -1,8 +1,8 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import type { DatabaseClient, DatabaseTransaction } from "../../database/databaseClient.js"
 import type { JournalEventRecipientResolver } from "../../journal/actions/journalEventRecipientResolver.js"
-import { journalWriteCreate } from "../../journal/actions/journalWriteCreate.js"
 import type { journalPostCommitPublishCreate } from "../../journal/actions/journalPostCommitPublishCreate.js"
+import { journalWriteCreate } from "../../journal/actions/journalWriteCreate.js"
 import type { NoteRepositoryMutationResult } from "../db/noteRepositoryMutationResult.js"
 
 type NoteJournalMutationRunInput<T extends NoteRepositoryMutationResult> = {

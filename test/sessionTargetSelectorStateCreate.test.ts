@@ -353,7 +353,7 @@ test("creating a session posts the selected target once and navigates", async ()
   dispose()
 })
 
-test("the new-session route automatically creates and selects a blank session", async () => {
+test("the new-session route leaves the pre-session selection mutable instead of creating a blank session", async () => {
   const requests: string[] = []
   const [selectedSessionId, setSelectedSessionId] = createSignal<string | null>(null)
   let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
@@ -369,13 +369,21 @@ test("the new-session route automatically creates and selects a blank session", 
   })
   await effectsSettle()
 
+  // The session must not exist until the resource selection has been resolved, because
+  // creation captures that selection into an immutable snapshot.
+  expect(requests.filter((request) => request === "POST /api/sessions")).toHaveLength(0)
+  expect(selectedSessionId()).toBeNull()
+  expect(state?.sessionCreateStatus()).toBe("idle")
+  expect(state?.canCreateSession()).toBe(true)
+
+  await state?.sessionCreateStart()
+
   expect(requests.filter((request) => request === "POST /api/sessions")).toHaveLength(1)
   expect(selectedSessionId()).toBe("created-session")
-  expect(state?.sessionCreateStatus()).toBe("idle")
   dispose()
 })
 
-test("automatic creation and first-message fallback share one in-flight request", async () => {
+test("concurrent first-message creations share one in-flight request", async () => {
   const requests: string[] = []
   const gate = deferredCreate<void>()
   const [selectedSessionId, setSelectedSessionId] = createSignal<string | null>(null)
@@ -400,9 +408,12 @@ test("automatic creation and first-message fallback share one in-flight request"
   await effectsSettle()
 
   const fallback = state?.sessionCreateStart()
+  const duplicate = state?.sessionCreateStart()
+  expect(fallback).toBe(duplicate as Promise<string | null>)
+  await new Promise((resolve) => setTimeout(resolve, 0))
   expect(requests.filter((request) => request === "POST /api/sessions")).toHaveLength(1)
   gate.resolve()
-  await fallback
+  await Promise.all([fallback, duplicate])
   await effectsSettle()
 
   expect(selectedSessionId()).toBe("created-session")
@@ -410,7 +421,7 @@ test("automatic creation and first-message fallback share one in-flight request"
   dispose()
 })
 
-test("automatic creation does not re-trigger before the final selection", async () => {
+test("creation does not re-trigger after the route leaves the new-session view", async () => {
   const requests: string[] = []
   const selectionStatuses: string[] = []
   const [isNewSessionRoute, setIsNewSessionRoute] = createSignal(true)
@@ -431,6 +442,9 @@ test("automatic creation does not re-trigger before the final selection", async 
     return rootDispose
   })
   await effectsSettle()
+  expect(requests.filter((request) => request === "POST /api/sessions")).toHaveLength(0)
+
+  await state?.sessionCreateStart()
 
   expect(requests.filter((request) => request === "POST /api/sessions")).toHaveLength(1)
   expect(selectionStatuses).toEqual(["creating"])
@@ -507,7 +521,7 @@ test("a failed new-session navigation cancels deferred creation", async () => {
   dispose()
 })
 
-test("a stale automatic result cannot select a session after the target changes", async () => {
+test("a stale create result cannot select a session after the target changes", async () => {
   const gates: Array<ReturnType<typeof deferredCreate<void>>> = []
   const selected: string[] = []
   const [selectedSessionId, setSelectedSessionId] = createSignal<string | null>(null)
@@ -535,9 +549,13 @@ test("a stale automatic result cannot select a session after the target changes"
     return rootDispose
   })
   await effectsSettle()
+  void state?.sessionCreateStart()
+  await effectsSettle()
   expect(gates).toHaveLength(1)
 
   state?.agentSelect("example-agent-local-review")
+  await effectsSettle()
+  void state?.sessionCreateStart()
   await effectsSettle()
   expect(gates).toHaveLength(2)
 
@@ -873,7 +891,7 @@ test("workspace configuration updates an agent with only the fixed provider secr
   })
   await effectsSettle()
 
-  let configuration = state?.configurationReadiness()
+  const configuration = state?.configurationReadiness()
   configuration?.draftNameChange("Updated agent")
   configuration?.draftRoleChange("review")
   configuration?.draftProviderChange("cliproxyapi")
@@ -1116,7 +1134,10 @@ test("a retry after an ambiguous failure reuses the client request id until the 
   const dispose = createRoot((rootDispose) => {
     state = sessionTargetSelectorStateCreate({
       accountId: accountIdCreate(),
-      clientRequestIdCreate: () => `request-${(created += 1)}`,
+      clientRequestIdCreate: () => {
+        created += 1
+        return `request-${created}`
+      },
       fetch: async (input, init) => {
         if (String(input) === "/api/sessions" && init?.method === "POST") {
           bodies.push(String(init.body))

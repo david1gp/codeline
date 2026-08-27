@@ -1,8 +1,8 @@
-import type { EventFeedConnectionView } from "./eventFeedConnectionView.js"
 import { connectionStatusLineIconResolve } from "./connectionStatusIconResolve.js"
 import { connectionStatusKind } from "./connectionStatusKind.js"
 import { connectionStatusSource } from "./connectionStatusSource.js"
 import type { ConnectionStatusLine } from "./connectionStatusSummaryResolve.js"
+import type { EventFeedConnectionView } from "./eventFeedConnectionView.js"
 import type { PwaStatusView } from "./pwa/pwaStatusView.js"
 
 export function appConnectionDetailsResolve(input: {

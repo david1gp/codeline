@@ -1,5 +1,5 @@
-import { connectionStatusKind, type ConnectionStatusKind } from "./connectionStatusKind.js"
-import { connectionStatusSource, type ConnectionStatusSource } from "./connectionStatusSource.js"
+import { type ConnectionStatusKind, connectionStatusKind } from "./connectionStatusKind.js"
+import { type ConnectionStatusSource, connectionStatusSource } from "./connectionStatusSource.js"
 
 export type ConnectionStatusLine = {
   disconnectedSince: number | undefined

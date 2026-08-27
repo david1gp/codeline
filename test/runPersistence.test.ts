@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
-import { and, asc, eq } from "drizzle-orm"
+import * as crypto from "node:crypto"
+import { createResultError } from "@adaptive-ds/result"
+import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm"
 import { agentTable } from "../src/agents/db/agentTable.js"
 import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
 import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
@@ -15,6 +17,7 @@ import { runRetryAttemptCreate } from "../src/run/actions/runRetryAttemptCreate.
 import { runTransition } from "../src/run/actions/runTransition.js"
 import { attemptTable } from "../src/run/db/attemptTable.js"
 import { runDelegationTable } from "../src/run/db/runDelegationTable.js"
+import { runRepositoryChildCreate } from "../src/run/db/runRepositoryChildCreate.js"
 import { runTable } from "../src/run/db/runTable.js"
 import { runErrorCodes } from "../src/run/errors/runErrorCodes.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
@@ -45,7 +48,136 @@ const input = {
     configurationRevision: "configuration-revision-1",
     target: { agentId: fixture.agentId, serverId: fixture.serverId },
   },
-  streamId: "run-stream-1",
+  streamId: `run-stream-${fixture.sessionId}`,
+}
+
+function retryCancellationDatabaseCreate(): {
+  database: typeof database
+  releaseRetryTransaction: () => void
+  retryTransactionStarted: Promise<void>
+} {
+  let rootTransactionConnectionCount = 0
+  let retryTransactionStartedResolve: () => void = () => undefined
+  const retryTransactionStarted = new Promise<void>((resolve) => {
+    retryTransactionStartedResolve = resolve
+  })
+  let releaseRetryTransactionResolve: () => void = () => undefined
+  const retryTransactionGate = new Promise<void>((resolve) => {
+    releaseRetryTransactionResolve = resolve
+  })
+
+  const controlledDatabase = new Proxy(database, {
+    get(target, property, receiver) {
+      if (property !== "rootTransactionConnectionCreate") return Reflect.get(target, property, receiver)
+      return () => {
+        const connection = target.rootTransactionConnectionCreate?.()
+        if (connection === undefined || rootTransactionConnectionCount++ !== 0) return connection
+        const transactionCreate = connection.transactionCreate
+        if (transactionCreate === undefined) return connection
+        connection.transactionCreate = async (mode) => {
+          retryTransactionStartedResolve()
+          await retryTransactionGate
+          return transactionCreate(mode)
+        }
+        return connection
+      }
+    },
+  })
+
+  return {
+    database: controlledDatabase,
+    releaseRetryTransaction: releaseRetryTransactionResolve,
+    retryTransactionStarted,
+  }
+}
+
+function terminalPersistenceRaceDatabaseCreate(): {
+  database: typeof database
+  releaseFirstTransaction: () => void
+  firstTransactionStarted: Promise<void>
+} {
+  let rootTransactionConnectionCount = 0
+  let firstTransactionStartedResolve: () => void = () => undefined
+  const firstTransactionStarted = new Promise<void>((resolve) => {
+    firstTransactionStartedResolve = resolve
+  })
+  let releaseFirstTransactionResolve: () => void = () => undefined
+  const firstTransactionGate = new Promise<void>((resolve) => {
+    releaseFirstTransactionResolve = resolve
+  })
+
+  const controlledDatabase = new Proxy(database, {
+    get(target, property, receiver) {
+      if (property !== "rootTransactionConnectionCreate") return Reflect.get(target, property, receiver)
+      return () => {
+        const connection = target.rootTransactionConnectionCreate?.()
+        if (connection === undefined || rootTransactionConnectionCount++ !== 0) return connection
+        const transactionCreate = connection.transactionCreate
+        if (transactionCreate === undefined) return connection
+        connection.transactionCreate = async (mode) => {
+          const transaction = await transactionCreate(mode)
+          firstTransactionStartedResolve()
+          await firstTransactionGate
+          return transaction
+        }
+        return connection
+      }
+    },
+  })
+
+  return {
+    database: controlledDatabase,
+    firstTransactionStarted,
+    releaseFirstTransaction: releaseFirstTransactionResolve,
+  }
+}
+
+function childAdmissionRaceDatabaseCreate(): {
+  admissionGate: Promise<void>
+  admissionObserved: Promise<void>
+  database: typeof database
+  markAdmissionObserved: () => void
+  releaseAdmission: () => void
+} {
+  let admissionObservedResolve: () => void = () => undefined
+  const admissionObserved = new Promise<void>((resolve) => {
+    admissionObservedResolve = resolve
+  })
+  let releaseAdmissionResolve: () => void = () => undefined
+  const admissionGate = new Promise<void>((resolve) => {
+    releaseAdmissionResolve = resolve
+  })
+
+  const controlledDatabase = new Proxy(database, {
+    get(target, property, receiver) {
+      if (property === "rootTransactionConnectionCreate" || property === "transaction") return undefined
+      return Reflect.get(target, property, receiver)
+    },
+  })
+
+  return {
+    admissionGate,
+    admissionObserved,
+    database: controlledDatabase,
+    markAdmissionObserved: admissionObservedResolve,
+    releaseAdmission: releaseAdmissionResolve,
+  }
+}
+
+const selectedInstructionContent = "The selected session instructions are immutable."
+const selectedInstructionSnapshot = {
+  snapshots: [
+    {
+      canonicalPath: "/tmp/codeline-run-persistence/AGENTS.md",
+      content: selectedInstructionContent,
+      digest: `sha256-${crypto.createHash("sha256").update(selectedInstructionContent, "utf8").digest("hex")}`,
+      precedence: 1,
+      scope: ".",
+      size: Buffer.byteLength(selectedInstructionContent, "utf8"),
+      source: "project" as const,
+    },
+  ],
+  version: 1 as const,
 }
 
 beforeAll(async () => {
@@ -100,6 +232,7 @@ beforeAll(async () => {
       version: 1 as const,
     },
     id: fixture.selectedSessionId,
+    instructionSnapshot: selectedInstructionSnapshot,
     metadata: {},
     primaryAgentId: fixture.agentId,
     serverId: fixture.serverId,
@@ -169,8 +302,20 @@ test.skipIf(!databaseAvailable)(
     if (userId === undefined) return
     const selectionManifest = {
       commandCatalog: { digest: null, version: 1 as const },
-      instructions: { snapshots: [], version: 1 as const },
-      skills: { snapshots: [], version: 1 as const },
+      instructions: selectedInstructionSnapshot,
+      skills: {
+        descriptionCatalog: {
+          characterCount: 0,
+          content: "",
+          estimatedTokens: 0,
+          estimatedTokensIsEstimate: true as const,
+          skills: [],
+          version: 1 as const,
+        },
+        presetName: "default",
+        snapshots: [],
+        version: 1 as const,
+      },
       tools: {
         primary: {
           agentId: fixture.agentId,
@@ -255,6 +400,33 @@ test.skipIf(!databaseAvailable)(
     expect(explicit).toMatchObject({ success: true, data: { created: true } })
     if (!explicit.success) return
     expect(explicit.data.run.snapshot.executionManifest).toEqual(explicitManifest)
+
+    const changedInstructionContent = "The child must not replace the parent instruction snapshot."
+    const changedInstructionSnapshot = {
+      ...selectedInstructionSnapshot,
+      snapshots: selectedInstructionSnapshot.snapshots.map((snapshot) => ({
+        ...snapshot,
+        content: changedInstructionContent,
+        digest: `sha256-${crypto.createHash("sha256").update(changedInstructionContent, "utf8").digest("hex")}`,
+        size: Buffer.byteLength(changedInstructionContent, "utf8"),
+      })),
+    }
+    const changedInstructions = await runChildCreate(database, userId, fixture.selectedSessionId, {
+      delegationKey: `selected-changed-instructions-${uuidv7()}`,
+      parentAttemptId: retry.data.attempt.id,
+      parentRunId: root.data.run.id,
+      snapshot: {
+        ...root.data.run.snapshot,
+        configuration: { ...root.data.run.snapshot.configuration, tools: { bash: false, webfetch: true } },
+        executionManifest: { ...explicitManifest, instructions: changedInstructionSnapshot },
+        target: { agentId: fixture.selectedSubagentId, serverId: fixture.serverId },
+      },
+      task: "Attempt to replace the immutable parent instruction snapshot.",
+    })
+    expect(changedInstructions).toMatchObject({
+      code: runErrorCodes.childSnapshotInvalid,
+      success: false,
+    })
 
     const persistedDowngrade = structuredClone(explicit.data.run.snapshot)
     delete persistedDowngrade.executionManifest
@@ -556,6 +728,209 @@ test.skipIf(!databaseAvailable)(
   },
 )
 
+test.skipIf(!databaseAvailable)("retry attempt insertion rolls back without a phantom continuation", async () => {
+  if (userId === undefined) return
+  const created = await runCreate(database, userId, fixture.sessionId, {
+    ...input,
+    budget: { maxAttempts: 3, maxDurationMs: 10_000 },
+    clientRunId: `client-run-retry-insert-failure-${uuidv7()}`,
+    streamId: `run-retry-insert-failure-${uuidv7()}`,
+  })
+  if (!created.success) return
+  const runId = created.data.run.id
+  expect(await runTransition(database, userId, fixture.sessionId, runId, { status: "running" })).toMatchObject({
+    success: true,
+  })
+  expect(
+    await runTransition(database, userId, fixture.sessionId, runId, {
+      failure: { code: "provider_timeout", message: "The provider timed out." },
+      status: "failed",
+    }),
+  ).toMatchObject({ success: true })
+
+  const retry = await runRetryAttemptCreate(database, userId, fixture.sessionId, runId, {
+    attemptCreate: async (transaction, values) => {
+      const [attempt] = await transaction.insert(attemptTable).values(values).returning()
+      expect(attempt).toBeDefined()
+      return createResultError("failureInjection", "retry attempt insertion failed after the insert")
+    },
+    now: () => new Date(created.data.run.deadlineAt.getTime() - 1),
+  })
+  expect(retry).toMatchObject({
+    errorMessage: "retry attempt insertion failed after the insert",
+    success: false,
+  })
+  expect(await database.select().from(attemptTable).where(eq(attemptTable.runId, runId))).toHaveLength(1)
+  const [runAfterFailure] = await database.select().from(runTable).where(eq(runTable.id, runId))
+  expect(runAfterFailure).toMatchObject({ failure: { code: "provider_timeout" }, status: "failed" })
+})
+
+test.skipIf(!databaseAvailable)("retry reopen rolls back the inserted attempt", async () => {
+  if (userId === undefined) return
+  const created = await runCreate(database, userId, fixture.sessionId, {
+    ...input,
+    budget: { maxAttempts: 3, maxDurationMs: 10_000 },
+    clientRunId: `client-run-retry-reopen-failure-${uuidv7()}`,
+    streamId: `run-retry-reopen-failure-${uuidv7()}`,
+  })
+  if (!created.success) return
+  const runId = created.data.run.id
+  expect(await runTransition(database, userId, fixture.sessionId, runId, { status: "running" })).toMatchObject({
+    success: true,
+  })
+  expect(
+    await runTransition(database, userId, fixture.sessionId, runId, {
+      failure: { code: "provider_timeout", message: "The provider timed out." },
+      status: "failed",
+    }),
+  ).toMatchObject({ success: true })
+
+  const retry = await runRetryAttemptCreate(database, userId, fixture.sessionId, runId, {
+    now: () => new Date(created.data.run.deadlineAt.getTime() - 1),
+    runReopen: async (transaction, values) => {
+      await transaction
+        .update(runTable)
+        .set({ failure: null, finishedAt: null, startedAt: null, status: "accepted", updatedAt: values.now })
+        .where(and(eq(runTable.id, values.runId), eq(runTable.status, "failed")))
+      return createResultError("failureInjection", "retry reopen failed after the update")
+    },
+  })
+  expect(retry).toMatchObject({
+    errorMessage: "retry reopen failed after the update",
+    success: false,
+  })
+  expect(await database.select().from(attemptTable).where(eq(attemptTable.runId, runId))).toHaveLength(1)
+  const [runAfterFailure] = await database.select().from(runTable).where(eq(runTable.id, runId))
+  expect(runAfterFailure).toMatchObject({ failure: { code: "provider_timeout" }, status: "failed" })
+})
+
+test.skipIf(!databaseAvailable)("target cancellation persistence rolls back its fields", async () => {
+  if (userId === undefined) return
+  const created = await runCreate(database, userId, fixture.sessionId, {
+    ...input,
+    clientRunId: `client-run-cancel-target-failure-${uuidv7()}`,
+    streamId: `run-cancel-target-failure-${uuidv7()}`,
+  })
+  if (!created.success) return
+  const runId = created.data.run.id
+  expect(await runTransition(database, userId, fixture.sessionId, runId, { status: "running" })).toMatchObject({
+    success: true,
+  })
+  const cancellationTime = new Date("2026-08-27T00:00:00.000Z")
+  const cancellation = await runCancel(
+    database,
+    userId,
+    fixture.sessionId,
+    runId,
+    {},
+    {
+      now: () => cancellationTime,
+      targetCancellationUpdate: async (transaction, values) => {
+        await transaction
+          .update(runTable)
+          .set({
+            cancellationKind: "requested",
+            cancellationRequestedAt: values.now,
+            cancellationSourceRunId: null,
+            updatedAt: values.now,
+          })
+          .where(
+            and(
+              eq(runTable.id, values.id),
+              eq(runTable.status, values.status),
+              isNull(runTable.cancellationRequestedAt),
+            ),
+          )
+        return createResultError("failureInjection", "target cancellation persistence failed after the update")
+      },
+    },
+  )
+  expect(cancellation).toMatchObject({
+    errorMessage: "target cancellation persistence failed after the update",
+    success: false,
+  })
+  const [runAfterFailure] = await database.select().from(runTable).where(eq(runTable.id, runId))
+  expect(runAfterFailure).toMatchObject({
+    cancellationKind: null,
+    cancellationRequestedAt: null,
+    cancellationSourceRunId: null,
+    status: "running",
+  })
+})
+
+test.skipIf(!databaseAvailable)("descendant cancellation persistence rolls back target and descendants", async () => {
+  if (userId === undefined) return
+  const parent = await runCreate(database, userId, fixture.sessionId, {
+    ...input,
+    budget: { maxChildDepth: 1, maxChildRuns: 1, maxDurationMs: 10_000 },
+    clientRunId: `client-run-cancel-descendant-failure-${uuidv7()}`,
+    streamId: `run-cancel-descendant-failure-parent-${uuidv7()}`,
+  })
+  if (!parent.success) return
+  expect(
+    await runTransition(database, userId, fixture.sessionId, parent.data.run.id, { status: "running" }),
+  ).toMatchObject({ success: true })
+  const child = await runChildCreate(database, userId, fixture.sessionId, {
+    delegationKey: `cancel-descendant-failure-${uuidv7()}`,
+    parentAttemptId: parent.data.attempt.id,
+    parentRunId: parent.data.run.id,
+    task: "The descendant cancellation persistence must roll back.",
+  })
+  if (!child.success) return
+  const cancellation = await runCancel(
+    database,
+    userId,
+    fixture.sessionId,
+    parent.data.run.id,
+    {},
+    {
+      descendantCancellationUpdate: async (transaction, values) => {
+        await transaction
+          .update(runTable)
+          .set({
+            cancellationKind: "ancestor",
+            cancellationRequestedAt: values.requestedAt,
+            cancellationSourceRunId: values.sourceRunId,
+            updatedAt: values.now,
+          })
+          .where(
+            and(
+              eq(runTable.userId, values.userId),
+              eq(runTable.sessionId, values.sessionId),
+              inArray(runTable.id, values.runIds),
+              inArray(runTable.status, ["accepted", "running"]),
+              isNull(runTable.cancellationRequestedAt),
+            ),
+          )
+        return createResultError("failureInjection", "descendant cancellation persistence failed after the update")
+      },
+      now: () => new Date("2026-08-27T00:00:00.000Z"),
+    },
+  )
+  expect(cancellation).toMatchObject({
+    errorMessage: "descendant cancellation persistence failed after the update",
+    success: false,
+  })
+  const [parentAfterFailure, childAfterFailure] = await Promise.all(
+    [parent.data.run.id, child.data.run.id].map(async (runId) => {
+      const [run] = await database.select().from(runTable).where(eq(runTable.id, runId))
+      return run
+    }),
+  )
+  expect(parentAfterFailure).toMatchObject({
+    cancellationKind: null,
+    cancellationRequestedAt: null,
+    cancellationSourceRunId: null,
+    status: "running",
+  })
+  expect(childAfterFailure).toMatchObject({
+    cancellationKind: null,
+    cancellationRequestedAt: null,
+    cancellationSourceRunId: null,
+    status: "accepted",
+  })
+})
+
 test.skipIf(!databaseAvailable)("retry attempt creation rejects durable cancellation intent", async () => {
   if (userId === undefined) return
   const created = await runCreate(database, userId, fixture.sessionId, {
@@ -570,16 +945,16 @@ test.skipIf(!databaseAvailable)("retry attempt creation rejects durable cancella
   ).toMatchObject({
     success: true,
   })
-  expect(await runCancel(database, userId, fixture.sessionId, created.data.run.id)).toMatchObject({
-    success: true,
-    data: { changed: true },
-  })
   expect(
     await runTransition(database, userId, fixture.sessionId, created.data.run.id, {
       failure: { code: "provider_timeout", message: "The provider timed out." },
       status: "failed",
     }),
   ).toMatchObject({ success: true })
+  expect(await runCancel(database, userId, fixture.sessionId, created.data.run.id)).toMatchObject({
+    success: true,
+    data: { changed: true },
+  })
 
   expect(
     await runRetryAttemptCreate(database, userId, fixture.sessionId, created.data.run.id, {
@@ -592,6 +967,500 @@ test.skipIf(!databaseAvailable)("retry attempt creation rejects durable cancella
   })
   expect(await database.select().from(attemptTable).where(eq(attemptTable.runId, created.data.run.id))).toHaveLength(1)
 })
+
+test.skipIf(!databaseAvailable)(
+  "retry admission and cancellation have one deterministic winner after an attempt failure",
+  async () => {
+    if (userId === undefined) return
+    const created = await runCreate(database, userId, fixture.sessionId, {
+      ...input,
+      budget: { maxAttempts: 3, maxDurationMs: 10_000 },
+      clientRunId: `client-run-retry-cancellation-race-${uuidv7()}`,
+      streamId: `run-retry-cancellation-race-${uuidv7()}`,
+    })
+    if (!created.success) return
+    const runId = created.data.run.id
+    const retryNow = () => new Date(created.data.run.deadlineAt.getTime() - 1)
+
+    expect(await runTransition(database, userId, fixture.sessionId, runId, { status: "running" })).toMatchObject({
+      success: true,
+    })
+    expect(
+      await runTransition(database, userId, fixture.sessionId, runId, {
+        failure: { code: "provider_timeout", message: "The provider timed out." },
+        status: "failed",
+      }),
+    ).toMatchObject({ success: true })
+
+    const race = retryCancellationDatabaseCreate()
+    const retryPromise = runRetryAttemptCreate(race.database, userId, fixture.sessionId, runId, { now: retryNow })
+    await race.retryTransactionStarted
+    const cancellationPromise = runCancel(race.database, userId, fixture.sessionId, runId)
+    const cancellation = await cancellationPromise
+    race.releaseRetryTransaction()
+    const retry = await retryPromise
+
+    expect(cancellation).toMatchObject({
+      success: true,
+      data: {
+        cancelledRunIds: [runId],
+        changed: true,
+        descendantsCancelled: 0,
+        run: { cancellationKind: "requested", status: "failed" },
+      },
+    })
+    expect(retry).toMatchObject({
+      code: runErrorCodes.retryNotAdmitted,
+      errorMessage: "The run retry was not admitted: cancelled.",
+      success: false,
+    })
+
+    const attemptsAfterRace = await database
+      .select()
+      .from(attemptTable)
+      .where(eq(attemptTable.runId, runId))
+      .orderBy(asc(attemptTable.ordinal))
+    expect(attemptsAfterRace.map((attempt) => attempt.ordinal)).toEqual([1])
+    const [runAfterRace] = await database.select().from(runTable).where(eq(runTable.id, runId))
+    expect(runAfterRace).toMatchObject({ cancellationKind: "requested", status: "failed" })
+    expect(runAfterRace?.cancellationRequestedAt).toBeInstanceOf(Date)
+
+    expect(await runRetryAttemptCreate(database, userId, fixture.sessionId, runId, { now: retryNow })).toMatchObject({
+      code: runErrorCodes.retryNotAdmitted,
+      errorMessage: "The run retry was not admitted: cancelled.",
+      success: false,
+    })
+    expect(await database.select().from(attemptTable).where(eq(attemptTable.runId, runId))).toHaveLength(1)
+  },
+)
+
+test.skipIf(!databaseAvailable)(
+  "retry admission commits before cancellation and leaves one active continuation",
+  async () => {
+    if (userId === undefined) return
+    const created = await runCreate(database, userId, fixture.sessionId, {
+      ...input,
+      budget: { maxAttempts: 3, maxDurationMs: 10_000 },
+      clientRunId: `client-run-retry-before-cancellation-${uuidv7()}`,
+      streamId: `run-retry-before-cancellation-${uuidv7()}`,
+    })
+    if (!created.success) return
+    const runId = created.data.run.id
+    const retryNow = () => new Date(created.data.run.deadlineAt.getTime() - 1)
+
+    expect(await runTransition(database, userId, fixture.sessionId, runId, { status: "running" })).toMatchObject({
+      success: true,
+    })
+    expect(
+      await runTransition(database, userId, fixture.sessionId, runId, {
+        failure: { code: "provider_timeout", message: "The provider timed out." },
+        status: "failed",
+      }),
+    ).toMatchObject({ success: true })
+
+    // Awaiting retry admission establishes that its transaction committed before cancellation starts.
+    const retry = await runRetryAttemptCreate(database, userId, fixture.sessionId, runId, { now: retryNow })
+    expect(retry).toMatchObject({
+      data: {
+        admission: { decision: "retry", nextAttemptOrdinal: 2 },
+        attempt: { ordinal: 2, status: "accepted" },
+        created: true,
+        run: { failure: null, status: "accepted" },
+      },
+      success: true,
+    })
+    if (!retry.success) return
+
+    const cancellation = await runCancel(database, userId, fixture.sessionId, runId)
+    expect(cancellation).toMatchObject({
+      data: {
+        cancelledRunIds: [runId],
+        changed: true,
+        descendantsCancelled: 0,
+        run: { cancellationKind: "requested", status: "accepted" },
+      },
+      success: true,
+    })
+
+    const attemptsAfterRace = await database
+      .select()
+      .from(attemptTable)
+      .where(eq(attemptTable.runId, runId))
+      .orderBy(asc(attemptTable.ordinal))
+    const activeAttempts = attemptsAfterRace.filter(
+      (attempt) => attempt.status === "accepted" || attempt.status === "running",
+    )
+    expect(attemptsAfterRace.map((attempt) => attempt.ordinal)).toEqual([1, 2])
+    expect(activeAttempts).toHaveLength(1)
+    expect(activeAttempts[0]).toMatchObject({ failure: null, finishedAt: null, ordinal: 2, status: "accepted" })
+
+    const [runAfterRace] = await database.select().from(runTable).where(eq(runTable.id, runId))
+    const latestAttempt = attemptsAfterRace.at(-1)
+    expect(runAfterRace).toMatchObject({
+      cancellationKind: "requested",
+      failure: null,
+      finishedAt: null,
+      status: "accepted",
+    })
+    expect(runAfterRace?.cancellationRequestedAt).toBeInstanceOf(Date)
+    expect(latestAttempt).toMatchObject({ failure: null, finishedAt: null, status: "accepted" })
+    expect(runAfterRace?.status).toBe(latestAttempt?.status)
+    expect(runAfterRace?.failure).toEqual(latestAttempt?.failure)
+    expect(runAfterRace?.status).not.toBe("succeeded")
+    expect(latestAttempt?.status).not.toBe("succeeded")
+
+    expect(await runRetryAttemptCreate(database, userId, fixture.sessionId, runId, { now: retryNow })).toMatchObject({
+      code: runErrorCodes.retryNotAdmitted,
+      errorMessage: "The run retry was not admitted: cancelled.",
+      success: false,
+    })
+    expect(await database.select().from(attemptTable).where(eq(attemptTable.runId, runId))).toHaveLength(2)
+  },
+)
+
+test.skipIf(!databaseAvailable)(
+  "cancellation wins a succeeded terminal persistence race without leaking completion metadata",
+  async () => {
+    if (userId === undefined) return
+    const created = await runCreate(database, userId, fixture.sessionId, {
+      ...input,
+      clientRunId: `client-run-cancellation-succeeded-race-${uuidv7()}`,
+      streamId: `run-cancellation-succeeded-race-${uuidv7()}`,
+    })
+    if (!created.success) return
+    const runId = created.data.run.id
+    expect(await runTransition(database, userId, fixture.sessionId, runId, { status: "running" })).toMatchObject({
+      success: true,
+    })
+
+    const race = terminalPersistenceRaceDatabaseCreate()
+    const cancellationPromise = runCancel(race.database, userId, fixture.sessionId, runId)
+    await race.firstTransactionStarted
+    const succeededPromise = runTransition(race.database, userId, fixture.sessionId, runId, { status: "succeeded" })
+    race.releaseFirstTransaction()
+    const [cancellation, succeeded] = await Promise.all([cancellationPromise, succeededPromise])
+
+    expect(cancellation).toMatchObject({
+      data: {
+        cancelledRunIds: [runId],
+        changed: true,
+        descendantsCancelled: 0,
+        run: { cancellationKind: "requested", status: "running" },
+      },
+      success: true,
+    })
+    expect(succeeded).toMatchObject({
+      code: runErrorCodes.transitionInvalid,
+      errorMessage: "The cancelled run cannot be transitioned.",
+      success: false,
+    })
+
+    const [runAfterRace] = await database.select().from(runTable).where(eq(runTable.id, runId))
+    const [attemptAfterRace] = await database
+      .select()
+      .from(attemptTable)
+      .where(eq(attemptTable.runId, runId))
+      .orderBy(desc(attemptTable.ordinal))
+    expect(runAfterRace).toMatchObject({
+      cancellationKind: "requested",
+      failure: null,
+      finishedAt: null,
+      status: "running",
+    })
+    expect(attemptAfterRace).toMatchObject({ failure: null, finishedAt: null, status: "running" })
+    expect(runAfterRace?.cancellationRequestedAt).toBeInstanceOf(Date)
+    expect(runAfterRace?.status).toBe(attemptAfterRace?.status)
+
+    const aborted = await runTransition(database, userId, fixture.sessionId, runId, {
+      failure: { code: "run_cancelled", message: "The run was cancelled." },
+      status: "aborted",
+    })
+    expect(aborted).toMatchObject({
+      data: {
+        attempt: { failure: { code: "run_cancelled" }, status: "aborted" },
+        changed: true,
+        run: { cancellationKind: "requested", failure: { code: "run_cancelled" }, status: "aborted" },
+      },
+      success: true,
+    })
+    if (!aborted.success) return
+    expect(aborted.data.run.finishedAt).toBeInstanceOf(Date)
+    expect(aborted.data.attempt.finishedAt).toEqual(aborted.data.run.finishedAt)
+    expect(
+      await runTransition(database, userId, fixture.sessionId, runId, {
+        failure: { code: "run_cancelled", message: "The run was cancelled." },
+        status: "aborted",
+      }),
+    ).toMatchObject({ data: { changed: false }, success: true })
+    expect(await runTransition(database, userId, fixture.sessionId, runId, { status: "succeeded" })).toMatchObject({
+      success: false,
+    })
+  },
+)
+
+test.skipIf(!databaseAvailable)(
+  "cancellation wins a failed terminal persistence race without leaking provider failure metadata",
+  async () => {
+    if (userId === undefined) return
+    const created = await runCreate(database, userId, fixture.sessionId, {
+      ...input,
+      clientRunId: `client-run-cancellation-failed-race-${uuidv7()}`,
+      streamId: `run-cancellation-failed-race-${uuidv7()}`,
+    })
+    if (!created.success) return
+    const runId = created.data.run.id
+    expect(await runTransition(database, userId, fixture.sessionId, runId, { status: "running" })).toMatchObject({
+      success: true,
+    })
+    const failure = { code: "provider_failed", message: "The provider failed after cancellation." }
+
+    const race = terminalPersistenceRaceDatabaseCreate()
+    const cancellationPromise = runCancel(race.database, userId, fixture.sessionId, runId)
+    await race.firstTransactionStarted
+    const failedPromise = runTransition(race.database, userId, fixture.sessionId, runId, {
+      failure,
+      status: "failed",
+    })
+    race.releaseFirstTransaction()
+    const [cancellation, failed] = await Promise.all([cancellationPromise, failedPromise])
+
+    expect(cancellation).toMatchObject({
+      data: {
+        cancelledRunIds: [runId],
+        changed: true,
+        descendantsCancelled: 0,
+        run: { cancellationKind: "requested", status: "running" },
+      },
+      success: true,
+    })
+    expect(failed).toMatchObject({
+      code: runErrorCodes.transitionInvalid,
+      errorMessage: "The cancelled run cannot be transitioned.",
+      success: false,
+    })
+
+    const [runAfterRace] = await database.select().from(runTable).where(eq(runTable.id, runId))
+    const [attemptAfterRace] = await database
+      .select()
+      .from(attemptTable)
+      .where(eq(attemptTable.runId, runId))
+      .orderBy(desc(attemptTable.ordinal))
+    expect(runAfterRace).toMatchObject({
+      cancellationKind: "requested",
+      failure: null,
+      finishedAt: null,
+      status: "running",
+    })
+    expect(attemptAfterRace).toMatchObject({ failure: null, finishedAt: null, status: "running" })
+    expect(runAfterRace?.cancellationRequestedAt).toBeInstanceOf(Date)
+    expect(runAfterRace?.status).toBe(attemptAfterRace?.status)
+    expect(JSON.stringify(runAfterRace)).not.toContain(failure.message)
+    expect(JSON.stringify(attemptAfterRace)).not.toContain(failure.message)
+
+    const abortedFailure = { code: "run_cancelled", message: "The run was cancelled." }
+    const aborted = await runTransition(database, userId, fixture.sessionId, runId, {
+      failure: abortedFailure,
+      status: "aborted",
+    })
+    expect(aborted).toMatchObject({
+      data: {
+        attempt: { failure: abortedFailure, status: "aborted" },
+        changed: true,
+        run: { cancellationKind: "requested", failure: abortedFailure, status: "aborted" },
+      },
+      success: true,
+    })
+    if (!aborted.success) return
+    expect(aborted.data.run.finishedAt).toBeInstanceOf(Date)
+    expect(aborted.data.attempt.finishedAt).toEqual(aborted.data.run.finishedAt)
+    expect(
+      await runTransition(database, userId, fixture.sessionId, runId, {
+        failure: { code: "different", message: "The terminal failure cannot be overwritten." },
+        status: "aborted",
+      }),
+    ).toMatchObject({ code: runErrorCodes.failureMetadataImmutable, success: false })
+    expect(
+      await runTransition(database, userId, fixture.sessionId, runId, { status: "failed", failure }),
+    ).toMatchObject({
+      success: false,
+    })
+  },
+)
+
+test.skipIf(!databaseAvailable)(
+  "succeeded terminal persistence wins a cancellation race without cancellation mutation",
+  async () => {
+    if (userId === undefined) return
+    const created = await runCreate(database, userId, fixture.sessionId, {
+      ...input,
+      clientRunId: `client-run-succeeded-before-cancellation-${uuidv7()}`,
+      streamId: `run-succeeded-before-cancellation-${uuidv7()}`,
+    })
+    if (!created.success) return
+    const runId = created.data.run.id
+    expect(await runTransition(database, userId, fixture.sessionId, runId, { status: "running" })).toMatchObject({
+      success: true,
+    })
+
+    const race = terminalPersistenceRaceDatabaseCreate()
+    const succeededPromise = runTransition(race.database, userId, fixture.sessionId, runId, { status: "succeeded" })
+    await race.firstTransactionStarted
+    const cancellationPromise = runCancel(race.database, userId, fixture.sessionId, runId)
+    race.releaseFirstTransaction()
+    const [succeeded, cancellation] = await Promise.all([succeededPromise, cancellationPromise])
+
+    expect(succeeded).toMatchObject({
+      data: {
+        attempt: {
+          failure: null,
+          status: "succeeded",
+        },
+        changed: true,
+        run: {
+          cancellationKind: null,
+          cancellationRequestedAt: null,
+          cancellationSourceRunId: null,
+          failure: null,
+          status: "succeeded",
+        },
+      },
+      success: true,
+    })
+    expect(cancellation).toMatchObject({
+      data: {
+        cancelledRunIds: [],
+        changed: false,
+        descendantsCancelled: 0,
+        run: {
+          cancellationKind: null,
+          cancellationRequestedAt: null,
+          cancellationSourceRunId: null,
+          failure: null,
+          status: "succeeded",
+        },
+      },
+      success: true,
+    })
+    if (!succeeded.success) return
+    expect(succeeded.data.run.finishedAt).toBeInstanceOf(Date)
+    expect(succeeded.data.attempt.finishedAt).toEqual(succeeded.data.run.finishedAt)
+
+    const [runAfterRace] = await database.select().from(runTable).where(eq(runTable.id, runId))
+    const [attemptAfterRace] = await database
+      .select()
+      .from(attemptTable)
+      .where(eq(attemptTable.runId, runId))
+      .orderBy(desc(attemptTable.ordinal))
+    expect(runAfterRace).toMatchObject({
+      cancellationKind: null,
+      cancellationRequestedAt: null,
+      cancellationSourceRunId: null,
+      failure: null,
+      status: "succeeded",
+    })
+    expect(attemptAfterRace).toMatchObject({ failure: null, status: "succeeded" })
+    expect(runAfterRace?.finishedAt).toBeInstanceOf(Date)
+    expect(attemptAfterRace?.finishedAt).toEqual(runAfterRace?.finishedAt)
+    expect(runAfterRace?.status).toBe(attemptAfterRace?.status)
+    expect(runAfterRace?.failure).toEqual(attemptAfterRace?.failure)
+    expect(
+      await runTransition(database, userId, fixture.sessionId, runId, {
+        failure: { code: "late_failure", message: "The winning success cannot be overwritten." },
+        status: "failed",
+      }),
+    ).toMatchObject({ code: runErrorCodes.transitionInvalid, success: false })
+  },
+)
+
+test.skipIf(!databaseAvailable)(
+  "failed terminal persistence wins a cancellation race without cancellation mutation",
+  async () => {
+    if (userId === undefined) return
+    const created = await runCreate(database, userId, fixture.sessionId, {
+      ...input,
+      clientRunId: `client-run-failed-before-cancellation-${uuidv7()}`,
+      streamId: `run-failed-before-cancellation-${uuidv7()}`,
+    })
+    if (!created.success) return
+    const runId = created.data.run.id
+    expect(await runTransition(database, userId, fixture.sessionId, runId, { status: "running" })).toMatchObject({
+      success: true,
+    })
+    const failure = { code: "provider_failed", message: "The provider failed before cancellation." }
+
+    const race = terminalPersistenceRaceDatabaseCreate()
+    const failedPromise = runTransition(race.database, userId, fixture.sessionId, runId, {
+      failure,
+      status: "failed",
+    })
+    await race.firstTransactionStarted
+    const cancellationPromise = runCancel(race.database, userId, fixture.sessionId, runId)
+    race.releaseFirstTransaction()
+    const [failed, cancellation] = await Promise.all([failedPromise, cancellationPromise])
+
+    expect(failed).toMatchObject({
+      data: {
+        attempt: { failure, status: "failed" },
+        changed: true,
+        run: {
+          cancellationKind: null,
+          cancellationRequestedAt: null,
+          cancellationSourceRunId: null,
+          failure,
+          status: "failed",
+        },
+      },
+      success: true,
+    })
+    expect(cancellation).toMatchObject({
+      data: {
+        cancelledRunIds: [],
+        changed: false,
+        descendantsCancelled: 0,
+        run: {
+          cancellationKind: null,
+          cancellationRequestedAt: null,
+          cancellationSourceRunId: null,
+          failure,
+          status: "failed",
+        },
+      },
+      success: true,
+    })
+    if (!failed.success) return
+    expect(failed.data.run.finishedAt).toBeInstanceOf(Date)
+    expect(failed.data.attempt.finishedAt).toEqual(failed.data.run.finishedAt)
+
+    const [runAfterRace] = await database.select().from(runTable).where(eq(runTable.id, runId))
+    const [attemptAfterRace] = await database
+      .select()
+      .from(attemptTable)
+      .where(eq(attemptTable.runId, runId))
+      .orderBy(desc(attemptTable.ordinal))
+    expect(runAfterRace).toMatchObject({
+      cancellationKind: null,
+      cancellationRequestedAt: null,
+      cancellationSourceRunId: null,
+      failure,
+      status: "failed",
+    })
+    expect(attemptAfterRace).toMatchObject({ failure, status: "failed" })
+    expect(runAfterRace?.finishedAt).toBeInstanceOf(Date)
+    expect(attemptAfterRace?.finishedAt).toEqual(runAfterRace?.finishedAt)
+    expect(runAfterRace?.status).toBe(attemptAfterRace?.status)
+    expect(runAfterRace?.failure).toEqual(attemptAfterRace?.failure)
+    expect(
+      await runTransition(database, userId, fixture.sessionId, runId, {
+        failure: { code: "different_failure", message: "The winning failure cannot be overwritten." },
+        status: "failed",
+      }),
+    ).toMatchObject({ code: runErrorCodes.failureMetadataImmutable, success: false })
+    expect(await runTransition(database, userId, fixture.sessionId, runId, { status: "succeeded" })).toMatchObject({
+      code: runErrorCodes.transitionInvalid,
+      success: false,
+    })
+  },
+)
 
 test.skipIf(!databaseAvailable)("retry attempt creation rejects at the immutable deadline boundary", async () => {
   if (userId === undefined) return
@@ -825,6 +1694,96 @@ test.skipIf(!databaseAvailable)(
     expect(
       await database.select().from(runDelegationTable).where(eq(runDelegationTable.rootRunId, parent.data.run.id)),
     ).toHaveLength(1)
+  },
+)
+
+test.skipIf(!databaseAvailable)(
+  "child admission rechecks cancellation before persistence and remains idempotent",
+  async () => {
+    if (userId === undefined) return
+    const parent = await runCreate(database, userId, fixture.sessionId, {
+      ...input,
+      budget: { maxChildDepth: 2, maxChildRuns: 2, maxDurationMs: 10_000 },
+      clientRunId: `client-run-child-cancellation-race-${uuidv7()}`,
+      streamId: `run-child-cancellation-race-parent-${uuidv7()}`,
+    })
+    if (!parent.success) return
+    expect(
+      await runTransition(database, userId, fixture.sessionId, parent.data.run.id, { status: "running" }),
+    ).toMatchObject({ success: true })
+
+    const childInput = {
+      delegationKey: "child-cancellation-race",
+      parentAttemptId: parent.data.attempt.id,
+      parentRunId: parent.data.run.id,
+      task: "The child must not become active after parent cancellation.",
+    }
+    const runsBefore = await database
+      .select({ id: runTable.id })
+      .from(runTable)
+      .where(and(eq(runTable.sessionId, fixture.sessionId), eq(runTable.userId, userId)))
+    const [sessionBefore] = await database
+      .select({ revision: sessionTable.revision })
+      .from(sessionTable)
+      .where(and(eq(sessionTable.id, fixture.sessionId), eq(sessionTable.userId, userId)))
+    if (sessionBefore === undefined) return
+
+    const race = childAdmissionRaceDatabaseCreate()
+    const childPromise = runRepositoryChildCreate(race.database, userId, fixture.sessionId, childInput, {
+      beforeAdmissionCommit: async () => {
+        race.markAdmissionObserved()
+        await race.admissionGate
+      },
+    })
+    await race.admissionObserved
+
+    const cancellation = await runCancel(database, userId, fixture.sessionId, parent.data.run.id)
+    expect(cancellation).toMatchObject({
+      data: { cancelledRunIds: [parent.data.run.id], changed: true, descendantsCancelled: 0 },
+      success: true,
+    })
+    race.releaseAdmission()
+    const child = await childPromise
+
+    expect(child).toMatchObject({
+      code: runErrorCodes.childNotAdmitted,
+      errorMessage: "The child run was not admitted: cancelled.",
+      success: false,
+    })
+    expect(
+      await database.select().from(runDelegationTable).where(eq(runDelegationTable.rootRunId, parent.data.run.id)),
+    ).toHaveLength(0)
+    expect(await database.select().from(attemptTable).where(eq(attemptTable.runId, parent.data.run.id))).toHaveLength(1)
+    const runsAfter = await database
+      .select({ id: runTable.id })
+      .from(runTable)
+      .where(and(eq(runTable.sessionId, fixture.sessionId), eq(runTable.userId, userId)))
+    expect(runsAfter).toEqual(runsBefore)
+    const [sessionAfter] = await database
+      .select({ revision: sessionTable.revision })
+      .from(sessionTable)
+      .where(and(eq(sessionTable.id, fixture.sessionId), eq(sessionTable.userId, userId)))
+    expect(sessionAfter).toEqual(sessionBefore)
+
+    expect(await runCancel(database, userId, fixture.sessionId, parent.data.run.id)).toMatchObject({
+      data: { cancelledRunIds: [], changed: false, descendantsCancelled: 0 },
+      success: true,
+    })
+    expect(await runChildCreate(database, userId, fixture.sessionId, childInput)).toMatchObject({
+      code: runErrorCodes.childNotAdmitted,
+      errorMessage: "The child run was not admitted: cancelled.",
+      success: false,
+    })
+    expect(
+      await runChildCreate(database, userId, fixture.sessionId, {
+        ...childInput,
+        delegationKey: "child-cancellation-race-repeated",
+      }),
+    ).toMatchObject({
+      code: runErrorCodes.childNotAdmitted,
+      errorMessage: "The child run was not admitted: cancelled.",
+      success: false,
+    })
   },
 )
 

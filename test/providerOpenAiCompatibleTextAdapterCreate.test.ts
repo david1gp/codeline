@@ -128,7 +128,7 @@ test("CLIProxyAPI and Codex-LB stream split tool-call fragments sequentially", a
     expect(runStarted === undefined || "parentRunId" in runStarted).toBe(false)
     expect(chunks.some((chunk) => chunk.type === EventType.TOOL_CALL_START && chunk.toolCallId === "call-1")).toBe(true)
     expect(chunks.filter((chunk) => chunk.type === EventType.TOOL_CALL_ARGS).map((chunk) => chunk.delta)).toEqual([
-      '{\"value\":',
+      '{"value":',
       "7}",
     ])
     expect(chunks.some((chunk) => chunk.type === EventType.TOOL_CALL_END && chunk.toolCallId === "call-1")).toBe(true)

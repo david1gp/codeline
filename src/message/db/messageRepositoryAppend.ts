@@ -1,9 +1,11 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import { and, eq, max, sql } from "drizzle-orm"
+import * as v from "valibot"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { databaseExecutorTransactionRun } from "../../database/databaseExecutorTransactionRun.js"
 import { sessionTable } from "../../session/db/sessionTable.js"
 import { uuidv7 } from "../../uuid/uuidv7.js"
+import { messageMetadataSchema } from "../schema/messageMetadataSchema.js"
 import { messageTable } from "./messageTable.js"
 
 export async function messageRepositoryAppend(
@@ -13,10 +15,13 @@ export async function messageRepositoryAppend(
   input: {
     clientRequestId: string
     content: string
+    metadata?: unknown
     role: "assistant" | "user"
   },
 ): Promise<Result<{ created: boolean; message: typeof messageTable.$inferSelect }>> {
   const op = "messageRepositoryAppend"
+  const metadata = v.safeParse(messageMetadataSchema, input.metadata ?? {})
+  if (!metadata.success) return createResultError(op, "The message metadata is invalid.")
 
   return databaseExecutorTransactionRun<{ created: boolean; message: typeof messageTable.$inferSelect }>(
     database,
@@ -40,7 +45,11 @@ export async function messageRepositoryAppend(
           .where(and(eq(messageTable.sessionId, sessionId), eq(messageTable.clientRequestId, input.clientRequestId)))
           .limit(1)
         if (existing !== undefined) {
-          if (existing.role === input.role && existing.content === input.content) {
+          if (
+            existing.role === input.role &&
+            existing.content === input.content &&
+            JSON.stringify(existing.metadata) === JSON.stringify(metadata.output)
+          ) {
             return createResult({ created: false, message: existing })
           }
           return createResultError(op, "The message client request ID was already used with different content.")
@@ -59,7 +68,7 @@ export async function messageRepositoryAppend(
             clientRequestId: input.clientRequestId,
             content: input.content,
             id: uuidv7(),
-            metadata: {},
+            metadata: metadata.output,
             role: input.role,
             sequence,
             sessionId,

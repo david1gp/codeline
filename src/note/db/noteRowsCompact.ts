@@ -1,8 +1,8 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import { eq, sql } from "drizzle-orm"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
-import { noteTable } from "./noteTable.js"
 import { noteSortOrderRead } from "./noteSortOrderRead.js"
+import { noteTable } from "./noteTable.js"
 
 type NoteRow = typeof noteTable.$inferSelect
 

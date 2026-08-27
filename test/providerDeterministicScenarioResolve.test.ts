@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import { EventType, type StreamChunk } from "@tanstack/ai"
-import { providerExecutionEventFromStreamChunk } from "../src/providers/runtime/providerExecutionEventFromStreamChunk.js"
 import { providerDeterministicScenarioResolve } from "../src/providers/runtime/providerDeterministicScenarioResolve.js"
+import { providerExecutionEventFromStreamChunk } from "../src/providers/runtime/providerExecutionEventFromStreamChunk.js"
 import { providerRuntimeAdapterCreate } from "../src/providers/runtime/providerRuntimeAdapterCreate.js"
 import { executionTranscriptNormalize } from "../src/run/actions/executionTranscriptNormalize.js"
 import { executionStreamEventNormalize } from "../src/stream/actions/executionStreamEventNormalize.js"

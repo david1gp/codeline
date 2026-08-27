@@ -1,11 +1,16 @@
 import { Match, Show, Switch } from "solid-js"
 import { Label } from "#ui/input/label/Label.jsx"
 import { Button } from "#ui/interactive/button/Button.jsx"
+import { SessionResourceSelector } from "./SessionResourceSelector.js"
+import type { SessionResourceSelectorView } from "./sessionResourceSelectorView.js"
 import type { SessionTargetConfigurationView } from "./sessionTargetConfigurationView.js"
 
 const fieldClass = "grid gap-1.5 text-xs font-semibold text-faint"
 
-export function WorkspaceSetupPanel(props: { configuration: SessionTargetConfigurationView }) {
+export function WorkspaceSetupPanel(props: {
+  configuration: SessionTargetConfigurationView
+  resources?: SessionResourceSelectorView
+}) {
   return (
     <div class="flex min-h-0 min-w-0 flex-1 items-start justify-center overflow-y-auto px-5 py-8 max-[760px]:px-4">
       <section
@@ -71,6 +76,14 @@ export function WorkspaceSetupPanel(props: { configuration: SessionTargetConfigu
                   </div>
                 </Label>
               </div>
+
+              <Show when={props.resources}>
+                {(resources) => (
+                  <div class="mt-6">
+                    <SessionResourceSelector idPrefix="workspace-setup-resources" state={resources()} />
+                  </div>
+                )}
+              </Show>
 
               <Show when={props.configuration.status === "no-agent"}>
                 <p class="mt-4 mb-0 text-sm text-faint">No local execution agent is available.</p>

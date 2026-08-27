@@ -23,6 +23,7 @@ const expectedTables = [
   "server",
   "session",
   "session_execution_selection_default",
+  "skill_selection_default",
 ] as const
 
 test("SQLite exposes all durable tables with flattened identity names", () => {

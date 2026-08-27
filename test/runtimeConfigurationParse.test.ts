@@ -217,9 +217,10 @@ test("database client close is idempotent", async () => {
 
 test("server shutdown stops the server and closes the injected database once", async () => {
   if (!configuration.success) throw new Error(configuration.errorMessage)
-  const listeners = new Map<string, () => void>()
+  const listeners = new Map<string, () => Promise<void>>()
   let stopCount = 0
   let closeCount = 0
+  let removeListenerCount = 0
   const metricsCollector = metricsCollectorCreate()
   let receivedMetricsCollector: typeof metricsCollector | undefined
   const database = {
@@ -247,17 +248,162 @@ test("server shutdown stops the server and closes the injected database once", a
       url: new URL("http://codeline.test"),
     }),
     signalSource: {
-      once: (signal, listener) => void listeners.set(signal, listener),
-      removeListener: (signal) => void listeners.delete(signal),
+      once: (signal, listener) => void listeners.set(signal, listener as () => Promise<void>),
+      removeListener: (signal) => {
+        removeListenerCount += 1
+        listeners.delete(signal)
+      },
     },
   })
 
   expect(server.url.toString()).toBe("http://codeline.test/")
   expect(receivedMetricsCollector).toBe(metricsCollector)
-  listeners.get("SIGTERM")?.()
-  listeners.get("SIGINT")?.()
-  await Bun.sleep(0)
+  const shutdownTerm = listeners.get("SIGTERM")
+  const shutdownInterrupt = listeners.get("SIGINT")
+  if (shutdownTerm === undefined || shutdownInterrupt === undefined)
+    throw new Error("shutdown signal listeners were not registered")
+  const firstShutdown = shutdownTerm()
+  const secondShutdown = shutdownInterrupt()
+  expect(secondShutdown).toBe(firstShutdown)
+  await firstShutdown
 
   expect(stopCount).toBe(1)
   expect(closeCount).toBe(1)
+  expect(removeListenerCount).toBe(2)
+})
+
+test("server shutdown keeps SQLite open until the HTTP server stops", async () => {
+  if (!configuration.success) throw new Error(configuration.errorMessage)
+  const listeners = new Map<string, () => Promise<void>>()
+  const events: string[] = []
+  let releaseStop!: () => void
+  const stopPromise = new Promise<void>((resolve) => {
+    releaseStop = resolve
+  })
+  let databaseOpen = true
+  const database = {
+    client: {
+      close: () => {
+        events.push("database-close")
+        databaseOpen = false
+      },
+    },
+    db: {},
+  } as never
+
+  await serverStart({
+    appCreate: () => appCreate(),
+    configuration: configuration.data,
+    configurationStore: {} as never,
+    database,
+    journalCursorCodec: {} as never,
+    providerAgentCatalog: {} as never,
+    projectRootDirs: [],
+    runStartupInterruptionReconcile: async () => ({ success: true as const, data: { interruptedRunIds: [] } }),
+    serve: () => ({
+      stop: async () => {
+        events.push("server-stop")
+        await stopPromise
+      },
+      url: new URL("http://codeline.test"),
+    }),
+    signalSource: {
+      once: (signal, listener) => void listeners.set(signal, listener as () => Promise<void>),
+      removeListener: () => undefined,
+    },
+  })
+
+  const shutdown = listeners.get("SIGTERM")
+  if (shutdown === undefined) throw new Error("SIGTERM shutdown listener was not registered")
+  const pending = shutdown()
+
+  expect(events).toEqual(["server-stop"])
+  expect(databaseOpen).toBe(true)
+
+  releaseStop()
+  await pending
+
+  expect(events).toEqual(["server-stop", "database-close"])
+  expect(databaseOpen).toBe(false)
+})
+
+test("server shutdown closes the database and removes listeners when server stop rejects", async () => {
+  if (!configuration.success) throw new Error(configuration.errorMessage)
+  const listeners = new Map<string, () => Promise<void>>()
+  let closeCount = 0
+  let removeListenerCount = 0
+  const stopError = new Error("server stop failed")
+  const database = {
+    client: {
+      close: () => {
+        closeCount += 1
+      },
+    },
+    db: {},
+  } as never
+
+  await serverStart({
+    appCreate: () => appCreate(),
+    configuration: configuration.data,
+    configurationStore: {} as never,
+    database,
+    journalCursorCodec: {} as never,
+    providerAgentCatalog: {} as never,
+    projectRootDirs: [],
+    runStartupInterruptionReconcile: async () => ({ success: true as const, data: { interruptedRunIds: [] } }),
+    serve: () => ({ stop: async () => Promise.reject(stopError), url: new URL("http://codeline.test") }),
+    signalSource: {
+      once: (signal, listener) => void listeners.set(signal, listener as () => Promise<void>),
+      removeListener: () => {
+        removeListenerCount += 1
+      },
+    },
+  })
+
+  const shutdown = listeners.get("SIGTERM")
+  if (shutdown === undefined) throw new Error("SIGTERM shutdown listener was not registered")
+
+  await expect(shutdown()).rejects.toBe(stopError)
+
+  expect(closeCount).toBe(1)
+  expect(removeListenerCount).toBe(2)
+})
+
+test("server shutdown removes listeners when database close rejects", async () => {
+  if (!configuration.success) throw new Error(configuration.errorMessage)
+  const listeners = new Map<string, () => Promise<void>>()
+  let closeCount = 0
+  let removeListenerCount = 0
+  const closeError = new Error("database close failed")
+  const database = { client: { close: () => undefined }, db: {} } as never
+
+  await serverStart({
+    appCreate: () => appCreate(),
+    configuration: configuration.data,
+    configurationStore: {} as never,
+    database,
+    databaseConnectionClose: async () => {
+      closeCount += 1
+      throw closeError
+    },
+    journalCursorCodec: {} as never,
+    providerAgentCatalog: {} as never,
+    projectRootDirs: [],
+    runStartupInterruptionReconcile: async () => ({ success: true as const, data: { interruptedRunIds: [] } }),
+    serve: () => ({ stop: async () => undefined, url: new URL("http://codeline.test") }),
+    signalSource: {
+      once: (signal, listener) => void listeners.set(signal, listener as () => Promise<void>),
+      removeListener: () => {
+        removeListenerCount += 1
+      },
+    },
+  })
+
+  const shutdown = listeners.get("SIGTERM")
+  if (shutdown === undefined) throw new Error("SIGTERM shutdown listener was not registered")
+
+  await expect(shutdown()).rejects.toBe(closeError)
+
+  expect(closeCount).toBe(1)
+  expect(removeListenerCount).toBe(2)
 })

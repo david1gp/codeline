@@ -1,5 +1,5 @@
-import { Hono } from "hono"
 import type { Result } from "@adaptive-ds/result"
+import { Hono } from "hono"
 import type { AppEnvironment } from "../appEnvironment.js"
 import type { ApiErrorResponse } from "../errors/apiErrorResponseSchema.js"
 import type { ReadinessResponse } from "./readinessResponseSchema.js"

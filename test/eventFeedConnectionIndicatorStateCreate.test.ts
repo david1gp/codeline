@@ -1,4 +1,4 @@
-import { expect, mock, test } from "bun:test"
+import { expect, test } from "bun:test"
 import { createRoot } from "solid-js/dist/solid.js"
 import { connectionStatusKind } from "../src/ui/connectionStatusKind.js"
 import { connectionStatusSource } from "../src/ui/connectionStatusSource.js"

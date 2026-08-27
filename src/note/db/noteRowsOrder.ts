@@ -1,6 +1,6 @@
-import type { noteTable } from "./noteTable.js"
 import { noteProjectPathNormalize } from "./noteProjectPathNormalize.js"
 import { noteSortOrderRead } from "./noteSortOrderRead.js"
+import type { noteTable } from "./noteTable.js"
 
 type NoteRow = typeof noteTable.$inferSelect
 
