@@ -49,9 +49,12 @@ export function chatComposerStateCreate(options: ChatComposerOptions) {
   const commandError = createSignalObject<string | undefined>(undefined)
   // Captured at submit time: the draft is cleared before the turn starts, so the
   // resolved invocation can no longer be derived from it when the request is sent.
-  let pendingCommand: CommandInvocation | undefined
+  // Keep one token per submission because queued sends start after the submitting
+  // call has already returned.
+  const pendingCommands: Array<{ invocation?: CommandInvocation }> = []
+  let runFailed = false
   const connection = sessionChatConnectionCreate({
-    command: () => pendingCommand,
+    command: () => pendingCommands.shift()?.invocation,
     fetcher: options.fetcher,
     onStateChange: recoveryStatus.set,
     sessionId: options.sessionId,
@@ -69,7 +72,14 @@ export function chatComposerStateCreate(options: ChatComposerOptions) {
   const chat = useChat({
     connection,
     forwardedProps,
-    onChunk: activity.chunkObserve,
+    queue: "queue",
+    onChunk: (chunk) => {
+      activity.chunkObserve(chunk)
+      if (chunk.type === "RUN_ERROR") runFailed = true
+    },
+    onError: () => {
+      runFailed = true
+    },
     threadId: options.sessionId,
   })
   createEffect(syncForwardedProps)
@@ -89,7 +99,8 @@ export function chatComposerStateCreate(options: ChatComposerOptions) {
   const submit = async () => {
     const preservedDraft = draft.get()
     const prompt = preservedDraft.trim()
-    if (prompt.length === 0 || chat.isLoading() || stopping.get()) return
+    if (prompt.length === 0 || stopping.get()) return
+    const isQueueing = chat.isLoading()
     // A command draft that cannot expand deterministically is refused here, so the
     // user keeps the draft and sees the same message the server would have returned.
     const blocking = options.command?.errorMessage()
@@ -97,19 +108,29 @@ export function chatComposerStateCreate(options: ChatComposerOptions) {
       commandError.set(blocking)
       return
     }
-    pendingCommand = options.command?.invocation()
+    const pendingCommand = { invocation: options.command?.invocation() }
+    pendingCommands.push(pendingCommand)
     commandError.set(undefined)
     draft.set("")
     stopError.set(undefined)
-    activity.turnReset()
+    if (!isQueueing) activity.turnReset()
     syncForwardedProps()
     try {
-      await chat.sendMessage(prompt, { whenBusy: "drop" })
+      await chat.sendMessage(prompt)
     } catch (error) {
+      const pendingCommandIndex = pendingCommands.indexOf(pendingCommand)
+      if (pendingCommandIndex >= 0) pendingCommands.splice(pendingCommandIndex, 1)
       draft.set(preservedDraft)
       throw error
     } finally {
-      pendingCommand = undefined
+      // ChatClient flushes queued sends only after the failed stream has fully
+      // settled. Clear the parallel tokens at that same boundary; clearing from
+      // onChunk can leave a command queued after RUN_ERROR without its discarded
+      // message, allowing that token to attach to a later run.
+      if (!isQueueing && runFailed) {
+        pendingCommands.length = 0
+        runFailed = false
+      }
     }
   }
 
@@ -125,7 +146,10 @@ export function chatComposerStateCreate(options: ChatComposerOptions) {
       clientRunId,
       isBusy: chat.isLoading(),
       isStopping: stopping.get(),
-      localStop: chat.stop,
+      localStop: () => {
+        pendingCommands.length = 0
+        chat.stop()
+      },
       onError: stopError.set,
       onFinish: () => stopping.set(false),
       onStart: () => {
@@ -137,8 +161,7 @@ export function chatComposerStateCreate(options: ChatComposerOptions) {
 
   return {
     activity,
-    canSubmit: () =>
-      draft.get().trim().length > 0 && !chat.isLoading() && options.command?.errorMessage() === undefined,
+    canSubmit: () => draft.get().trim().length > 0 && !stopping.get() && options.command?.errorMessage() === undefined,
     draft: draft.get,
     errorMessage: () =>
       commandError.get() ?? stopError.get() ?? (recoveryStatus.get() === "stale" ? undefined : chat.error()?.message),

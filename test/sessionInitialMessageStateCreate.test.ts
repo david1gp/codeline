@@ -3,13 +3,16 @@ import { createRoot, createSignal } from "solid-js/dist/solid.js"
 import type { SessionChatState } from "../src/ui/sessionChatStateCreate.js"
 import { sessionInitialMessageStateCreate } from "../src/ui/sessionInitialMessageStateCreate.js"
 
-function chatStateCreate(submit: () => Promise<void>) {
+function chatStateCreate(submit: () => Promise<void>, draftUpdates: string[] = []) {
   const [draft, setDraft] = createSignal("")
   return {
     attemptCount: () => 0,
     canSubmit: () => draft().trim().length > 0,
     draft,
-    draftUpdate: setDraft,
+    draftUpdate: (value: string) => {
+      draftUpdates.push(value)
+      setDraft(value)
+    },
     errorMessage: () => undefined,
     failures: () => [],
     isAborted: () => false,
@@ -34,11 +37,23 @@ function stateCreate(options: {
   submit?: () => Promise<void>
 }) {
   const [selected, setSelected] = createSignal(options.selected ?? null)
-  const chat = chatStateCreate(options.submit ?? (async () => undefined))
+  const chatCreateCalls: string[] = []
+  const sessionChats = new Map<string, ReturnType<typeof chatStateCreate>>()
+  const sessionDraftUpdates = new Map<string, string[]>()
+  const chatCreate = (sessionId: string) => {
+    chatCreateCalls.push(sessionId)
+    const existing = sessionChats.get(sessionId)
+    if (existing !== undefined) return existing
+    const draftUpdates: string[] = []
+    const created = chatStateCreate(options.submit ?? (async () => undefined), draftUpdates)
+    sessionChats.set(sessionId, created)
+    sessionDraftUpdates.set(sessionId, draftUpdates)
+    return created
+  }
   let state: ReturnType<typeof sessionInitialMessageStateCreate> | undefined
   const dispose = createRoot((rootDispose) => {
     state = sessionInitialMessageStateCreate({
-      chatCreate: () => chat,
+      chatCreate,
       selectedSessionId: selected,
       sessionCreateErrorMessage: () => options.createError,
       sessionCreateStart: async () => {
@@ -51,7 +66,7 @@ function stateCreate(options: {
     })
     return rootDispose
   })
-  return { chat, dispose, setSelected, state: state! }
+  return { chatCreate, chatCreateCalls, dispose, sessionChats, sessionDraftUpdates, setSelected, state: state! }
 }
 
 test("sending without a session creates, selects, waits, and dispatches the preserved draft", async () => {
@@ -170,6 +185,64 @@ test("a failed dispatch keeps the created session and draft for retry", async ()
   expect(createCount).toBe(1)
   expect(submitCount).toBe(2)
   expect(created.state.chat.draft()).toBe("")
+  created.dispose()
+})
+
+test("a recovered draft follows newly typed text through the selected composer remount", async () => {
+  const created = stateCreate({
+    create: async () => "session-1",
+    submit: async () => {
+      throw new Error("The message could not be dispatched.")
+    },
+  })
+  created.state.chat.draftUpdate("failed submission")
+
+  await created.state.chat.submit().catch(() => undefined)
+
+  expect(created.state.chat.draft()).toBe("failed submission")
+  expect(created.state.isVisible()).toBe(true)
+  expect(created.chatCreateCalls).toEqual(["session-1"])
+
+  // Editing the recovered initial composer replaces the failed text. Clearing
+  // the error remounts the selected-session composer, which must see that draft.
+  created.state.chat.draftUpdate("new draft")
+
+  expect(created.state.chat.draft()).toBe("new draft")
+  expect(created.state.isVisible()).toBe(false)
+  expect(created.chatCreateCalls).toEqual(["session-1"])
+  const selectedChat = created.chatCreate("session-1")
+
+  // The keyed selected-session composer reuses the created session's distinct
+  // state; remounting it must not resend either forwarded draft update.
+  expect(selectedChat).not.toBe(created.state.chat)
+  expect(created.chatCreate("session-1")).toBe(selectedChat)
+  expect(selectedChat.draft()).toBe("new draft")
+  expect(created.sessionDraftUpdates.get("session-1")).toEqual(["failed submission", "new draft"])
+  created.dispose()
+})
+
+test("a re-keyed selected session does not receive text through the stale composer", async () => {
+  const created = stateCreate({
+    create: async () => "session-1",
+    submit: async () => {
+      throw new Error("The message could not be dispatched.")
+    },
+  })
+  created.state.chat.draftUpdate("failed submission")
+
+  await created.state.chat.submit().catch(() => undefined)
+  const staleDraftUpdate = created.state.chat.draftUpdate
+  const sessionOneChat = created.chatCreate("session-1")
+  created.setSelected("session-2")
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  const sessionTwoChat = created.chatCreate("session-2")
+  staleDraftUpdate("new session draft")
+
+  expect(sessionOneChat).not.toBe(sessionTwoChat)
+  expect(sessionOneChat.draft()).toBe("failed submission")
+  expect(created.sessionDraftUpdates.get("session-1")).toEqual(["failed submission"])
+  expect(created.sessionDraftUpdates.get("session-2")).toEqual([])
+  expect(sessionTwoChat.draft()).toBe("")
   created.dispose()
 })
 

@@ -98,7 +98,7 @@ export function SessionChat(props: {
                   : "Read-only. Sending is unavailable."
               }
               rows={2}
-              disabled={props.state.isBusy() || props.state.readOnlyNotice?.() !== undefined}
+              disabled={props.state.isStopping() || props.state.readOnlyNotice?.() !== undefined}
               value={props.state.draft()}
               // The textarea stays a textbox: the suggestion list is a separately
               // labelled listbox the caret navigates through `aria-activedescendant`,
@@ -109,18 +109,14 @@ export function SessionChat(props: {
               onInput={(event) => props.state.draftUpdate(event.currentTarget.value)}
               onKeyDown={props.state.keyDownHandle}
             />
-            <Show
-              when={props.state.isBusy()}
-              fallback={
-                <button
-                  class="flex shrink-0 cursor-pointer items-center gap-1.5 self-end rounded-lg border-none bg-accent px-3.5 py-1.5 text-[13px] font-semibold text-accent-contrast disabled:cursor-not-allowed disabled:bg-disabled-surface disabled:text-disabled"
-                  type="submit"
-                  disabled={!props.state.canSubmit()}
-                >
-                  Send
-                </button>
-              }
+            <button
+              class="flex shrink-0 cursor-pointer items-center gap-1.5 self-end rounded-lg border-none bg-accent px-3.5 py-1.5 text-[13px] font-semibold text-accent-contrast disabled:cursor-not-allowed disabled:bg-disabled-surface disabled:text-disabled"
+              type="submit"
+              disabled={!props.state.canSubmit()}
             >
+              {props.state.isBusy() ? "Queue" : "Send"}
+            </button>
+            <Show when={props.state.isBusy()}>
               <button
                 class="flex shrink-0 cursor-pointer items-center gap-1.5 self-end rounded-lg border border-accent-border bg-accent-soft px-3.5 py-1.5 text-[13px] font-semibold text-accent disabled:cursor-not-allowed"
                 type="button"

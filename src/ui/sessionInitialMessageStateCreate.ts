@@ -26,7 +26,15 @@ export function sessionInitialMessageStateCreate(options: SessionInitialMessageS
   const errorMessage = signalObjectCreate<string | undefined>(undefined)
   const isPending = signalObjectCreate(false)
   let createdSessionId: string | null = null
+  let createdChat: SessionChatState | null = null
   let submission: Promise<void> | null = null
+
+  const draftUpdate = (value: string) => {
+    if (submission !== null) return
+    draft.set(value)
+    errorMessage.set(undefined)
+    if (createdChat !== null && options.selectedSessionId() === createdSessionId) createdChat.draftUpdate(value)
+  }
 
   const command: ChatCommandComposerView | undefined =
     options.commandCatalog === undefined
@@ -34,11 +42,7 @@ export function sessionInitialMessageStateCreate(options: SessionInitialMessageS
       : chatCommandComposerStateCreate({
           catalog: options.commandCatalog,
           draft: draft.get,
-          draftUpdate: (value: string) => {
-            if (submission !== null) return
-            draft.set(value)
-            errorMessage.set(undefined)
-          },
+          draftUpdate,
           idPrefix: "initial-command",
         })
 
@@ -46,6 +50,7 @@ export function sessionInitialMessageStateCreate(options: SessionInitialMessageS
     const selectedSessionId = options.selectedSessionId()
     if (isPending.get() || selectedSessionId === null || selectedSessionId === createdSessionId) return
     createdSessionId = null
+    createdChat = null
     errorMessage.set(undefined)
   })
 
@@ -87,12 +92,14 @@ export function sessionInitialMessageStateCreate(options: SessionInitialMessageS
       // session, so command identity and template digest are persisted by the same
       // route that handles every other turn.
       const chat = options.chatCreate(sessionId)
+      createdChat = chat
       chat.draftUpdate(invocation === undefined ? preservedDraft : `/${invocation.name} ${invocation.arguments}`.trim())
       draft.set("")
       isPending.set(false)
       await chat.submit()
       draft.set("")
       createdSessionId = null
+      createdChat = null
     })()
     submission = task
     void task
@@ -112,11 +119,7 @@ export function sessionInitialMessageStateCreate(options: SessionInitialMessageS
     canSubmit: () => draft.get().trim().length > 0 && submission === null && command?.errorMessage() === undefined,
     command,
     draft: draft.get,
-    draftUpdate: (value: string) => {
-      if (submission !== null) return
-      draft.set(value)
-      errorMessage.set(undefined)
-    },
+    draftUpdate,
     errorMessage: errorMessage.get,
     failures: () => [],
     isAborted: () => false,
