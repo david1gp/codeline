@@ -23,11 +23,12 @@ Add a small, deterministic agent-runtime foundation with normalized transcripts,
 - Discover commands recursively from project `.agents/commands/**/*.md` and global `~/.agents/commands/**/*.md`, with project commands taking precedence.
 - Support `$ARGUMENTS`, `$1`…`$N`, quoted and multiline arguments, implicit argument append when no placeholder exists, and command frontmatter for description, agent, model, and subtask selection.
 - Allow `!`command`` interpolation only through the same enabled, bounded `bash` runtime. Expansion fails clearly when `bash` is disabled. Persist expanded user text plus command identity and template digest, not an executable template reference alone.
-- Complete each phase with focused checks, combined-preview verification, commit, push, deployment, migration, and verification before proceeding. Phases 1–2 are complete, committed, pushed, deployed, migrated, and verified; Phases 3–9 remain pending, and work stops after Phase 2.
+- Implement each phase before running its tests. Repair or update every failing test with concurrency 1. After all phases and combined-preview verification, delegate the `/commits` skill to a fresh Luna subagent, then delegate production deployment and verification to a fresh Luna subagent.
+- Use Opus subagents for UI/UX implementation and verification work.
 
 ## Approach
 
-- Current context: Phases 1–2 are complete, committed, pushed, deployed, migrated, and verified. Phases 3–9 remain pending; work stops after Phase 2.
+- Current context: Phases 1–8 are complete. Phase 9 is in progress: provider-finalization rollback/replay coverage and deterministic retry-admission/cancellation persistence race coverage pass.
 - Build pure schemas, resolvers, and projections before connecting provider loops or UI.
 - Extend `RunExecutionSnapshot` with a versioned execution manifest containing instructions, active skills, command catalog identity, and effective per-agent tools.
 - Use one typed tool registry for `skill`, `bash`, `webfetch`, and `delegate_task`; retain the existing provider event and durable tool-activity protocol.
@@ -105,12 +106,12 @@ Status: complete.
 
 ### Phase 3 — Hierarchical `AGENTS.md` snapshots
 
-Status: pending.
+Status: complete; focused tests pass.
 
-- [ ] Implement deterministic discovery for `~/.agents/AGENTS.md`, project ancestry/root `AGENTS.md`, and nested project `AGENTS.md` files with canonical paths, precedence, deduplication, hashes, byte budgets, and explicit validation diagnostics.
-- [ ] Resolve and snapshot instruction contents during pre-session configuration; render global-to-local baseline instructions in stable order.
-- [ ] Resolve nested instruction overlays from the immutable snapshot for `bash` working directories and carry newly relevant scoped instructions into the next model turn.
-- [ ] Expose an authenticated inspection API showing source, scope, digest, size, precedence, and validation status without exposing paths outside the permitted project/global roots.
+- [x] Implement deterministic discovery for `~/.agents/AGENTS.md`, project ancestry/root `AGENTS.md`, and nested project `AGENTS.md` files with canonical paths, precedence, deduplication, hashes, byte budgets, and explicit validation diagnostics.
+- [x] Resolve and snapshot instruction contents during pre-session configuration; render global-to-local baseline instructions in stable order.
+- [x] Resolve nested instruction overlays from the immutable snapshot for `bash` working directories and carry newly relevant scoped instructions into the next model turn.
+- [x] Expose an authenticated inspection API showing source, scope, digest, size, precedence, and validation status without exposing paths outside the permitted project/global roots.
 - Codeline paths:
   - new `src/instructions/actions/agentInstructionsDiscover.ts`
   - new `src/instructions/actions/agentInstructionsSnapshotResolve.ts`
@@ -134,13 +135,13 @@ Status: pending.
 
 ### Phase 4 — Recursive skills, groups, presets, and runtime loading
 
-Status: pending.
+Status: complete; focused tests pass.
 
-- [ ] Discover and validate recursive global/project `SKILL.md` bundles, resources relative to each bundle directory, stable identities, precedence, collisions, and diagnostics.
-- [ ] Model folder groups as relative directory paths and resolve preset includes/excludes deterministically, with parent recursion and individual exclusions taking precedence.
-- [ ] Parse checked-in `.agents/skill-presets/*.yaml`; persist user/project default preset and individual overrides; produce an immutable active-skill snapshot at session creation.
-- [ ] Render the active skill description catalog and estimated tokens using `ceil(renderedCharacters / 4)`.
-- [ ] Register an internal `skill` tool that lists only active skills and loads snapshotted full instructions/resources on demand.
+- [x] Discover and validate recursive global/project `SKILL.md` bundles, resources relative to each bundle directory, stable identities, precedence, collisions, and diagnostics.
+- [x] Model folder groups as relative directory paths and resolve preset includes/excludes deterministically, with parent recursion and individual exclusions taking precedence.
+- [x] Parse checked-in `.agents/skill-presets/*.yaml`; persist user/project default preset and individual overrides; produce an immutable active-skill snapshot at session creation.
+- [x] Render the active skill description catalog and estimated tokens using `ceil(renderedCharacters / 4)`.
+- [x] Register an internal `skill` tool that lists only active skills and loads snapshotted full instructions/resources on demand.
 - Codeline paths:
   - new `src/skills/actions/skillCatalogDiscover.ts`
   - new `src/skills/actions/skillPresetCatalogLoad.ts`
@@ -172,13 +173,13 @@ Status: pending.
 
 ### Phase 5 — Pre-session resource and skill inspection UI
 
-Status: pending.
+Status: complete; tests and managed-preview browser verification pass.
 
-- [ ] Extend the pre-session workspace to choose a preset, recursively toggle folders, override individual skills, and show the effective skill list and estimated description-catalog context before session creation.
-- [ ] Add an inspector for global/project roots, nested groups, skill metadata/content/resources, collisions, validation errors, preset source, and effective activation.
-- [ ] Add primary-agent and subagent tool toggles for only `bash` and `webfetch`, seeded from agent defaults and captured in the pending session selection.
-- [ ] Display immutable selected preset, active skills, instruction sources, and effective tools for an existing session without allowing mutation.
-- [ ] Reuse `#ui` selectors, checks, switches, dialogs, details, and tabs; keep application state and views under `src/ui`.
+- [x] Extend the pre-session workspace to choose a preset, recursively toggle folders, override individual skills, and show the effective skill list and estimated description-catalog context before session creation.
+- [x] Add an inspector for global/project roots, nested groups, skill metadata/content/resources, collisions, validation errors, preset source, and effective activation.
+- [x] Add primary-agent and subagent tool toggles for only `bash` and `webfetch`, seeded from agent defaults and captured in the pending session selection.
+- [x] Display immutable selected preset, active skills, instruction sources, and effective tools for an existing session without allowing mutation.
+- [x] Reuse `#ui` selectors, checks, switches, dialogs, details, and tabs; keep application state and views under `src/ui`.
 - Codeline paths:
   - `src/ui/sessionInitialMessageStateCreate.ts`
   - `src/ui/SessionChat.tsx`
@@ -208,12 +209,12 @@ Status: pending.
 
 ### Phase 6 — Bounded `bash` tool
 
-Status: pending.
+Status: complete; focused tests pass.
 
-- [ ] Implement `bash` through the typed registry with command, optional project-descendant working directory, bounded timeout, abort propagation, bounded/truncated structured output, exit code, and stable tool events.
-- [ ] Advertise and execute `bash` only when enabled in the current immutable agent snapshot; do not add approvals or persisted permission decisions.
-- [ ] Apply snapshotted nested `AGENTS.md` overlays for the declared working directory to subsequent model context.
-- [ ] Test cancellation while waiting for output, timeout, truncation, nonzero exit, invalid working directory, disabled-tool rejection, retry isolation, and terminal races.
+- [x] Implement `bash` through the typed registry with command, optional project-descendant working directory, bounded timeout, abort propagation, bounded/truncated structured output, exit code, and stable tool events.
+- [x] Advertise and execute `bash` only when enabled in the current immutable agent snapshot; do not add approvals or persisted permission decisions.
+- [x] Apply snapshotted nested `AGENTS.md` overlays for the declared working directory to subsequent model context.
+- [x] Test cancellation while waiting for output, timeout, truncation, nonzero exit, invalid working directory, disabled-tool rejection, retry isolation, and terminal races.
 - Codeline paths:
   - new `src/tools/runtime/bashToolCreate.ts`
   - new `src/tools/actions/bashExecute.ts`
@@ -233,11 +234,11 @@ Status: pending.
 
 ### Phase 7 — Bounded `webfetch` tool
 
-Status: pending.
+Status: complete; deterministic focused tests pass.
 
-- [ ] Implement HTTP(S)-only fetch with text/Markdown/HTML formats, redirect handling, content-type validation, response-size and timeout limits, abort propagation, HTML conversion, and structured failures.
-- [ ] Advertise and execute `webfetch` only when enabled in the immutable current-agent snapshot; do not add approvals, web search, or arbitrary provider-native search.
-- [ ] Add deterministic HTTP fixtures for redirects, malformed URLs, unsupported content, conversion, timeout, cancellation, truncation, disabled-tool rejection, and replay-safe lifecycle events.
+- [x] Implement HTTP(S)-only fetch with text/Markdown/HTML formats, redirect handling, content-type validation, response-size and timeout limits, abort propagation, HTML conversion, and structured failures.
+- [x] Advertise and execute `webfetch` only when enabled in the immutable current-agent snapshot; do not add approvals, web search, or arbitrary provider-native search.
+- [x] Add deterministic HTTP fixtures for redirects, malformed URLs, unsupported content, conversion, timeout, cancellation, truncation, disabled-tool rejection, and replay-safe lifecycle events.
 - Codeline paths:
   - new `src/tools/runtime/webfetchToolCreate.ts`
   - new `src/tools/actions/webfetchExecute.ts`
@@ -254,13 +255,13 @@ Status: pending.
 
 ### Phase 8 — `.agents/commands` discovery, expansion, and composer UX
 
-Status: pending.
+Status: complete; unit/integration tests and managed-preview E2E verification pass.
 
-- [ ] Discover recursive global/project Markdown commands with frontmatter validation, precedence, collisions, stable digests, and typed inspection API responses.
-- [ ] Add a pure command parser/expander for `$ARGUMENTS`, positional placeholders, quoting, multiline input, implicit append, agent/model/subtask metadata, and deterministic errors.
-- [ ] Execute `!`command`` substitutions through the enabled `bash` tool with its same working directory, timeout, output, abort, and event behavior; reject interpolation when `bash` is disabled.
-- [ ] Add slash-command autocomplete and detail preview to the pre-session/existing-session composer; submit expanded text through the normal chat path and persist command identity/template digest in message or run metadata.
-- [ ] Ensure all agent/model/subtask overrides are validated before a new session is created and then captured in its immutable selection/snapshot.
+- [x] Discover recursive global/project Markdown commands with frontmatter validation, precedence, collisions, stable digests, and typed inspection API responses.
+- [x] Add a pure command parser/expander for `$ARGUMENTS`, positional placeholders, quoting, multiline input, implicit append, agent/model/subtask metadata, and deterministic errors.
+- [x] Execute `!`command`` substitutions through the enabled `bash` tool with its same working directory, timeout, output, abort, and event behavior; reject interpolation when `bash` is disabled.
+- [x] Add slash-command autocomplete and detail preview to the pre-session/existing-session composer; submit expanded text through the normal chat path and persist command identity/template digest in message or run metadata.
+- [x] Ensure all agent/model/subtask overrides are validated before a new session is created and then captured in its immutable selection/snapshot.
 - Codeline paths:
   - new `src/commands/actions/commandCatalogDiscover.ts`
   - new `src/commands/actions/commandExpand.ts`
@@ -287,7 +288,7 @@ Status: pending.
 
 ### Phase 9 — Failure injection, reload equivalence, and integrated stability closure
 
-Status: pending.
+Status: in progress; provider-finalization failure injection plus retry/cancellation race coverage complete.
 
 - [ ] Add injectable persistence seams for assistant-message insertion, journal publication, delta deletion, run transition, retry-attempt creation, cancellation, and delegation finalization.
 - [ ] Assert transaction rollback, no phantom finalized messages, retained replayable deltas, idempotent recovery, one terminal state, cancellation/completion races, retry admission races, and finalization retry behavior.
