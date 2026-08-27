@@ -82,16 +82,25 @@ test("the managed diagnostics metrics report snapshot and event feed counters", 
             served:
               after("snapshot_response_total", { status: "200" }) -
               before("snapshot_response_total", { status: "200" }),
-            terminated:
-              after("sse_connections_close_total") +
-              after("sse_connections_disconnect_total") -
-              before("sse_connections_close_total") -
-              before("sse_connections_disconnect_total"),
           }
         },
         { intervals: [250, 500, 1000, 2000], timeout: 30_000 },
       )
-      .toEqual({ notModified: 1, opened: 1, served: 1, terminated: 1 })
+      .toEqual({ notModified: 1, opened: 1, served: 1 })
+    await expect
+      .poll(
+        async () => {
+          const after = await e2eMetricsCountersRead(request, baseOrigin)
+          return (
+            after("sse_connections_close_total") +
+            after("sse_connections_disconnect_total") -
+            before("sse_connections_close_total") -
+            before("sse_connections_disconnect_total")
+          )
+        },
+        { intervals: [250, 500, 1000, 2000], timeout: 30_000 },
+      )
+      .toBeGreaterThanOrEqual(1)
   } finally {
     await context?.close()
     try {

@@ -48,6 +48,20 @@ export const simulationScenarioSessionMetadata = {
     agentId: "example-agent-simulation-detached-reload",
     sessionId: "example-session-simulation-detached-reload",
   },
+  "retry-reload": {
+    href: "/simulate/retry-reload",
+    label: "Retry across reload",
+    model: "simulation-retry-reload",
+    agentId: "example-agent-simulation-retry-reload",
+    sessionId: "example-session-simulation-retry-reload",
+  },
+  "tool-activity-reload": {
+    href: "/simulate/tool-activity-reload",
+    label: "Tool activity across reload",
+    model: "simulation-tool-activity-reload",
+    agentId: "example-agent-simulation-tool-activity-reload",
+    sessionId: "example-session-simulation-tool-activity-reload",
+  },
   cancellation: {
     href: "/simulate/cancellation",
     label: "Cancellation",

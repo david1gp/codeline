@@ -1,5 +1,5 @@
 import { createResult, type Result } from "@adaptive-ds/result"
-import { and, asc, eq } from "drizzle-orm"
+import { and, asc, eq, or } from "drizzle-orm"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { runErrorCodes } from "../errors/runErrorCodes.js"
 import { runResultCreateError } from "../errors/runResultCreateError.js"
@@ -23,10 +23,19 @@ export async function runRepositoryLoad(
     return runResultCreateError(op, "The client run ID is required.", runErrorCodes.identifiersRequired)
 
   try {
+    // A reloaded tab holds no client run identifier: it rediscovers a detached run
+    // by its durable identifier through the active-run list, so both identifiers
+    // must resolve the same run. Both are unique within one session.
     const [run] = await database
       .select()
       .from(runTable)
-      .where(and(eq(runTable.userId, userId), eq(runTable.sessionId, sessionId), eq(runTable.clientRunId, clientRunId)))
+      .where(
+        and(
+          eq(runTable.userId, userId),
+          eq(runTable.sessionId, sessionId),
+          or(eq(runTable.clientRunId, clientRunId), eq(runTable.id, clientRunId)),
+        ),
+      )
       .limit(1)
     if (run === undefined) return runResultCreateError(op, "The run could not be found.", runErrorCodes.notFound)
 

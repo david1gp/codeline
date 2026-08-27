@@ -29,6 +29,8 @@ export function UiRouter() {
         <Route path="/simulate/retry-exhausted" component={SimulateApp} />
         <Route path="/simulate/terminal-error" component={SimulateApp} />
         <Route path="/simulate/unexpected-end" component={SimulateApp} />
+        <Route path="/simulate/retry-reload" component={SimulateApp} />
+        <Route path="/simulate/tool-activity-reload" component={SimulateApp} />
         <Route path="/simulate/cancellation" component={SimulateApp} />
         <Route path="/simulate/*unknownSimulation" component={SimulateApp} />
       </Route>

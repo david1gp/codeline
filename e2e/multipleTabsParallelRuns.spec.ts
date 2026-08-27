@@ -189,3 +189,110 @@ test("two tabs run parallel deterministic runs over one event feed each without 
   if (cleanupError !== undefined) throw cleanupError
   expect(deletedUserIds).toHaveLength(2)
 })
+
+/**
+ * The detached-reload scenario keeps the run open long enough for a second tab to
+ * open the same session while the first tab's run is still active, which is what
+ * makes convergence rather than duplication observable.
+ */
+const convergenceScenario = {
+  agentId: "example-agent-simulation-detached-reload",
+  finalText: "The detached deterministic run finished after the reload.",
+  firstText: "The detached deterministic run started.",
+  serverId: "example-server-local",
+} as const
+
+test("two tabs on the same session converge on one authoritative transcript for one detached run", async ({
+  browser,
+}) => {
+  test.setTimeout(180_000)
+  expect(baseOrigin).toBe("https://preview.codeline.work")
+
+  const runId = e2eRunIdCreate()
+  let context: BrowserContext | undefined
+  let cleanupError: unknown
+  let deletedUserIds: string[] = []
+
+  try {
+    const issued = await e2eMemberSessionsIssue(runId)
+    const [member] = issued.members
+    await e2eExampleDataSeedForMember({ subject: `${issued.subjectPrefix}1`, userId: member.userId })
+    context = await memberContextOpen(browser, member.token)
+
+    const sessionId = await sessionCreate(context, {
+      agentId: convergenceScenario.agentId,
+      clientRequestId: `e2e-converge-${runId}`,
+      serverId: convergenceScenario.serverId,
+      title: `Converging tabs ${runId}`,
+    })
+    const prompt = `converging tabs ${runId}`
+
+    const first = await context.newPage()
+    await first.goto(`/sessions/${encodeURIComponent(sessionId)}`)
+    await promptSubmit({
+      assistantText: convergenceScenario.finalText,
+      page: first,
+      prompt,
+      scenario: tabScenarios[0],
+      sessionId,
+    })
+
+    // The run is detached and still active, so the second tab has to discover it
+    // over HTTP instead of inheriting any client state from the first tab.
+    const activeResponse = await context.request.get(`${baseOrigin}/api/sessions/${sessionId}/active-runs`)
+    expect(activeResponse.ok(), await activeResponse.text()).toBe(true)
+    await expect
+      .poll(
+        async () => {
+          const response = await (context as BrowserContext).request.get(
+            `${baseOrigin}/api/sessions/${sessionId}/active-runs`,
+          )
+          return ((await response.json()) as { runs: Array<{ runId: string }> }).runs.length
+        },
+        { timeout: syncTimeout },
+      )
+      .toBe(1)
+
+    const second = await context.newPage()
+    await second.goto(`/sessions/${encodeURIComponent(sessionId)}`)
+    await expect(second.getByRole("form", { name: "Chat composer" })).toBeVisible({ timeout: syncTimeout })
+
+    // Both tabs settle on the same authoritative transcript, each exactly once.
+    for (const page of [first, second]) {
+      const finalized = page.getByRole("list", { name: "Finalized messages" })
+      await expect(
+        finalized.locator('article[data-message-role="assistant"]').getByText(convergenceScenario.finalText),
+      ).toHaveCount(1, { timeout: syncTimeout })
+      await expect(
+        finalized.locator('article[data-message-role="user"]').getByText(prompt, { exact: true }),
+      ).toHaveCount(1, { timeout: syncTimeout })
+      await expect(page.getByRole("list", { name: "In-flight messages" })).toHaveCount(0, { timeout: syncTimeout })
+      // Neither tab replayed the partial fragment as a second, separate message.
+      await expect(finalized.getByText(convergenceScenario.firstText)).toHaveCount(1)
+      // Each tab owns one feed at a time. The tab that joined mid-run additionally
+      // reattaches once, after the run snapshot's cursor, rather than replaying blindly.
+      const feedUrls = await eventFeedSourceUrlsRead(page)
+      expect(feedUrls.length).toBeGreaterThanOrEqual(1)
+      expect(feedUrls.length).toBeLessThanOrEqual(2)
+      for (const url of feedUrls.slice(1)) expect(url).toContain("after=")
+    }
+
+    // One durable run backed both tabs; convergence did not start a second run.
+    const messagesResponse = await context.request.get(`${baseOrigin}/api/sessions/${sessionId}/messages`)
+    expect(messagesResponse.ok(), await messagesResponse.text()).toBe(true)
+    const messages = ((await messagesResponse.json()) as { messages: Array<{ role: string }> }).messages
+    expect(messages.filter((message) => message.role === "user")).toHaveLength(1)
+    expect(messages.filter((message) => message.role === "assistant")).toHaveLength(1)
+  } finally {
+    await context?.close()
+    try {
+      deletedUserIds = await e2eMemberSessionsPurge(runId)
+      await e2eExampleDataSeedRestore()
+    } catch (error) {
+      cleanupError = error
+    }
+  }
+
+  if (cleanupError !== undefined) throw cleanupError
+  expect(deletedUserIds).toHaveLength(2)
+})

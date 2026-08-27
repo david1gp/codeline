@@ -21,6 +21,20 @@ const scenario = {
   firstText: "The detached deterministic run started.",
 } as const
 
+/**
+ * The `tool-activity-reload` scenario opens a tool call immediately and only
+ * resolves it seconds later, so the reload provably happens while the tool call
+ * is still open and the reattached tab observes its completion.
+ */
+const toolScenario = {
+  agentId: "example-agent-simulation-tool-activity-reload",
+  finalText: "The tool activity run finished after the reload.",
+  firstText: "The tool activity run started.",
+  toolCallId: "tool-activity-reload-1",
+  toolName: "bash",
+  toolResultText: "The deterministic tool call finished after the reload.",
+} as const
+
 declare global {
   interface Window {
     __codelineEventFeedUrls?: string[]
@@ -198,6 +212,104 @@ test("a submitted prompt starts a detached run that survives reload and complete
     // Finalization deletes that run's now-obsolete deltas.
     expect(finalSnapshot.lastSequence).toBe(0)
     expect(finalSnapshot.partialText).toBe("")
+  } finally {
+    await context?.close()
+    try {
+      deletedUserIds = await e2eMemberSessionsPurge(runId)
+      await e2eExampleDataSeedRestore()
+    } catch (error) {
+      cleanupError = error
+    }
+  }
+
+  if (cleanupError !== undefined) throw cleanupError
+  expect(deletedUserIds).toHaveLength(2)
+})
+
+test("a reload during open tool activity reattaches the run and observes the tool call completing", async ({
+  browser,
+}) => {
+  test.setTimeout(180_000)
+  expect(baseOrigin).toBe("https://preview.codeline.work")
+
+  const runId = e2eRunIdCreate()
+  let context: BrowserContext | undefined
+  let cleanupError: unknown
+  let deletedUserIds: string[] = []
+
+  try {
+    const issued = await e2eMemberSessionsIssue(runId)
+    const [member] = issued.members
+    await e2eExampleDataSeedForMember({ subject: `${issued.subjectPrefix}1`, userId: member.userId })
+    context = await memberContextOpen(browser, member.token)
+
+    const sessionResponse = await context.request.post(`${baseOrigin}/api/sessions`, {
+      data: {
+        clientRequestId: `e2e-tool-reload-${runId}`,
+        primaryAgentId: toolScenario.agentId,
+        serverId,
+        title: `Tool activity reload ${runId}`,
+      },
+      headers: { origin: baseOrigin },
+    })
+    expect(sessionResponse.ok(), await sessionResponse.text()).toBe(true)
+    const sessionId = ((await sessionResponse.json()) as { session: { id: string } }).session.id
+
+    const prompt = `tool activity reload ${runId}`
+    const page = await context.newPage()
+    await page.goto(`/sessions/${encodeURIComponent(sessionId)}`)
+
+    const composer = page.getByRole("form", { name: "Chat composer" })
+    await expect(composer).toBeVisible({ timeout: syncTimeout })
+    const messageInput = composer.getByLabel("Message")
+    await expect(messageInput).toBeEnabled({ timeout: syncTimeout })
+    await messageInput.fill(prompt)
+    await composer.getByRole("button", { name: "Send" }).click()
+
+    await expect
+      .poll(async () => (await activeRunsRead(context as BrowserContext, sessionId)).runs.length, {
+        timeout: syncTimeout,
+      })
+      .toBe(1)
+    const activeBeforeReload = await activeRunsRead(context, sessionId)
+    const detachedRunId = activeBeforeReload.runs[0]?.runId
+    if (detachedRunId === undefined) throw new Error("The detached run was not registered.")
+
+    // The tool call has started and emitted its arguments, but its result is still
+    // pending, so the reload happens inside the open tool lifecycle.
+    await expect
+      .poll(
+        async () => (await activeRunSnapshotRead(context as BrowserContext, sessionId, detachedRunId)).partialText,
+        {
+          timeout: syncTimeout,
+        },
+      )
+      .toContain(toolScenario.firstText)
+
+    await page.reload()
+
+    const afterReload = await activeRunsRead(context, sessionId)
+    expect(afterReload.runs.map((run) => run.runId)).toEqual([detachedRunId])
+    expect(afterReload.runs[0]?.status).toBe("running")
+
+    // The reattached tab renders the durable stream, so the still-open tool call and
+    // then its late result are both observable in the same reloaded page.
+    await page.getByRole("button", { name: "Stream view" }).click()
+    const stream = page.getByRole("region", { name: "Execution stream" })
+    await expect(stream.getByText(toolScenario.toolName, { exact: true }).first()).toBeVisible({
+      timeout: syncTimeout,
+    })
+    await expect(stream.getByText(toolScenario.toolResultText)).toBeVisible({ timeout: syncTimeout })
+
+    await page.getByRole("button", { name: "Conversation view" }).click()
+    const finalized = page.getByRole("list", { name: "Finalized messages" })
+    await expect(
+      finalized.locator('article[data-message-role="assistant"]').getByText(toolScenario.finalText),
+    ).toBeVisible({ timeout: syncTimeout })
+
+    const finalSnapshot = await activeRunSnapshotRead(context, sessionId, detachedRunId)
+    expect(finalSnapshot.status).toBe("succeeded")
+    expect((await activeRunsRead(context, sessionId)).runs).toEqual([])
   } finally {
     await context?.close()
     try {
