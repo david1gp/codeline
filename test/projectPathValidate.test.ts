@@ -407,6 +407,30 @@ describe("project-filesystem core", () => {
   })
 
   describe("security containment & absolute path exposure", () => {
+    test("rejects symlink escapes at file access and identity boundaries without leaking outside paths", async () => {
+      const boundaryDir = await fs.mkdtemp(path.join(os.tmpdir(), "project-symlink-escape-test-"))
+      const allowedRoot = path.join(boundaryDir, "allowed")
+      const outsideRoot = path.join(boundaryDir, "outside")
+      const link = path.join(allowedRoot, "link")
+
+      try {
+        await fs.mkdir(allowedRoot)
+        await fs.mkdir(outsideRoot)
+        await fs.writeFile(path.join(outsideRoot, "secret.txt"), "secret", "utf-8")
+        await fs.symlink(outsideRoot, link, "dir")
+
+        const access = await projectTextRead(allowedRoot, "link/secret.txt")
+        expect(access.success).toBe(false)
+        expect(JSON.stringify(access)).not.toContain(outsideRoot)
+
+        const identity = await projectPathReferenceResolve(link, [allowedRoot])
+        expect(identity.success).toBe(false)
+        expect(JSON.stringify(identity)).not.toContain(outsideRoot)
+      } finally {
+        await fs.rm(boundaryDir, { recursive: true, force: true })
+      }
+    })
+
     test("rejects traversal via symlinked directory component", async () => {
       const res = await projectDirectoryList(tempDir, "symlink_dir/a_file.txt")
       expect(res.success).toBe(false)
