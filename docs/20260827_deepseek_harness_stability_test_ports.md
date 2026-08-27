@@ -104,7 +104,7 @@ Increase Codeline stability with focused regression tests and lifecycle hardenin
     - `~/opensource/deepseek-harness/packages/core/agent-loop/tests/cancel.spec.ts` — search for queued work preservation, wake during abort-to-idle convergence, and tool-call cancellation.
     - `~/opensource/deepseek-harness/packages/core/agent-loop/tests/tool-calls.spec.ts` — search for abort before dispatch and stopping sibling replenishment; adapt only parent/child admission guarantees.
 
-- [ ] **10. Separate startup reconciliation from active execution ownership**
+- [x] **10. Separate startup reconciliation from active execution ownership**
   - Extend `test/runStartupInterruptionReconcile.test.ts` and `test/runActiveRegistry.test.ts` around `src/run/actions/runStartupInterruptionReconcile.ts` and the active-run registry.
   - Establish an ownership invariant: startup reconciliation repairs only persisted work abandoned by a previous process and never interrupts work registered to the current process.
   - Add deterministic tests for reconciliation before registration, registration during reconciliation, failed registration rollback, and duplicate ownership attempts.
@@ -113,7 +113,7 @@ Increase Codeline stability with focused regression tests and lifecycle hardenin
     - `~/opensource/deepseek-harness/packages/core/agent-loop/tests/scope-lifecycle.spec.ts` — search for concurrent same-ID creation, failed publication rollback, and owner cleanup.
     - `~/opensource/deepseek-harness/packages/core/agent-loop/tests/config-session-id.spec.ts` — search for exact-ID duplicate rejection and cancellation of deferred resume.
 
-- [ ] **11. Isolate durable completion from observer and SSE failures**
+- [x] **11. Isolate durable completion from observer and SSE failures**
   - Extend `test/runLifecycleEventFeedIntegration.test.ts`, `test/apiEventsRoutesAdd.test.ts`, and/or `test/streamSseConnectionWriter.test.ts` at the narrowest production publication seam.
   - Force one subscriber or observer to throw or disconnect while a run reaches success, failure, and cancellation.
   - Assert durable run/attempt state and journal events commit exactly once, healthy subscribers continue, the failed subscriber is isolated, and reconnect/backlog recovery returns the committed terminal event.
