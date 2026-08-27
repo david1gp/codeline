@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test"
 import { createResult, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
+import { delegateTaskToolCreate } from "../src/tools/runtime/delegateTaskToolCreate.js"
 import { toolErrorCodes } from "../src/tools/runtime/toolErrorCodes.js"
 import { toolRegistryCreate } from "../src/tools/runtime/toolRegistryCreate.js"
 
@@ -34,6 +35,19 @@ function registryRegister(
   })
 }
 
+type Deferred<T> = {
+  promise: Promise<T>
+  resolve: (value: T) => void
+}
+
+function deferredCreate<T>(): Deferred<T> {
+  let resolvePromise: (value: T) => void = () => undefined
+  const promise = new Promise<T>((resolve) => {
+    resolvePromise = resolve
+  })
+  return { promise, resolve: resolvePromise }
+}
+
 test("starts empty and lists only enabled registered tool names", () => {
   const registry = toolRegistryCreate()
   expect(registry.list()).toEqual([])
@@ -63,6 +77,60 @@ test("rejects unknown, disabled, invalid input, and duplicate registrations dete
   const disabled = await disabledRegistry.execute("bash", { value: "run" }, context())
   expect(disabled).toMatchObject({ code: toolErrorCodes.disabled, errorMessage: "The bash tool is disabled." })
   expect(disabledRegistry.list()).toEqual([])
+})
+
+test("runs concurrent delegated tools to completion while retaining source-order results", async () => {
+  const firstStarted = deferredCreate<void>()
+  const secondStarted = deferredCreate<void>()
+  const firstResult = deferredCreate<string>()
+  const secondResult = deferredCreate<string>()
+  const secondCompleted = deferredCreate<void>()
+  const started: string[] = []
+  const completed: string[] = []
+  const resultsByTask = new Map<string, string>()
+  const registry = toolRegistryCreate()
+
+  const registered = registry.register(
+    delegateTaskToolCreate({
+      execute: async ({ task }) => {
+        started.push(task)
+        if (task === "first") firstStarted.resolve()
+        if (task === "second") secondStarted.resolve()
+        const result = await (task === "first" ? firstResult.promise : secondResult.promise)
+        completed.push(task)
+        resultsByTask.set(task, result)
+        if (task === "second") secondCompleted.resolve()
+        return result
+      },
+    }),
+  )
+  expect(registered.success).toBe(true)
+
+  const signal = new AbortController().signal
+  const sourceOrder = [
+    { task: "first", toolCallId: "call-first" },
+    { task: "second", toolCallId: "call-second" },
+  ]
+  const executions = sourceOrder.map(({ task, toolCallId }) =>
+    registry.execute("delegate_task", { task }, { signal, timeoutMs: null, toolCallId }),
+  )
+
+  await Promise.all([firstStarted.promise, secondStarted.promise])
+  expect(started).toEqual(["first", "second"])
+
+  secondResult.resolve("second result")
+  await secondCompleted.promise
+  expect(completed).toEqual(["second"])
+
+  firstResult.resolve("first result")
+  const executionsCompleted = await Promise.all(executions)
+
+  expect(completed).toEqual(["second", "first"])
+  expect(sourceOrder.map(({ task }) => resultsByTask.get(task))).toEqual(["first result", "second result"])
+  expect(executionsCompleted.map((result) => (result.success ? result.data : undefined))).toEqual([
+    "first result",
+    "second result",
+  ])
 })
 
 test("validates output and enforces its output bound", async () => {

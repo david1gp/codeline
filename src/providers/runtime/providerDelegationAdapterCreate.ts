@@ -78,7 +78,7 @@ function providerDelegationAdapterModelCreate(options: ProviderDelegationAdapter
         prompt: providerDelegationPromptResolve(input.messages),
         runId: input.runId ?? input.threadId ?? "delegation-run",
         sessionId: input.threadId ?? "delegation-session",
-        signal: input.abortController?.signal ?? new AbortController().signal,
+        signal: input.request?.signal ?? new AbortController().signal,
         ...(input.tools === undefined ? {} : { tools: input.tools }),
         ...(systemPrompt === undefined ? {} : { systemPrompt }),
       })

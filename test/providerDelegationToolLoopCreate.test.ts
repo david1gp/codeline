@@ -144,20 +144,27 @@ function multipleDelegatedToolScript(): Array<StreamChunk> {
   return [
     { runId: "run-delegation", threadId: "thread-delegation", timestamp: 1, type: EventType.RUN_STARTED },
     {
+      metadata: { providerExecuted: true },
       timestamp: 2,
       toolCallId: "call-delegation-1",
       toolCallName: "delegate_task",
       toolName: "delegate_task",
       type: EventType.TOOL_CALL_START,
-    },
-    { delta: '{"task":"return first"}', timestamp: 3, toolCallId: "call-delegation-1", type: EventType.TOOL_CALL_ARGS },
+    } as StreamChunk,
     {
+      delta: '{"task":"return first"}',
+      timestamp: 3,
+      toolCallId: "call-delegation-1",
+      type: EventType.TOOL_CALL_ARGS,
+    },
+    {
+      metadata: { providerExecuted: true },
       timestamp: 4,
       toolCallId: "call-delegation-2",
       toolCallName: "delegate_task",
       toolName: "delegate_task",
       type: EventType.TOOL_CALL_START,
-    },
+    } as StreamChunk,
     {
       delta: '{"task":"return second"}',
       timestamp: 5,
@@ -165,11 +172,25 @@ function multipleDelegatedToolScript(): Array<StreamChunk> {
       type: EventType.TOOL_CALL_ARGS,
     },
     {
-      finishReason: "tool_calls",
+      content: "second result",
+      messageId: "tool-result-2",
+      timestamp: 6,
+      toolCallId: "call-delegation-2",
+      type: EventType.TOOL_CALL_RESULT,
+    },
+    {
+      content: "first result",
+      messageId: "tool-result-1",
+      timestamp: 7,
+      toolCallId: "call-delegation-1",
+      type: EventType.TOOL_CALL_RESULT,
+    },
+    {
+      finishReason: "stop",
       outcome: { type: "success" },
       runId: "run-delegation",
       threadId: "thread-delegation",
-      timestamp: 6,
+      timestamp: 8,
       type: EventType.RUN_FINISHED,
     },
   ] as Array<StreamChunk>
@@ -659,11 +680,10 @@ test("allows a tool call ID to be reused in a later model round", async () => {
   ])
 })
 
-test("returns multiple delegated results in tool call order", async () => {
+test("keeps canonical delegated presentation in source order when results complete out of order", async () => {
   const scripted = scriptedAdapterCreate([multipleDelegatedToolScript(), terminalOnlyScript()])
   const loop = providerDelegationToolLoopCreate({
     adapter: scripted.adapter,
-    delegateTask: ({ task }) => (task === "return first" ? "first result" : "second result"),
   })
 
   const chunks = await collect(
@@ -675,6 +695,10 @@ test("returns multiple delegated results in tool call order", async () => {
     }),
   )
 
+  expect(chunks.filter((chunk) => chunk.type === EventType.TOOL_CALL_RESULT).map((chunk) => chunk.toolCallId)).toEqual([
+    "call-delegation-2",
+    "call-delegation-1",
+  ])
   expect(chunks.filter((chunk) => chunk.type === EventType.TEXT_MESSAGE_CONTENT).map((chunk) => chunk.delta)).toEqual([
     "first result\nsecond result",
   ])

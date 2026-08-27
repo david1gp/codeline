@@ -453,6 +453,7 @@ async function* providerDelegationToolLoopGenerate(
   let delegatedResultRoundHasError = false
   let hasDelegatedResultRound = false
   const delegatedResultEventIds = new Set<string>()
+  const delegatedResultToolCallOrder: string[] = []
   const toolCallNames = new Map<string, string>()
   const delegatedResults = new Map<string, string>()
 
@@ -487,6 +488,7 @@ async function* providerDelegationToolLoopGenerate(
       if (chunk.type === EventType.TOOL_CALL_START) {
         if (hasDelegatedResultRound && (!currentRoundHasToolCalls || currentRoundHasToolResult)) {
           delegatedResults.clear()
+          delegatedResultToolCallOrder.length = 0
           delegatedResultRoundHasError = false
           hasDelegatedResultRound = false
           continuationText = ""
@@ -494,8 +496,11 @@ async function* providerDelegationToolLoopGenerate(
         currentRoundHasToolCalls = true
         delegatedResultEventIds.delete(chunk.toolCallId)
         const providerEvent = providerExecutionEventFromStreamChunk(chunk)
-        if (providerEvent.success && providerEvent.data?.type === "tool_start")
+        if (providerEvent.success && providerEvent.data?.type === "tool_start") {
           toolCallNames.set(providerEvent.data.toolCallId, providerEvent.data.toolName)
+          if (providerEvent.data.toolName === "delegate_task")
+            delegatedResultToolCallOrder.push(providerEvent.data.toolCallId)
+        }
       }
       if (chunk.type === EventType.TOOL_CALL_RESULT) {
         const providerEvent = providerExecutionEventFromStreamChunk(chunk)
@@ -576,7 +581,11 @@ async function* providerDelegationToolLoopGenerate(
       type: EventType.TEXT_MESSAGE_START,
     }
     yield {
-      delta: [...delegatedResults.values()].join("\n").slice(0, DELEGATE_TASK_OUTPUT_LIMIT),
+      delta: delegatedResultToolCallOrder
+        .map((toolCallId) => delegatedResults.get(toolCallId))
+        .filter((result): result is string => result !== undefined)
+        .join("\n")
+        .slice(0, DELEGATE_TASK_OUTPUT_LIMIT),
       messageId,
       timestamp: Date.now(),
       type: EventType.TEXT_MESSAGE_CONTENT,

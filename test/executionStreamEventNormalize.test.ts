@@ -99,6 +99,51 @@ test("redacts secrets and bounds nested tool payloads", () => {
   expect(normalized.data.payload.output).not.toContain("user:password@")
 })
 
+test("ignores unknown provider events and keeps malformed event errors bounded", () => {
+  for (const input of [
+    { delta: "future", type: "TEXT_MESSAGE_CONTENT_FUTURE" },
+    { outcome: { type: "future_terminal" }, type: "RUN_FINISHED_FUTURE" },
+  ]) {
+    expect(providerExecutionEventFromStreamChunk(input)).toMatchObject({ data: null, success: true })
+  }
+
+  const secret = "Bearer provider-secret-value-123"
+  const malformed = [
+    { type: "TEXT_MESSAGE_CONTENT" },
+    { delta: { secret }, type: "TEXT_MESSAGE_CONTENT" },
+    { message: { secret }, type: "RUN_ERROR" },
+    { message: `${secret}${"x".repeat(32_768)}`, type: "RUN_ERROR" },
+  ]
+  for (const input of malformed) {
+    const result = providerExecutionEventFromStreamChunk(input)
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.errorMessage.length).toBeLessThan(1_024)
+      expect(result.errorMessage).not.toContain(secret)
+    }
+  }
+
+  const sequence = [
+    { delta: "before", type: "TEXT_MESSAGE_CONTENT" },
+    { delta: "ignored", type: "TEXT_MESSAGE_CONTENT_FUTURE" },
+    { type: "TEXT_MESSAGE_CONTENT" },
+    { delta: "after", type: "TEXT_MESSAGE_CONTENT" },
+  ].map(providerExecutionEventFromStreamChunk)
+  expect(sequence[0]).toMatchObject({ data: { delta: "before", type: "text_delta" }, success: true })
+  expect(sequence[1]).toMatchObject({ data: null, success: true })
+  expect(sequence.at(2)?.success).toBe(false)
+  expect(sequence[3]).toMatchObject({ data: { delta: "after", type: "text_delta" }, success: true })
+
+  for (const [outcome, status] of [
+    [undefined, "completed"],
+    [{ type: "interrupted" }, "aborted"],
+    [{ type: "future_terminal" }, "error"],
+  ] as const) {
+    const result = providerExecutionEventFromStreamChunk({ outcome, type: "RUN_FINISHED" })
+    expect(result).toMatchObject({ data: { status, type: "terminal" }, success: true })
+  }
+})
+
 test("rejects malformed provider events and unsafe written-file paths", () => {
   expect(providerExecutionEventFromStreamChunk({ delta: "text", extra: true, type: "text_delta" }).success).toBe(false)
   expect(executionStreamEventNormalize({ path: "../secret", type: "written_file" }).success).toBe(false)

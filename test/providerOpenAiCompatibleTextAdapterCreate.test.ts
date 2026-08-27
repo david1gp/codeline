@@ -25,19 +25,23 @@ function testLogger(): InstanceType<typeof InternalLogger> {
   )
 }
 
-function sseResponse(events: readonly Record<string, unknown>[]): Response {
-  const source = `${events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("")}data: [DONE]\n\n`
+function sseResponseFromSource(source: string, chunkSize?: number): Response {
   const encoded = new TextEncoder().encode(source)
-  const split = Math.max(1, Math.floor(encoded.length / 3))
+  const size = Math.max(1, chunkSize ?? Math.floor(encoded.length / 3))
   const body = new ReadableStream<Uint8Array>({
     start(controller) {
-      controller.enqueue(encoded.slice(0, split))
-      controller.enqueue(encoded.slice(split, split * 2))
-      controller.enqueue(encoded.slice(split * 2))
+      for (let offset = 0; offset < encoded.length; offset += size) {
+        controller.enqueue(encoded.slice(offset, offset + size))
+      }
       controller.close()
     },
   })
   return new Response(body, { headers: { "content-type": "text/event-stream" }, status: 200 })
+}
+
+function sseResponse(events: readonly Record<string, unknown>[], chunkSize?: number): Response {
+  const source = `${events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("")}data: [DONE]\n\n`
+  return sseResponseFromSource(source, chunkSize)
 }
 
 function streamInput(signal: AbortSignal, tools?: AdapterInput["tools"]): AdapterInput {
@@ -133,6 +137,136 @@ test("CLIProxyAPI and Codex-LB stream split tool-call fragments sequentially", a
     ])
     expect(chunks.some((chunk) => chunk.type === EventType.TOOL_CALL_END && chunk.toolCallId === "call-1")).toBe(true)
     expect(chunks.at(-1)).toMatchObject({ finishReason: "tool_calls", type: EventType.RUN_FINISHED })
+  }
+})
+
+test("CLIProxyAPI and Codex-LB preserve UTF-8 text across arbitrary SSE chunk boundaries", async () => {
+  for (const provider of ["cliproxyapi", "codex-lb"] as const) {
+    const controller = new AbortController()
+    const adapter = providerOpenAiCompatibleTextAdapterCreate({
+      baseUrl: "https://provider.test/v1",
+      fetch: async () =>
+        sseResponse(
+          [
+            {
+              choices: [{ delta: { content: "before " }, finish_reason: null, index: 0 }],
+              id: "chunk-1",
+              model: "provider-model",
+              object: "chat.completion.chunk",
+            },
+            {
+              choices: [{ delta: { content: "café 🌍" }, finish_reason: null, index: 0 }],
+              id: "chunk-2",
+              model: "provider-model",
+              object: "chat.completion.chunk",
+            },
+            {
+              choices: [{ delta: {}, finish_reason: "stop", index: 0 }],
+              id: "chunk-3",
+              model: "provider-model",
+              object: "chat.completion.chunk",
+            },
+          ],
+          1,
+        ),
+      model: "provider-model",
+      provider,
+      resolvedBearerSecret: secretValue,
+    })
+
+    const chunks: StreamChunk[] = []
+    for await (const chunk of adapter.chatStream(streamInput(controller.signal))) chunks.push(chunk)
+
+    expect(chunks.filter((chunk) => chunk.type === EventType.TEXT_MESSAGE_CONTENT).map((chunk) => chunk.delta)).toEqual(
+      ["before ", "café 🌍"],
+    )
+    expect(chunks.some((chunk) => chunk.type === EventType.RUN_ERROR)).toBe(false)
+    expect(chunks.at(-1)).toMatchObject({ finishReason: "stop", type: EventType.RUN_FINISHED })
+  }
+})
+
+test("invalid provider SSE JSON becomes a bounded canonical error", async () => {
+  for (const provider of ["cliproxyapi", "codex-lb"] as const) {
+    const adapter = providerOpenAiCompatibleTextAdapterCreate({
+      baseUrl: "https://provider.test/v1",
+      fetch: async () =>
+        sseResponseFromSource(
+          [
+            `data: ${JSON.stringify({
+              choices: [{ delta: { content: "before malformed input" }, finish_reason: null, index: 0 }],
+              id: "chunk-1",
+              model: "provider-model",
+              object: "chat.completion.chunk",
+            })}\n\n`,
+            'data: {"choices":\n\n',
+            `data: ${JSON.stringify({
+              choices: [{ delta: { content: "after malformed input" }, finish_reason: null, index: 0 }],
+              id: "chunk-2",
+              model: "provider-model",
+              object: "chat.completion.chunk",
+            })}\n\n`,
+            "data: [DONE]\n\n",
+          ].join(""),
+          1,
+        ),
+      model: "provider-model",
+      provider,
+      resolvedBearerSecret: secretValue,
+    })
+
+    const chunks: StreamChunk[] = []
+    for await (const chunk of adapter.chatStream(streamInput(new AbortController().signal))) chunks.push(chunk)
+
+    expect(chunks.filter((chunk) => chunk.type === EventType.TEXT_MESSAGE_CONTENT).map((chunk) => chunk.delta)).toEqual(
+      ["before malformed input"],
+    )
+    const error = chunks.find((chunk) => chunk.type === EventType.RUN_ERROR)
+    expect(error).toMatchObject({
+      code: "provider_failed",
+      message: "The provider rejected the request.",
+      type: EventType.RUN_ERROR,
+    })
+    expect(chunks.some((chunk) => chunk.type === EventType.RUN_FINISHED)).toBe(false)
+    expect(error && JSON.stringify(error).length).toBeLessThan(512)
+  }
+})
+
+test("truncated provider terminal frame becomes a bounded canonical error", async () => {
+  for (const provider of ["cliproxyapi", "codex-lb"] as const) {
+    const adapter = providerOpenAiCompatibleTextAdapterCreate({
+      baseUrl: "https://provider.test/v1",
+      fetch: async () =>
+        sseResponseFromSource(
+          [
+            `data: ${JSON.stringify({
+              choices: [{ delta: { content: "before truncated terminal" }, finish_reason: null, index: 0 }],
+              id: "chunk-1",
+              model: "provider-model",
+              object: "chat.completion.chunk",
+            })}\n\n`,
+            "data: [DON\n\n",
+          ].join(""),
+          1,
+        ),
+      model: "provider-model",
+      provider,
+      resolvedBearerSecret: secretValue,
+    })
+
+    const chunks: StreamChunk[] = []
+    for await (const chunk of adapter.chatStream(streamInput(new AbortController().signal))) chunks.push(chunk)
+
+    expect(chunks.filter((chunk) => chunk.type === EventType.TEXT_MESSAGE_CONTENT).map((chunk) => chunk.delta)).toEqual(
+      ["before truncated terminal"],
+    )
+    const error = chunks.find((chunk) => chunk.type === EventType.RUN_ERROR)
+    expect(error).toMatchObject({
+      code: "provider_failed",
+      message: "The provider rejected the request.",
+      type: EventType.RUN_ERROR,
+    })
+    expect(chunks.some((chunk) => chunk.type === EventType.RUN_FINISHED)).toBe(false)
+    expect(error && JSON.stringify(error).length).toBeLessThan(512)
   }
 })
 
