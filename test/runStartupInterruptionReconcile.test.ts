@@ -8,12 +8,15 @@ import { applicationUserTable } from "../src/identity/db/applicationUserTable.js
 import { organizationTable } from "../src/identity/db/organizationTable.js"
 import { journalEventTable } from "../src/journal/db/journalEventTable.js"
 import { journalSequenceCounterTable } from "../src/journal/db/journalSequenceCounterTable.js"
+import { appCreate } from "../src/app/appCreate.js"
 import { runCreate } from "../src/run/actions/runCreate.js"
+import { runActiveRegistryCreate } from "../src/run/actions/runActiveRegistryCreate.js"
 import { runStartupInterruptionReconcile } from "../src/run/actions/runStartupInterruptionReconcile.js"
 import { runTransition } from "../src/run/actions/runTransition.js"
 import { attemptTable } from "../src/run/db/attemptTable.js"
 import { runTable } from "../src/run/db/runTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
+import { serverStart } from "../src/server/serverStart.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
 import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
@@ -176,4 +179,193 @@ test.skipIf(!databaseAvailable)("interrupts active runs atomically and retains t
   })
   expect(repeated).toEqual({ success: true, data: { interruptedRunIds: [] } })
   expect(published).toHaveLength(2)
+})
+
+test.skipIf(!databaseAvailable)("does not reconcile a run already owned by the current process", async () => {
+  const sessionId = `startup-owned-session-${uuidv7()}`
+  await database.insert(sessionTable).values({
+    clientRequestId: uuidv7(),
+    id: sessionId,
+    metadata: {},
+    primaryAgentId: fixture.agentId,
+    serverId: fixture.serverId,
+    title: "Current-process startup ownership",
+    userId: fixture.userId,
+  })
+
+  try {
+    const created = await runCreate(database, fixture.userId, sessionId, {
+      budget: { maxDurationMs: 10_000 },
+      clientRunId: `owned-client-${uuidv7()}`,
+      snapshot: {
+        configuration: { model: "deterministic-model", provider: "deterministic" as const },
+        configurationRevision: "configuration-revision-1",
+        target: { agentId: fixture.agentId, serverId: fixture.serverId },
+      },
+      streamId: `owned-stream-${uuidv7()}`,
+    })
+    expect(created.success).toBe(true)
+    if (!created.success) return
+
+    const registry = runActiveRegistryCreate()
+    const registered = registry.register({
+      runId: created.data.run.id,
+      sessionId,
+      userId: fixture.userId,
+    })
+    expect(registered.success).toBe(true)
+    if (!registered.success) return
+
+    const reconciled = await runStartupInterruptionReconcile({
+      database,
+      postCommitPublish: async () => createResult(undefined),
+      runActiveRegistry: registry,
+    })
+
+    expect(reconciled).toEqual({ success: true, data: { interruptedRunIds: [] } })
+    expect(registry.lookup(created.data.run.id)).toBe(registered.data.lifecycle)
+    expect(
+      await database.select({ status: runTable.status }).from(runTable).where(eq(runTable.id, created.data.run.id)),
+    ).toEqual([{ status: "accepted" }])
+
+    registered.data.cleanup()
+  } finally {
+    await database.delete(sessionTable).where(eq(sessionTable.id, sessionId))
+  }
+})
+
+test.skipIf(!databaseAvailable)("reconciles abandoned work before a later registration", async () => {
+  const sessionId = `startup-before-registration-session-${uuidv7()}`
+  await database.insert(sessionTable).values({
+    clientRequestId: uuidv7(),
+    id: sessionId,
+    metadata: {},
+    primaryAgentId: fixture.agentId,
+    serverId: fixture.serverId,
+    title: "Startup reconciliation before registration",
+    userId: fixture.userId,
+  })
+
+  try {
+    const created = await runCreate(database, fixture.userId, sessionId, {
+      budget: { maxDurationMs: 10_000 },
+      clientRunId: `before-registration-client-${uuidv7()}`,
+      snapshot: {
+        configuration: { model: "deterministic-model", provider: "deterministic" as const },
+        configurationRevision: "configuration-revision-1",
+        target: { agentId: fixture.agentId, serverId: fixture.serverId },
+      },
+      streamId: `before-registration-stream-${uuidv7()}`,
+    })
+    expect(created.success).toBe(true)
+    if (!created.success) return
+
+    const registry = runActiveRegistryCreate()
+    const reconciled = await runStartupInterruptionReconcile({
+      database,
+      postCommitPublish: async () => createResult(undefined),
+      runActiveRegistry: registry,
+    })
+    expect(reconciled).toEqual({ success: true, data: { interruptedRunIds: [created.data.run.id] } })
+
+    const registered = registry.register({ runId: created.data.run.id, sessionId, userId: fixture.userId })
+    expect(registered.success).toBe(true)
+    if (!registered.success) return
+    expect(registered.data.lifecycle.status).toBe("cancelled")
+    expect(registered.data.lifecycle.signal.aborted).toBe(true)
+    registered.data.cleanup()
+  } finally {
+    await database.delete(sessionTable).where(eq(sessionTable.id, sessionId))
+  }
+})
+
+test.skipIf(!databaseAvailable)("rejects registration while reconciliation owns its candidate", async () => {
+  const sessionId = `startup-during-registration-session-${uuidv7()}`
+  await database.insert(sessionTable).values({
+    clientRequestId: uuidv7(),
+    id: sessionId,
+    metadata: {},
+    primaryAgentId: fixture.agentId,
+    serverId: fixture.serverId,
+    title: "Startup registration during reconciliation",
+    userId: fixture.userId,
+  })
+
+  try {
+    const created = await runCreate(database, fixture.userId, sessionId, {
+      budget: { maxDurationMs: 10_000 },
+      clientRunId: `during-registration-client-${uuidv7()}`,
+      snapshot: {
+        configuration: { model: "deterministic-model", provider: "deterministic" as const },
+        configurationRevision: "configuration-revision-1",
+        target: { agentId: fixture.agentId, serverId: fixture.serverId },
+      },
+      streamId: `during-registration-stream-${uuidv7()}`,
+    })
+    expect(created.success).toBe(true)
+    if (!created.success) return
+
+    const registry = runActiveRegistryCreate()
+    let registration: ReturnType<typeof registry.register> | undefined
+    const reconciled = await runStartupInterruptionReconcile({
+      database,
+      postCommitPublish: async () => {
+        registration = registry.register({ runId: created.data.run.id, sessionId, userId: fixture.userId })
+        return createResult(undefined)
+      },
+      runActiveRegistry: registry,
+    })
+
+    expect(reconciled).toEqual({ success: true, data: { interruptedRunIds: [created.data.run.id] } })
+    expect(registration?.success).toBe(false)
+    expect(registry.lookup(created.data.run.id)).toBeUndefined()
+
+    const retried = registry.register({ runId: created.data.run.id, sessionId, userId: fixture.userId })
+    expect(retried.success).toBe(true)
+    if (!retried.success) return
+    expect(retried.data.lifecycle.status).toBe("cancelled")
+    retried.data.cleanup()
+  } finally {
+    await database.delete(sessionTable).where(eq(sessionTable.id, sessionId))
+  }
+})
+
+test("passes one active registry to the app and reconciliation before serving", async () => {
+  const registry = runActiveRegistryCreate()
+  let receivedAppRegistry: typeof registry | undefined
+  let receivedReconcileRegistry: typeof registry | undefined
+  let serving = false
+
+  await serverStart({
+    appCreate: (options) => {
+      receivedAppRegistry = options.runActiveRegistry
+      return appCreate()
+    },
+    configuration: { databaseUrl: "file:./data/db.sqlite", nodeEnv: "test" } as never,
+    configurationStore: {} as never,
+    database: { client: { close: () => undefined }, db: {} } as never,
+    journalCursorCodec: {} as never,
+    providerAgentCatalog: {} as never,
+    runActiveRegistry: registry,
+    runStartupInterruptionReconcile: async (options) => {
+      receivedReconcileRegistry = options.runActiveRegistry
+      expect(serving).toBe(false)
+      return createResult({ interruptedRunIds: [] })
+    },
+    serve: () => {
+      serving = true
+      return {
+        stop: async () => undefined,
+        url: new URL("http://codeline.test"),
+      }
+    },
+    signalSource: {
+      once: () => undefined,
+      removeListener: () => undefined,
+    },
+  })
+
+  expect(receivedAppRegistry).toBe(registry)
+  expect(receivedReconcileRegistry).toBe(registry)
+  expect(serving).toBe(true)
 })

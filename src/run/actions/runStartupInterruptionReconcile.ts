@@ -9,6 +9,7 @@ import { attemptTable } from "../db/attemptTable.js"
 import { runTable } from "../db/runTable.js"
 import { runErrorCodes } from "../errors/runErrorCodes.js"
 import { runResultCreateError } from "../errors/runResultCreateError.js"
+import type { runActiveRegistryCreate } from "./runActiveRegistryCreate.js"
 
 const activeRunStatuses = ["accepted", "running"] as const
 const interruptionReason = "The API process stopped while the run was active."
@@ -21,6 +22,7 @@ type RunStartupInterruptionRecord = {
   runId: string
   sessionId: string
   sessionRevision: number
+  userId: string
 }
 
 type RunStartupInterruptionMutation = {
@@ -168,6 +170,7 @@ async function runStartupInterruptionMutate(
         runId: run.id,
         sessionId: run.sessionId,
         sessionRevision: sessionRevisions.get(run.sessionId) ?? 0,
+        userId: run.userId,
       })),
     })
   } catch (_error) {
@@ -178,44 +181,56 @@ async function runStartupInterruptionMutate(
 export async function runStartupInterruptionReconcile(input: {
   database: DatabaseClient
   postCommitPublish: ReturnType<typeof journalPostCommitPublishCreate>
+  runActiveRegistry?: ReturnType<typeof runActiveRegistryCreate>
 }): Promise<Result<{ interruptedRunIds: string[] }>> {
-  const activeRunIds = await runStartupInterruptionActiveIds(input.database)
-  if (!activeRunIds.success) return activeRunIds
-  if (activeRunIds.data.length === 0) return createResult({ interruptedRunIds: [] })
+  const reconciliation = input.runActiveRegistry?.reconciliationBegin()
+  try {
+    const activeRunIds = await runStartupInterruptionActiveIds(input.database)
+    if (!activeRunIds.success) return activeRunIds
+    if (activeRunIds.data.length === 0) return createResult({ interruptedRunIds: [] })
 
-  const writer = journalWriteCreate({
-    database: input.database,
-    postCommitPublish: input.postCommitPublish,
-    resolveRecipients: runStartupInterruptionRecipientResolve(),
-  })
-  let mutation: RunStartupInterruptionMutation | undefined
-  const reconciled = await writer.run({
-    mutate: async (transaction) => {
-      const result = await runStartupInterruptionMutate(transaction, activeRunIds.data)
-      if (result.success) mutation = result.data
-      return result
-    },
-    resources: activeRunIds.data.map((runId) => ({ resourceId: runId, resourceType: "run" as const })),
-    write: async (_transaction, journal) => {
-      const op = "runStartupInterruptionReconcile"
-      if (mutation === undefined)
-        return runResultCreateError(op, "The interruption mutation result is missing.", runErrorCodes.mutationMissing)
-      for (const run of mutation.runs) {
-        const appended = await journal.append({
-          eventType: "run-interrupted",
-          payload: {
-            reason: interruptionReason,
-            runId: run.runId,
-            sessionId: run.sessionId,
-            sessionRevision: run.sessionRevision,
-          },
-          resource: { resourceId: run.runId, resourceType: "run" },
-        })
-        if (!appended.success) return appended
-      }
-      return createResult(undefined)
-    },
-  })
-  if (!reconciled.success) return reconciled
-  return createResult({ interruptedRunIds: mutation?.runs.map((run) => run.runId) ?? [] })
+    const candidateRunIds = reconciliation?.claim(activeRunIds.data) ?? activeRunIds.data
+    if (candidateRunIds.length === 0) return createResult({ interruptedRunIds: [] })
+
+    const writer = journalWriteCreate({
+      database: input.database,
+      postCommitPublish: input.postCommitPublish,
+      resolveRecipients: runStartupInterruptionRecipientResolve(),
+    })
+    let mutation: RunStartupInterruptionMutation | undefined
+    const reconciled = await writer.run({
+      mutate: async (transaction) => {
+        const result = await runStartupInterruptionMutate(transaction, candidateRunIds)
+        if (result.success) mutation = result.data
+        return result
+      },
+      resources: candidateRunIds.map((runId) => ({ resourceId: runId, resourceType: "run" as const })),
+      write: async (_transaction, journal) => {
+        const op = "runStartupInterruptionReconcile"
+        if (mutation === undefined)
+          return runResultCreateError(op, "The interruption mutation result is missing.", runErrorCodes.mutationMissing)
+        for (const run of mutation.runs) {
+          const appended = await journal.append({
+            eventType: "run-interrupted",
+            payload: {
+              reason: interruptionReason,
+              runId: run.runId,
+              sessionId: run.sessionId,
+              sessionRevision: run.sessionRevision,
+            },
+            resource: { resourceId: run.runId, resourceType: "run" },
+          })
+          if (!appended.success) return appended
+        }
+        return createResult(undefined)
+      },
+    })
+    if (!reconciled.success) return reconciled
+
+    for (const run of mutation?.runs ?? [])
+      input.runActiveRegistry?.cancel({ runIds: [run.runId], sessionId: run.sessionId, userId: run.userId })
+    return createResult({ interruptedRunIds: mutation?.runs.map((run) => run.runId) ?? [] })
+  } finally {
+    reconciliation?.release()
+  }
 }

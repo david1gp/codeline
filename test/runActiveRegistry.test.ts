@@ -64,3 +64,77 @@ test("consumes a pre-registration cancellation when the run is registered", () =
   expect(second.data.lifecycle.status).toBe("active")
   second.data.cleanup()
 })
+
+test("protects registration that arrives during reconciliation before its claim", () => {
+  const registry = runActiveRegistryCreate()
+  const reconciliation = registry.reconciliationBegin()
+
+  const registered = registry.register({ ...scope, runId: "during-reconciliation" })
+  expect(registered.success).toBe(true)
+  if (!registered.success) return
+
+  expect(reconciliation.claim(["during-reconciliation"])).toEqual([])
+  expect(registry.lookup("during-reconciliation")).toBe(registered.data.lifecycle)
+
+  reconciliation.release()
+  registered.data.cleanup()
+})
+
+test("rejects a late registration without leaving ownership or consuming cancellation", () => {
+  const registry = runActiveRegistryCreate()
+  expect(registry.cancel({ ...scope, runIds: ["late-reconciliation"] })).toEqual([])
+  const reconciliation = registry.reconciliationBegin()
+
+  expect(reconciliation.claim(["late-reconciliation"])).toEqual(["late-reconciliation"])
+  const failed = registry.register({ ...scope, runId: "late-reconciliation" })
+
+  expect(failed.success).toBe(false)
+  expect(registry.lookup("late-reconciliation")).toBeUndefined()
+
+  reconciliation.release()
+  const registered = registry.register({ ...scope, runId: "late-reconciliation" })
+  expect(registered.success).toBe(true)
+  if (!registered.success) return
+  expect(registered.data.lifecycle.status).toBe("cancelled")
+  expect(registered.data.lifecycle.signal.aborted).toBe(true)
+  registered.data.cleanup()
+})
+
+test("rolls back a failed registration and preserves its pending cancellation", () => {
+  const registry = runActiveRegistryCreate()
+  expect(registry.cancel({ ...scope, runIds: ["failed-registration"] })).toEqual([])
+  const controller = {
+    abort: () => undefined,
+    signal: {
+      aborted: false,
+      addEventListener: () => {
+        throw new Error("listener registration failed")
+      },
+      removeEventListener: () => undefined,
+    },
+  } as never
+
+  const failed = registry.register({ ...scope, controller, runId: "failed-registration" })
+  expect(failed.success).toBe(false)
+  expect(registry.lookup("failed-registration")).toBeUndefined()
+
+  const registered = registry.register({ ...scope, runId: "failed-registration" })
+  expect(registered.success).toBe(true)
+  if (!registered.success) return
+  expect(registered.data.lifecycle.status).toBe("cancelled")
+  expect(registered.data.lifecycle.signal.aborted).toBe(true)
+  registered.data.cleanup()
+})
+
+test("rejects duplicate ownership across scopes without replacing the first owner", () => {
+  const registry = runActiveRegistryCreate()
+  const first = registry.register({ ...scope, runId: "duplicate-owner" })
+  expect(first.success).toBe(true)
+  if (!first.success) return
+
+  const duplicate = registry.register({ runId: "duplicate-owner", sessionId: "other-session", userId: "other-user" })
+  expect(duplicate.success).toBe(false)
+  expect(registry.lookup("duplicate-owner")).toBe(first.data.lifecycle)
+
+  first.data.cleanup()
+})

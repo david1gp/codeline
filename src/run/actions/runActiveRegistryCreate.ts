@@ -44,11 +44,17 @@ type RunActiveRegistryEntry = {
   readonly removeAbortListener: () => void
 }
 
+type RunActiveRegistryReconciliation = {
+  claim: (runIds: readonly string[]) => readonly string[]
+  release: () => void
+}
+
 type RunActiveRegistry = {
   cancel: (input: RunActiveRegistryCancelInput) => readonly string[]
   cleanup: (runId: string) => void
   lookup: (runId: string) => RunActiveRegistryLifecycle | undefined
   register: (input: RunActiveRegistryRegistrationInput) => Result<RunActiveRegistryRegistration>
+  reconciliationBegin: () => RunActiveRegistryReconciliation
 }
 
 function runActiveRegistryKeyCreate(userId: string, sessionId: string, runId: string): string {
@@ -58,6 +64,7 @@ function runActiveRegistryKeyCreate(userId: string, sessionId: string, runId: st
 export function runActiveRegistryCreate(): RunActiveRegistry {
   const entries = new Map<string, RunActiveRegistryEntry>()
   const cancelledKeys = new Set<string>()
+  const reconciliationReservations = new Set<string>()
 
   const cleanup = (runId: string): void => {
     const entry = entries.get(runId)
@@ -80,11 +87,16 @@ export function runActiveRegistryCreate(): RunActiveRegistry {
         "The run is already registered for execution.",
         runErrorCodes.registrationConflict,
       )
+    if (reconciliationReservations.has(input.runId))
+      return runResultCreateError(
+        op,
+        "The run is reserved for startup reconciliation.",
+        runErrorCodes.registrationConflict,
+      )
 
     const controller = input.controller ?? new AbortController()
     const cancellationKey = runActiveRegistryKeyCreate(input.userId, input.sessionId, input.runId)
     const cancelled = cancelledKeys.has(cancellationKey)
-    cancelledKeys.delete(cancellationKey)
     const lifecycle = {
       runId: input.runId,
       sessionId: input.sessionId,
@@ -96,14 +108,30 @@ export function runActiveRegistryCreate(): RunActiveRegistry {
     const onAbort = () => {
       lifecycle.status = "cancelled"
     }
-    controller.signal.addEventListener("abort", onAbort, { once: true })
     const entry = {
       abort: () => controller.abort(),
       lifecycle,
       removeAbortListener: () => controller.signal.removeEventListener("abort", onAbort),
     }
-    entries.set(input.runId, entry)
-    if (cancelled && !controller.signal.aborted) controller.abort()
+    let listenerAttached = false
+    try {
+      controller.signal.addEventListener("abort", onAbort, { once: true })
+      listenerAttached = true
+      entries.set(input.runId, entry)
+      if (cancelled && !controller.signal.aborted) controller.abort()
+    } catch (_error) {
+      if (listenerAttached) {
+        try {
+          controller.signal.removeEventListener("abort", onAbort)
+        } catch (_removeError) {
+          // The failed registration is still rolled back below.
+        }
+      }
+      if (entries.get(input.runId) === entry) entries.delete(input.runId)
+      if (cancelled) cancelledKeys.add(cancellationKey)
+      return runResultCreateError(op, "The run could not be registered for execution.", runErrorCodes.persistFailed)
+    }
+    cancelledKeys.delete(cancellationKey)
 
     let cleaned = false
     return createResult({
@@ -137,5 +165,31 @@ export function runActiveRegistryCreate(): RunActiveRegistry {
 
   const lookup = (runId: string): RunActiveRegistryLifecycle | undefined => entries.get(runId)?.lifecycle
 
-  return { cancel, cleanup, lookup, register }
+  const reconciliationBegin = (): RunActiveRegistryReconciliation => {
+    const reservations = new Set<string>()
+    let released = false
+
+    const claim = (runIds: readonly string[]): readonly string[] => {
+      if (released) return []
+      const claimed: string[] = []
+      for (const runId of new Set(runIds)) {
+        if (entries.has(runId) || reconciliationReservations.has(runId)) continue
+        reconciliationReservations.add(runId)
+        reservations.add(runId)
+        claimed.push(runId)
+      }
+      return claimed
+    }
+
+    const release = (): void => {
+      if (released) return
+      released = true
+      for (const runId of reservations) reconciliationReservations.delete(runId)
+      reservations.clear()
+    }
+
+    return { claim, release }
+  }
+
+  return { cancel, cleanup, lookup, reconciliationBegin, register }
 }

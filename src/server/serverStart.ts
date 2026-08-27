@@ -19,6 +19,7 @@ import { journalPostCommitPublishCreate } from "../journal/actions/journalPostCo
 import { metricsCollectorCreate } from "../metrics/metricsCollectorCreate.js"
 import { providerAgentCatalogLoad } from "../providers/catalog/providerAgentCatalogLoad.js"
 import type { ProviderCatalog } from "../providers/schema/providerCatalogSchema.js"
+import { runActiveRegistryCreate } from "../run/actions/runActiveRegistryCreate.js"
 import { runStartupInterruptionReconcile } from "../run/actions/runStartupInterruptionReconcile.js"
 import { streamLiveSubscriptionCreate } from "../stream/actions/streamLiveSubscriptionCreate.js"
 import { streamSseConnectionWriterCreate } from "../stream/actions/streamSseConnectionWriterCreate.js"
@@ -57,6 +58,7 @@ type ServerStartOptions = {
     streamSseNow: () => number
     streamSseScheduler: Parameters<typeof streamSseConnectionWriterCreate>[0]["scheduler"]
     shutdownCoordinator: ReturnType<typeof serverShutdownCoordinatorCreate>
+    runActiveRegistry: ReturnType<typeof runActiveRegistryCreate>
     metricsCollector: ReturnType<typeof metricsCollectorCreate>
   }) => App
   configuration?: RuntimeConfiguration
@@ -66,6 +68,7 @@ type ServerStartOptions = {
   projectRootDirs?: readonly string[]
   providerAgentCatalog?: ProviderCatalog
   journalCursorCodec?: JournalCursorCodec
+  runActiveRegistry?: ReturnType<typeof runActiveRegistryCreate>
   runStartupInterruptionReconcile?: typeof runStartupInterruptionReconcile
   serve?: Serve
   serverShutdownCoordinator?: ReturnType<typeof serverShutdownCoordinatorCreate>
@@ -150,6 +153,7 @@ export async function serverStart(options: ServerStartOptions = {}): Promise<Ser
   })
   const metricsCollector = options.metricsCollector ?? metricsCollectorCreate()
   const shutdownCoordinator = options.serverShutdownCoordinator ?? serverShutdownCoordinatorCreate()
+  const runActiveRegistry = options.runActiveRegistry ?? runActiveRegistryCreate()
   const application = createApp({
     configuration: configuration.data,
     configurationStore,
@@ -164,11 +168,13 @@ export async function serverStart(options: ServerStartOptions = {}): Promise<Ser
     streamSseNow: Date.now,
     streamSseScheduler,
     shutdownCoordinator,
+    runActiveRegistry,
     metricsCollector,
   })
   const reconciled = await (options.runStartupInterruptionReconcile ?? runStartupInterruptionReconcile)({
     database: database.data.db,
     postCommitPublish: journalPostCommitPublish,
+    runActiveRegistry,
   })
   if (!reconciled.success) throw new Error(reconciled.errorMessage)
   const server = (options.serve ?? (Bun.serve as Serve))({
