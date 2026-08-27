@@ -108,9 +108,10 @@ test("an expired identity session severs the event feed and signs the workspace 
     await expect(page.getByRole("button", { name: "Unpin session" })).toHaveCount(0)
 
     // No authenticated shell survives anywhere: an account-agnostic route falls
-    // back to the sign-in prompt rather than any retained identity.
+    // back to the provider selection page rather than any retained identity.
     await page.goto("/")
-    await expect(page.getByRole("heading", { name: "Sign in required" })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Sign in to Codeline" })).toBeVisible()
+    await expect(page.getByRole("link", { name: /Continue with .* SSO/ })).toBeVisible()
     await expect(page.getByRole("heading", { name: "Dashboard" })).toHaveCount(0)
 
     await page.close()
