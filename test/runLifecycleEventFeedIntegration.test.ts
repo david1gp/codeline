@@ -9,6 +9,7 @@ import { eventFeedCreate } from "../src/events/client/eventFeedCreate.js"
 import { eventFeedOwnerRegistryCreate } from "../src/events/client/eventFeedOwnerRegistryCreate.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { organizationTable } from "../src/identity/db/organizationTable.js"
+import { journalBacklogRead } from "../src/journal/actions/journalBacklogRead.js"
 import { journalCursorCodecCreate } from "../src/journal/actions/journalCursorCodecCreate.js"
 import { journalPostCommitPublishCreate } from "../src/journal/actions/journalPostCommitPublishCreate.js"
 import { journalRunFinalize } from "../src/journal/actions/journalRunFinalize.js"
@@ -16,9 +17,12 @@ import { journalEventTable } from "../src/journal/db/journalEventTable.js"
 import { runCreate } from "../src/run/actions/runCreate.js"
 import { runProviderOutputCreate } from "../src/run/actions/runProviderOutputCreate.js"
 import { runTransition } from "../src/run/actions/runTransition.js"
+import { attemptTable } from "../src/run/db/attemptTable.js"
+import { runTable } from "../src/run/db/runTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import type { SessionSettledSnapshotResponse } from "../src/session/api/sessionSettledSnapshotResponseSchema.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
+import { streamLiveSubscriptionCreate } from "../src/stream/actions/streamLiveSubscriptionCreate.js"
 import type { StreamSseFrame } from "../src/stream/api/streamSseFrameSchema.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
 import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
@@ -339,6 +343,255 @@ test.skipIf(!databaseAvailable)(
     }
 
     feed.close()
+  },
+)
+
+test.skipIf(!databaseAvailable)(
+  "keeps successful run completion durable when a live feed observer throws",
+  async () => {
+    const runId = `run-feed-observer-${uuidv7()}`
+    const created = await runCreate(database, fixture.userId, fixture.sessionId, runInput(runId, `stream-${runId}`))
+    expect(created).toMatchObject({ success: true, data: { created: true } })
+    if (!created.success) return
+    expect(
+      await runTransition(database, fixture.userId, fixture.sessionId, created.data.run.id, { status: "running" }),
+    ).toMatchObject({ success: true })
+
+    const cursorCodecResult = journalCursorCodecCreate({ randomBytes, secret: `run-feed-observer-secret-${uuidv7()}` })
+    expect(cursorCodecResult.success).toBe(true)
+    if (!cursorCodecResult.success) return
+    const initialCursorResult = cursorCodecResult.data.encodeDeterministic(fixture.userId, 0)
+    expect(initialCursorResult.success).toBe(true)
+    if (!initialCursorResult.success) return
+
+    let source: FakeEventSource | undefined
+    let sessionSnapshotLoads = 0
+    const feed = eventFeedCreate({
+      bootstrap: { asOfCursor: initialCursorResult.data, lastEventId: initialCursorResult.data },
+      eventSourceFactory: (url, options) => {
+        source = new FakeEventSource(url, options)
+        return source
+      },
+      ownershipRegistry: eventFeedOwnerRegistryCreate(),
+      reconciliation: {
+        activeRunSnapshotLoad: async (input) =>
+          createResult({
+            lastSequence: "lastSequence" in input ? input.lastSequence : input.sessionRevision,
+            partialText: "",
+            runId: input.runId,
+            sessionId: input.sessionId,
+            status: "succeeded",
+          }),
+        resourceRevalidate: async (input) =>
+          createResult({
+            resourceId: input.resourceId,
+            resourceType: input.resourceType,
+            revision: input.serverRevision,
+          }),
+        sessionSnapshotLoad: async () => {
+          sessionSnapshotLoads += 1
+          return createResult(sessionSnapshot(1))
+        },
+        sessionSnapshotReplace: async () => createResult(undefined),
+        shellListBootstrap: async (input) =>
+          createResult({
+            activeRuns: [],
+            asOfCursor: input.resetCheckpoint,
+            resetCheckpoint: input.resetCheckpoint,
+            resourceRevisions: [],
+          }),
+        visibleResources: () => [],
+      },
+    })
+    if (source === undefined) throw new Error("The feed source was not created.")
+    source.open()
+
+    const liveSubscription = streamLiveSubscriptionCreate()
+    let brokenObserverCalls = 0
+    const unsubscribeBrokenObserver = liveSubscription.subscribe(fixture.userId, () => {
+      brokenObserverCalls += 1
+      throw new Error("The live observer failed.")
+    })
+    const healthyFrames: StreamSseFrame[] = []
+    const unsubscribeHealthyObserver = liveSubscription.subscribe(fixture.userId, (event) => {
+      if (!("data" in event)) return
+      healthyFrames.push(event)
+      source?.emit(event)
+    })
+    const provider = runProviderOutputCreate({
+      database,
+      journalPostCommitPublish: journalPostCommitPublishCreate({
+        cursorCodec: cursorCodecResult.data,
+        liveSubscription,
+      }),
+      requestId: `request-${created.data.run.id}`,
+      runId: created.data.run.id,
+      scheduler: new TestScheduler(),
+      sessionId: fixture.sessionId,
+      userId: fixture.userId,
+    })
+
+    expect(await provider.finalize({ assistantText: "Committed completion.", status: "succeeded" })).toMatchObject({
+      success: true,
+    })
+    const [run] = await database.select().from(runTable).where(eq(runTable.id, created.data.run.id)).limit(1)
+    const [attempt] = await database
+      .select()
+      .from(attemptTable)
+      .where(eq(attemptTable.runId, created.data.run.id))
+      .limit(1)
+    const journalEvents = await database
+      .select({ eventType: journalEventTable.eventType })
+      .from(journalEventTable)
+      .where(eq(journalEventTable.runId, created.data.run.id))
+
+    await flush()
+    expect(brokenObserverCalls).toBe(1)
+    expect(healthyFrames.map((frame) => frame.event)).toEqual(["run-completed"])
+    expect(run).toMatchObject({ status: "succeeded" })
+    expect(attempt).toMatchObject({ status: "succeeded" })
+    expect(journalEvents.map((event) => event.eventType)).toEqual(["run-completed"])
+    expect(sessionSnapshotLoads).toBe(1)
+    expect(feed.dataState.activeRuns.has(created.data.run.id)).toBe(false)
+    expect(feed.dataState.resourceRevisions.get(`session:${fixture.sessionId}`)).toBe(1)
+
+    unsubscribeHealthyObserver()
+    unsubscribeBrokenObserver()
+    feed.close()
+    expect(liveSubscription.subscriberCount(fixture.userId)).toBe(0)
+  },
+)
+
+test.skipIf(!databaseAvailable)(
+  "keeps success, failure, and cancellation durable when one live observer disconnects",
+  async () => {
+    const lifecycleCases = [
+      {
+        eventType: "run-completed" as const,
+        input: { assistantText: "Committed completion.", status: "succeeded" as const },
+        runStatus: "succeeded" as const,
+      },
+      {
+        eventType: "run-failed" as const,
+        input: { failure: { code: "provider_failed", message: "The provider failed." }, status: "failed" as const },
+        runStatus: "failed" as const,
+      },
+      {
+        eventType: "run-cancelled" as const,
+        input: { reason: "user-requested", status: "aborted" as const },
+        runStatus: "aborted" as const,
+      },
+    ]
+
+    for (const lifecycle of lifecycleCases) {
+      const runId = `run-feed-publication-${lifecycle.runStatus}-${uuidv7()}`
+      const created = await runCreate(database, fixture.userId, fixture.sessionId, runInput(runId, `stream-${runId}`))
+      expect(created).toMatchObject({ success: true, data: { created: true } })
+      if (!created.success) return
+      expect(
+        await runTransition(database, fixture.userId, fixture.sessionId, created.data.run.id, { status: "running" }),
+      ).toMatchObject({ success: true })
+
+      const cursorCodecResult = journalCursorCodecCreate({
+        randomBytes,
+        secret: `run-feed-publication-secret-${uuidv7()}`,
+      })
+      expect(cursorCodecResult.success).toBe(true)
+      if (!cursorCodecResult.success) return
+
+      const liveSubscription = streamLiveSubscriptionCreate()
+      let brokenObserverCalls = 0
+      let unsubscribeBrokenObserver: () => void = () => undefined
+      unsubscribeBrokenObserver = liveSubscription.subscribe(fixture.userId, () => {
+        brokenObserverCalls += 1
+        unsubscribeBrokenObserver()
+        throw new Error("The live observer disconnected.")
+      })
+      const healthyFrames: StreamSseFrame[] = []
+      const unsubscribeHealthyObserver = liveSubscription.subscribe(fixture.userId, (event) => {
+        if ("data" in event) healthyFrames.push(event)
+      })
+      const provider = runProviderOutputCreate({
+        database,
+        journalPostCommitPublish: journalPostCommitPublishCreate({
+          cursorCodec: cursorCodecResult.data,
+          liveSubscription,
+        }),
+        requestId: `request-${created.data.run.id}`,
+        runId: created.data.run.id,
+        scheduler: new TestScheduler(),
+        sessionId: fixture.sessionId,
+        userId: fixture.userId,
+      })
+
+      const finalized = await provider.finalize(lifecycle.input)
+      expect(finalized).toMatchObject({ success: true })
+      const duplicateFinalization = await provider.finalize(lifecycle.input)
+      expect(duplicateFinalization).toMatchObject({
+        code: "journal_run_already_finalized",
+        success: false,
+      })
+
+      const [run] = await database.select().from(runTable).where(eq(runTable.id, created.data.run.id)).limit(1)
+      const [attempt] = await database
+        .select()
+        .from(attemptTable)
+        .where(eq(attemptTable.runId, created.data.run.id))
+        .limit(1)
+      const journalEvents = await database
+        .select({
+          eventType: journalEventTable.eventType,
+          payload: journalEventTable.payload,
+          sequence: journalEventTable.sequence,
+        })
+        .from(journalEventTable)
+        .where(eq(journalEventTable.runId, created.data.run.id))
+        .orderBy(asc(journalEventTable.sequence))
+
+      expect(brokenObserverCalls).toBe(1)
+      expect(healthyFrames.map((frame) => frame.event)).toEqual([lifecycle.eventType])
+      expect(liveSubscription.subscriberCount(fixture.userId)).toBe(1)
+      expect(run).toMatchObject({ status: lifecycle.runStatus })
+      expect(attempt).toMatchObject({ status: lifecycle.runStatus })
+      expect(journalEvents).toHaveLength(1)
+      expect(journalEvents.map((event) => event.eventType)).toEqual([lifecycle.eventType])
+
+      if (lifecycle.runStatus === "failed") {
+        expect(run).toMatchObject({ failure: lifecycle.input.failure })
+        expect(attempt).toMatchObject({ failure: lifecycle.input.failure })
+        expect(journalEvents[0]?.payload).toMatchObject({ failure: lifecycle.input.failure })
+      }
+      if (lifecycle.runStatus === "aborted") {
+        expect(journalEvents[0]?.payload).toMatchObject({ reason: lifecycle.input.reason })
+      }
+
+      const terminalEvent = journalEvents[0]
+      expect(terminalEvent).toBeDefined()
+      if (terminalEvent === undefined) return
+      const recoveryCursor = cursorCodecResult.data.encodeDeterministic(fixture.userId, terminalEvent.sequence - 1)
+      expect(recoveryCursor.success).toBe(true)
+      if (!recoveryCursor.success) return
+      const backlog = await journalBacklogRead(
+        { cursorCodec: cursorCodecResult.data, database },
+        { lastEventId: recoveryCursor.data, userId: fixture.userId },
+      )
+      expect(backlog.success).toBe(true)
+      if (!backlog.success) return
+      const recoveredFrames: StreamSseFrame[] = []
+      for await (const page of backlog.data.pages) {
+        expect(page.success).toBe(true)
+        if (page.success) recoveredFrames.push(...page.data)
+      }
+      expect(recoveredFrames).toHaveLength(1)
+      expect(recoveredFrames[0]).toMatchObject({
+        data: { eventType: lifecycle.eventType, runId: created.data.run.id, sequence: terminalEvent.sequence },
+        event: lifecycle.eventType,
+      })
+
+      unsubscribeHealthyObserver()
+      unsubscribeBrokenObserver()
+      expect(liveSubscription.subscriberCount(fixture.userId)).toBe(0)
+    }
   },
 )
 

@@ -92,6 +92,23 @@ function frame(sequence: number, id = `cursor-${userId}-${sequence}`, delta = `d
   return { data: { ...event(sequence), delta, id }, event: "delta", id }
 }
 
+function completedFrame(sequence: number): StreamSseFrame {
+  const id = `cursor-${userId}-${sequence}`
+  return {
+    data: {
+      eventType: "run-completed",
+      id,
+      messageId: null,
+      runId: "run-1",
+      sequence,
+      sessionId: "session-1",
+      sessionRevision: 1,
+    },
+    event: "run-completed",
+    id,
+  }
+}
+
 function backlogPages(...pages: readonly StreamSseFrame[][]): AsyncIterable<Result<readonly StreamSseFrame[]>> {
   return (async function* () {
     for (const page of pages) yield createResult(page)
@@ -340,6 +357,47 @@ test("subscribes before reading the backlog and returns one explicit reset frame
   await reader.cancel()
 })
 
+test("delivers an event published during snapshot acquisition once before later live events", async () => {
+  const liveSubscription = streamLiveSubscriptionCreate()
+  const snapshotFrame = frame(1, `cursor-${userId}-1`, "during-snapshot")
+  const app = appForEvents({
+    backlogRead: async () => {
+      liveSubscription.publish(userId, snapshotFrame)
+      return createResult({
+        afterSequence: 0,
+        mode: "replay",
+        pages: backlogPages([snapshotFrame]),
+        replayUpperBound: 1,
+        selectedCursor: undefined,
+      })
+    },
+    liveSubscription,
+  })
+  const response = await app.request("https://events.test/api/events", {
+    headers: { Cookie: "__Host-codeline-session=session-token" },
+  })
+  const reader = response.body?.getReader()
+  expect(reader).toBeDefined()
+  if (reader === undefined) return
+
+  liveSubscription.publish(userId, frame(2))
+  const received: StreamSseFrame[] = []
+  while (received.length < 2) {
+    const result = await reader.read()
+    expect(result.done).toBe(false)
+    if (result.done || result.value === undefined) break
+    received.push(parseFrame(result.value))
+  }
+
+  expect(received.map((receivedFrame) => receivedFrame.data.sequence)).toEqual([1, 2])
+  expect(new Set(received.map((receivedFrame) => receivedFrame.data.sequence)).size).toBe(2)
+  const firstReceived = received[0]
+  expect(firstReceived?.data.eventType).toBe("delta")
+  if (firstReceived?.data.eventType !== "delta") return
+  expect(firstReceived.data.delta).toBe("during-snapshot")
+  await reader.cancel()
+})
+
 test("emits a fifteen-second heartbeat and removes the subscription on request abort", async () => {
   const scheduler = schedulerCreate()
   const liveSubscription = streamLiveSubscriptionCreate()
@@ -468,6 +526,84 @@ test("publishes committed journal events into the authenticated feed with opaque
   expect(publishedFrame.id).toBe(`cursor-${userId}-1`)
   expect(publishedFrame.data.id).toBe(`cursor-${userId}-1`)
   await reader.cancel()
+})
+
+test("keeps a healthy SSE subscriber alive and replays a terminal event after another disconnects", async () => {
+  const scheduler = schedulerCreate()
+  const liveSubscription = streamLiveSubscriptionCreate()
+  const terminalFrame = completedFrame(1)
+  let committed = false
+  let connectionCount = 0
+  const failedWriterCreate: typeof streamSseConnectionWriterCreate = (dependencies) => {
+    connectionCount += 1
+    if (connectionCount !== 1) return streamSseConnectionWriterCreate(dependencies)
+    return streamSseConnectionWriterCreate({
+      ...dependencies,
+      writer: {
+        ...dependencies.writer,
+        write: () => Promise.reject(new Error("The SSE subscriber disconnected.")),
+      },
+    })
+  }
+  const app = appForEvents({
+    backlogRead: async (_dependencies, input) =>
+      committed
+        ? createResult({
+            afterSequence: 0,
+            mode: "replay",
+            pages: backlogPages([terminalFrame]),
+            replayUpperBound: 1,
+            selectedCursor: input.lastEventId as string,
+          })
+        : emptyBacklog(),
+    connectionWriterCreate: failedWriterCreate,
+    liveSubscription,
+    scheduler,
+  })
+  const headers = { Cookie: "__Host-codeline-session=session-token" }
+
+  const failedResponse = await app.request("https://events.test/api/events", { headers })
+  const failedReader = failedResponse.body?.getReader()
+  const healthyResponse = await app.request("https://events.test/api/events", { headers })
+  const healthyReader = healthyResponse.body?.getReader()
+  expect(failedReader).toBeDefined()
+  expect(healthyReader).toBeDefined()
+  if (failedReader === undefined || healthyReader === undefined) return
+  await flush()
+  expect(liveSubscription.subscriberCount(userId)).toBe(2)
+
+  committed = true
+  const published = await journalPostCommitPublishCreate({ cursorCodec, liveSubscription })([
+    {
+      createdAt: new Date(),
+      eventType: "run-completed",
+      id: "journal-terminal-1",
+      payload: { messageId: null, runId: "run-1", sessionId: "session-1", sessionRevision: 1 },
+      sequence: 1,
+      serializedBytes: 128,
+      userId,
+    } as never,
+  ])
+  expect(published.success).toBe(true)
+  const healthyResult = await healthyReader.read()
+  expect(parseFrame(healthyResult.value as Uint8Array)).toEqual(terminalFrame)
+  await flush()
+  expect(liveSubscription.subscriberCount(userId)).toBe(1)
+
+  const reconnect = await app.request("https://events.test/api/events", {
+    headers: { ...headers, "Last-Event-ID": `cursor-${userId}-0` },
+  })
+  const reconnectReader = reconnect.body?.getReader()
+  expect(reconnectReader).toBeDefined()
+  if (reconnectReader === undefined) return
+  const recovered = await reconnectReader.read()
+  expect(parseFrame(recovered.value as Uint8Array)).toEqual(terminalFrame)
+
+  await failedReader.cancel().catch(() => undefined)
+  await healthyReader.cancel().catch(() => undefined)
+  await reconnectReader.cancel().catch(() => undefined)
+  await flush()
+  expect(liveSubscription.subscriberCount(userId)).toBe(0)
 })
 
 test("disconnects when a live frame is invalid or belongs to another user", async () => {
