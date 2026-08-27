@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { sessionStreamGroupsDerive } from "../src/ui/sessionStreamGroupsDerive.js"
+import { type SessionStreamEntry, sessionStreamGroupsDerive } from "../src/ui/sessionStreamGroupsDerive.js"
 
 type StreamInput = Parameters<typeof sessionStreamGroupsDerive>[0]
 type StreamEvent = StreamInput["events"][number]
@@ -510,4 +510,269 @@ test("stream groups render persisted chat stream chunks alongside normalized eve
     { detail: "call-1", id: "chat-tool", kind: "tool", label: "read_file", status: "start" },
     { id: "chat-terminal", kind: "terminal", label: "Terminal", status: "completed" },
   ])
+})
+
+test("stream groups reuse the unchanged suffix of a large append-only stream", () => {
+  const initialEvents = Array.from({ length: 20_000 }, (_, index) =>
+    event({
+      createdAt: index,
+      eventType: "thinking_status",
+      id: `thinking-${index}`,
+      payload: { status: "active" },
+      sequence: index,
+      streamId: "large-stream",
+    }),
+  )
+  const entryCache = new Map<string, { entry: SessionStreamEntry; signature: string }>()
+  const initial = sessionStreamGroupsDerive({ entryCache, events: initialEvents, runs: [] })
+  const appended = sessionStreamGroupsDerive({
+    entryCache,
+    events: [
+      ...initialEvents,
+      event({
+        createdAt: initialEvents.length,
+        eventType: "thinking_status",
+        id: `thinking-${initialEvents.length}`,
+        payload: { status: "active" },
+        sequence: initialEvents.length,
+        streamId: "large-stream",
+      }),
+    ],
+    runs: [],
+  })
+
+  const initialEntries = initial[0]?.entries ?? []
+  const appendedEntries = appended[0]?.entries ?? []
+  const reusedCount = appendedEntries.filter(
+    (entry, index) => index < initialEntries.length && entry === initialEntries[index],
+  ).length
+
+  expect(appendedEntries).toHaveLength(initialEvents.length + 1)
+  expect(reusedCount).toBe(512)
+  expect(entryCache.size).toBe(512)
+})
+
+test("stream groups invalidate changed events without invalidating neighboring entries", () => {
+  const events = [
+    event({
+      createdAt: 1,
+      eventType: "thinking_status",
+      id: "thinking",
+      payload: { status: "active" },
+      sequence: 1,
+      streamId: "stream",
+    }),
+    event({
+      createdAt: 2,
+      eventType: "written_file",
+      id: "written",
+      payload: { path: "src/index.ts" },
+      sequence: 2,
+      streamId: "stream",
+    }),
+  ]
+  const entryCache = new Map<string, { entry: SessionStreamEntry; signature: string }>()
+  const initial = sessionStreamGroupsDerive({ entryCache, events, runs: [] })
+  const unchanged = sessionStreamGroupsDerive({ entryCache, events: [...events], runs: [] })
+  const changed = sessionStreamGroupsDerive({
+    entryCache,
+    events: [{ ...events[0]!, payload: { status: "complete" } }, events[1]!],
+    runs: [],
+  })
+
+  expect(unchanged[0]?.entries[0]).toBe(initial[0]?.entries[0])
+  expect(changed[0]?.entries[0]).not.toBe(initial[0]?.entries[0])
+  expect(changed[0]?.entries[1]).toBe(initial[0]?.entries[1])
+})
+
+test("stream groups derive current status, labels, and order around reused entries", () => {
+  const events = [
+    event({
+      createdAt: 1,
+      eventType: "thinking_status",
+      id: "a-thinking",
+      payload: { status: "active" },
+      sequence: 1,
+      streamId: "stream-a",
+    }),
+    event({
+      createdAt: 2,
+      eventType: "thinking_status",
+      id: "b-thinking",
+      payload: { status: "active" },
+      sequence: 1,
+      streamId: "stream-b",
+    }),
+  ]
+  const entryCache = new Map<string, { entry: SessionStreamEntry; signature: string }>()
+  const initial = sessionStreamGroupsDerive({
+    entryCache,
+    events,
+    runs: [
+      run({
+        attempts: [{ ordinal: 1, status: "running", streamId: "stream-a" }],
+        createdAt: 2,
+        id: "run-a",
+        status: "running",
+        streamId: "run-a-stream",
+      }),
+      run({
+        attempts: [{ ordinal: 1, status: "queued", streamId: "stream-b" }],
+        createdAt: 1,
+        id: "run-b",
+        status: "queued",
+        streamId: "run-b-stream",
+      }),
+    ],
+  })
+  const updated = sessionStreamGroupsDerive({
+    entryCache,
+    events,
+    runs: [
+      run({
+        attempts: [{ ordinal: 2, status: "succeeded", streamId: "stream-a" }],
+        createdAt: 1,
+        id: "run-a",
+        status: "succeeded",
+        streamId: "run-a-stream",
+      }),
+      run({
+        attempts: [{ ordinal: 1, status: "failed", streamId: "stream-b" }],
+        createdAt: 2,
+        id: "run-b",
+        status: "failed",
+        streamId: "run-b-stream",
+      }),
+    ],
+  })
+
+  expect(initial.map((group) => group.id)).toEqual(["stream-b", "stream-a"])
+  expect(updated.map((group) => group.id)).toEqual(["stream-a", "stream-b"])
+  expect(updated.map((group) => group.label)).toEqual(["Attempt 2", "Attempt 1"])
+  expect(updated.map((group) => group.status)).toEqual(["succeeded", "failed"])
+  expect(updated[0]?.entries[0]).toBe(initial[1]?.entries[0])
+  expect(updated[1]?.entries[0]).toBe(initial[0]?.entries[0])
+})
+
+test("stream groups invalidate delegation entries when delegation or run context changes", () => {
+  const eventInput = event({
+    createdAt: 1,
+    eventType: "tool_start",
+    id: "delegate-start",
+    payload: { toolCallId: "delegate-call", toolName: "delegate_task" },
+    sequence: 1,
+    streamId: "parent-stream",
+  })
+  const entryCache = new Map<string, { entry: SessionStreamEntry; signature: string }>()
+  const parentRun = run({
+    attempts: [{ id: "parent-attempt", ordinal: 1, status: "running", streamId: "parent-stream" }],
+    createdAt: 1,
+    id: "parent-run",
+    snapshot: { target: { agentId: "worker", serverId: "server" } },
+    status: "running",
+    streamId: "parent-run-stream",
+  })
+  const childRun = run({
+    attempts: [{ ordinal: 1, status: "running", streamId: "child-stream-1" }],
+    createdAt: 2,
+    id: "child-run",
+    snapshot: { target: { agentId: "worker", serverId: "server" } },
+    status: "running",
+    streamId: "child-run-stream",
+  })
+  const delegation = {
+    childRunId: "child-run",
+    delegationKey: "delegate-call",
+    id: "delegation-1",
+    parentAttemptId: "parent-attempt",
+    parentRunId: "parent-run",
+    task: "Inspect the project.",
+  }
+  const initial = sessionStreamGroupsDerive({
+    delegations: [delegation],
+    entryCache,
+    events: [eventInput],
+    runs: [parentRun, childRun],
+  })
+  const unchanged = sessionStreamGroupsDerive({
+    delegations: [delegation],
+    entryCache,
+    events: [eventInput],
+    runs: [parentRun, childRun],
+  })
+  const changedDelegation = sessionStreamGroupsDerive({
+    delegations: [{ ...delegation, childRunId: "replacement-child" }],
+    entryCache,
+    events: [eventInput],
+    runs: [
+      parentRun,
+      childRun,
+      run({
+        attempts: [{ ordinal: 1, status: "running", streamId: "replacement-stream" }],
+        createdAt: 3,
+        id: "replacement-child",
+        snapshot: { target: { agentId: "worker", serverId: "server" } },
+        status: "running",
+        streamId: "replacement-run-stream",
+      }),
+    ],
+  })
+  const changedChildContext = sessionStreamGroupsDerive({
+    delegations: [delegation],
+    entryCache,
+    events: [eventInput],
+    runs: [parentRun, { ...childRun, snapshot: { target: { agentId: "reviewer", serverId: "server" } } }],
+  })
+  const retriedChild = sessionStreamGroupsDerive({
+    delegations: [delegation],
+    entryCache,
+    events: [eventInput],
+    runs: [
+      parentRun,
+      {
+        ...childRun,
+        attempts: [...(childRun.attempts ?? []), { ordinal: 2, status: "running", streamId: "child-stream-2" }],
+      },
+    ],
+  })
+  const changedParentContext = sessionStreamGroupsDerive({
+    delegations: [delegation],
+    entryCache,
+    events: [eventInput],
+    runs: [{ ...parentRun, snapshot: { target: { agentId: "reviewer", serverId: "server" } } }, childRun],
+  })
+
+  expect(unchanged[0]?.entries[0]).toBe(initial[0]?.entries[0])
+  expect(changedDelegation[0]?.entries[0]).not.toBe(initial[0]?.entries[0])
+  expect(changedDelegation[0]?.entries[0]?.delegation).toMatchObject({
+    childRunId: "replacement-child",
+    childStreamId: "replacement-stream",
+  })
+  expect(changedChildContext[0]?.entries[0]).not.toBe(initial[0]?.entries[0])
+  expect(changedChildContext[0]?.entries[0]?.delegation).toBeUndefined()
+  expect(retriedChild[0]?.entries[0]).not.toBe(initial[0]?.entries[0])
+  expect(retriedChild[0]?.entries[0]?.delegation).toMatchObject({ childStreamId: "child-stream-2" })
+  expect(changedParentContext[0]?.entries[0]).not.toBe(initial[0]?.entries[0])
+  expect(changedParentContext[0]?.entries[0]?.delegation).toBeUndefined()
+})
+
+test("stream groups evict the oldest durable entries while retaining the newest entries", () => {
+  const events = Array.from({ length: 513 }, (_, index) =>
+    event({
+      createdAt: index,
+      eventType: "thinking_status",
+      id: `thinking-${index}`,
+      payload: { status: "active" },
+      sequence: index,
+      streamId: "bounded-stream",
+    }),
+  )
+  const entryCache = new Map<string, { entry: SessionStreamEntry; signature: string }>()
+  const initial = sessionStreamGroupsDerive({ entryCache, events, runs: [] })
+  const evicted = sessionStreamGroupsDerive({ entryCache, events: [events[0]!], runs: [] })
+  const retained = sessionStreamGroupsDerive({ entryCache, events: [events.at(-1)!], runs: [] })
+
+  expect(entryCache.size).toBe(512)
+  expect(evicted[0]?.entries[0]).not.toBe(initial[0]?.entries[0])
+  expect(retained[0]?.entries[0]).toBe(initial[0]?.entries.at(-1))
 })

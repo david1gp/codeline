@@ -90,3 +90,35 @@ test("stream state does not expose a failed HTTP read as loading forever", async
     dispose()
   })
 })
+
+test("stream state keeps durable identity while deriving changing in-flight rows independently", async () => {
+  await createRoot(async (dispose) => {
+    const [inFlightMessages, setInFlightMessages] = createSignal<ReadonlyArray<{ content: string; role: string }>>([
+      { content: "pending-1", role: "assistant" },
+    ])
+    const [feedState] = createSignal(feedStateCreate())
+    const state = sessionStreamStateCreate({
+      delegations: () => [],
+      eventFeedState: feedState,
+      inFlightMessages,
+      inFlightRunId: () => "client-run-1",
+      isEnabled: () => true,
+      sessionId: () => "session-1",
+    })
+
+    await tick()
+    const initial = state.groups()
+    const durableEntry = initial[0]?.entries[0]
+    const initialInFlightEntry = initial[1]?.entries[0]
+
+    setInFlightMessages([{ content: "pending-2", role: "assistant" }])
+    await tick()
+    const updated = state.groups()
+
+    expect(updated[0]?.entries[0]).toBe(durableEntry)
+    expect(updated[1]?.entries[0]?.detail).toBe("pending-2")
+    expect(updated[1]?.entries[0]).not.toBe(initialInFlightEntry)
+
+    dispose()
+  })
+})

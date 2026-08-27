@@ -22,7 +22,7 @@ function inFlightEntryKind(activity: TransientActivity): SessionStreamEntry["kin
 function inFlightDelegationResolve(
   activity: TransientActivity,
   delegations: ReadonlyArray<SessionStreamDelegation>,
-  scope: { parentAttemptId: string; parentRunId: string } | undefined,
+  scope: { parentAttemptId?: string; parentRunId: string } | undefined,
   runs: ReadonlyArray<{
     attempts?: ReadonlyArray<{ streamId: string }>
     id: string
@@ -49,7 +49,7 @@ function inFlightDelegationResolve(
 export function sessionStreamInFlightDerive(
   messages: ReadonlyArray<SessionStreamInFlightMessage>,
   delegations: ReadonlyArray<SessionStreamDelegation> = [],
-  scope?: { parentAttemptId: string; parentRunId: string },
+  scope?: { parentAttemptId?: string; parentRunId: string },
   runs: ReadonlyArray<{
     attempts?: ReadonlyArray<{ streamId: string }>
     id: string

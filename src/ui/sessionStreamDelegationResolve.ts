@@ -33,13 +33,19 @@ export function sessionStreamDelegationResolve(input: {
   }
   delegations: ReadonlyArray<SessionStreamDelegation>
   runs: ReadonlyArray<{ id: string; snapshot?: unknown }>
-  scope: { parentAttemptId: string; parentRunId: string } | undefined
+  /**
+   * The attempt is optional because the live event feed identifies a run but not
+   * which of its attempts produced an event. Scoping by run alone is still exact:
+   * a delegation key is unique within its parent run.
+   */
+  scope: { parentAttemptId?: string; parentRunId: string } | undefined
 }): SessionStreamDelegation | undefined {
   if (input.activity.toolCallId === undefined || input.scope === undefined) return undefined
 
   const scoped = input.delegations.filter(
     (candidate) =>
-      candidate.parentRunId === input.scope?.parentRunId && candidate.parentAttemptId === input.scope?.parentAttemptId,
+      candidate.parentRunId === input.scope?.parentRunId &&
+      (input.scope?.parentAttemptId === undefined || candidate.parentAttemptId === input.scope.parentAttemptId),
   )
   const exact = scoped.find((candidate) => candidate.delegationKey === input.activity.toolCallId)
   const parentTarget = sessionStreamRunTargetResolve(input.scope.parentRunId, input.runs)

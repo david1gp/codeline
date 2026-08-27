@@ -11,6 +11,8 @@ export type SessionStreamEntry = {
 }
 
 export type SessionStreamDelegation = {
+  /** Authoritative child target from the delegations API; live feed rows carry no snapshot. */
+  childAgentId?: string
   childRunId: string
   delegationKey: string
   id: string
@@ -68,6 +70,10 @@ type SessionStreamOrigin = {
 }
 
 const streamEntryDetailLimit = 400
+const streamEntryReuseCacheLimit = 512
+
+type SessionStreamEntryReuseCache = Map<string, { entry: SessionStreamEntry; signature: string }>
+type SessionStreamEntryReuseUpdate = [string, { entry: SessionStreamEntry; signature: string }]
 
 function streamPayloadField(payload: unknown, key: string): string | undefined {
   if (typeof payload !== "object" || payload === null) return undefined
@@ -144,6 +150,57 @@ function streamDelegationActivitiesResolve(
 function streamEntryDetailBound(value: string | undefined): string | undefined {
   if (value === undefined) return undefined
   return value.length > streamEntryDetailLimit ? `${value.slice(0, streamEntryDetailLimit)}…` : value
+}
+
+function streamEntryReuseSignature(
+  events: ReadonlyArray<SessionStreamEventRow>,
+  entry: SessionStreamEntry,
+): string | undefined {
+  try {
+    return JSON.stringify({
+      entry,
+      events: events.map((event) => ({
+        eventType: event.eventType,
+        id: event.id,
+        payload: event.payload,
+        sequence: event.sequence,
+        streamId: event.streamId,
+      })),
+    })
+  } catch (_error: unknown) {
+    return undefined
+  }
+}
+
+function streamEntryReuseResolve(
+  cache: SessionStreamEntryReuseCache | undefined,
+  updates: Array<SessionStreamEntryReuseUpdate>,
+  events: ReadonlyArray<SessionStreamEventRow>,
+  entry: SessionStreamEntry,
+): SessionStreamEntry {
+  if (cache === undefined) return entry
+  const signature = streamEntryReuseSignature(events, entry)
+  if (signature === undefined) return entry
+  const identity = JSON.stringify([events[0]?.streamId ?? "", entry.id])
+  const cached = cache.get(identity)
+  const resolved = cached?.signature === signature ? cached.entry : entry
+  updates.push([identity, { entry: resolved, signature }])
+  return resolved
+}
+
+function streamEntryReuseUpdatesApply(
+  cache: SessionStreamEntryReuseCache,
+  updates: ReadonlyArray<SessionStreamEntryReuseUpdate>,
+): void {
+  for (const [identity, value] of updates) {
+    cache.delete(identity)
+    cache.set(identity, value)
+    while (cache.size > streamEntryReuseCacheLimit) {
+      const oldest = cache.keys().next().value as string | undefined
+      if (oldest === undefined) break
+      cache.delete(oldest)
+    }
+  }
 }
 
 function streamOriginsResolve(runs: ReadonlyArray<SessionStreamRunRow>): Map<string, SessionStreamOrigin> {
@@ -259,7 +316,7 @@ export function sessionStreamDelegationLinkResolve(
 ): SessionStreamDelegationLink {
   const childRun = runs.find((run) => run.id === delegation.childRunId)
   const childAttempt = childRun?.attempts?.at(-1)
-  const childAgentId = streamRunAgentIdResolve(childRun)
+  const childAgentId = delegation.childAgentId ?? streamRunAgentIdResolve(childRun)
   return {
     ...delegation,
     ...(childAgentId === undefined ? {} : { childAgentId }),
@@ -282,8 +339,12 @@ function streamDelegationResolve(
     activity: { ...activity, toolCallId },
     delegations,
     runs,
-    scope:
-      origin.attemptId === undefined ? undefined : { parentAttemptId: origin.attemptId, parentRunId: origin.runId },
+    // A live feed origin knows its run but not its attempt. Matching by run alone
+    // stays exact, because a delegation key is unique within its parent run.
+    scope: {
+      ...(origin.attemptId === undefined ? {} : { parentAttemptId: origin.attemptId }),
+      parentRunId: origin.runId,
+    },
   })
   return delegation === undefined ? undefined : sessionStreamDelegationLinkResolve(delegation, runs)
 }
@@ -309,13 +370,16 @@ function streamEntriesCollect(
   origin: SessionStreamOrigin | undefined,
   delegations: ReadonlyArray<SessionStreamDelegation>,
   runs: ReadonlyArray<SessionStreamRunRow>,
+  entryCache?: SessionStreamEntryReuseCache,
+  entryReuseUpdates: Array<SessionStreamEntryReuseUpdate> = [],
 ): Array<SessionStreamEntry> {
   const entries: Array<SessionStreamEntry> = []
   const delegationActivities = streamDelegationActivitiesResolve(events)
-  let output: { delta: string; id: string } | undefined
+  let output: { delta: string; events: Array<SessionStreamEventRow>; id: string } | undefined
   const outputFlush = () => {
     if (output === undefined) return
-    entries.push({ detail: output.delta, id: output.id, kind: "output", label: "Output" })
+    const entry = { detail: output.delta, id: output.id, kind: "output" as const, label: "Output" }
+    entries.push(streamEntryReuseResolve(entryCache, entryReuseUpdates, output.events, entry))
     output = undefined
   }
   for (const rawEvent of events) {
@@ -323,7 +387,10 @@ function streamEntriesCollect(
     if (event === undefined) continue
     if (event.eventType === "text_delta") {
       const delta = streamPayloadField(event.payload, "delta") ?? ""
-      output = output === undefined ? { delta, id: event.id } : { delta: output.delta + delta, id: output.id }
+      output =
+        output === undefined
+          ? { delta, events: [event], id: event.id }
+          : { delta: output.delta + delta, events: [...output.events, event], id: output.id }
       continue
     }
     outputFlush()
@@ -338,7 +405,7 @@ function streamEntriesCollect(
         toolCallId === undefined ? undefined : delegationActivities.get(toolCallId),
       ),
     )
-    if (entry !== undefined) entries.push(entry)
+    if (entry !== undefined) entries.push(streamEntryReuseResolve(entryCache, entryReuseUpdates, [event], entry))
   }
   outputFlush()
   return entries
@@ -352,10 +419,12 @@ function streamEntriesCollect(
  */
 export function sessionStreamGroupsDerive(input: {
   delegations?: ReadonlyArray<SessionStreamDelegation>
+  entryCache?: Map<string, { entry: SessionStreamEntry; signature: string }>
   events: ReadonlyArray<SessionStreamEventRow>
   runs: ReadonlyArray<SessionStreamRunRow>
 }): Array<SessionStreamGroup> {
   const origins = streamOriginsResolve(input.runs)
+  const entryReuseUpdates: Array<SessionStreamEntryReuseUpdate> = []
   const byStream = new Map<string, Array<SessionStreamEventRow>>()
   for (const event of input.events) {
     const existing = byStream.get(event.streamId)
@@ -367,7 +436,14 @@ export function sessionStreamGroupsDerive(input: {
     const origin = origins.get(streamId)
     const ordered = [...events].sort((left, right) => left.sequence - right.sequence || left.id.localeCompare(right.id))
     return {
-      entries: streamEntriesCollect(ordered, origin, input.delegations ?? [], input.runs),
+      entries: streamEntriesCollect(
+        ordered,
+        origin,
+        input.delegations ?? [],
+        input.runs,
+        input.entryCache,
+        entryReuseUpdates,
+      ),
       id: streamId,
       label: origin?.label ?? "Stream",
       ...(origin?.status === undefined ? {} : { status: origin.status }),
@@ -390,5 +466,6 @@ export function sessionStreamGroupsDerive(input: {
       left.streamId.localeCompare(right.streamId),
   )
 
+  if (input.entryCache !== undefined) streamEntryReuseUpdatesApply(input.entryCache, entryReuseUpdates)
   return groups.map(({ order: _order, ...group }) => group)
 }

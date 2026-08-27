@@ -9,6 +9,7 @@ import {
   eventFeedOwnerRegistryCreate,
 } from "../events/client/eventFeedOwnerRegistryCreate.js"
 import type { EventFeedStaleResource } from "../stream/client/eventFeedStateCreate.js"
+import { signalObjectCreate } from "./signalObjectCreate.js"
 import type { UiDataLayerStatus } from "./uiDataLayerStatusSchema.js"
 
 const tabEventFeedOwnerRegistry = eventFeedOwnerRegistryCreate()
@@ -177,6 +178,7 @@ export function eventFeedCoordinatorStateCreate(options: EventFeedCoordinatorOpt
     ...options.reconciliation,
     activeRunSnapshotLoad: async (input) => {
       const loaded = await options.reconciliation.activeRunSnapshotLoad(input)
+      dataRevisionBump()
       if (!loaded.success || resetRefreshPending || input.reason === "reset") return loaded
       const refreshed = await eventFeedRefreshCallbacksRun(
         "eventFeedCoordinatorActiveRunSnapshotRefresh",
@@ -199,6 +201,7 @@ export function eventFeedCoordinatorStateCreate(options: EventFeedCoordinatorOpt
     sessionSnapshotReplace: async (snapshot) => {
       const replaced = await options.reconciliation.sessionSnapshotReplace(snapshot)
       if (!replaced.success) return replaced
+      dataRevisionBump()
       // A completion checkpoint replaces assembled live state with the authoritative
       // HTTP snapshot. The settled cache alone is not what the workspace renders, so the
       // session's registered HTTP queries must be refreshed or the finalized transcript
@@ -230,8 +233,21 @@ export function eventFeedCoordinatorStateCreate(options: EventFeedCoordinatorOpt
     },
   }
 
+  // `feed.dataState` reads plain mutable feed state, so nothing in a Solid
+  // computation depends on it. This revision signal is the tracked dependency:
+  // every applied event and every run attach bumps it, which is what makes the
+  // stream view recompute while a run is still streaming.
+  const dataRevision = signalObjectCreate(0)
+  const dataRevisionBump = (): void => {
+    dataRevision.set(dataRevision.get() + 1)
+  }
+
   const feed = eventFeedCreate({
     ...options,
+    onEvent: (event) => {
+      dataRevisionBump()
+      options.onEvent?.(event)
+    },
     onStateChange: stateChangeForward,
     ownershipRegistry: options.ownershipRegistry ?? tabEventFeedOwnerRegistry,
     reconciliation,
@@ -373,10 +389,15 @@ export function eventFeedCoordinatorStateCreate(options: EventFeedCoordinatorOpt
   }
 
   const feedApi = {
-    activeRunAttach: feed.activeRunAttach,
+    activeRunAttach: (input: Parameters<typeof feed.activeRunAttach>[0]) => {
+      const attached = feed.activeRunAttach(input)
+      if (attached.success) dataRevisionBump()
+      return attached
+    },
     cleanup: close,
     close,
     get dataState() {
+      dataRevision.get()
       return feed.dataState
     },
     getState: feed.getState,
@@ -389,22 +410,43 @@ export function eventFeedCoordinatorStateCreate(options: EventFeedCoordinatorOpt
     },
   }
 
-  return {
-    ...feedApi,
-    eventFeed: feedApi,
-    registerNoteDetail,
-    registerNoteList,
-    registerSelectedDelegations,
-    registerSelectedMessages,
-    registerSelectedSession,
-    registerSelectedStream,
-    registerSessionList,
-    unregisterNoteDetail,
-    unregisterNoteList,
-    unregisterSelectedDelegations,
-    unregisterSelectedMessages,
-    unregisterSelectedSession,
-    unregisterSelectedStream,
-    unregisterSessionList,
+  // `dataState` and `state` are getters over live feed state. Spreading `feedApi`
+  // would evaluate them once and freeze the coordinator on the initial, empty feed
+  // snapshot, so the descriptors are copied instead of their current values.
+  return Object.defineProperties(
+    {
+      eventFeed: feedApi,
+      registerNoteDetail,
+      registerNoteList,
+      registerSelectedDelegations,
+      registerSelectedMessages,
+      registerSelectedSession,
+      registerSelectedStream,
+      registerSessionList,
+      unregisterNoteDetail,
+      unregisterNoteList,
+      unregisterSelectedDelegations,
+      unregisterSelectedMessages,
+      unregisterSelectedSession,
+      unregisterSelectedStream,
+      unregisterSessionList,
+    },
+    Object.getOwnPropertyDescriptors(feedApi),
+  ) as typeof feedApi & {
+    eventFeed: typeof feedApi
+    registerNoteDetail: typeof registerNoteDetail
+    registerNoteList: typeof registerNoteList
+    registerSelectedDelegations: typeof registerSelectedDelegations
+    registerSelectedMessages: typeof registerSelectedMessages
+    registerSelectedSession: typeof registerSelectedSession
+    registerSelectedStream: typeof registerSelectedStream
+    registerSessionList: typeof registerSessionList
+    unregisterNoteDetail: typeof unregisterNoteDetail
+    unregisterNoteList: typeof unregisterNoteList
+    unregisterSelectedDelegations: typeof unregisterSelectedDelegations
+    unregisterSelectedMessages: typeof unregisterSelectedMessages
+    unregisterSelectedSession: typeof unregisterSelectedSession
+    unregisterSelectedStream: typeof unregisterSelectedStream
+    unregisterSessionList: typeof unregisterSessionList
   }
 }

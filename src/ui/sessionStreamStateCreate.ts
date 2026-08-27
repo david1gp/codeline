@@ -30,6 +30,36 @@ function sessionStreamRunStatusResolve(run: EventFeedRun): string {
   return run.phase
 }
 
+/**
+ * A durable `tool` delta carries the serialized execution event, so its concrete
+ * type has to be recovered from the payload. Collapsing every tool delta into
+ * `tool_output` would erase the `tool_start` events the delegation links are
+ * derived from, which is exactly what the stream view renders as a subagent link.
+ */
+function sessionStreamDeltaEventResolve(delta: { delta: string; deltaKind: string }): {
+  eventType: string
+  payload: unknown
+} {
+  if (delta.deltaKind === "text") return { eventType: "text_delta", payload: { delta: delta.delta } }
+  if (delta.deltaKind === "thinking") return { eventType: "thinking_status", payload: { status: delta.delta } }
+  try {
+    const parsed: unknown = JSON.parse(delta.delta)
+    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+      const eventType = (parsed as { eventType?: unknown }).eventType
+      if (typeof eventType === "string") return { eventType, payload: parsed }
+      // The persisted payload is the event's own payload, so its shape names the phase.
+      const record = parsed as Record<string, unknown>
+      if (typeof record.toolName === "string") return { eventType: "tool_start", payload: parsed }
+      if (record.outcome !== undefined || record.result !== undefined)
+        return { eventType: "tool_result", payload: parsed }
+      return { eventType: "tool_output", payload: parsed }
+    }
+  } catch (_error: unknown) {
+    // A non-JSON tool delta is rendered as plain output below.
+  }
+  return { eventType: "tool_output", payload: { output: delta.delta } }
+}
+
 function sessionStreamFeedInputResolve(
   state: EventFeedState | undefined,
   sessionId: string | undefined,
@@ -38,14 +68,10 @@ function sessionStreamFeedInputResolve(
   const runs = [...state.activeRuns.values()]
     .filter((run) => run.sessionId === sessionId)
     .map((run) => ({
-      attempts: [
-        {
-          id: `${run.runId}:attempt`,
-          ordinal: 1,
-          status: sessionStreamRunStatusResolve(run),
-          streamId: run.runId,
-        },
-      ],
+      // The feed identifies a run, not the attempt that produced an event, so the
+      // attempt is left unidentified rather than given a synthetic id that could
+      // never match a persisted delegation's parent attempt.
+      attempts: [{ ordinal: 1, status: sessionStreamRunStatusResolve(run), streamId: run.runId }],
       clientRunId: run.runId,
       createdAt: 0,
       id: run.runId,
@@ -58,14 +84,8 @@ function sessionStreamFeedInputResolve(
     .flatMap((run) => [
       ...run.deltas.map((delta) => ({
         createdAt: 0,
-        eventType:
-          delta.deltaKind === "text"
-            ? "text_delta"
-            : delta.deltaKind === "thinking"
-              ? "thinking_status"
-              : "tool_output",
+        ...sessionStreamDeltaEventResolve(delta),
         id: `${run.runId}:${delta.sequence}`,
-        payload: delta.deltaKind === "thinking" ? { status: delta.delta } : { delta: delta.delta },
         sequence: delta.sequence,
         streamId: run.runId,
       })),
@@ -93,13 +113,27 @@ function sessionStreamFeedInputResolve(
 export function sessionStreamStateCreate(options: SessionStreamStateOptions) {
   const activeSessionId = () => (options.isEnabled() ? options.sessionId() : undefined)
   const feedInput = () => sessionStreamFeedInputResolve(options.eventFeedState?.(), activeSessionId())
-  const durableGroups = () => sessionStreamGroupsDerive({ ...feedInput(), delegations: options.delegations() })
+  const durableEntryCache: NonNullable<SessionStreamInput["entryCache"]> = new Map()
+  let durableEntryCacheSessionId: string | undefined
+  const durableGroups = () => {
+    const sessionId = activeSessionId()
+    if (sessionId !== durableEntryCacheSessionId) {
+      durableEntryCache.clear()
+      durableEntryCacheSessionId = sessionId
+    }
+    return sessionStreamGroupsDerive({
+      ...feedInput(),
+      delegations: options.delegations(),
+      entryCache: durableEntryCache,
+    })
+  }
   const inFlightScope = () => {
     if (activeSessionId() === undefined) return undefined
-    const run = feedInput().runs.find((candidate) => candidate.clientRunId === options.inFlightRunId())
-    const attempt = run?.attempts?.at(-1)
-    if (run === undefined || attempt?.id === undefined) return undefined
-    return { parentAttemptId: attempt.id, parentRunId: run.id }
+    const runId = options.inFlightRunId()
+    if (runId === null) return undefined
+    // The feed reports the run, not its attempt, so the delegation is matched by
+    // run identity; a delegation key is unique inside its parent run anyway.
+    return { parentRunId: runId }
   }
   const revalidate = () => undefined
 
