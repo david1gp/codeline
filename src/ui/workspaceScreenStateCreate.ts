@@ -31,13 +31,17 @@ export function workspaceScreenStateCreate(
   const drawer = useContext(sessionDrawerContext) ?? workspacePageStateCreate()
   const account = useContext(applicationAccountContext)
   const pwa = useContext(appShellContext)?.pwa
+  // `~` is a valid session reference, but it is not necessarily a project in the
+  // configured discovery roots. Project-scoped reads must wait for a confirmed path.
+  const discoveredProjectPathResolve = (path: string | null) => (path === "~" ? null : path)
+  const discoveredActiveProjectPath = () => discoveredProjectPathResolve(activeProject.project().path)
   // The target selector consumes the pending resource selection, and the resource
   // selector consumes the selected target. Both sides read through accessors, so the
   // target selector is referenced lazily instead of creating a construction cycle.
   let sessionTargetSelector: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
   const sessionResourceSelector = sessionResourceSelectorStateCreate({
     isOnline: () => pwa?.status() !== "offline",
-    projectPath: () => activeProject.project().path,
+    projectPath: () => (navigation.selectedSessionId() === null ? discoveredActiveProjectPath() : null),
     selectedAgentId: () => sessionTargetSelector?.selectedAgentId() ?? null,
     selectedServerId: () => sessionTargetSelector?.selectedServerId() ?? null,
     selectedSessionId: navigation.selectedSessionId,
@@ -68,7 +72,9 @@ export function workspaceScreenStateCreate(
     isBashEnabled: () => sessionResourceSelector.agentTools().some((entry) => entry.isPrimary && entry.bash),
     isOnline: () => pwa?.status() !== "offline",
     projectPath: () =>
-      (navigation.selectedSessionId() === null ? null : selectedSessionProjectPath()) ?? activeProject.project().path,
+      navigation.selectedSessionId() === null
+        ? discoveredActiveProjectPath()
+        : discoveredProjectPathResolve(selectedSessionProjectPath()),
   })
   const providerModelSelector = providerModelSelectorStateCreate({
     accountId: () => account?.userId() ?? null,
