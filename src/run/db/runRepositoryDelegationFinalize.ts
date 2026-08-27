@@ -18,6 +18,40 @@ type RunDelegationFinalizeResult = {
   run: typeof runTable.$inferSelect
 }
 
+type RunRepositoryDelegationFinalizeRunUpdateInput = {
+  currentStatus: string
+  failure: ReturnType<typeof resultFailureResolve>
+  id: string
+  now: Date
+  status: RunDelegationResult["status"]
+}
+
+type RunRepositoryDelegationFinalizeAttemptUpdateInput = RunRepositoryDelegationFinalizeRunUpdateInput & {
+  id: string
+}
+
+type RunRepositoryDelegationFinalizeDelegationUpdateInput = {
+  delegationId: string
+  now: Date
+  result: RunDelegationResult
+}
+
+type RunRepositoryDelegationFinalizeOptions = {
+  attemptUpdate?: (
+    transaction: DatabaseExecutor,
+    input: RunRepositoryDelegationFinalizeAttemptUpdateInput,
+  ) => Promise<Result<typeof attemptTable.$inferSelect>>
+  delegationUpdate?: (
+    transaction: DatabaseExecutor,
+    input: RunRepositoryDelegationFinalizeDelegationUpdateInput,
+  ) => Promise<Result<typeof runDelegationTable.$inferSelect>>
+  now?: () => Date
+  runUpdate?: (
+    transaction: DatabaseExecutor,
+    input: RunRepositoryDelegationFinalizeRunUpdateInput,
+  ) => Promise<Result<typeof runTable.$inferSelect>>
+}
+
 function jsonCanonicalize(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value)
   if (Array.isArray(value)) return `[${value.map(jsonCanonicalize).join(",")}]`
@@ -41,12 +75,88 @@ function lifecycleAllowsFinalization(status: string, resultStatus: RunDelegation
   return status === resultStatus
 }
 
+async function runRepositoryDelegationRunUpdatePersist(
+  transaction: DatabaseExecutor,
+  input: RunRepositoryDelegationFinalizeRunUpdateInput,
+): Promise<Result<typeof runTable.$inferSelect>> {
+  const op = "runRepositoryDelegationFinalize"
+  try {
+    const [run] = await transaction
+      .update(runTable)
+      .set({
+        failure: input.failure,
+        finishedAt: input.now,
+        status: input.status,
+        updatedAt: input.now,
+      })
+      .where(and(eq(runTable.id, input.id), eq(runTable.status, input.currentStatus)))
+      .returning()
+    if (run === undefined)
+      return runResultCreateError(op, "The delegated child run could not be finalized.", runErrorCodes.transitionFailed)
+    return createResult(run)
+  } catch (_error) {
+    return runResultCreateError(op, "The delegated child run could not be finalized.", runErrorCodes.transitionFailed)
+  }
+}
+
+async function runRepositoryDelegationAttemptUpdatePersist(
+  transaction: DatabaseExecutor,
+  input: RunRepositoryDelegationFinalizeAttemptUpdateInput,
+): Promise<Result<typeof attemptTable.$inferSelect>> {
+  const op = "runRepositoryDelegationFinalize"
+  try {
+    const [attempt] = await transaction
+      .update(attemptTable)
+      .set({
+        failure: input.failure,
+        finishedAt: input.now,
+        status: input.status,
+        updatedAt: input.now,
+      })
+      .where(and(eq(attemptTable.id, input.id), eq(attemptTable.status, input.currentStatus)))
+      .returning()
+    if (attempt === undefined)
+      return runResultCreateError(
+        op,
+        "The delegated child attempt could not be finalized.",
+        runErrorCodes.attemptPersistenceFailed,
+      )
+    return createResult(attempt)
+  } catch (_error) {
+    return runResultCreateError(
+      op,
+      "The delegated child attempt could not be finalized.",
+      runErrorCodes.attemptPersistenceFailed,
+    )
+  }
+}
+
+async function runRepositoryDelegationUpdatePersist(
+  transaction: DatabaseExecutor,
+  input: RunRepositoryDelegationFinalizeDelegationUpdateInput,
+): Promise<Result<typeof runDelegationTable.$inferSelect>> {
+  const op = "runRepositoryDelegationFinalize"
+  try {
+    const [delegation] = await transaction
+      .update(runDelegationTable)
+      .set({ finalizedResult: input.result, updatedAt: input.now })
+      .where(and(eq(runDelegationTable.id, input.delegationId), isNull(runDelegationTable.finalizedResult)))
+      .returning()
+    if (delegation === undefined)
+      return runResultCreateError(op, "The delegation result could not be finalized.", runErrorCodes.transitionFailed)
+    return createResult(delegation)
+  } catch (_error) {
+    return runResultCreateError(op, "The delegation result could not be finalized.", runErrorCodes.transitionFailed)
+  }
+}
+
 export async function runRepositoryDelegationFinalize(
   database: DatabaseExecutor,
   userId: string,
   sessionId: string,
   delegationId: string,
   input: unknown,
+  options: RunRepositoryDelegationFinalizeOptions = {},
 ): Promise<Result<RunDelegationFinalizeResult>> {
   const op = "runRepositoryDelegationFinalize"
   const parsedInput = v.safeParse(runDelegationResultSchema, input)
@@ -117,17 +227,6 @@ export async function runRepositoryDelegationFinalize(
       }
 
       const result = parsedInput.output
-      if (
-        run.status !== "running" &&
-        run.status !== "accepted" &&
-        jsonCanonicalize(run.failure) !== jsonCanonicalize(resultFailureResolve(result))
-      ) {
-        return runResultCreateError(
-          op,
-          "The terminal child failure metadata cannot be overwritten.",
-          runErrorCodes.failureMetadataImmutable,
-        )
-      }
       if (delegation.finalizedResult !== null) {
         if (!resultMatches(delegation.finalizedResult, result)) {
           return runResultCreateError(
@@ -149,6 +248,18 @@ export async function runRepositoryDelegationFinalize(
         return createResult({ attempt, changed: false, delegation, run })
       }
 
+      if (
+        run.status !== "running" &&
+        run.status !== "accepted" &&
+        jsonCanonicalize(run.failure) !== jsonCanonicalize(resultFailureResolve(result))
+      ) {
+        return runResultCreateError(
+          op,
+          "The terminal child failure metadata cannot be overwritten.",
+          runErrorCodes.failureMetadataImmutable,
+        )
+      }
+
       if (!lifecycleAllowsFinalization(run.status, result.status)) {
         return runResultCreateError(
           op,
@@ -157,51 +268,39 @@ export async function runRepositoryDelegationFinalize(
         )
       }
 
-      const now = new Date()
+      const now = options.now?.() ?? new Date()
       const failure = resultFailureResolve(result)
-      const [updatedRun] = await transaction
-        .update(runTable)
-        .set({
-          failure,
-          finishedAt: now,
-          status: result.status,
-          updatedAt: now,
-        })
-        .where(and(eq(runTable.id, run.id), eq(runTable.status, run.status)))
-        .returning()
-      if (updatedRun === undefined)
-        return runResultCreateError(
-          op,
-          "The delegated child run could not be finalized.",
-          runErrorCodes.transitionFailed,
-        )
+      const updatedRun = await (options.runUpdate ?? runRepositoryDelegationRunUpdatePersist)(transaction, {
+        currentStatus: run.status,
+        failure,
+        id: run.id,
+        now,
+        status: result.status,
+      })
+      if (!updatedRun.success) return updatedRun
 
-      const [updatedAttempt] = await transaction
-        .update(attemptTable)
-        .set({
-          failure,
-          finishedAt: now,
-          status: result.status,
-          updatedAt: now,
-        })
-        .where(and(eq(attemptTable.id, attempt.id), eq(attemptTable.status, attempt.status)))
-        .returning()
-      if (updatedAttempt === undefined)
-        return runResultCreateError(
-          op,
-          "The delegated child attempt could not be finalized.",
-          runErrorCodes.attemptPersistenceFailed,
-        )
+      const updatedAttempt = await (options.attemptUpdate ?? runRepositoryDelegationAttemptUpdatePersist)(transaction, {
+        currentStatus: attempt.status,
+        failure,
+        id: attempt.id,
+        now,
+        status: result.status,
+      })
+      if (!updatedAttempt.success) return updatedAttempt
 
-      const [updatedDelegation] = await transaction
-        .update(runDelegationTable)
-        .set({ finalizedResult: result, updatedAt: now })
-        .where(and(eq(runDelegationTable.id, delegation.id), isNull(runDelegationTable.finalizedResult)))
-        .returning()
-      if (updatedDelegation === undefined)
-        return runResultCreateError(op, "The delegation result could not be finalized.", runErrorCodes.transitionFailed)
+      const updatedDelegation = await (options.delegationUpdate ?? runRepositoryDelegationUpdatePersist)(transaction, {
+        delegationId: delegation.id,
+        now,
+        result,
+      })
+      if (!updatedDelegation.success) return updatedDelegation
 
-      return createResult({ attempt: updatedAttempt, changed: true, delegation: updatedDelegation, run: updatedRun })
+      return createResult({
+        attempt: updatedAttempt.data,
+        changed: true,
+        delegation: updatedDelegation.data,
+        run: updatedRun.data,
+      })
     } catch (_error) {
       return runResultCreateError(op, "The delegation result could not be persisted.", runErrorCodes.persistFailed)
     }

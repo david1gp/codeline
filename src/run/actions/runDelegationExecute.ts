@@ -19,6 +19,11 @@ import { runRetryAdmissionResolve } from "./runRetryAdmissionResolve.js"
 
 const PRIVATE_RESULT_LIMIT = 16_384
 const REUSED_RESULT_POLL_INTERVAL_MS = 50
+const delegationFinalizationRetryableCodes = new Set<string>([
+  runErrorCodes.attemptPersistenceFailed,
+  runErrorCodes.persistFailed,
+  runErrorCodes.transitionFailed,
+])
 
 type RunDelegationChild = {
   attempt: typeof attemptTable.$inferSelect
@@ -198,7 +203,7 @@ async function runDelegationChildAdmissionAbortFinalize(
   const failure = runDelegationAbortFailureCreate("cancelled")
   const result = runDelegationResultCreate("aborted", "", failure)
   if (!result.success) return result
-  const finalized = await options.delegationFinalize(child.delegation.id, result.data)
+  const finalized = await runDelegationFinalizationRun(child.delegation.id, result.data, options)
   if (!finalized.success) return finalized
   return result
 }
@@ -218,6 +223,22 @@ function runDelegationAbortFailureCreate(kind: RunDelegationAbortKind): RunFailu
   return kind === "deadline"
     ? runDelegationFailureCreate("child_deadline_exceeded", "The delegated child run reached its immutable deadline.")
     : runDelegationFailureCreate("child_aborted", "The delegated child run was cancelled.")
+}
+
+function runDelegationFinalizationShouldRetry(result: Result<unknown>): boolean {
+  if (result.success) return false
+  const code = result.code
+  return code === undefined || delegationFinalizationRetryableCodes.has(code)
+}
+
+async function runDelegationFinalizationRun(
+  delegationId: string,
+  result: RunDelegationResult,
+  options: RunDelegationExecuteOptions,
+): Promise<Result<unknown>> {
+  const finalized = await options.delegationFinalize(delegationId, result)
+  if (!runDelegationFinalizationShouldRetry(finalized)) return finalized
+  return options.delegationFinalize(delegationId, result)
 }
 
 function runDelegationAbortKindResolve(
@@ -602,11 +623,15 @@ export async function runDelegationExecute(
         const failure = runDelegationAbortFailureCreate(abortKind.data)
         const outputFinalized = await providerOutputFinalize({ failure, status: "aborted" })
         if (!outputFinalized.success) return outputFinalized
-        const finalized = await options.delegationFinalize(child.data.delegation.id, {
-          failure,
-          status: "aborted",
-          text: "",
-        })
+        const finalized = await runDelegationFinalizationRun(
+          child.data.delegation.id,
+          {
+            failure,
+            status: "aborted",
+            text: "",
+          },
+          options,
+        )
         if (!finalized.success) return finalized
         return createResult({ failure, status: "aborted", text: "" })
       }
@@ -638,11 +663,15 @@ export async function runDelegationExecute(
         const failure = runDelegationAbortFailureCreate(postAttemptAbort.data)
         const outputFinalized = await providerOutputFinalize({ failure, status: "aborted" })
         if (!outputFinalized.success) return outputFinalized
-        const finalized = await options.delegationFinalize(child.data.delegation.id, {
-          failure,
-          status: "aborted",
-          text: attempt.data.text,
-        })
+        const finalized = await runDelegationFinalizationRun(
+          child.data.delegation.id,
+          {
+            failure,
+            status: "aborted",
+            text: attempt.data.text,
+          },
+          options,
+        )
         if (!finalized.success) return finalized
         return createResult({ failure, status: "aborted", text: attempt.data.text })
       }
@@ -651,11 +680,15 @@ export async function runDelegationExecute(
         const failure = attempt.data.failure ?? runDelegationAbortFailureCreate("cancelled")
         const outputFinalized = await providerOutputFinalize({ failure, status: "aborted" })
         if (!outputFinalized.success) return outputFinalized
-        const finalized = await options.delegationFinalize(child.data.delegation.id, {
-          failure,
-          status: "aborted",
-          text: attempt.data.text,
-        })
+        const finalized = await runDelegationFinalizationRun(
+          child.data.delegation.id,
+          {
+            failure,
+            status: "aborted",
+            text: attempt.data.text,
+          },
+          options,
+        )
         if (!finalized.success) return finalized
         return createResult({
           failure,
@@ -668,7 +701,7 @@ export async function runDelegationExecute(
         if (!outputFinalized.success) return outputFinalized
         const succeeded = runDelegationResultCreate("succeeded", attempt.data.text)
         if (!succeeded.success) return succeeded
-        const finalized = await options.delegationFinalize(child.data.delegation.id, succeeded.data)
+        const finalized = await runDelegationFinalizationRun(child.data.delegation.id, succeeded.data, options)
         if (!finalized.success) return finalized
         return succeeded
       }
@@ -686,7 +719,7 @@ export async function runDelegationExecute(
         if (!outputFinalized.success) return outputFinalized
         const failed = runDelegationResultCreate("failed", attempt.data.text, failure)
         if (!failed.success) return failed
-        const finalized = await options.delegationFinalize(child.data.delegation.id, failed.data)
+        const finalized = await runDelegationFinalizationRun(child.data.delegation.id, failed.data, options)
         if (!finalized.success) return finalized
         return failed
       }
@@ -701,7 +734,7 @@ export async function runDelegationExecute(
         if (!outputFinalized.success) return outputFinalized
         const failed = runDelegationResultCreate("failed", attempt.data.text, failure)
         if (!failed.success) return failed
-        const finalized = await options.delegationFinalize(child.data.delegation.id, failed.data)
+        const finalized = await runDelegationFinalizationRun(child.data.delegation.id, failed.data, options)
         if (!finalized.success) return finalized
         return failed
       }

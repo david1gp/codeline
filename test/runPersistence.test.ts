@@ -1908,7 +1908,7 @@ test.skipIf(!databaseAvailable)(
     if (userId === undefined) return
     const parent = await runCreate(database, userId, fixture.sessionId, {
       ...input,
-      budget: { maxChildDepth: 1, maxChildRuns: 4, maxDurationMs: 10_000 },
+      budget: { maxChildDepth: 1, maxChildRuns: 5, maxDurationMs: 10_000 },
       clientRunId: `client-run-finalize-${uuidv7()}`,
       streamId: `run-finalize-parent-${uuidv7()}`,
     })
@@ -1933,6 +1933,27 @@ test.skipIf(!databaseAvailable)(
     })
 
     const result = { status: "succeeded" as const, text: "The child completed successfully." }
+    expect(
+      await runDelegationFinalize(database, userId, fixture.sessionId, child.data.delegation.id, result, {
+        attemptUpdate: async () => createResultError("failureInjection", "The child attempt update failed."),
+      }),
+    ).toMatchObject({
+      errorMessage: "The child attempt update failed.",
+      success: false,
+    })
+    const [rolledBackRun] = await database.select().from(runTable).where(eq(runTable.id, child.data.run.id))
+    const [rolledBackAttempt] = await database
+      .select()
+      .from(attemptTable)
+      .where(eq(attemptTable.id, child.data.attempt.id))
+    const [rolledBackDelegation] = await database
+      .select()
+      .from(runDelegationTable)
+      .where(eq(runDelegationTable.id, child.data.delegation.id))
+    expect(rolledBackRun).toMatchObject({ failure: null, finishedAt: null, status: "running" })
+    expect(rolledBackAttempt).toMatchObject({ failure: null, finishedAt: null, status: "running" })
+    expect(rolledBackDelegation?.finalizedResult).toBeNull()
+
     const finalized = await runDelegationFinalize(database, userId, fixture.sessionId, child.data.delegation.id, result)
     expect(finalized).toMatchObject({
       success: true,
@@ -1970,6 +1991,66 @@ test.skipIf(!databaseAvailable)(
       errorMessage: "The session could not be found.",
       success: false,
     })
+    expect(
+      await runDelegationFinalize(database, userId, fixture.sessionId, child.data.delegation.id, {
+        failure: { code: "different_status", message: "A conflicting terminal result." },
+        status: "failed",
+        text: "A conflicting terminal result.",
+      }),
+    ).toMatchObject({
+      code: runErrorCodes.delegationFinalizationConflict,
+      success: false,
+    })
+
+    const concurrentChild = await runChildCreate(database, userId, fixture.sessionId, {
+      delegationKey: "finalize-concurrent-child",
+      parentAttemptId: parent.data.attempt.id,
+      parentRunId: parent.data.run.id,
+      task: "Complete the concurrent finalization test.",
+    })
+    if (!concurrentChild.success) return
+    expect(
+      await runTransition(database, userId, fixture.sessionId, concurrentChild.data.run.id, { status: "running" }),
+    ).toMatchObject({
+      success: true,
+    })
+    const concurrentResult = { status: "succeeded" as const, text: "The concurrent child completed successfully." }
+    const race = terminalPersistenceRaceDatabaseCreate()
+    const firstFinalization = runDelegationFinalize(
+      race.database,
+      userId,
+      fixture.sessionId,
+      concurrentChild.data.delegation.id,
+      concurrentResult,
+    )
+    await race.firstTransactionStarted
+    const secondFinalization = runDelegationFinalize(
+      race.database,
+      userId,
+      fixture.sessionId,
+      concurrentChild.data.delegation.id,
+      concurrentResult,
+    )
+    race.releaseFirstTransaction()
+    const concurrentFinalizations = await Promise.all([firstFinalization, secondFinalization])
+    expect(
+      concurrentFinalizations.filter((finalization) => finalization.success && finalization.data.changed),
+    ).toHaveLength(1)
+    expect(
+      concurrentFinalizations.filter((finalization) => finalization.success && !finalization.data.changed),
+    ).toHaveLength(1)
+    const [concurrentRun] = await database.select().from(runTable).where(eq(runTable.id, concurrentChild.data.run.id))
+    const [concurrentAttempt] = await database
+      .select()
+      .from(attemptTable)
+      .where(eq(attemptTable.runId, concurrentChild.data.run.id))
+    const [concurrentDelegation] = await database
+      .select()
+      .from(runDelegationTable)
+      .where(eq(runDelegationTable.id, concurrentChild.data.delegation.id))
+    expect(concurrentRun).toMatchObject({ status: "succeeded" })
+    expect(concurrentAttempt).toMatchObject({ status: "succeeded" })
+    expect(concurrentDelegation?.finalizedResult).toEqual(concurrentResult)
 
     const failedChild = await runChildCreate(database, userId, fixture.sessionId, {
       delegationKey: "finalize-failed-child",

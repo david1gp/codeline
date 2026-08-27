@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { createResult } from "@adaptive-ds/result"
+import { createResult, createResultError } from "@adaptive-ds/result"
 import { runDelegationExecute } from "../src/run/actions/runDelegationExecute.js"
 import { attemptTable } from "../src/run/db/attemptTable.js"
 import { runDelegationTable } from "../src/run/db/runDelegationTable.js"
@@ -349,6 +349,26 @@ test("executes a child successfully with a bounded private result", async () => 
   expect(harness.calls).toEqual([1])
   expect(harness.events.every((event) => event.streamId === "child-attempt-1-stream")).toBe(true)
   expect(harness.messages).toHaveLength(0)
+})
+
+test("retries transient delegation finalization without creating another child attempt", async () => {
+  const harness = harnessCreate()
+  const originalFinalize = harness.optionsForAction.delegationFinalize
+  let finalizations = 0
+  harness.optionsForAction.delegationFinalize = async (delegationId, result) => {
+    finalizations += 1
+    if (finalizations === 1)
+      return createResultError("failureInjection", "The transient delegation finalization failed.")
+    return originalFinalize(delegationId, result)
+  }
+
+  const result = await execute(harness)
+
+  expect(result).toEqual({ success: true, data: { status: "succeeded", text: "completed" } })
+  expect(finalizations).toBe(2)
+  expect(harness.childCreateCalls()).toBe(1)
+  expect(harness.calls).toEqual([1])
+  expect(harness.delegation.finalizedResult).toEqual({ status: "succeeded", text: "completed" })
 })
 
 test("retries a retryable child failure and succeeds on the next attempt", async () => {

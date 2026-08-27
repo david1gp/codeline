@@ -7,6 +7,7 @@ export function runDelegationFinalize(
   sessionId: string,
   delegationId: string,
   input: Parameters<typeof runRepositoryDelegationFinalize>[4],
+  options: Parameters<typeof runRepositoryDelegationFinalize>[5] = {},
 ): ReturnType<typeof runRepositoryDelegationFinalize> {
-  return runRepositoryDelegationFinalize(database, userId, sessionId, delegationId, input)
+  return runRepositoryDelegationFinalize(database, userId, sessionId, delegationId, input, options)
 }
