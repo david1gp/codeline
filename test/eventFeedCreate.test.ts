@@ -102,6 +102,13 @@ function frame(
   return { data, event: eventType, id: `cursor-${sequence}` } as StreamSseFrame
 }
 
+function frameEventCreate(input: StreamSseFrame): Event {
+  const message = new Event(input.event) as Event & { data?: unknown; lastEventId?: unknown }
+  message.data = JSON.stringify(input.data)
+  message.lastEventId = input.id
+  return message
+}
+
 function runSummary(
   runId: string,
   sessionId: string,
@@ -366,6 +373,65 @@ test("preserves partial state and cursor across a non-auth SSE disconnect and re
   })
   expect(feed.getUrl()).toBe("/api/events?after=cursor-1")
   expect(sources).toHaveLength(1)
+  feed.close()
+})
+
+test("ignores late events from a superseded source and handles the current terminal event once", async () => {
+  const events: StreamSseFrame[] = []
+  const sessionLoads: string[] = []
+  const sessionReplacements: SessionSettledSnapshotResponse[] = []
+  const {
+    feed,
+    source: previous,
+    sources,
+  } = createFakeFeed(
+    callbacks({
+      sessionSnapshotLoad: async (input) => {
+        sessionLoads.push(input.sessionId)
+        return createResult(sessionSnapshot(input.sessionId, 7))
+      },
+      sessionSnapshotReplace: async (snapshot) => {
+        sessionReplacements.push(snapshot)
+        return createResult(undefined)
+      },
+    }),
+    { onEvent: (event) => events.push(event) },
+  )
+
+  previous.open()
+  previous.emit(frame("delta", 1, { delta: "before" }))
+  const previousDeltaListener = [...(previous.listeners.get("delta") ?? [])][0]
+  const previousCompletionListener = [...(previous.listeners.get("run-completed") ?? [])][0]
+  if (previousDeltaListener === undefined || previousCompletionListener === undefined)
+    throw new Error("The previous EventSource listeners were not installed.")
+
+  feed.reconnect()
+  feed.online()
+  const current = sources[1]
+  if (current === undefined) throw new Error("The current EventSource was not created.")
+  current.open()
+
+  previousDeltaListener(frameEventCreate(frame("delta", 2, { delta: "late" })))
+  previousCompletionListener(frameEventCreate(frame("run-completed", 3, { sessionRevision: 7 })))
+  expect(feed.dataState.activeRuns.get("run-1")).toMatchObject({
+    lastSequence: 1,
+    partialText: "before",
+    terminalStatus: null,
+  })
+
+  current.emit(frame("delta", 4, { delta: "current" }))
+  expect(feed.dataState.activeRuns.get("run-1")).toMatchObject({
+    lastSequence: 4,
+    partialText: "beforecurrent",
+    terminalStatus: null,
+  })
+  current.emit(frame("run-completed", 5, { sessionRevision: 7 }))
+  await flush()
+
+  expect(events.map((event) => event.data.sequence)).toEqual([1, 4, 5])
+  expect(sessionLoads).toEqual(["session-1"])
+  expect(sessionReplacements).toHaveLength(1)
+  expect(feed.dataState.activeRuns.has("run-1")).toBe(false)
   feed.close()
 })
 
