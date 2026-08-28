@@ -18,9 +18,12 @@ type SessionChatConnectionOptions = {
   command?: () => CommandInvocation | undefined
   fetcher?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
   onStateChange?: (status: "error" | "recovering" | "stale" | "streaming" | "terminal") => void
-  pollingDelay?: (signal: AbortSignal | undefined) => Promise<void>
+  pollingDelay?: (signal: AbortSignal | undefined, milliseconds: number) => Promise<void>
   sessionId: string
 }
+
+const sessionChatConnectionPollingDelayMilliseconds = 100
+const sessionChatConnectionRetryDelayMaximumMilliseconds = 1_600
 
 function sessionChatMessageContentResolve(message: unknown): string {
   if (typeof message !== "object" || message === null) return ""
@@ -80,35 +83,65 @@ function sessionChatConnectionWait(signal: AbortSignal | undefined, milliseconds
   })
 }
 
+function sessionChatConnectionRetryDelayResolve(attempt: number): number {
+  return Math.min(
+    sessionChatConnectionPollingDelayMilliseconds * 2 ** (attempt - 1),
+    sessionChatConnectionRetryDelayMaximumMilliseconds,
+  )
+}
+
+function sessionChatConnectionSnapshotFailureRetryable(snapshot: { code?: string; statusCode?: number }): boolean {
+  if (snapshot.code === "network_error") return true
+  if (snapshot.statusCode === undefined) return false
+  return (
+    snapshot.statusCode === 408 ||
+    snapshot.statusCode === 425 ||
+    snapshot.statusCode === 429 ||
+    (snapshot.statusCode >= 500 && snapshot.statusCode <= 599)
+  )
+}
+
 async function* sessionChatConnectionRunPoll(
   command: SessionChatCommandResponse,
   fetcher: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
   signal: AbortSignal | undefined,
   onStateChange: SessionChatConnectionOptions["onStateChange"],
-  pollingDelay: (signal: AbortSignal | undefined) => Promise<void>,
+  pollingDelay: (signal: AbortSignal | undefined, milliseconds: number) => Promise<void>,
 ): AsyncGenerator<StreamChunk> {
   onStateChange?.("streaming")
   let partialText = ""
+  let retryAttempt = 0
   for (;;) {
     if (signal?.aborted) return
     const snapshot = await runActiveSnapshotFetch(command.sessionId, command.runId, { fetch: fetcher, signal })
     if (!snapshot.success) {
       if (snapshot.code === "aborted") return
-      onStateChange?.("error")
-      yield sessionChatConnectionErrorCreate("run_snapshot_error", snapshot.errorMessage)
-      return
+      if (!sessionChatConnectionSnapshotFailureRetryable(snapshot)) {
+        onStateChange?.("error")
+        yield sessionChatConnectionErrorCreate("run_snapshot_error", snapshot.errorMessage)
+        return
+      }
+      retryAttempt += 1
+      onStateChange?.("recovering")
+      await pollingDelay(signal, sessionChatConnectionRetryDelayResolve(retryAttempt))
+      continue
+    }
+    if (retryAttempt > 0) {
+      retryAttempt = 0
+      onStateChange?.("streaming")
     }
     const nextText = snapshot.data.partialText
-    const delta = nextText.startsWith(partialText) ? nextText.slice(partialText.length) : nextText
-    partialText = nextText
-    if (delta.length > 0) {
-      yield {
-        delta,
-        messageId: command.runId,
-        type: EventType.TEXT_MESSAGE_CONTENT,
-      }
-    }
     if (snapshot.data.status === "succeeded") {
+      if (nextText.startsWith(partialText)) {
+        const delta = nextText.slice(partialText.length)
+        partialText = nextText
+        if (delta.length > 0)
+          yield {
+            delta,
+            messageId: command.runId,
+            type: EventType.TEXT_MESSAGE_CONTENT,
+          }
+      }
       onStateChange?.("terminal")
       yield {
         outcome: { type: "success" },
@@ -126,7 +159,21 @@ async function* sessionChatConnectionRunPoll(
       )
       return
     }
-    await pollingDelay(signal)
+    if (!nextText.startsWith(partialText)) {
+      onStateChange?.("error")
+      yield sessionChatConnectionErrorCreate("run_snapshot_error", "The active run snapshot text is not append-only.")
+      return
+    }
+    const delta = nextText.slice(partialText.length)
+    partialText = nextText
+    if (delta.length > 0) {
+      yield {
+        delta,
+        messageId: command.runId,
+        type: EventType.TEXT_MESSAGE_CONTENT,
+      }
+    }
+    await pollingDelay(signal, sessionChatConnectionPollingDelayMilliseconds)
   }
 }
 
@@ -166,7 +213,9 @@ export function sessionChatConnectionCreate(options: SessionChatConnectionOption
       return
     }
     const pollingDelay =
-      options.pollingDelay ?? ((pollSignal: AbortSignal | undefined) => sessionChatConnectionWait(pollSignal, 100))
+      options.pollingDelay ??
+      ((pollSignal: AbortSignal | undefined, milliseconds: number) =>
+        sessionChatConnectionWait(pollSignal, milliseconds))
     yield* sessionChatConnectionRunPoll(command.data, fetcher, signal, options.onStateChange, pollingDelay)
   }
   return { connect }

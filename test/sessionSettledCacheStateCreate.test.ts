@@ -137,6 +137,60 @@ test("sends the cached ETag, retains on 304, and atomically replaces on validate
   database.close()
 })
 
+test("retains a cached record when revalidation reports an active session", async () => {
+  const database = await databaseCreate()
+  const cached = recordCreate("user-a", "session-a", 1)
+  await sessionSettledRecordWrite(database, cached)
+  let online = false
+  const state = sessionSettledCacheStateCreate({
+    database,
+    fetch: async () =>
+      Response.json(
+        { error: { code: "session_active", message: "The active session cannot be returned as settled." } },
+        { status: 409 },
+      ),
+    isOnline: () => online,
+    sessionId: "session-a",
+    userId: "user-a",
+  })
+
+  expect(await state.ready).toEqual({ success: true, data: cached })
+  online = true
+  expect(await state.revalidate()).toEqual({ success: true, data: cached })
+  expect(state.state()).toEqual({ record: cached, status: "ready" })
+  expect(await sessionSettledRecordRead(database, { sessionId: "session-a", userId: "user-a" })).toEqual({
+    success: true,
+    data: cached,
+  })
+  database.close()
+})
+
+test("keeps an uncached active session revalidation non-ready until completion reconciliation", async () => {
+  const database = await databaseCreate()
+  let online = false
+  const state = sessionSettledCacheStateCreate({
+    database,
+    fetch: async () =>
+      Response.json(
+        { error: { code: "session_active", message: "The active session cannot be returned as settled." } },
+        { status: 409 },
+      ),
+    isOnline: () => online,
+    sessionId: "session-a",
+    userId: "user-a",
+  })
+
+  expect(await state.ready).toEqual({ success: true, data: undefined })
+  online = true
+  expect(await state.revalidate()).toEqual({ success: true, data: undefined })
+  expect(state.state()).toEqual({ record: undefined, status: "revalidating" })
+
+  const completion = await state.completionReconcile(snapshot("user-a", "session-a", 1, 1))
+  expect(completion).toEqual({ success: true, data: undefined })
+  expect(state.state()).toEqual({ record: recordCreate("user-a", "session-a", 1), status: "ready" })
+  database.close()
+})
+
 test("retains the previous record when the download or response validation fails", async () => {
   const database = await databaseCreate()
   const cached = recordCreate("user-a", "session-a", 1)

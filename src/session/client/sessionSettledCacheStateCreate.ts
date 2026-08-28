@@ -1,6 +1,7 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import type { IDBPDatabase } from "idb"
 import * as v from "valibot"
+import { apiErrorResponseSchema } from "../../api/errors/apiErrorResponseSchema.js"
 import {
   type SessionSettledSnapshotResponse,
   sessionSettledSnapshotResponseSchema,
@@ -125,6 +126,26 @@ export function sessionSettledCacheStateCreate(options: {
       }
       status = "ready"
       return createResult(record)
+    }
+    if (response.status === 409) {
+      let body: string
+      try {
+        body = await response.text()
+      } catch (_error) {
+        status = "error"
+        return createResultError("sessionSettledCacheRevalidate", "The settled session snapshot could not be read.")
+      }
+      let candidate: unknown
+      try {
+        candidate = JSON.parse(body) as unknown
+      } catch (_error) {
+        candidate = undefined
+      }
+      const parsedError = v.safeParse(apiErrorResponseSchema, candidate)
+      if (parsedError.success && parsedError.output.error.code === "session_active") {
+        status = record === undefined ? "revalidating" : "ready"
+        return createResult(record)
+      }
     }
     if (response.status !== 200) {
       status = "error"
