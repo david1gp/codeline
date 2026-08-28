@@ -5,7 +5,7 @@ import { uuidv7 } from "../../uuid/uuidv7.js"
 import { identitySessionRepositoryCreate } from "../db/identitySessionRepositoryCreate.js"
 import { identitySessionTable } from "../db/identitySessionTable.js"
 
-const identitySessionLifetimeMs = 12 * 60 * 60 * 1000
+const identitySessionLifetimeMs = 30 * 24 * 60 * 60 * 1000
 
 type IdentitySessionCreateOptions = {
   credentialCreate?: () => string

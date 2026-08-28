@@ -54,7 +54,7 @@ const session = {
   userId: "oidc:user-1",
 } satisfies typeof identitySessionTable.$inferSelect
 
-test("session creation generates a 256-bit credential and an absolute twelve-hour expiry", async () => {
+test("session creation generates a 256-bit credential and an absolute thirty-day expiry", async () => {
   let stored: Record<string, unknown> | undefined
   const database = {
     insert: () => ({
@@ -71,7 +71,7 @@ test("session creation generates a 256-bit credential and an absolute twelve-hou
   expect(result.success).toBe(true)
   if (!result.success) return
   expect(Buffer.from(result.data.token, "base64url")).toHaveLength(32)
-  expect(result.data.session.expiresAt).toEqual(new Date("2026-08-15T00:00:00.000Z"))
+  expect(result.data.session.expiresAt).toEqual(new Date("2026-09-13T12:00:00.000Z"))
   expect(stored?.token).toBeUndefined()
   expect(stored?.tokenHash).toBe(createHash("sha256").update(result.data.token).digest("hex"))
   expect("token" in result.data.session).toBe(false)
@@ -105,7 +105,7 @@ test("session cookies use the required host-only security attributes", async () 
     identitySessionCookieSet(
       context,
       "credential",
-      new Date("2026-08-15T00:00:00.000Z"),
+      new Date("2026-09-13T12:00:00.000Z"),
       new Date("2026-08-14T12:00:00.000Z"),
     )
     return context.text("ok")
@@ -119,6 +119,8 @@ test("session cookies use the required host-only security attributes", async () 
   expect(cookie).toContain("Secure")
   expect(cookie).toContain("SameSite=Lax")
   expect(cookie).toContain("Path=/")
+  expect(cookie).toContain("Max-Age=2592000")
+  expect(cookie).toContain("Expires=Sun, 13 Sep 2026 12:00:00 GMT")
   expect(cookie).not.toContain("Domain=")
 })
 
