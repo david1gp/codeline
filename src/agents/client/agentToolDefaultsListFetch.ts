@@ -11,6 +11,7 @@ type AgentToolDefaultsListFetchDependencies = {
 }
 
 export type AgentToolDefaultsEntry = {
+  agentPrompt?: string
   agentId: string
   name: string
   /** Null for a primary agent; set for an agent that is only selectable as a subagent. */
@@ -48,6 +49,9 @@ export async function agentToolDefaultsListFetch(
     const detail = details[index]
     const tools = detail?.success === true ? detail.data?.agent.configuration.tools : undefined
     return {
+      ...(detail?.success === true && detail.data?.agent.agentPrompt === undefined
+        ? {}
+        : { agentPrompt: detail?.success === true ? detail.data?.agent.agentPrompt : undefined }),
       agentId: agent.id,
       name: agent.name,
       parentAgentId: agent.parentAgentId,

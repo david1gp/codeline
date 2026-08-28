@@ -14,6 +14,7 @@ import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentit
 import { organizationTable } from "../src/identity/db/organizationTable.js"
 import { providerApiConnectionTestResponseSchema } from "../src/providers/api/providerApiConnectionTestResponseSchema.js"
 import { providerApiModelsResponseSchema } from "../src/providers/api/providerApiModelsResponseSchema.js"
+import type { ProviderCatalog } from "../src/providers/schema/providerCatalogSchema.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
 import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
@@ -89,7 +90,12 @@ afterAll(async () => {
   await databaseConnectionClose(connection)
 })
 
-function appForUser(userId: string, authorizationValues: string[], organizationId = userId): Hono<AppEnvironment> {
+function appForUser(
+  userId: string,
+  authorizationValues: string[],
+  organizationId = userId,
+  providerAgentCatalog?: ProviderCatalog,
+): Hono<AppEnvironment> {
   const app = new Hono<AppEnvironment>()
   app.use("*", async (context, next) => {
     context.set("database", database)
@@ -105,6 +111,7 @@ function appForUser(userId: string, authorizationValues: string[], organizationI
       authorizationValues.push(new Headers(init?.headers).get("authorization") ?? "")
       return new Response(JSON.stringify({ data: [{ id: "gpt-test" }, { id: "other-model" }] }))
     },
+    providerAgentCatalog,
   })
   return app
 }
@@ -247,3 +254,14 @@ test.skipIf(!databaseAvailable)(
     expect(hiddenProposal.status).toBe(404)
   },
 )
+
+test.skipIf(!databaseAvailable)("agent detail exposes the selected catalog agent's effective prompt", async () => {
+  const app = appForUser(ownerUserId, [], ownerUserId, {
+    agents: [{ id: existingAgentId, prompt: "The effective catalog prompt." }],
+  } as never)
+
+  const response = await app.request(`http://codeline.test/servers/${serverId}/agents/${existingAgentId}`)
+
+  expect(response.status).toBe(200)
+  expect((await response.json()).agent.agentPrompt).toBe("The effective catalog prompt.")
+})

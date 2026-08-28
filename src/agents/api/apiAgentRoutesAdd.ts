@@ -22,6 +22,7 @@ import { agentQuerySchema } from "../schema/agentQuerySchema.js"
 import { agentUpdateRequestSchema } from "../schema/agentUpdateRequestSchema.js"
 import { agentDetailResponseCreate } from "./agentDetailResponseCreate.js"
 import { agentListResponseCreate } from "./agentListResponseCreate.js"
+import type { ProviderCatalog } from "../../providers/schema/providerCatalogSchema.js"
 
 type ApiContext = Context<AppEnvironment>
 
@@ -29,6 +30,7 @@ type ApiAgentRoutesOptions = {
   database?: DatabaseClient
   environment?: Readonly<Record<string, string | undefined>>
   fetch?: NonNullable<ProviderModelDiscoveryOptions["fetch"]>
+  providerAgentCatalog?: ProviderCatalog
 }
 
 function unauthorized(context: ApiContext) {
@@ -100,6 +102,8 @@ export function apiAgentRoutesAdd(api: Hono<AppEnvironment>, options: ApiAgentRo
   const fetchImplementation = options.fetch ?? globalThis.fetch
 
   const databaseResolve = (context: ApiContext): DatabaseClient => options.database ?? context.var.database
+  const agentPromptResolve = (agentId: string) =>
+    options.providerAgentCatalog?.agents.find((agent) => agent.id === agentId)?.prompt
 
   api.get("/servers/:serverId/agents", async (context) => {
     if (!requestAuthorized(context)) return unauthorized(context)
@@ -164,6 +168,9 @@ export function apiAgentRoutesAdd(api: Hono<AppEnvironment>, options: ApiAgentRo
 
     const response = agentDetailResponseCreate({
       agent: {
+        ...(agentPromptResolve(result.data.agent.id) === undefined
+          ? {}
+          : { agentPrompt: agentPromptResolve(result.data.agent.id) }),
         configuration: result.data.agent.configuration,
         id: result.data.agent.id,
         name: result.data.agent.name,
@@ -192,6 +199,9 @@ export function apiAgentRoutesAdd(api: Hono<AppEnvironment>, options: ApiAgentRo
 
     const response = agentDetailResponseCreate({
       agent: {
+        ...(agentPromptResolve(result.data.id) === undefined
+          ? {}
+          : { agentPrompt: agentPromptResolve(result.data.id) }),
         configuration: result.data.configuration,
         id: result.data.id,
         name: result.data.name,
@@ -222,6 +232,9 @@ export function apiAgentRoutesAdd(api: Hono<AppEnvironment>, options: ApiAgentRo
 
     const response = agentDetailResponseCreate({
       agent: {
+        ...(agentPromptResolve(result.data.id) === undefined
+          ? {}
+          : { agentPrompt: agentPromptResolve(result.data.id) }),
         configuration: result.data.configuration,
         id: result.data.id,
         name: result.data.name,
