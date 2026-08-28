@@ -26,7 +26,7 @@ Identify why real OpenCode sessions used with Codeline stop or lose streams, the
 - [x] 3. Sync Hermes Agent and extract applicable resilience patterns and tests.
 - [x] 4. Implement and verify regression coverage and session recovery changes incrementally.
 - [x] 5. Verify the combined managed preview and relevant test suite.
-- [ ] 6. Use the commits workflow, push, and deploy.
+- [x] 6. Use the commits workflow, push, and deploy.
 
 ## Paths
 
