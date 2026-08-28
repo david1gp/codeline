@@ -21,12 +21,12 @@ test("the creation sidebar drives skill groups, skills, and tools through the ge
 
 test("the creation sidebar positions the project selector before skills and tools", () => {
   expect(sidebarSource).toContain('from "#ui/input/select/SelectSingleNative.jsx"')
-  expect(sidebarSource).toContain('<span class={sectionLabelClass}>Project</span>')
+  expect(sidebarSource).toContain("<span class={sectionLabelClass}>Project</span>")
   expect(sidebarSource).toContain("valueSignal={controls.project}")
   expect(sidebarSource).toContain("getOptions={controls.projectOptions}")
   expect(sidebarSource).toContain("valueText={controls.projectOptionText}")
   // The project selector appears before the Switch that gates skills/tools on project selection.
-  const projectIndex = sidebarSource.indexOf('valueSignal={controls.project}')
+  const projectIndex = sidebarSource.indexOf("valueSignal={controls.project}")
   const switchIndex = sidebarSource.indexOf("<Switch>")
   expect(projectIndex).toBeGreaterThan(0)
   expect(switchIndex).toBeGreaterThan(projectIndex)
