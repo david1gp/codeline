@@ -42,3 +42,4 @@ data/db.sqlite*
 .wrangler/
 .codeline-deploy.lock
 .codeline-deploy.*/
+artifacts/
