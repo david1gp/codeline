@@ -17,6 +17,7 @@ export function WorkspacePage(props: { state: WorkspaceScreenView }) {
       leftSidebar={
         <SessionSidebar
           activeProject={props.state.activeProject}
+          projectPathOverride={props.state.projectPathOverride}
           sessionList={props.state.sessionList}
           sessionTarget={props.state.sessionTargetSelector}
         />
@@ -52,6 +53,7 @@ export function WorkspacePage(props: { state: WorkspaceScreenView }) {
             headingId="mobile-session-drawer-heading"
             idPrefix="mobile-session"
             initialFocus={state.sessionDrawerInitialFocus}
+            projectPathOverride={props.state.projectPathOverride}
             sessionList={props.state.sessionList}
             sessionTarget={props.state.sessionTargetSelector}
           />

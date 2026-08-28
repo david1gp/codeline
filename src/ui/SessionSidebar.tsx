@@ -2,6 +2,7 @@ import { Show } from "solid-js"
 import type { ActiveProjectState } from "./activeProjectStateCreate.js"
 import { NewSessionDialog } from "./NewSessionDialog.js"
 import { SessionList } from "./SessionList.js"
+import type { SessionProjectPathOverride } from "./sessionProjectPathOverride.js"
 import type { SessionListState } from "./sessionListStateCreate.js"
 import type { SessionTargetSelectorState } from "./sessionTargetSelectorStateCreate.js"
 
@@ -11,6 +12,7 @@ export function SessionSidebar(props: {
   headingId?: string
   idPrefix?: string
   initialFocus?: (element: HTMLElement) => void
+  projectPathOverride: SessionProjectPathOverride
   sessionList: SessionListState
   sessionTarget: SessionTargetSelectorState
 }) {
@@ -36,6 +38,7 @@ export function SessionSidebar(props: {
         <NewSessionDialog
           activeProject={props.activeProject}
           idPrefix={props.idPrefix ?? "desktop-session"}
+          projectPathOverride={props.projectPathOverride}
           projects={props.sessionList.sidebar.projectGroups}
           sessionTarget={props.sessionTarget}
         />

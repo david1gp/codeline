@@ -286,23 +286,22 @@ test("an existing session shows its immutable captured resource selection across
 
     const page = await context.newPage()
     const capturedAssert = async (): Promise<void> => {
-      await page.locator("summary", { hasText: "Session resources" }).click()
+      await page.locator("summary", { hasText: "Captured execution context" }).click()
       // The workspace can also host the still-mutable pre-session panel, so the
-      // assertions are scoped to the opened session's own resource section.
-      const panel = page.locator('section[aria-labelledby="selected-session-resources-heading"]')
+      // assertions are scoped to the opened session's own captured section.
+      const panel = page.locator('section[aria-labelledby="selected-session-context-heading"]')
       await expect(panel.getByText("Captured when this session was created and cannot be changed.")).toBeVisible({
         timeout: syncTimeout,
       })
 
-      const capturedSkills = panel.getByRole("list", { name: "Captured active skills" })
+      const capturedSkills = panel.getByRole("list", { name: "Captured skills" })
       await expect(capturedSkills).toBeVisible({ timeout: syncTimeout })
       // The preset's exclusion is part of what was captured, not a live filter.
       await expect(capturedSkills.getByText(resourceScenario.excludedSkillName, { exact: false })).toHaveCount(0)
+      await expect(panel.getByRole("list", { name: "Captured skill groups" })).toBeVisible()
 
-      const capturedTools = panel.getByRole("list", { name: "Captured agent tools" })
-      await expect(capturedTools.getByText(`${resourceScenario.agentId}`, { exact: false })).toBeVisible()
-      await expect(capturedTools.getByText("primary · bash on · webfetch off", { exact: false })).toBeVisible()
-      await expect(capturedTools.getByText("subagent · bash off · webfetch on", { exact: false })).toBeVisible()
+      const capturedTools = panel.getByRole("list", { name: "Captured tools" })
+      await expect(capturedTools.getByText(`${resourceScenario.agentId} · primary`, { exact: false })).toBeVisible()
       await expect(panel.getByRole("list", { name: "Captured instruction sources" })).toBeVisible()
 
       // No mutable affordance exists for a created session.
@@ -312,6 +311,8 @@ test("an existing session shows its immutable captured resource selection across
       await expect(panel.getByRole("list", { name: "Skill folders", exact: true })).toHaveCount(0)
       await expect(panel.getByRole("list", { name: "Agent tools", exact: true })).toHaveCount(0)
       await expect(panel.getByRole("list", { name: "Effective skills", exact: true })).toHaveCount(0)
+      // Digests and skill resource bundles are debugging noise, not captured inputs.
+      await expect(panel.getByText("sha256-", { exact: false })).toHaveCount(0)
     }
 
     await page.goto(`/sessions/${encodeURIComponent(sessionId)}`)

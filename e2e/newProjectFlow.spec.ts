@@ -36,7 +36,7 @@ test("New Session then New project renames the action and opens project creation
     await expect(dialog).toBeVisible()
     const projectSelect = dialog.getByLabel("Project")
     await expect(projectSelect).toBeVisible()
-    const primaryButton = dialog.getByRole("button", { name: "Start session" })
+    const primaryButton = dialog.getByRole("button", { name: "Use project" })
     await expect(primaryButton).toBeVisible()
 
     // Selecting "New project" only renames the primary action; the session step stays visible.

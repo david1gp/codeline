@@ -44,6 +44,11 @@ type AgentDraft = {
 
 /** Typed command identity forwarded to session creation, mirroring the request schema. */
 type SessionTargetCommandInvocation = { arguments: string; name: string }
+type SessionTargetInstructionOverrides = Readonly<Record<string, string>>
+type SessionTargetCreateContext = {
+  agentPrompt?: string
+  instructionOverrides?: SessionTargetInstructionOverrides
+}
 
 type SessionTargetSelectorStateOptions = {
   /** Scopes the shared revision/ETag cache to the signed-in application user. */
@@ -58,6 +63,8 @@ type SessionTargetSelectorStateOptions = {
    * create request so the server captures them in the immutable session manifest.
    */
   pendingExecutionSelection?: Accessor<SessionExecutionSelection | undefined>
+  pendingAgentPrompt?: Accessor<string | undefined>
+  pendingInstructionOverrides?: Accessor<SessionTargetInstructionOverrides>
   pendingSkillSelection?: Accessor<
     { override: { disabledSkills: string[]; enabledSkills: string[] }; presetName: string } | undefined
   >
@@ -403,6 +410,29 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
       skills: options.pendingSkillSelection?.() ?? null,
     })
 
+  const pendingCreateContext = (): SessionTargetCreateContext => {
+    const prompt = options.pendingAgentPrompt?.()
+    const overrides = options.pendingInstructionOverrides?.() ?? {}
+    return {
+      ...(prompt === undefined ? {} : { agentPrompt: prompt }),
+      ...(Object.keys(overrides).length === 0 ? {} : { instructionOverrides: overrides }),
+    }
+  }
+
+  const pendingCreateContextKey = () => {
+    const context = pendingCreateContext()
+    return JSON.stringify({
+      ...(context.agentPrompt === undefined ? {} : { agentPrompt: context.agentPrompt }),
+      ...(context.instructionOverrides === undefined
+        ? {}
+        : {
+            instructionOverrides: Object.fromEntries(
+              Object.entries(context.instructionOverrides).sort(([left], [right]) => left.localeCompare(right)),
+            ),
+          }),
+    })
+  }
+
   // A command is part of the create request body, so it participates in the create key.
   // Two different commands must never replay one another's idempotent create response.
   const sessionCreateKeyResolve = (
@@ -410,7 +440,7 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
     projectPath: string,
     command?: SessionTargetCommandInvocation,
   ) =>
-    `${target.serverId}/${target.agentId}/${projectPath}/${pendingResourceSelectionKey()}/${
+    `${target.serverId}/${target.agentId}/${projectPath}/${pendingResourceSelectionKey()}/${pendingCreateContextKey()}/${
       command === undefined ? "" : JSON.stringify(command)
     }`
 
@@ -720,6 +750,7 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
       try {
         const executionSelection = options.pendingExecutionSelection?.()
         const skillSelection = options.pendingSkillSelection?.()
+        const createContext = pendingCreateContext()
         const response = await fetchImplementation("/api/sessions", {
           body: JSON.stringify({
             clientRequestId,
@@ -727,6 +758,10 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
             // the resulting agent/model/subtask overrides in the immutable selection.
             ...(command === undefined ? {} : { command }),
             ...(executionSelection === undefined ? {} : { executionSelection }),
+            ...(createContext.agentPrompt === undefined ? {} : { agentPrompt: createContext.agentPrompt }),
+            ...(createContext.instructionOverrides === undefined
+              ? {}
+              : { instructionOverrides: createContext.instructionOverrides }),
             ...(skillSelection === undefined ? {} : { skillSelection }),
             primaryAgentId: target.agentId,
             projectPath,
@@ -823,6 +858,7 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
     },
     serverStatus: serverStatus.get,
     targetRevalidate,
+    sessionNew: options.sessionNew,
     sessionCreateStart,
     sessionCreateErrorMessage: sessionCreateErrorMessage.get,
     sessionCreateStatus: sessionCreateStatus.get,

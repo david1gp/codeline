@@ -9,6 +9,8 @@ import type { SessionChatState } from "./sessionChatStateCreate.js"
 import type { SessionTargetSelectorState } from "./sessionTargetSelectorStateCreate.js"
 
 export function SessionChat(props: {
+  /** Full-height composer used by the creation surface, so the draft owns the pane. */
+  isFilling?: boolean
   providerModel?: ReturnType<typeof providerModelSelectorStateCreate>
   sessionTarget?: SessionTargetSelectorState
   state: SessionChatState
@@ -20,8 +22,18 @@ export function SessionChat(props: {
   })
 
   return (
-    <section class="shrink-0 px-4 pb-2 max-[760px]:px-3" aria-label="Chat input">
-      <div class="mx-auto grid w-full max-w-[820px] gap-2">
+    <section
+      class="px-4 pb-2 max-[760px]:px-3"
+      classList={{ "flex min-h-0 flex-1 flex-col": props.isFilling === true, "shrink-0": props.isFilling !== true }}
+      aria-label="Chat input"
+    >
+      <div
+        class="mx-auto w-full max-w-[820px] gap-2"
+        classList={{
+          "flex min-h-0 flex-1 flex-col": props.isFilling === true,
+          grid: props.isFilling !== true,
+        }}
+      >
         <Show when={pendingMessageState.pendingMessages().length > 0}>
           <ol class="grid max-h-[30vh] list-none gap-3 overflow-y-auto p-0" aria-label="In-flight messages">
             <For each={pendingMessageState.pendingMessages()}>
@@ -86,11 +98,23 @@ export function SessionChat(props: {
           </p>
         </Show>
 
-        <form class="grid gap-2" aria-label="Chat composer" onSubmit={props.state.submitHandle}>
+        <form
+          class="gap-2"
+          classList={{
+            "flex min-h-0 flex-1 flex-col": props.isFilling === true,
+            grid: props.isFilling !== true,
+          }}
+          aria-label="Chat composer"
+          onSubmit={props.state.submitHandle}
+        >
           <Show when={props.state.command}>{(command) => <ChatCommandSuggestions state={command()} />}</Show>
-          <div class="flex min-w-0 items-end gap-2 rounded-[14px] border border-line bg-surface px-3 py-2.5 shadow-[0_1px_2px_var(--shadow-color),0_8px_24px_-12px_var(--shadow-color-strong)] focus-within:border-accent-border">
+          <div
+            class="flex min-w-0 items-end gap-2 rounded-[14px] border border-line bg-surface px-3 py-2.5 shadow-[0_1px_2px_var(--shadow-color),0_8px_24px_-12px_var(--shadow-color-strong)] focus-within:border-accent-border"
+            classList={{ "min-h-0 flex-1": props.isFilling === true }}
+          >
             <textarea
-              class="max-h-[200px] min-h-6 w-full flex-1 resize-none border-none bg-transparent text-sm leading-relaxed text-foreground outline-none placeholder:text-placeholder disabled:text-disabled"
+              class="min-h-6 w-full flex-1 resize-none border-none bg-transparent text-sm leading-relaxed text-foreground outline-none placeholder:text-placeholder disabled:text-disabled"
+              classList={{ "h-full": props.isFilling === true, "max-h-[200px]": props.isFilling !== true }}
               aria-label="Message"
               placeholder={
                 props.state.readOnlyNotice?.() === undefined

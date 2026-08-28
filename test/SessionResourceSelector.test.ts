@@ -2,6 +2,7 @@ import { expect, test } from "bun:test"
 
 const selector = await Bun.file(new URL("../src/ui/SessionResourceSelector.tsx", import.meta.url)).text()
 const inspector = await Bun.file(new URL("../src/ui/SkillCatalogInspector.tsx", import.meta.url)).text()
+const capturedContext = await Bun.file(new URL("../src/ui/SessionCapturedContextInspector.tsx", import.meta.url)).text()
 
 test("the resource selector renders preset, recursive folder, skill, and tool controls from generic #ui inputs", () => {
   expect(selector).toContain('from "#ui/input/select/SelectSingleNative.jsx"')
@@ -33,17 +34,34 @@ test("the selector shows the effective skill count and labels the catalog tokens
   expect(selector).toContain("{props.state.activeSkills().length} active skills")
 })
 
-test("an immutable session renders the captured summary and never the mutable controls", () => {
+test("an immutable session renders the captured context inspector and never the mutable controls", () => {
   expect(selector).toContain("<Show when={!props.state.isMutable()}>")
-  expect(selector).toContain("Captured when this session was created and cannot be changed.")
   expect(selector).toContain("<Match when={!props.state.isMutable()}>")
-  expect(selector).toContain("<SessionResourceCapturedSummary state={props.state} />")
-  const capturedSummary = selector.slice(selector.indexOf("function SessionResourceCapturedSummary"))
-  expect(capturedSummary).not.toContain("presetSelect")
-  expect(capturedSummary).not.toContain("skillToggle")
-  expect(capturedSummary).not.toContain("folderToggle")
-  expect(capturedSummary).not.toContain("toolToggle")
-  expect(capturedSummary).toContain("This session was created before execution resources were captured.")
+  expect(selector).toContain("<SessionCapturedContextInspector")
+  expect(selector).not.toContain("SessionResourceCapturedSummary")
+})
+
+test("the captured context inspector is read-only and shows prompt, sources, skills, and tools", () => {
+  expect(capturedContext).toContain('from "#ui/input/textarea/Textarea.jsx"')
+  expect(capturedContext).toContain("Captured when this session was created and cannot be changed.")
+  expect(capturedContext).toContain("This session was created before the execution context was captured.")
+  expect(capturedContext).toContain("System prompt")
+  expect(capturedContext).toContain("Included AGENTS.md sources")
+  expect(capturedContext).toContain("Skill groups")
+  expect(capturedContext).toContain("<For each={state.instructions()}>")
+  expect(capturedContext).toContain("<For each={state.skillGroups()}>")
+  expect(capturedContext).toContain("<For each={state.skills()}>")
+  expect(capturedContext).toContain("<For each={state.tools()}>")
+  expect(capturedContext).toContain("readOnly")
+  for (const mutator of ["presetSelect", "skillToggle", "folderToggle", "toolToggle", "onInput"]) {
+    expect(capturedContext).not.toContain(mutator)
+  }
+})
+
+test("the captured context inspector omits digests, resource bundles, and discovery diagnostics", () => {
+  for (const noise of ["digest", "Diagnostics", "diagnostics", "collisions", "resources.map", "bytes"]) {
+    expect(capturedContext).not.toContain(noise)
+  }
 })
 
 test("the selector distinguishes offline, loading, and error states with a retry", () => {

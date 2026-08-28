@@ -5,7 +5,9 @@ import { agentToolDefaultsListFetch } from "../agents/client/agentToolDefaultsLi
 import type { AgentInstructionInspectionResponse } from "../instructions/api/agentInstructionInspectionResponseSchema.js"
 import { agentInstructionInspectionFetch } from "../instructions/client/agentInstructionInspectionFetch.js"
 import type { ProjectApiIdentityResponse } from "../project/api/projectApiIdentityResponseSchema.js"
+import type { ProjectApiListResponse } from "../project/api/projectApiListResponseSchema.js"
 import { projectIdentityFetch } from "../project/client/projectIdentityFetch.js"
+import { projectListFetch } from "../project/client/projectListFetch.js"
 import type { SessionDetailResponse } from "../session/api/sessionDetailResponseSchema.js"
 import type { SessionExecutionSelection } from "../session/schema/sessionExecutionSelectionSchema.js"
 import { sessionDetailFetch } from "../session/ui/sessionDetailFetch.js"
@@ -48,9 +50,20 @@ export function sessionResourceSelectorStateCreate(
   const skillEnabledDelta = signalObjectCreate<readonly string[]>([])
   const skillDisabledDelta = signalObjectCreate<readonly string[]>([])
   const toolOverrides = signalObjectCreate<Readonly<Record<string, { bash?: boolean; webfetch?: boolean }>>>({})
+  const agentPromptValue = signalObjectCreate<string | undefined>(undefined)
+  const instructionBaseline = signalObjectCreate<Readonly<Record<string, string>>>({})
+  const instructionContents = signalObjectCreate<Readonly<Record<string, string>>>({})
   const inspectorOpen = signalObjectCreate(false)
 
   const isExistingSession = () => options.selectedSessionId() !== null
+
+  const selectedProjectIdState = signalObjectCreate<string | null>(null)
+
+  const projectListQuery = httpQueryStateCreate<ProjectApiListResponse>({
+    enabled: () => !isExistingSession(),
+    key: () => "/api/project/list",
+    load: async (_key, signal) => projectListFetch({ ...request, signal }),
+  })
 
   // The inspection routes are project-id scoped. The server owns the reference-to-id
   // mapping, because display labels are disambiguated and are not stable identifiers.
@@ -63,7 +76,20 @@ export function sessionResourceSelectorStateCreate(
       projectIdentityFetch(untrack(() => options.projectPath()) ?? "", { ...request, signal }),
   })
 
-  const projectId = () => projectQuery.data()?.id ?? null
+  const projectId = () => selectedProjectIdState.get() ?? projectQuery.data()?.id ?? null
+  const selectedProjectId = () => projectId()
+
+  const projects = () => {
+    const list = projectListQuery.data()?.projects ?? []
+    const identity = projectQuery.data()
+    if (identity === undefined || list.some(({ id }) => id === identity.id)) return list
+    return [{ id: identity.id, label: identity.label }, ...list]
+  }
+
+  const projectSelect = (id: string) => {
+    if (isExistingSession()) return
+    selectedProjectIdState.set(id === "" ? null : id)
+  }
 
   const catalogQuery = httpQueryStateCreate<SkillCatalogInspectionResponse>({
     enabled: () => !isExistingSession(),
@@ -137,7 +163,7 @@ export function sessionResourceSelectorStateCreate(
   // referenced may no longer be selectable under the newly resolved preset.
   let lastSelectionScope: string | null = null
   createEffect(() => {
-    const scope = `${options.projectPath() ?? ""}|${presetOverride.get() ?? ""}`
+    const scope = `${projectId() ?? ""}|${presetOverride.get() ?? ""}`
     if (lastSelectionScope === scope) return
     lastSelectionScope = scope
     untrack(() => {
@@ -247,6 +273,70 @@ export function sessionResourceSelectorStateCreate(
       })
   }
 
+  let lastAgentPromptScope: string | null = null
+  createEffect(() => {
+    const selectedAgentId = options.selectedAgentId()
+    const entries = agentToolsQuery.data()
+    const entry = (entries ?? []).find(({ agentId }) => agentId === selectedAgentId)
+    const scope = `${options.selectedServerId() ?? ""}|${selectedAgentId ?? ""}|${entries === undefined ? "loading" : (entry?.agentPrompt ?? "")}`
+    if (lastAgentPromptScope === scope) return
+    lastAgentPromptScope = scope
+    agentPromptValue.set(entries === undefined ? undefined : entry?.agentPrompt)
+  })
+
+  let lastInstructionScope: string | null = null
+  createEffect(() => {
+    if (isExistingSession()) return
+    const currentProjectId = projectId()
+    const snapshots = instructionQuery.data()?.snapshots
+    if (snapshots === undefined) {
+      if (lastInstructionScope !== currentProjectId) {
+        lastInstructionScope = currentProjectId
+        instructionBaseline.set({})
+        instructionContents.set({})
+      }
+      return
+    }
+    const baseline = Object.fromEntries(
+      snapshots.flatMap((snapshot) =>
+        snapshot.canonicalPath === undefined || snapshot.content === undefined
+          ? []
+          : [[snapshot.canonicalPath, snapshot.content] as const],
+      ),
+    )
+    const scope = `${currentProjectId ?? ""}|${JSON.stringify(baseline)}`
+    if (lastInstructionScope === scope) return
+    lastInstructionScope = scope
+    instructionBaseline.set(baseline)
+    instructionContents.set(baseline)
+  })
+
+  const instructionContent = (canonicalPath: string) => instructionContents.get()[canonicalPath]
+  const instructionContentChange = (canonicalPath: string, value: string) => {
+    if (isExistingSession() || !(canonicalPath in instructionBaseline.get())) return
+    instructionContents.set({ ...instructionContents.get(), [canonicalPath]: value })
+  }
+  const instructionOverrides = () => {
+    const baseline = instructionBaseline.get()
+    const contents = instructionContents.get()
+    return Object.fromEntries(
+      Object.entries(contents).filter(([canonicalPath, content]) => content !== baseline[canonicalPath]),
+    )
+  }
+  const instructionSnapshots = () =>
+    isExistingSession()
+      ? (existingExecutionResources()?.instructionSources ?? [])
+      : (instructionQuery.data()?.snapshots ?? [])
+  const instructionRenderedContent = () =>
+    (instructionQuery.data()?.snapshots ?? [])
+      .flatMap(({ canonicalPath }) => (canonicalPath === undefined ? [] : [instructionContent(canonicalPath)]))
+      .filter((content): content is string => content !== undefined)
+      .join("\n\n")
+  const agentPromptResolve = () =>
+    isExistingSession() ? (sessionDetailQuery.data()?.session.agentPrompt ?? undefined) : agentPromptValue.get()
+  const agentPromptCharacterCount = () => (agentPromptResolve() ?? "").length
+  const instructionCharacterCount = () => instructionRenderedContent().length
+
   const toolToggle = (agentId: string, tool: "bash" | "webfetch", enabled: boolean) => {
     const current = toolOverrides.get()
     toolOverrides.set({ ...current, [agentId]: { ...(current[agentId] ?? {}), [tool]: enabled } })
@@ -289,11 +379,10 @@ export function sessionResourceSelectorStateCreate(
       if (sessionDetailQuery.isError()) return "error"
       return sessionDetailQuery.data() === undefined ? "loading" : "ready"
     }
-    if (projectQuery.isError()) return "error"
+    if (projectQuery.isError() || projectListQuery.isError()) return "error"
     // No project reference means no inspection read is in flight, so the panel
     // reports that there is nothing to select instead of loading forever.
-    if (projectQuery.isIdle()) return "idle"
-    if (projectId() === null) return "loading"
+    if (projectId() === null) return projectQuery.isIdle() ? "idle" : "loading"
     if (queries.some((query) => query.isError())) return "error"
     if (queries.some((query) => query.isLoading() && query.data() === undefined)) return "loading"
     return "ready"
@@ -308,6 +397,7 @@ export function sessionResourceSelectorStateCreate(
     return (
       queries.find((query) => query.isError())?.errorMessage() ??
       (projectQuery.isError() ? (projectQuery.errorMessage() ?? "The project set is unavailable.") : null) ??
+      (projectListQuery.isError() ? (projectListQuery.errorMessage() ?? "Projects could not be loaded.") : null) ??
       null
     )
   }
@@ -342,6 +432,12 @@ export function sessionResourceSelectorStateCreate(
   return {
     activeSkills: () => (isExistingSession() ? capturedActiveSkills() : activeSkills()),
     agentTools: () => (isExistingSession() ? capturedAgentTools() : agentTools()),
+    agentPrompt: agentPromptResolve,
+    agentPromptCharacterCount,
+    agentPromptChange: (value: string) => {
+      if (!isExistingSession()) agentPromptValue.set(value)
+    },
+    agentPromptEstimatedTokens: () => Math.ceil(agentPromptCharacterCount() / 4),
     collisions: () => catalogQuery.data()?.collisions ?? [],
     descriptionCatalog: () => {
       if (!isExistingSession()) return descriptionCatalog()
@@ -362,10 +458,12 @@ export function sessionResourceSelectorStateCreate(
     folderToggle,
     groups: () => catalogQuery.data()?.groups ?? [],
     instructionDiagnostics: () => (isExistingSession() ? [] : (instructionQuery.data()?.diagnostics ?? [])),
-    instructionSnapshots: () =>
-      isExistingSession()
-        ? (existingExecutionResources()?.instructionSources ?? [])
-        : (instructionQuery.data()?.snapshots ?? []),
+    instructionCharacterCount,
+    instructionContent,
+    instructionContentChange,
+    instructionEstimatedTokens: () => Math.ceil(instructionCharacterCount() / 4),
+    instructionOverrides,
+    instructionSnapshots,
     inspectorOpen: inspectorOpen.get,
     inspectorOpenChange: inspectorOpen.set,
     isMutable: () => !isExistingSession(),
@@ -381,6 +479,8 @@ export function sessionResourceSelectorStateCreate(
     },
     presets: () => presetQuery.data()?.presets ?? [],
     presetSource: () => (presetOverride.get() === null ? "default" : "override"),
+    projects,
+    projectSelect,
     retry: () => {
       if (isExistingSession()) {
         sessionDetailQuery.retry()
@@ -388,8 +488,10 @@ export function sessionResourceSelectorStateCreate(
       }
       for (const query of queries) query.retry()
       projectQuery.retry()
+      projectListQuery.retry()
     },
     roots: () => catalogQuery.data()?.roots ?? [],
+    selectedProjectId,
     skillBundles: () => catalogQuery.data()?.bundles ?? [],
     skillToggle,
     status,

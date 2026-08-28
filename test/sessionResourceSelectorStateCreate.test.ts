@@ -8,6 +8,10 @@ const { sessionResourceSelectorStateCreate } = await import("../src/ui/sessionRe
 
 const digest = (seed: string) => `sha256-${seed.repeat(64).slice(0, 64)}`
 const projectId = "a".repeat(64)
+const globalInstructionPath = "/home/example/.agents/AGENTS.md"
+const projectInstructionPath = "/workspace/codeline/AGENTS.md"
+const globalInstructionContent = "global instruction content"
+const projectInstructionContent = "project instruction content"
 
 /** Every typed representation carries the revision/ETag metadata the API clients require. */
 const representation = <T extends object>(body: T, revision = 1) => ({
@@ -158,6 +162,8 @@ const instructionsResponse = {
   projectId,
   snapshots: [
     {
+      canonicalPath: globalInstructionPath,
+      content: globalInstructionContent,
       digest: digest("f"),
       path: "global/AGENTS.md",
       precedence: 0,
@@ -167,6 +173,8 @@ const instructionsResponse = {
       validation: "valid" as const,
     },
     {
+      canonicalPath: projectInstructionPath,
+      content: projectInstructionContent,
       digest: digest("1"),
       path: "AGENTS.md",
       precedence: 1,
@@ -208,6 +216,7 @@ const agentsResponse = representation({
 const agentDetailCreate = (id: string, name: string, role: string, tools: { bash: boolean; webfetch: boolean }) =>
   representation({
     agent: {
+      ...(id === "example-agent-primary" ? { agentPrompt: "Use the selected agent prompt." } : {}),
       configuration: {
         apiKey: "$CODEX_LB_API_TOKEN",
         baseUrl: "https://codex.example.com/v1",
@@ -232,6 +241,7 @@ const capturedExecutionResources = {
   },
   instructionSources: [
     {
+      canonicalPath: globalInstructionPath,
       digest: digest("f"),
       path: "global/AGENTS.md",
       precedence: 0,
@@ -298,6 +308,9 @@ function fetchCreate(requests: string[], overrides: FetchOverrides = {}) {
     requests.push(url)
     for (const [prefix, override] of Object.entries(overrides)) {
       if (url.startsWith(prefix)) return override()
+    }
+    if (url.startsWith("/api/project/list")) {
+      return response({ projects: [{ id: projectId, label: "codeline" }], truncated: false })
     }
     if (url.startsWith("/api/project/identity")) return response({ id: projectId, label: "codeline" })
     if (url.startsWith("/api/project/skills/catalog")) return response(catalogResponse)
@@ -371,6 +384,52 @@ test("the pre-session workspace resolves the project id and loads the effective 
   expect(created.state.presetSource()).toBe("default")
   expect(created.state.activeSkills().map(({ name }) => name)).toEqual(["agent-browser", "code-style", "commits"])
   expect(created.state.instructionSnapshots().map(({ path }) => path)).toEqual(["global/AGENTS.md", "AGENTS.md"])
+  created.dispose()
+})
+
+test("the pre-session resource reads follow the selected project override", async () => {
+  const requests: string[] = []
+  const created = stateCreate({ requests })
+  await effectsSettle()
+
+  created.projectPathSet("/workspace/other")
+  await effectsSettle()
+
+  expect(requests.some((url) => url === "/api/project/identity?path=%2Fworkspace%2Fother")).toBe(true)
+  expect(requests.some((url) => url === "/api/agent-instructions?project=" + projectId)).toBe(true)
+  created.dispose()
+})
+
+test("the creation state initializes editable prompt and instruction defaults with estimates", async () => {
+  const created = stateCreate({})
+  await effectsSettle()
+
+  expect(created.state.agentPrompt()).toBe("Use the selected agent prompt.")
+  expect(created.state.agentPromptCharacterCount()).toBe("Use the selected agent prompt.".length)
+  expect(created.state.agentPromptEstimatedTokens()).toBe(Math.ceil("Use the selected agent prompt.".length / 4))
+  expect(created.state.instructionSnapshots().map(({ canonicalPath }) => canonicalPath)).toEqual([
+    globalInstructionPath,
+    projectInstructionPath,
+  ])
+  expect(created.state.instructionContent(globalInstructionPath)).toBe(globalInstructionContent)
+  expect(created.state.instructionContent(projectInstructionPath)).toBe(projectInstructionContent)
+  const instructionCharacterCount = `${globalInstructionContent}\n\n${projectInstructionContent}`.length
+  expect(created.state.instructionCharacterCount()).toBe(instructionCharacterCount)
+  expect(created.state.instructionEstimatedTokens()).toBe(Math.ceil(instructionCharacterCount / 4))
+  expect(created.state.instructionOverrides()).toEqual({})
+
+  created.state.agentPromptChange("An edited prompt.")
+  created.state.instructionContentChange(projectInstructionPath, "An edited AGENTS.md.")
+
+  expect(created.state.agentPrompt()).toBe("An edited prompt.")
+  expect(created.state.agentPromptCharacterCount()).toBe("An edited prompt.".length)
+  expect(created.state.agentPromptEstimatedTokens()).toBe(Math.ceil("An edited prompt.".length / 4))
+  expect(created.state.instructionOverrides()).toEqual({ [projectInstructionPath]: "An edited AGENTS.md." })
+  expect(created.state.instructionContent(globalInstructionPath)).toBe(globalInstructionContent)
+  expect(created.state.instructionCharacterCount()).toBe(`${globalInstructionContent}\n\nAn edited AGENTS.md.`.length)
+
+  created.state.instructionContentChange(projectInstructionPath, projectInstructionContent)
+  expect(created.state.instructionOverrides()).toEqual({})
   created.dispose()
 })
 
@@ -594,7 +653,8 @@ test("without a project reference the workspace stays idle instead of loading fo
 
   expect(created.state.status()).toBe("idle")
   expect(created.state.errorMessage()).toBeNull()
-  expect(requests.some((url) => url.startsWith("/api/project"))).toBe(false)
+  expect(requests.some((url) => url.startsWith("/api/project/identity"))).toBe(false)
+  expect(requests.some((url) => url.startsWith("/api/project/skills"))).toBe(false)
   expect(requests.some((url) => url.startsWith("/api/agent-instructions"))).toBe(false)
   created.dispose()
 })
@@ -603,12 +663,26 @@ test("a project selected after the initial idle render loads the effective selec
   const created = stateCreate({ projectPath: null })
   await effectsSettle()
   expect(created.state.status()).toBe("idle")
+  expect(created.state.projects()).toEqual([{ id: projectId, label: "codeline" }])
 
   created.projectPathSet("/workspace/codeline")
   await effectsSettle()
 
   expect(created.state.status()).toBe("ready")
   expect(created.state.presetName()).toBe("default")
+  created.dispose()
+})
+
+test("selecting a project via projectSelect transitions from idle to ready", async () => {
+  const created = stateCreate({ projectPath: null })
+  await effectsSettle()
+  expect(created.state.status()).toBe("idle")
+
+  created.state.projectSelect(projectId)
+  await effectsSettle()
+
+  expect(created.state.status()).toBe("ready")
+  expect(created.state.selectedProjectId()).toBe(projectId)
   created.dispose()
 })
 

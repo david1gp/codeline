@@ -63,7 +63,9 @@ const skillSelection = {
 
 function stateCreate(options: {
   bodies: Array<Record<string, unknown>>
+  pendingAgentPrompt?: () => string | undefined
   pendingExecutionSelection?: () => typeof executionSelection | undefined
+  pendingInstructionOverrides?: () => Readonly<Record<string, string>>
   pendingSkillSelection?: () => typeof skillSelection | undefined
 }) {
   let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
@@ -85,6 +87,10 @@ function stateCreate(options: {
       ...(options.pendingExecutionSelection === undefined
         ? {}
         : { pendingExecutionSelection: options.pendingExecutionSelection }),
+      ...(options.pendingAgentPrompt === undefined ? {} : { pendingAgentPrompt: options.pendingAgentPrompt }),
+      ...(options.pendingInstructionOverrides === undefined
+        ? {}
+        : { pendingInstructionOverrides: options.pendingInstructionOverrides }),
       ...(options.pendingSkillSelection === undefined ? {} : { pendingSkillSelection: options.pendingSkillSelection }),
       selectedSessionId: () => null,
       sessionSelect: () => undefined,
@@ -93,6 +99,27 @@ function stateCreate(options: {
   })
   return { dispose, state: state! }
 }
+
+test("the edited prompt and sparse instruction overrides are sent before the initial turn", async () => {
+  const bodies: Array<Record<string, unknown>> = []
+  const instructionPath = "/workspace/codeline/AGENTS.md"
+  const created = stateCreate({
+    bodies,
+    pendingAgentPrompt: () => "Edited session prompt.",
+    pendingInstructionOverrides: () => ({ [instructionPath]: "Edited AGENTS.md content." }),
+  })
+  await effectsSettle()
+
+  await created.state.sessionCreateStart()
+
+  expect(bodies).toHaveLength(1)
+  expect(bodies[0]).toMatchObject({
+    agentPrompt: "Edited session prompt.",
+    instructionOverrides: { [instructionPath]: "Edited AGENTS.md content." },
+  })
+  expect(v.safeParse(sessionCreateRequestSchema, bodies[0]).success).toBe(true)
+  created.dispose()
+})
 
 test("the resolved resource selection is sent with the create request and matches its contract", async () => {
   const bodies: Array<Record<string, unknown>> = []
@@ -103,13 +130,13 @@ test("the resolved resource selection is sent with the create request and matche
   })
   await effectsSettle()
 
-  await created.state.sessionCreateStart()
+  await created.state.sessionCreateStart("/workspace/other")
 
   expect(bodies).toHaveLength(1)
   expect(bodies[0]).toMatchObject({
     executionSelection,
     primaryAgentId: "example-agent-primary",
-    projectPath: "/workspace/codeline",
+    projectPath: "/workspace/other",
     serverId: "example-server",
     skillSelection,
   })

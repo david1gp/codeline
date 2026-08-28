@@ -22,6 +22,15 @@ export type SessionResourceSelectorActiveSkill = {
   source: "global" | "project"
 }
 
+export type SessionResourceSelectorInstructionSnapshot =
+  | AgentInstructionInspectionResponse["snapshots"][number]
+  | SessionExecutionResourceSummary["instructionSources"][number]
+
+export type SessionResourceSelectorProject = {
+  id: string
+  label: string
+}
+
 /**
  * Rendering contract of the pre-session resource workspace, so production
  * composition and demo fixtures supply the same panels without the view knowing
@@ -29,6 +38,10 @@ export type SessionResourceSelectorActiveSkill = {
  */
 export type SessionResourceSelectorView = {
   activeSkills: () => readonly SessionResourceSelectorActiveSkill[]
+  agentPrompt: () => string | undefined
+  agentPromptCharacterCount: () => number
+  agentPromptChange: (value: string) => void
+  agentPromptEstimatedTokens: () => number
   agentTools: () => readonly SessionResourceSelectorAgentTools[]
   collisions: () => SkillCatalogInspectionResponse["collisions"]
   descriptionCatalog: () => { characterCount: number; content: string; estimatedTokens: number }
@@ -45,7 +58,12 @@ export type SessionResourceSelectorView = {
   folderToggle: (folderPath: string, enabled: boolean) => void
   groups: () => SkillCatalogInspectionResponse["groups"]
   instructionDiagnostics: () => AgentInstructionInspectionResponse["diagnostics"]
-  instructionSnapshots: () => AgentInstructionInspectionResponse["snapshots"]
+  instructionCharacterCount: () => number
+  instructionContent: (canonicalPath: string) => string | undefined
+  instructionContentChange: (canonicalPath: string, value: string) => void
+  instructionEstimatedTokens: () => number
+  instructionOverrides: () => Readonly<Record<string, string>>
+  instructionSnapshots: () => readonly SessionResourceSelectorInstructionSnapshot[]
   inspectorOpen: () => boolean
   inspectorOpenChange: (open: boolean) => void
   /** False once a session exists, because its captured selection cannot be changed. */
@@ -61,8 +79,11 @@ export type SessionResourceSelectorView = {
   presetSelect: (name: string) => void
   presets: () => readonly SkillPreset[]
   presetSource: () => "default" | "override"
+  projects: () => readonly SessionResourceSelectorProject[]
+  projectSelect: (projectId: string) => void
   retry: () => void
   roots: () => SkillCatalogInspectionResponse["roots"]
+  selectedProjectId: () => string | null
   skillBundles: () => SkillCatalogInspectionResponse["bundles"]
   skillToggle: (name: string, enabled: boolean) => void
   status: () => "error" | "idle" | "loading" | "offline" | "ready"

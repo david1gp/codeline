@@ -3,6 +3,7 @@ import { Checkbox } from "#ui/input/check/Checkbox.jsx"
 import { SelectSingleNative } from "#ui/input/select/SelectSingleNative.jsx"
 import { Button } from "#ui/interactive/button/Button.jsx"
 import { Details } from "#ui/interactive/details/Details.jsx"
+import { SessionCapturedContextInspector } from "./SessionCapturedContextInspector.js"
 import { SkillCatalogInspector } from "./SkillCatalogInspector.js"
 import type { SessionResourceSelectorView } from "./sessionResourceSelectorView.js"
 
@@ -63,7 +64,7 @@ export function SessionResourceSelector(props: { idPrefix?: string; state: Sessi
         </Match>
 
         <Match when={!props.state.isMutable()}>
-          <SessionResourceCapturedSummary state={props.state} />
+          <SessionCapturedContextInspector idPrefix={`${prefix()}-context`} state={props.state} />
         </Match>
 
         <Match when={true}>
@@ -217,120 +218,5 @@ function SessionResourceToolToggles(props: { idPrefix: string; state: SessionRes
         </ul>
       </Show>
     </div>
-  )
-}
-
-function SessionResourceCapturedSummary(props: { state: SessionResourceSelectorView }) {
-  const resources = () => props.state.existingExecutionResources()
-
-  return (
-    <Show
-      when={resources()}
-      fallback={
-        <p class="m-0 text-xs text-faint" role="status">
-          This session was created before execution resources were captured.
-        </p>
-      }
-    >
-      <div class="grid gap-4 text-xs">
-        <div class="grid gap-1">
-          <p class="m-0 font-semibold text-faint">Skill preset</p>
-          <p class="m-0 text-strong">{props.state.presetName() ?? "No preset was applied."}</p>
-        </div>
-
-        <div class="grid gap-2">
-          <p class="m-0 font-semibold text-faint">Active skills</p>
-          <Show
-            when={props.state.activeSkills().length > 0}
-            fallback={<p class="m-0 text-faint">No skills were active for this session.</p>}
-          >
-            <ul class="m-0 grid list-none gap-1 p-0" aria-label="Captured active skills">
-              <For each={props.state.activeSkills()}>
-                {(skill) => (
-                  <li class="rounded-md border border-line-subtle bg-surface px-2.5 py-1.5">
-                    <span class="font-semibold text-strong">{skill.name}</span>
-                    <span class="ml-2 text-faint">{skill.source}</span>
-                    <p class="m-0 mt-0.5 text-faint">{skill.description}</p>
-                  </li>
-                )}
-              </For>
-            </ul>
-          </Show>
-          <p class="m-0 text-[11px] text-faint" role="status">
-            {props.state.activeSkills().length} active skills · about {props.state.descriptionCatalog().estimatedTokens}{" "}
-            tokens of catalog context (estimate)
-          </p>
-        </div>
-
-        <div class="grid gap-2">
-          <p class="m-0 font-semibold text-faint">Effective tools</p>
-          <ul class="m-0 grid list-none gap-1 p-0" aria-label="Captured agent tools">
-            <For each={props.state.agentTools()}>
-              {(agent) => (
-                <li class="rounded-md border border-line-subtle bg-surface px-2.5 py-1.5">
-                  <span class="font-semibold text-strong">{agent.agentId}</span>
-                  <span class="ml-2 text-faint">
-                    {agent.isPrimary ? "primary" : "subagent"} · bash {agent.bash ? "on" : "off"} · webfetch{" "}
-                    {agent.webfetch ? "on" : "off"}
-                  </span>
-                </li>
-              )}
-            </For>
-          </ul>
-        </div>
-
-        <div class="grid gap-1">
-          <p class="m-0 font-semibold text-faint">Instruction sources</p>
-          <Show
-            when={props.state.instructionSnapshots().length > 0}
-            fallback={<p class="m-0 text-faint">No AGENTS.md instructions were resolved.</p>}
-          >
-            <ul class="m-0 grid list-none gap-1 p-0" aria-label="Captured instruction sources">
-              <For each={props.state.instructionSnapshots()}>
-                {(snapshot) => (
-                  <li class="rounded-md border border-line-subtle bg-surface px-2.5 py-1.5">
-                    <span class="font-semibold text-strong">{snapshot.path}</span>
-                    <span class="ml-2 text-faint">
-                      {snapshot.source} · scope {snapshot.scope} · {snapshot.size} bytes
-                    </span>
-                  </li>
-                )}
-              </For>
-            </ul>
-          </Show>
-        </div>
-
-        <Details class="!bg-surface !border-line-subtle" summaryClass="!p-3 !text-sm" title="Captured digests">
-          <div class="grid gap-2 px-3 pb-3 text-faint">
-            <For each={resources()?.skills ?? []}>
-              {(skill) => (
-                <div class="grid gap-0.5 rounded-md border border-line-subtle bg-surface-raised px-2.5 py-1.5">
-                  <span class="font-semibold text-strong">{skill.name}</span>
-                  <span>
-                    {skill.bundlePath} · {skill.size} bytes
-                  </span>
-                  <span class="font-mono text-[10px] break-all">{skill.digest}</span>
-                  <For each={skill.resources}>
-                    {(resource) => (
-                      <span>
-                        {resource.path} · {resource.size} bytes
-                      </span>
-                    )}
-                  </For>
-                </div>
-              )}
-            </For>
-            <For each={resources()?.instructionSources ?? []}>
-              {(snapshot) => (
-                <div class="grid gap-0.5 rounded-md border border-line-subtle bg-surface-raised px-2.5 py-1.5">
-                  <span class="font-semibold text-strong">{snapshot.path}</span>
-                  <span class="font-mono text-[10px] break-all">{snapshot.digest}</span>
-                </div>
-              )}
-            </For>
-          </div>
-        </Details>
-      </div>
-    </Show>
   )
 }

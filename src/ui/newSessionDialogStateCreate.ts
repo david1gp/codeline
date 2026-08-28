@@ -1,6 +1,6 @@
 import type { Accessor } from "solid-js"
-import { createEffect } from "solid-js/dist/solid.js"
 import type { ActiveProjectState } from "./activeProjectStateCreate.js"
+import type { SessionProjectPathOverride } from "./sessionProjectPathOverride.js"
 import type { SessionTargetSelectorState } from "./sessionTargetSelectorStateCreate.js"
 import { signalObjectCreate } from "./signalObjectCreate.js"
 
@@ -11,6 +11,7 @@ type NewSessionProject = {
 
 type NewSessionDialogStateOptions = {
   activeProject: ActiveProjectState
+  projectPathOverride: SessionProjectPathOverride
   projects: Accessor<readonly NewSessionProject[]>
   sessionTarget: SessionTargetSelectorState
 }
@@ -20,8 +21,11 @@ const newProjectOptionValue = "__new_project__"
 export function newSessionDialogStateCreate(options: NewSessionDialogStateOptions) {
   const open = signalObjectCreate(false)
   const newProjectOpen = signalObjectCreate(false)
-  const selectedProjectPath = signalObjectCreate(options.activeProject.project().path)
-  let sessionCreationPendingRoute = false
+  const newProjectSelected = signalObjectCreate(false)
+  const selectedProjectPath = () =>
+    newProjectSelected.get()
+      ? newProjectOptionValue
+      : (options.projectPathOverride.get() ?? options.activeProject.project().path)
 
   const projects = () => {
     const current = options.activeProject.project()
@@ -35,8 +39,14 @@ export function newSessionDialogStateCreate(options: NewSessionDialogStateOption
   }
   const openChange = (nextOpen: boolean) => {
     open.set(nextOpen)
-    sessionCreationPendingRoute = false
-    if (nextOpen) selectedProjectPath.set(options.activeProject.project().path)
+    if (nextOpen) {
+      newProjectSelected.set(false)
+      options.projectPathOverride.set(options.activeProject.project().path)
+    }
+    if (!nextOpen) {
+      newProjectSelected.set(false)
+      options.projectPathOverride.set(null)
+    }
     if (!nextOpen) newProjectOpen.set(false)
   }
   // The project form is shown inside the same dialog, so only one modal is ever
@@ -45,28 +55,25 @@ export function newSessionDialogStateCreate(options: NewSessionDialogStateOption
   const newProjectOpenChange = (nextOpen: boolean) => newProjectOpen.set(nextOpen)
   const projectChange = (projectPath: string) => {
     if (projectPath === newProjectOptionValue) {
-      selectedProjectPath.set(newProjectOptionValue)
+      newProjectSelected.set(true)
+      options.projectPathOverride.set(null)
       return
     }
     if (!projects().some((project) => project.projectPath === projectPath)) return
-    selectedProjectPath.set(projectPath)
+    newProjectSelected.set(false)
+    options.projectPathOverride.set(projectPath)
   }
-  const sessionCreate = async () => {
-    if (!options.sessionTarget.canCreateSession() || options.sessionTarget.isCreatingSession()) return
-    sessionCreationPendingRoute = true
-    const sessionId = await options.sessionTarget.sessionCreateStart(selectedProjectPath.get())
-    if (sessionId !== null) openChange(false)
-    if (sessionId === null) sessionCreationPendingRoute = false
+  const projectSelectionConfirm = () => {
+    const projectPath = selectedProjectPath()
+    if (projectPath === newProjectOptionValue) return
+    if (!projects().some((project) => project.projectPath === projectPath)) return
+    options.projectPathOverride.set(projectPath)
+    open.set(false)
+    options.sessionTarget.sessionNew?.()
   }
-
-  createEffect(() => {
-    const selectedSessionId = options.sessionTarget.selectedSessionId()
-    if (!sessionCreationPendingRoute || selectedSessionId === null) return
-    openChange(false)
-  })
 
   return {
-    canCreateSession: () => options.sessionTarget.canCreateSession() && selectedProjectPath.get().length > 0,
+    canCreateSession: () => options.sessionTarget.canCreateSession() && selectedProjectPath().length > 0,
     dialogDescription: () =>
       newProjectOpen.get()
         ? "Select an existing folder. Codeline will not create a directory."
@@ -74,29 +81,29 @@ export function newSessionDialogStateCreate(options: NewSessionDialogStateOption
     dialogTitle: () => (newProjectOpen.get() ? "New Project" : "New Session"),
     formSubmit: (event: SubmitEvent) => {
       event.preventDefault()
-      if (selectedProjectPath.get() === newProjectOptionValue) {
+      if (selectedProjectPath() === newProjectOptionValue) {
         newProjectStart()
         return
       }
-      void sessionCreate()
+      projectSelectionConfirm()
     },
     newProjectOpen: newProjectOpen.get,
     newProjectOpenChange,
     newProjectOptionValue,
     primaryActionLabel: () => {
-      if (options.sessionTarget.sessionCreateStatus() === "creating") return "Creating..."
-      if (selectedProjectPath.get() === newProjectOptionValue) return "New Project"
-      return "Start session"
+      if (selectedProjectPath() === newProjectOptionValue) return "New Project"
+      return "Use project"
     },
     open: open.get,
     openChange,
     projectChange,
+    projectSelectionConfirm,
     projectConfirmed: (projectPath: string) => {
       newProjectOpen.set(false)
       projectChange(projectPath)
     },
     projects,
-    selectedProjectPath: selectedProjectPath.get,
+    selectedProjectPath,
     sessionCreateErrorMessage: options.sessionTarget.sessionCreateErrorMessage,
     sessionCreateStatus: options.sessionTarget.sessionCreateStatus,
   }

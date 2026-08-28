@@ -3,11 +3,14 @@ import { createRoot, createSignal } from "solid-js/dist/solid.js"
 import { activeProjectStateCreate } from "../src/ui/activeProjectStateCreate.js"
 import { newSessionDialogStateCreate } from "../src/ui/newSessionDialogStateCreate.js"
 import type { SessionTargetSelectorState } from "../src/ui/sessionTargetSelectorStateCreate.js"
+import { signalObjectCreate } from "../src/ui/signalObjectCreate.js"
 
-test("session creation uses the selected project", async () => {
+test("confirming an existing project hands off without creating a session", () => {
   const createdProjectPaths: string[] = []
+  const newSessionStarts: number[] = []
   const root = createRoot((dispose) => {
     const activeProject = activeProjectStateCreate()
+    const projectPathOverride = signalObjectCreate<string | null>(null)
     const sessionTarget = {
       canCreateSession: () => true,
       isCreatingSession: () => false,
@@ -18,11 +21,14 @@ test("session creation uses the selected project", async () => {
         return "session-id"
       },
       sessionCreateStatus: () => "idle" as const,
+      sessionNew: () => newSessionStarts.push(1),
     } as unknown as SessionTargetSelectorState
     return {
       dispose,
+      projectPathOverride,
       state: newSessionDialogStateCreate({
         activeProject,
+        projectPathOverride,
         projects: () => [{ projectLabel: "Codeline", projectPath: "/workspace/codeline" }],
         sessionTarget,
       }),
@@ -31,12 +37,13 @@ test("session creation uses the selected project", async () => {
 
   root.state.openChange(true)
   root.state.projectChange("/workspace/codeline")
-  expect(root.state.primaryActionLabel()).toBe("Start session")
+  expect(root.state.primaryActionLabel()).toBe("Use project")
   root.state.formSubmit({ preventDefault: () => undefined } as SubmitEvent)
-  await new Promise((resolve) => setTimeout(resolve, 0))
 
-  expect(createdProjectPaths).toEqual(["/workspace/codeline"])
+  expect(createdProjectPaths).toEqual([])
   expect(root.state.open()).toBe(false)
+  expect(root.projectPathOverride.get()).toBe("/workspace/codeline")
+  expect(newSessionStarts).toHaveLength(1)
   root.dispose()
 })
 
@@ -44,11 +51,13 @@ test("new project selection opens the project dialog and selects the confirmed p
   const createdProjectPaths: string[] = []
   const root = createRoot((dispose) => {
     const activeProject = activeProjectStateCreate()
+    const projectPathOverride = signalObjectCreate<string | null>(null)
     return {
       activeProject,
       dispose,
       state: newSessionDialogStateCreate({
         activeProject,
+        projectPathOverride,
         projects: () => [],
         sessionTarget: {
           canCreateSession: () => true,
@@ -90,30 +99,26 @@ test("new project selection opens the project dialog and selects the confirmed p
   root.dispose()
 })
 
-test("session route selection closes the modal and clears the project form", async () => {
-  const [selectedSessionId, setSelectedSessionId] = createSignal<string | null>(null)
-  let resolveCreate: ((sessionId: string) => void) | undefined
-  let dialogState: ReturnType<typeof newSessionDialogStateCreate> | undefined
+test("an existing project handoff navigates from an existing session to the no-session route", () => {
+  const [selectedSessionId] = createSignal<string | null>("session-id")
+  const newSessionStarts: number[] = []
   const root = createRoot((dispose) => {
     const activeProject = activeProjectStateCreate()
+    const projectPathOverride = signalObjectCreate<string | null>(null)
     const state = newSessionDialogStateCreate({
       activeProject,
+      projectPathOverride,
       projects: () => [],
       sessionTarget: {
         canCreateSession: () => true,
         isCreatingSession: () => false,
         sessionCreateErrorMessage: () => undefined,
         selectedSessionId,
-        sessionCreateStart: () =>
-          new Promise<string>((resolve) => {
-            resolveCreate = resolve
-            dialogState?.newProjectOpenChange(true)
-            setSelectedSessionId("session-id")
-          }),
+        sessionCreateStart: async () => "session-id",
         sessionCreateStatus: () => "creating" as const,
+        sessionNew: () => newSessionStarts.push(1),
       } as unknown as SessionTargetSelectorState,
     })
-    dialogState = state
     return {
       activeProject,
       dispose,
@@ -122,13 +127,44 @@ test("session route selection closes the modal and clears the project form", asy
   })
 
   root.state.openChange(true)
-  root.state.projectChange(root.state.newProjectOptionValue)
   root.state.projectChange("~")
   root.state.formSubmit({ preventDefault: () => undefined } as SubmitEvent)
-  await new Promise((resolve) => setTimeout(resolve, 0))
 
   expect(root.state.open()).toBe(false)
   expect(root.state.newProjectOpen()).toBe(false)
-  resolveCreate?.("session-id")
+  expect(selectedSessionId()).toBe("session-id")
+  expect(newSessionStarts).toHaveLength(1)
   root.dispose()
+})
+
+test("the selected project handoff does not change the active project", () => {
+  const activeProject = activeProjectStateCreate({ label: "Active", path: "/workspace/active" })
+  const projectPathOverride = signalObjectCreate<string | null>(null)
+  const createdProjectPaths: string[] = []
+  const sessionTarget = {
+    canCreateSession: () => true,
+    isCreatingSession: () => false,
+    sessionCreateErrorMessage: () => undefined,
+    selectedSessionId: () => null,
+    sessionCreateStart: async (projectPath?: string) => {
+      createdProjectPaths.push(projectPath ?? "")
+      return "session-id"
+    },
+    sessionCreateStatus: () => "idle" as const,
+  } as unknown as SessionTargetSelectorState
+  const state = newSessionDialogStateCreate({
+    activeProject,
+    projectPathOverride,
+    projects: () => [{ projectLabel: "Other", projectPath: "/workspace/other" }],
+    sessionTarget,
+  })
+
+  state.openChange(true)
+  expect(projectPathOverride.get()).toBe("/workspace/active")
+  state.projectChange("/workspace/other")
+  expect(projectPathOverride.get()).toBe("/workspace/other")
+  state.formSubmit({ preventDefault: () => undefined } as SubmitEvent)
+  expect(createdProjectPaths).toEqual([])
+  expect(activeProject.project().path).toBe("/workspace/active")
+  expect(projectPathOverride.get()).toBe("/workspace/other")
 })

@@ -1,11 +1,11 @@
 import type { JSX } from "solid-js"
 import { Match, Switch } from "solid-js"
+import { LoginPage } from "../identity/ui/LoginPage.js"
 import { App } from "./App.js"
 import { apiFetchContext } from "./apiFetchContext.js"
 import { applicationAccountContext } from "./applicationAccountContext.js"
 import { applicationRootStateCreate } from "./applicationRootStateCreate.js"
 import { eventFeedCoordinatorContext } from "./eventFeedCoordinatorContext.js"
-import { LoginPage } from "../identity/ui/LoginPage.js"
 import { signedInApplicationStateCreate } from "./signedInApplicationStateCreate.js"
 import { signedOutApplicationStateCreate } from "./signedOutApplicationStateCreate.js"
 

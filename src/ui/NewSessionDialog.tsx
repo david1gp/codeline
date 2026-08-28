@@ -7,16 +7,19 @@ import type { ActiveProjectState } from "./activeProjectStateCreate.js"
 import { NewProjectForm } from "./NewProjectForm.js"
 import { newProjectDialogStateCreate } from "./newProjectDialogStateCreate.js"
 import { newSessionDialogStateCreate } from "./newSessionDialogStateCreate.js"
+import type { SessionProjectPathOverride } from "./sessionProjectPathOverride.js"
 import type { SessionTargetSelectorState } from "./sessionTargetSelectorStateCreate.js"
 
 export function NewSessionDialog(props: {
   activeProject: ActiveProjectState
   idPrefix: string
+  projectPathOverride: SessionProjectPathOverride
   projects: Parameters<typeof newSessionDialogStateCreate>[0]["projects"]
   sessionTarget: SessionTargetSelectorState
 }) {
   const state = newSessionDialogStateCreate({
     activeProject: props.activeProject,
+    projectPathOverride: props.projectPathOverride,
     projects: props.projects,
     sessionTarget: props.sessionTarget,
   })

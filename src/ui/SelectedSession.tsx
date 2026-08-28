@@ -6,9 +6,10 @@ import { Details } from "#ui/interactive/details/Details.jsx"
 import { FinalizedMessage } from "../message/ui/FinalizedMessage.js"
 import type { providerModelSelectorStateCreate } from "../providers/ui/providerModelSelectorStateCreate.js"
 import { SessionRenameControl } from "../session/ui/SessionRenameControl.js"
+import { SessionCapturedContextInspector } from "./SessionCapturedContextInspector.js"
 import { SessionChat } from "./SessionChat.js"
+import { SessionCreationResourceSidebar } from "./SessionCreationResourceSidebar.js"
 import { SessionDisplayModeSwitcher } from "./SessionDisplayModeSwitcher.js"
-import { SessionResourceSelector } from "./SessionResourceSelector.js"
 import { SessionStreamView } from "./SessionStreamView.js"
 import type { SelectedSessionView } from "./selectedSessionView.js"
 import type { SessionResourceSelectorView } from "./sessionResourceSelectorView.js"
@@ -25,25 +26,30 @@ export function SelectedSession(props: {
       <div class="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         <Switch>
           <Match when={!props.state.hasSelection()}>
-            <div class="flex flex-1 flex-col items-center overflow-y-auto px-4 py-8">
-              <div class="w-full max-w-[820px]">
-                <div class="text-center">
+            {/* Creation surface: the draft owns the remaining height, the still-mutable
+                selection sits in a compact sidebar beside it. */}
+            <div class="flex min-h-0 min-w-0 flex-1 max-[1100px]:flex-col max-[1100px]:overflow-y-auto">
+              <div class="flex min-h-0 min-w-0 flex-1 flex-col max-[1100px]:min-h-[60vh]">
+                <div class="shrink-0 px-4 pt-6 pb-4 text-center max-[760px]:px-3 max-[760px]:pt-4">
                   <p class="m-0 text-[11px] font-semibold tracking-[0.14em] text-faint uppercase">No conversation</p>
                   <h2 class="mt-2 mb-0 text-2xl font-semibold tracking-[-0.02em]">Select a conversation</h2>
                   <p class="mx-auto mt-3 mb-0 max-w-[540px] text-sm leading-relaxed text-faint">
                     Choose a session from the sidebar, or start a new one.
                   </p>
                 </div>
-
-                {/* The selection is still mutable here, so the next session is configured before it exists. */}
-                <Show when={props.resources}>
-                  {(resources) => (
-                    <div class="mt-6 text-left">
-                      <SessionResourceSelector idPrefix="workspace-setup-resources" state={resources()} />
-                    </div>
-                  )}
-                </Show>
+                <SessionChat
+                  isFilling
+                  providerModel={props.providerModel}
+                  sessionTarget={props.sessionTarget}
+                  state={props.state.initialChat}
+                />
               </div>
+
+              <Show when={props.resources}>
+                {(resources) => (
+                  <SessionCreationResourceSidebar idPrefix="workspace-setup-resources" state={resources()} />
+                )}
+              </Show>
             </div>
           </Match>
           <Match when={props.state.isSessionError()}>
@@ -177,10 +183,10 @@ export function SelectedSession(props: {
                         <Details
                           class="!bg-surface-raised !border-line"
                           summaryClass="!p-3 !text-sm"
-                          title="Session resources"
+                          title="Captured execution context"
                         >
                           <div class="px-3 pb-3">
-                            <SessionResourceSelector idPrefix="selected-session-resources" state={resources()} />
+                            <SessionCapturedContextInspector idPrefix="selected-session-context" state={resources()} />
                           </div>
                         </Details>
                       </div>
@@ -193,21 +199,25 @@ export function SelectedSession(props: {
         </Switch>
       </div>
 
-      <Show
-        when={props.state.isInitialChatVisible()}
-        fallback={
-          <SelectedSessionChat
-            sessionTarget={props.sessionTarget}
-            state={props.state}
+      {/* The creation surface renders its own full-height composer, so the docked
+          composer only appears once a conversation is selected. */}
+      <Show when={props.state.hasSelection()}>
+        <Show
+          when={props.state.isInitialChatVisible()}
+          fallback={
+            <SelectedSessionChat
+              sessionTarget={props.sessionTarget}
+              state={props.state}
+              providerModel={props.providerModel}
+            />
+          }
+        >
+          <SessionChat
             providerModel={props.providerModel}
+            sessionTarget={props.sessionTarget}
+            state={props.state.initialChat}
           />
-        }
-      >
-        <SessionChat
-          providerModel={props.providerModel}
-          sessionTarget={props.sessionTarget}
-          state={props.state.initialChat}
-        />
+        </Show>
       </Show>
     </>
   )

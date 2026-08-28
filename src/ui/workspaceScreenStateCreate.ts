@@ -12,8 +12,10 @@ import { sessionDrawerContext } from "./sessionDrawerContext.js"
 import { sessionListStateCreate } from "./sessionListStateCreate.js"
 import { type SessionNavigationState, sessionNavigationStateCreate } from "./sessionNavigationStateCreate.js"
 import { sessionResourceSelectorStateCreate } from "./sessionResourceSelectorStateCreate.js"
+import type { SessionProjectPathOverride } from "./sessionProjectPathOverride.js"
 import type { SessionSidebarRouteState } from "./sessionSidebarRouteStateCreate.js"
 import { sessionTargetSelectorStateCreate } from "./sessionTargetSelectorStateCreate.js"
+import { signalObjectCreate } from "./signalObjectCreate.js"
 import { workspacePageStateCreate } from "./workspacePageStateCreate.js"
 import type { WorkspaceScreenView } from "./workspaceScreenView.js"
 
@@ -34,24 +36,35 @@ export function workspaceScreenStateCreate(
   // `~` is a valid session reference, but it is not necessarily a project in the
   // configured discovery roots. Project-scoped reads must wait for a confirmed path.
   const discoveredProjectPathResolve = (path: string | null) => (path === "~" ? null : path)
-  const discoveredActiveProjectPath = () => discoveredProjectPathResolve(activeProject.project().path)
+  const projectPathOverrideState = signalObjectCreate<string | null>(null)
+  const projectPathOverride: SessionProjectPathOverride = {
+    get: projectPathOverrideState.get,
+    set: (value) => projectPathOverrideState.set(value),
+  }
+  // The dialog owns the pending project choice through this shared signal. Every
+  // pre-session consumer must derive from it so inspection/context reads and the
+  // create request cannot silently use different projects.
+  const pendingSessionProjectPath = () => projectPathOverride.get() ?? activeProject.project().path
+  const pendingSessionInspectionProjectPath = () => discoveredProjectPathResolve(pendingSessionProjectPath())
   // The target selector consumes the pending resource selection, and the resource
   // selector consumes the selected target. Both sides read through accessors, so the
   // target selector is referenced lazily instead of creating a construction cycle.
   let sessionTargetSelector: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
   const sessionResourceSelector = sessionResourceSelectorStateCreate({
     isOnline: () => pwa?.status() !== "offline",
-    projectPath: () => (navigation.selectedSessionId() === null ? discoveredActiveProjectPath() : null),
+    projectPath: () => (navigation.selectedSessionId() === null ? pendingSessionInspectionProjectPath() : null),
     selectedAgentId: () => sessionTargetSelector?.selectedAgentId() ?? null,
     selectedServerId: () => sessionTargetSelector?.selectedServerId() ?? null,
     selectedSessionId: navigation.selectedSessionId,
   })
   sessionTargetSelector = sessionTargetSelectorStateCreate({
     accountId: () => account?.userId() ?? null,
-    activeProjectPath: () => activeProject.project().path,
+    activeProjectPath: pendingSessionProjectPath,
     isOnline: () => pwa?.status() !== "offline",
     isNewSessionRoute: navigation.isNewSessionRoute,
+    pendingAgentPrompt: sessionResourceSelector.agentPrompt,
     pendingExecutionSelection: sessionResourceSelector.pendingExecutionSelection,
+    pendingInstructionOverrides: sessionResourceSelector.instructionOverrides,
     pendingSkillSelection: sessionResourceSelector.pendingSkillSelection,
     selectedSessionId: navigation.selectedSessionId,
     sessionNew: navigation.startNewSession,
@@ -73,7 +86,7 @@ export function workspaceScreenStateCreate(
     isOnline: () => pwa?.status() !== "offline",
     projectPath: () =>
       navigation.selectedSessionId() === null
-        ? discoveredActiveProjectPath()
+        ? pendingSessionInspectionProjectPath()
         : discoveredProjectPathResolve(selectedSessionProjectPath()),
   })
   const providerModelSelector = providerModelSelectorStateCreate({
@@ -103,6 +116,7 @@ export function workspaceScreenStateCreate(
     files: filesScreenViewCreate(),
     shell,
     providerModelSelector,
+    projectPathOverride,
     selectedSession: selectedSessionState,
     sessionList: sessionListStateCreate(() => navigation, sidebarRoute, { fetcher: options.fetcher }),
     sessionResourceSelector,

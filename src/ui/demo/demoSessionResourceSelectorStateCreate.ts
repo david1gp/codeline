@@ -30,10 +30,16 @@ const demoGroups = [
   { path: "global/skills/browser", precedence: 0, source: "global" as const },
 ]
 
+const demoProjects = [
+  { id: "demo-project-codeline", label: "codeline" },
+  { id: "demo-project-docs", label: "docs" },
+]
+
 export function demoSessionResourceSelectorStateCreate(
   variant: () => DemoSessionScreenVariant,
 ): SessionResourceSelectorView {
   const activeSkillNames = createSignalObject<readonly string[]>(["code-style", "commits"])
+  const selectedProjectId = createSignalObject<string | null>("demo-project-codeline")
   const inspectorOpen = createSignalObject(false)
   const tools = createSignalObject<Readonly<Record<string, { bash: boolean; webfetch: boolean }>>>({
     "demo-primary": { bash: true, webfetch: false },
@@ -61,6 +67,10 @@ export function demoSessionResourceSelectorStateCreate(
         ...tools.get()["demo-subagent"]!,
       },
     ],
+    agentPrompt: () => "You are a helpful coding assistant.",
+    agentPromptCharacterCount: () => "You are a helpful coding assistant.".length,
+    agentPromptChange: () => undefined,
+    agentPromptEstimatedTokens: () => Math.ceil("You are a helpful coding assistant.".length / 4),
     collisions: () => [],
     descriptionCatalog: () => sessionResourceSkillCatalogEstimate(activeSkills()),
     diagnostics: () => [],
@@ -86,6 +96,11 @@ export function demoSessionResourceSelectorStateCreate(
     },
     groups: () => demoGroups,
     instructionDiagnostics: () => [],
+    instructionCharacterCount: () => 0,
+    instructionContent: () => undefined,
+    instructionContentChange: () => undefined,
+    instructionEstimatedTokens: () => 0,
+    instructionOverrides: () => ({}),
     instructionSnapshots: () => [],
     inspectorOpen: inspectorOpen.get,
     inspectorOpenChange: inspectorOpen.set,
@@ -99,8 +114,11 @@ export function demoSessionResourceSelectorStateCreate(
     presetSelect: () => undefined,
     presets: () => [{ excludeSkills: [], includeFolders: [], includeSkills: [], name: "default", version: 1 }],
     presetSource: () => "default",
+    projects: () => demoProjects,
+    projectSelect: (projectId: string) => selectedProjectId.set(projectId === "" ? null : projectId),
     retry: () => undefined,
     roots: () => [],
+    selectedProjectId: selectedProjectId.get,
     skillBundles: () => [],
     skillToggle: (name, enabled) =>
       namesSet(

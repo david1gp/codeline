@@ -5,6 +5,7 @@ import type { FilesScreenView } from "./filesScreenView.js"
 import type { SelectedSessionView } from "./selectedSessionView.js"
 import type { sessionListStateCreate } from "./sessionListStateCreate.js"
 import type { SessionResourceSelectorView } from "./sessionResourceSelectorView.js"
+import type { SessionProjectPathOverride } from "./sessionProjectPathOverride.js"
 import type { SessionTargetSelectorState } from "./sessionTargetSelectorStateCreate.js"
 import type { workspacePageStateCreate } from "./workspacePageStateCreate.js"
 
@@ -20,6 +21,7 @@ export type WorkspaceScreenView = {
   shell: ReturnType<typeof applicationShellStateCreate>
   selectedSession: SelectedSessionView
   sessionList: ReturnType<typeof sessionListStateCreate>
+  projectPathOverride: SessionProjectPathOverride
   sessionResourceSelector: SessionResourceSelectorView
   sessionTargetSelector: SessionTargetSelectorState
 }
