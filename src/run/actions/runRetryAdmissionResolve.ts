@@ -12,7 +12,7 @@ export function runRetryAdmissionResolve(input: unknown): Result<RunRetryAdmissi
   if (!parsedInput.success)
     return runResultCreateError(op, "The run retry admission input is invalid.", runErrorCodes.invalidInput)
 
-  const { attemptOrdinal, attemptStatus, budget, failure } = parsedInput.output
+  const { attemptOrdinal, attemptStatus, budget, executionEvidence, failure } = parsedInput.output
   const failureClass = runFailureClassResolve(failure)
   const remainingAttempts = Math.max(0, budget.maxAttempts - attemptOrdinal)
   const terminal = (reason: RunRetryAdmission["reason"]): Result<RunRetryAdmission> =>
@@ -29,6 +29,8 @@ export function runRetryAdmissionResolve(input: unknown): Result<RunRetryAdmissi
   if (attemptStatus !== "failed") return terminal("attempt_not_failed")
   if (failureClass === "terminal") return terminal("terminal_failure")
   if (remainingAttempts === 0) return terminal("attempt_budget_exhausted")
+  if (executionEvidence === "unknown") return terminal("execution_provenance_unknown")
+  if (executionEvidence === "tool_result") return terminal("tool_execution_observed")
 
   const admission = {
     attemptOrdinal,

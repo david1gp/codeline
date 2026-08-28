@@ -110,8 +110,8 @@ function notFound(context: ApiContext) {
   return context.json(response, 404)
 }
 
-function conflict(context: ApiContext, message: string) {
-  const response = { error: { code: "conflict", message } } satisfies ApiErrorResponse
+function conflict(context: ApiContext, message: string, code = "conflict") {
+  const response = { error: { code, message } } satisfies ApiErrorResponse
   return context.json(response, 409)
 }
 
@@ -1022,7 +1022,9 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
               if (terminal.status !== "failed" || terminal.failure === undefined) return
               if (runFailureClassResolve(terminal.failure) !== "retryable") return
 
-              const retry = await runRetryAttemptCreateAction(options.database, userId, sessionId, activeRun.id)
+              const retry = await runRetryAttemptCreateAction(options.database, userId, sessionId, activeRun.id, {
+                executionEvidence: terminal.executionEvidence,
+              })
               if (!retry.success) {
                 if (retry.errorMessage.includes("The run retry was not admitted:")) {
                   await providerFailureFinalize()
@@ -1087,7 +1089,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
       },
     )
     if (!result.success) {
-      if (result.code === "session_active") return conflict(context, result.errorMessage)
+      if (result.code === "session_active") return conflict(context, result.errorMessage, result.code)
       if (result.code === "session_not_found" || result.errorMessage.includes("could not be found"))
         return notFound(context)
       return internalServerError(context)

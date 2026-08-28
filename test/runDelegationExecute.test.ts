@@ -397,6 +397,182 @@ test("retries a retryable child failure and succeeds on the next attempt", async
   ])
 })
 
+test("retries a transient failure before any output or tool event", async () => {
+  const harness = harnessCreate({
+    budget: { maxAttempts: 2, maxChildDepth: 1, maxChildRuns: 1, maxDurationMs: 60_000 },
+  })
+  harness.setStreamFactory(async function* (attempt) {
+    if (attempt.ordinal === 1) {
+      yield eventTerminal("error", "provider_timeout")
+      return
+    }
+    yield eventText("recovered")
+    yield eventTerminal("completed")
+  })
+
+  const result = await execute(harness)
+
+  expect(result).toMatchObject({ success: true, data: { status: "succeeded", text: "recovered" } })
+  expect(harness.calls).toEqual([1, 2])
+})
+
+test("retries an adapter throw after partial text and tool output without duplicating settled output", async () => {
+  const harness = harnessCreate({
+    budget: { maxAttempts: 2, maxChildDepth: 1, maxChildRuns: 1, maxDurationMs: 60_000 },
+  })
+  harness.setStreamFactory(async function* (attempt) {
+    const settled = attempt.ordinal === 2
+    yield eventText(settled ? "settled text" : "partial text")
+    yield { eventType: "tool_start", payload: { toolCallId: `tool-${attempt.ordinal}`, toolName: "read" } }
+    yield {
+      eventType: "tool_output",
+      payload: {
+        output: settled ? "settled tool output" : "partial tool output",
+        toolCallId: `tool-${attempt.ordinal}`,
+        truncated: false,
+      },
+    }
+    if (!settled) throw new Error("The adapter disconnected after partial output.")
+    yield eventTerminal("completed")
+  })
+
+  const result = await execute(harness)
+  const terminalEvents = harness.events.filter((event) => event.eventType === "terminal")
+
+  expect(result).toMatchObject({ success: true, data: { status: "succeeded", text: "settled text" } })
+  expect(harness.calls).toEqual([1, 2])
+  expect(terminalEvents).toHaveLength(2)
+  expect(terminalEvents.map((event) => (event.payload as { status: string }).status)).toEqual(["error", "completed"])
+  expect(
+    harness.events
+      .filter((event) => event.eventType === "text_delta")
+      .map((event) => (event.payload as { delta: string }).delta),
+  ).toEqual(["partial text", "settled text"])
+  expect(
+    harness.events
+      .filter((event) => event.eventType === "tool_output")
+      .map((event) => (event.payload as { output: string }).output),
+  ).toEqual(["partial tool output", "settled tool output"])
+  expect(harness.delegation.finalizedResult).toMatchObject({ status: "succeeded", text: "settled text" })
+})
+
+test("turns an unexpected iterator end after partial text and tool output into one terminal failure", async () => {
+  const harness = harnessCreate()
+  harness.setStreamFactory(async function* () {
+    yield eventText("partial text")
+    yield { eventType: "tool_start", payload: { toolCallId: "tool-1", toolName: "read" } }
+    yield {
+      eventType: "tool_output",
+      payload: { output: "partial tool output", toolCallId: "tool-1", truncated: false },
+    }
+  })
+
+  const result = await execute(harness)
+  const terminalEvents = harness.events.filter((event) => event.eventType === "terminal")
+
+  expect(result).toMatchObject({
+    success: true,
+    data: { failure: { code: "provider_failed" }, status: "failed", text: "partial text" },
+  })
+  expect(terminalEvents).toHaveLength(1)
+  expect((terminalEvents[0] as { payload: { status: string } }).payload.status).toBe("error")
+  expect((terminalEvents[0] as { payload: { code?: string } }).payload.code).toBe("provider_failed")
+  expect(
+    harness.events
+      .filter((event) => event.eventType === "tool_output")
+      .map((event) => (event.payload as { output: string }).output),
+  ).toEqual(["partial tool output"])
+  expect(harness.calls).toEqual([1])
+})
+
+test("retries an idle timeout after partial text and tool output without duplicating settled output", async () => {
+  const harness = harnessCreate({
+    budget: { maxAttempts: 2, maxChildDepth: 1, maxChildRuns: 1, maxDurationMs: 60_000 },
+  })
+  harness.setStreamFactory(async function* (attempt) {
+    const settled = attempt.ordinal === 2
+    yield eventText(settled ? "settled text" : "partial text")
+    yield { eventType: "tool_start", payload: { toolCallId: `tool-${attempt.ordinal}`, toolName: "read" } }
+    yield {
+      eventType: "tool_output",
+      payload: {
+        output: settled ? "settled tool output" : "partial tool output",
+        toolCallId: `tool-${attempt.ordinal}`,
+        truncated: false,
+      },
+    }
+    yield settled ? eventTerminal("completed") : eventTerminal("error", "stream_idle_timeout")
+  })
+
+  const result = await execute(harness)
+  const terminalEvents = harness.events.filter((event) => event.eventType === "terminal")
+
+  expect(result).toMatchObject({ success: true, data: { status: "succeeded", text: "settled text" } })
+  expect(harness.calls).toEqual([1, 2])
+  expect(terminalEvents).toHaveLength(2)
+  expect(terminalEvents.map((event) => (event.payload as { code?: string }).code)).toEqual([
+    "stream_idle_timeout",
+    undefined,
+  ])
+  expect(
+    harness.events
+      .filter((event) => event.eventType === "text_delta")
+      .map((event) => (event.payload as { delta: string }).delta),
+  ).toEqual(["partial text", "settled text"])
+  expect(
+    harness.events
+      .filter((event) => event.eventType === "tool_output")
+      .map((event) => (event.payload as { output: string }).output),
+  ).toEqual(["partial tool output", "settled tool output"])
+  expect(harness.delegation.finalizedResult).toMatchObject({ status: "succeeded", text: "settled text" })
+})
+
+test("does not retry a transient failure after a completed tool result", async () => {
+  const harness = harnessCreate({
+    budget: { maxAttempts: 2, maxChildDepth: 1, maxChildRuns: 1, maxDurationMs: 60_000 },
+  })
+  harness.setStreamFactory(async function* () {
+    yield eventText("partial text")
+    yield { eventType: "tool_start", payload: { toolCallId: "tool-1", toolName: "read" } }
+    yield {
+      eventType: "tool_result",
+      payload: { outcome: "success", result: "completed", toolCallId: "tool-1", truncated: false },
+    }
+    yield eventTerminal("error", "provider_timeout")
+  })
+
+  const result = await execute(harness)
+
+  expect(result).toMatchObject({
+    success: true,
+    data: { failure: { code: "provider_timeout" }, status: "failed", text: "partial text" },
+  })
+  expect(harness.calls).toEqual([1])
+  expect(harness.delegation.finalizedResult).toMatchObject({ status: "failed", text: "partial text" })
+})
+
+test("does not retry an idle timeout after a completed tool result", async () => {
+  const harness = harnessCreate({
+    budget: { maxAttempts: 2, maxChildDepth: 1, maxChildRuns: 1, maxDurationMs: 60_000 },
+  })
+  harness.setStreamFactory(async function* () {
+    yield { eventType: "tool_start", payload: { toolCallId: "tool-1", toolName: "read" } }
+    yield {
+      eventType: "tool_result",
+      payload: { outcome: "success", result: "completed", toolCallId: "tool-1", truncated: false },
+    }
+    yield eventTerminal("error", "stream_idle_timeout")
+  })
+
+  const result = await execute(harness)
+
+  expect(result).toMatchObject({
+    success: true,
+    data: { failure: { code: "stream_idle_timeout" }, status: "failed", text: "" },
+  })
+  expect(harness.calls).toEqual([1])
+})
+
 test("finalizes exhausted retryable failure without another attempt", async () => {
   const harness = harnessCreate({
     budget: { maxAttempts: 2, maxChildDepth: 1, maxChildRuns: 1, maxDurationMs: 60_000 },
@@ -436,6 +612,46 @@ test("cancellation aborts a child attempt and finalizes the delegation", async (
   expect(result).toMatchObject({ success: true, data: { status: "aborted", failure: { code: "child_aborted" } } })
   expect(harness.calls).toEqual([1])
   expect(harness.messages).toHaveLength(0)
+})
+
+test("aborting after partial text and tool output emits one aborted terminal outcome", async () => {
+  const harness = harnessCreate()
+  let startedResolve: () => void = () => undefined
+  const started = new Promise<void>((resolve) => {
+    startedResolve = resolve
+  })
+  harness.setStreamFactory(async function* (_attempt, signal) {
+    yield eventText("partial text")
+    yield { eventType: "tool_start", payload: { toolCallId: "tool-1", toolName: "read" } }
+    yield {
+      eventType: "tool_output",
+      payload: { output: "partial tool output", toolCallId: "tool-1", truncated: false },
+    }
+    startedResolve()
+    await new Promise<void>((resolve) => {
+      if (signal.aborted) resolve()
+      else signal.addEventListener("abort", () => resolve(), { once: true })
+    })
+  })
+
+  const resultPromise = execute(harness)
+  await started
+  harness.cancel()
+  const result = await resultPromise
+  const terminalEvents = harness.events.filter((event) => event.eventType === "terminal")
+
+  expect(result).toMatchObject({
+    success: true,
+    data: { failure: { code: "child_aborted" }, status: "aborted", text: "partial text" },
+  })
+  expect(terminalEvents).toHaveLength(1)
+  expect(terminalEvents[0]?.payload).toMatchObject({ status: "aborted" })
+  expect(
+    harness.events
+      .filter((event) => event.eventType === "tool_output")
+      .map((event) => (event.payload as { output: string }).output),
+  ).toEqual(["partial tool output"])
+  expect(harness.calls).toEqual([1])
 })
 
 test("concurrent cancellation reuses an already-started child and finalizes it once", async () => {
@@ -701,6 +917,55 @@ test("waits through a failed-to-retry transition and reuses the eventual final f
   expect(repeated).toEqual(first)
   expect(harness.delegation.finalizedResult).toMatchObject({ status: "failed" })
   expect(harness.calls).toEqual([1, 2])
+})
+
+test("reused failed children do not retry when execution provenance is unknown", async () => {
+  const harness = harnessCreate({
+    budget: { maxAttempts: 2, maxChildDepth: 1, maxChildRuns: 1, maxDurationMs: 60_000 },
+    reuseAfterFirstCreate: true,
+  })
+  harness.setStreamFactory(async function* () {
+    yield { eventType: "tool_start", payload: { toolCallId: "tool-1", toolName: "read" } }
+    yield {
+      eventType: "tool_result",
+      payload: { outcome: "success", result: "completed", toolCallId: "tool-1", truncated: false },
+    }
+    yield eventTerminal("error", "provider_timeout")
+  })
+
+  let finalizationStartedResolve: () => void = () => undefined
+  const finalizationStarted = new Promise<void>((resolve) => {
+    finalizationStartedResolve = resolve
+  })
+  let finalizationRelease: () => void = () => undefined
+  const finalizationGate = new Promise<void>((resolve) => {
+    finalizationRelease = resolve
+  })
+  harness.optionsForAction.delegationFinalize = async (_delegationId, result) => {
+    harness.childRun.status = result.status
+    harness.childAttempt.status = result.status
+    harness.childRun.failure = "failure" in result ? result.failure : null
+    harness.childAttempt.failure = harness.childRun.failure
+    if (result.status === "failed") {
+      finalizationStartedResolve()
+      await finalizationGate
+    }
+    harness.delegation.finalizedResult = result
+    return createResult({})
+  }
+
+  const firstPromise = execute(harness)
+  await finalizationStarted
+  const repeatedPromise = executeWithDelegationKey(harness, "new-tool-call-key")
+  while (harness.reusedStatuses.length === 0) await Promise.resolve()
+  expect(harness.reusedStatuses[0]).toBe("failed")
+  finalizationRelease()
+
+  const [first, repeated] = await Promise.all([firstPromise, repeatedPromise])
+
+  expect(first).toMatchObject({ success: true, data: { failure: { code: "provider_timeout" }, status: "failed" } })
+  expect(repeated).toEqual(first)
+  expect(harness.calls).toEqual([1])
 })
 
 test("keeps child events isolated from the parent stream and visible transcript", async () => {

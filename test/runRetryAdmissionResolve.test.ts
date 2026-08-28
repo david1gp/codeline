@@ -74,3 +74,56 @@ test("retry admission does not reopen a non-failed attempt", () => {
     data: { decision: "terminal", reason: "attempt_not_failed", nextAttemptOrdinal: null },
   })
 })
+
+test("retry admission allows transient failure before a tool result", () => {
+  expect(
+    runRetryAdmissionResolve({
+      ...input,
+      executionEvidence: "none",
+    }),
+  ).toMatchObject({ success: true, data: { decision: "retry", nextAttemptOrdinal: 2 } })
+})
+
+test("retry admission denies transient failure after a tool result", () => {
+  expect(
+    runRetryAdmissionResolve({
+      ...input,
+      executionEvidence: "tool_result",
+    }),
+  ).toMatchObject({
+    success: true,
+    data: { decision: "terminal", nextAttemptOrdinal: null, reason: "tool_execution_observed" },
+  })
+})
+
+test("retry admission keeps idle timeouts retryable only before a tool result", () => {
+  expect(
+    runRetryAdmissionResolve({
+      ...input,
+      executionEvidence: "none",
+      failure: { code: "stream_idle_timeout", message: "The stream went idle." },
+    }),
+  ).toMatchObject({ success: true, data: { decision: "retry", nextAttemptOrdinal: 2 } })
+  expect(
+    runRetryAdmissionResolve({
+      ...input,
+      executionEvidence: "tool_result",
+      failure: { code: "stream_idle_timeout", message: "The stream went idle." },
+    }),
+  ).toMatchObject({
+    success: true,
+    data: { decision: "terminal", nextAttemptOrdinal: null, reason: "tool_execution_observed" },
+  })
+})
+
+test("retry admission denies a reused failure with unknown execution provenance", () => {
+  expect(
+    runRetryAdmissionResolve({
+      ...input,
+      executionEvidence: "unknown",
+    }),
+  ).toMatchObject({
+    success: true,
+    data: { decision: "terminal", nextAttemptOrdinal: null, reason: "execution_provenance_unknown" },
+  })
+})

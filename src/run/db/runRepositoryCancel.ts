@@ -125,6 +125,7 @@ async function runFailedRetryCancellationAdmit(
     attemptOrdinal: attempt.ordinal,
     attemptStatus: attempt.status,
     budget: target.budget,
+    executionEvidence: "unknown",
     failure: attempt.failure,
   })
   return admission.success && admission.data.decision === "retry"

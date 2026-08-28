@@ -10,7 +10,14 @@ export const runRetryAdmissionSchema = v.strictObject({
   failureClass: runFailureClassSchema,
   maxAttempts: attemptOrdinalSchema,
   nextAttemptOrdinal: v.nullable(attemptOrdinalSchema),
-  reason: v.picklist(["attempt_budget_exhausted", "attempt_not_failed", "terminal_failure", "retryable_failure"]),
+  reason: v.picklist([
+    "attempt_budget_exhausted",
+    "attempt_not_failed",
+    "execution_provenance_unknown",
+    "terminal_failure",
+    "retryable_failure",
+    "tool_execution_observed",
+  ]),
   remainingAttempts: nonNegativeIntegerSchema,
 })
 

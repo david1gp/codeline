@@ -765,6 +765,39 @@ test.skipIf(!databaseAvailable)("retry attempt insertion rolls back without a ph
   expect(runAfterFailure).toMatchObject({ failure: { code: "provider_timeout" }, status: "failed" })
 })
 
+test.skipIf(!databaseAvailable)("retry attempt creation rejects observed tool execution", async () => {
+  if (userId === undefined) return
+  const created = await runCreate(database, userId, fixture.sessionId, {
+    ...input,
+    budget: { maxAttempts: 2, maxDurationMs: 10_000 },
+    clientRunId: `client-run-retry-tool-result-${uuidv7()}`,
+    streamId: `run-retry-tool-result-${uuidv7()}`,
+  })
+  if (!created.success) return
+  const runId = created.data.run.id
+  expect(await runTransition(database, userId, fixture.sessionId, runId, { status: "running" })).toMatchObject({
+    success: true,
+  })
+  expect(
+    await runTransition(database, userId, fixture.sessionId, runId, {
+      failure: { code: "stream_idle_timeout", message: "The stream went idle after a tool result." },
+      status: "failed",
+    }),
+  ).toMatchObject({ success: true })
+
+  expect(
+    await runRetryAttemptCreate(database, userId, fixture.sessionId, runId, {
+      executionEvidence: "tool_result",
+      now: () => new Date(created.data.run.deadlineAt.getTime() - 1),
+    }),
+  ).toMatchObject({
+    code: runErrorCodes.retryNotAdmitted,
+    errorMessage: "The run retry was not admitted: tool_execution_observed.",
+    success: false,
+  })
+  expect(await database.select().from(attemptTable).where(eq(attemptTable.runId, runId))).toHaveLength(1)
+})
+
 test.skipIf(!databaseAvailable)("retry reopen rolls back the inserted attempt", async () => {
   if (userId === undefined) return
   const created = await runCreate(database, userId, fixture.sessionId, {
@@ -931,7 +964,7 @@ test.skipIf(!databaseAvailable)("descendant cancellation persistence rolls back 
   })
 })
 
-test.skipIf(!databaseAvailable)("retry attempt creation rejects durable cancellation intent", async () => {
+test.skipIf(!databaseAvailable)("failed-run cancellation fails closed without execution provenance", async () => {
   if (userId === undefined) return
   const created = await runCreate(database, userId, fixture.sessionId, {
     ...input,
@@ -953,7 +986,12 @@ test.skipIf(!databaseAvailable)("retry attempt creation rejects durable cancella
   ).toMatchObject({ success: true })
   expect(await runCancel(database, userId, fixture.sessionId, created.data.run.id)).toMatchObject({
     success: true,
-    data: { changed: true },
+    data: {
+      cancelledRunIds: [],
+      changed: false,
+      descendantsCancelled: 0,
+      run: { cancellationRequestedAt: null, status: "failed" },
+    },
   })
 
   expect(
@@ -961,11 +999,14 @@ test.skipIf(!databaseAvailable)("retry attempt creation rejects durable cancella
       now: () => new Date(created.data.run.deadlineAt.getTime() - 1),
     }),
   ).toMatchObject({
-    code: runErrorCodes.retryNotAdmitted,
-    success: false,
-    errorMessage: "The run retry was not admitted: cancelled.",
+    data: {
+      admission: { decision: "retry", nextAttemptOrdinal: 2 },
+      attempt: { ordinal: 2, status: "accepted" },
+      created: true,
+    },
+    success: true,
   })
-  expect(await database.select().from(attemptTable).where(eq(attemptTable.runId, created.data.run.id))).toHaveLength(1)
+  expect(await database.select().from(attemptTable).where(eq(attemptTable.runId, created.data.run.id))).toHaveLength(2)
 })
 
 test.skipIf(!databaseAvailable)(
@@ -1003,16 +1044,19 @@ test.skipIf(!databaseAvailable)(
     expect(cancellation).toMatchObject({
       success: true,
       data: {
-        cancelledRunIds: [runId],
-        changed: true,
+        cancelledRunIds: [],
+        changed: false,
         descendantsCancelled: 0,
-        run: { cancellationKind: "requested", status: "failed" },
+        run: { cancellationKind: null, status: "failed" },
       },
     })
     expect(retry).toMatchObject({
-      code: runErrorCodes.retryNotAdmitted,
-      errorMessage: "The run retry was not admitted: cancelled.",
-      success: false,
+      data: {
+        admission: { decision: "retry", nextAttemptOrdinal: 2 },
+        attempt: { ordinal: 2, status: "accepted" },
+        created: true,
+      },
+      success: true,
     })
 
     const attemptsAfterRace = await database
@@ -1020,17 +1064,16 @@ test.skipIf(!databaseAvailable)(
       .from(attemptTable)
       .where(eq(attemptTable.runId, runId))
       .orderBy(asc(attemptTable.ordinal))
-    expect(attemptsAfterRace.map((attempt) => attempt.ordinal)).toEqual([1])
+    expect(attemptsAfterRace.map((attempt) => attempt.ordinal)).toEqual([1, 2])
     const [runAfterRace] = await database.select().from(runTable).where(eq(runTable.id, runId))
-    expect(runAfterRace).toMatchObject({ cancellationKind: "requested", status: "failed" })
-    expect(runAfterRace?.cancellationRequestedAt).toBeInstanceOf(Date)
+    expect(runAfterRace).toMatchObject({ cancellationKind: null, status: "accepted" })
+    expect(runAfterRace?.cancellationRequestedAt).toBeNull()
 
     expect(await runRetryAttemptCreate(database, userId, fixture.sessionId, runId, { now: retryNow })).toMatchObject({
-      code: runErrorCodes.retryNotAdmitted,
-      errorMessage: "The run retry was not admitted: cancelled.",
-      success: false,
+      data: { attempt: { ordinal: 2 }, created: false },
+      success: true,
     })
-    expect(await database.select().from(attemptTable).where(eq(attemptTable.runId, runId))).toHaveLength(1)
+    expect(await database.select().from(attemptTable).where(eq(attemptTable.runId, runId))).toHaveLength(2)
   },
 )
 

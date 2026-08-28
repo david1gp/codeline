@@ -12,6 +12,7 @@ import { type RunDelegationResult, runDelegationResultSchema } from "../schema/r
 import type { RunExecutionSnapshot } from "../schema/runExecutionSnapshotSchema.js"
 import { runExecutionSnapshotSchema } from "../schema/runExecutionSnapshotSchema.js"
 import type { RunFailureMetadata } from "../schema/runFailureMetadataSchema.js"
+import type { RunRetryExecutionEvidence } from "../schema/runRetryExecutionEvidenceSchema.js"
 import type { RunTransitionInput } from "../schema/runTransitionInputSchema.js"
 import { runExecutionManifestChildResolve } from "./runExecutionManifestChildResolve.js"
 import { runExecutionManifestToolDefaultsResolve } from "./runExecutionManifestToolDefaultsResolve.js"
@@ -74,7 +75,10 @@ type RunDelegationExecuteOptions = {
     task: string
   }) => Promise<Result<RunDelegationChild>>
   delegationFinalize: (delegationId: string, result: RunDelegationResult) => Promise<Result<unknown>>
-  retryAttemptCreate: (runId: string, options: { now: () => Date }) => Promise<Result<RunDelegationRetry>>
+  retryAttemptCreate: (
+    runId: string,
+    options: { executionEvidence: RunRetryExecutionEvidence; now: () => Date },
+  ) => Promise<Result<RunDelegationRetry>>
   runTransition: (runId: string, input: RunTransitionInput) => Promise<Result<RunDelegationTransition>>
   providerOutputCreate?: (input: { requestId: string; runId: string; sessionId: string }) => RunDelegationProviderOutput
   clearTimeout?: (handle: ReturnType<typeof setTimeout>) => void
@@ -91,6 +95,7 @@ type RunDelegationExecuteInput = {
 }
 
 type RunDelegationAttemptOutcome = {
+  executionEvidence: RunRetryExecutionEvidence
   failure: RunFailureMetadata | undefined
   status: "aborted" | "failed" | "succeeded"
   text: string
@@ -291,6 +296,7 @@ async function runDelegationAttemptExecute(
 ): Promise<Result<RunDelegationAttemptOutcome>> {
   const op = "runDelegationExecute"
   let text = ""
+  let executionEvidence: RunRetryExecutionEvidence = "none"
   let outcome: RunDelegationAttemptOutcome | undefined
 
   const append = async (event: ExecutionStreamEvent): Promise<boolean> => {
@@ -313,6 +319,7 @@ async function runDelegationAttemptExecute(
       const remaining = PRIVATE_RESULT_LIMIT - text.length
       if (remaining > 0) text += persistedEvent.payload.delta.slice(0, remaining)
     }
+    if (persistedEvent.eventType === "tool_result") executionEvidence = "tool_result"
     return true
   }
 
@@ -339,7 +346,7 @@ async function runDelegationAttemptExecute(
       )
       if (!(await terminalAppend("error", failure)))
         return runResultCreateError(op, failure.message, runErrorCodes.providerOutputPersistFailed)
-      outcome = { failure, status: "failed", text }
+      outcome = { executionEvidence, failure, status: "failed", text }
     }
 
     if (outcome === undefined && stream !== undefined) {
@@ -351,7 +358,7 @@ async function runDelegationAttemptExecute(
           const failure = runDelegationAbortFailureCreate(aborted.data)
           if (!(await terminalAppend("aborted", failure)))
             return runResultCreateError(op, failure.message, runErrorCodes.providerOutputPersistFailed)
-          outcome = { failure, status: "aborted", text }
+          outcome = { executionEvidence, failure, status: "aborted", text }
           break
         }
 
@@ -363,7 +370,7 @@ async function runDelegationAttemptExecute(
           const failure = runDelegationAbortFailureCreate(abortKind)
           if (!(await terminalAppend("aborted", failure)))
             return runResultCreateError(op, failure.message, runErrorCodes.providerOutputPersistFailed)
-          outcome = { failure, status: "aborted", text }
+          outcome = { executionEvidence, failure, status: "aborted", text }
           break
         }
         if (next.result === undefined || next.result.done) break
@@ -376,7 +383,7 @@ async function runDelegationAttemptExecute(
           )
           if (!(await terminalAppend("error", failure)))
             return runResultCreateError(op, failure.message, runErrorCodes.providerOutputPersistFailed)
-          outcome = { failure, status: "failed", text }
+          outcome = { executionEvidence, failure, status: "failed", text }
           break
         }
         if (!(await append(parsedEvent.output)))
@@ -389,9 +396,10 @@ async function runDelegationAttemptExecute(
         if (parsedEvent.output.eventType !== "terminal") continue
         const terminal = parsedEvent.output.payload
         if (terminal.status === "completed") {
-          outcome = { status: "succeeded", text, failure: undefined }
+          outcome = { executionEvidence, status: "succeeded", text, failure: undefined }
         } else if (terminal.status === "aborted") {
           outcome = {
+            executionEvidence,
             failure: runDelegationFailureCreate(
               terminal.code ?? "child_aborted",
               terminal.message ?? "The child run was aborted.",
@@ -401,6 +409,7 @@ async function runDelegationAttemptExecute(
           }
         } else {
           outcome = {
+            executionEvidence,
             failure: runDelegationFailureCreate(
               terminal.code ?? "provider_failed",
               terminal.message ?? "The child run failed.",
@@ -420,7 +429,7 @@ async function runDelegationAttemptExecute(
       const failure = runDelegationAbortFailureCreate(aborted.data)
       if (!(await terminalAppend("aborted", failure)))
         return runResultCreateError(op, failure.message, runErrorCodes.providerOutputPersistFailed)
-      return createResult({ failure, status: "aborted", text })
+      return createResult({ executionEvidence, failure, status: "aborted", text })
     }
 
     const failure = runDelegationFailureCreate(
@@ -429,7 +438,7 @@ async function runDelegationAttemptExecute(
     )
     if (!(await terminalAppend("error", failure)))
       return runResultCreateError(op, failure.message, runErrorCodes.providerOutputPersistFailed)
-    return createResult({ failure, status: "failed", text })
+    return createResult({ executionEvidence, failure, status: "failed", text })
   } catch (_error) {
     return runResultCreateError(
       op,
@@ -473,6 +482,7 @@ async function runDelegationReusedChildResolve(
         attemptOrdinal: current.attempt.ordinal,
         attemptStatus: current.attempt.status,
         budget: current.run.budget,
+        executionEvidence: "unknown",
         failure,
       })
       if (!retryAdmission.success || retryAdmission.data.decision !== "retry") {
@@ -711,6 +721,7 @@ export async function runDelegationExecute(
         attemptOrdinal: currentAttempt.ordinal,
         attemptStatus: "failed",
         budget: currentRun.budget,
+        executionEvidence: attempt.data.executionEvidence,
         failure,
       })
       if (!retryAdmission.success) return retryAdmission
@@ -728,7 +739,10 @@ export async function runDelegationExecute(
       if (!transitioned.success) return transitioned
       if (transitioned.data.run !== undefined) currentRun = transitioned.data.run
       if (transitioned.data.attempt !== undefined) currentAttempt = transitioned.data.attempt
-      const retry = await options.retryAttemptCreate(currentRun.id, { now: options.now ?? (() => new Date()) })
+      const retry = await options.retryAttemptCreate(currentRun.id, {
+        executionEvidence: attempt.data.executionEvidence,
+        now: options.now ?? (() => new Date()),
+      })
       if (!retry.success) {
         const outputFinalized = await providerOutputFinalize({ failure, status: "failed" })
         if (!outputFinalized.success) return outputFinalized

@@ -10,6 +10,7 @@ import { runErrorCodes } from "../errors/runErrorCodes.js"
 import { runResultCreateError } from "../errors/runResultCreateError.js"
 import { runExecutionSnapshotSchema } from "../schema/runExecutionSnapshotSchema.js"
 import type { RunRetryAdmission } from "../schema/runRetryAdmissionSchema.js"
+import type { RunRetryExecutionEvidence } from "../schema/runRetryExecutionEvidenceSchema.js"
 import { attemptTable } from "./attemptTable.js"
 import { runTable } from "./runTable.js"
 
@@ -38,6 +39,7 @@ type RunRetryAttemptCreateOptions = {
     transaction: DatabaseExecutor,
     input: typeof attemptTable.$inferInsert,
   ) => Promise<Result<typeof attemptTable.$inferSelect>>
+  executionEvidence?: RunRetryExecutionEvidence
   now?: () => Date
   runReopen?: (
     transaction: DatabaseExecutor,
@@ -185,6 +187,7 @@ export async function runRepositoryRetryAttemptCreate(
         attemptOrdinal: latestAttempt.ordinal,
         attemptStatus: latestAttempt.status,
         budget: run.budget,
+        ...(options.executionEvidence === undefined ? {} : { executionEvidence: options.executionEvidence }),
         failure: latestAttempt.failure,
       })
       if (!admission.success) return admission

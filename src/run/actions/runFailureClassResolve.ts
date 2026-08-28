@@ -10,6 +10,7 @@ const retryableFailureCodes = new Set([
   "provider_timeout",
   "provider_unavailable",
   "stream_disconnected",
+  "stream_idle_timeout",
   "stream_timeout",
 ])
 

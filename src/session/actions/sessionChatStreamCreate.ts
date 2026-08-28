@@ -4,6 +4,9 @@ import type { DatabaseClient } from "../../database/databaseClient.js"
 import { databaseTransactionRun } from "../../database/databaseTransactionRun.js"
 import { messageAppend } from "../../message/actions/messageAppend.js"
 import type { messageTable } from "../../message/db/messageTable.js"
+import { providerExecutionEventFromStreamChunk } from "../../providers/runtime/providerExecutionEventFromStreamChunk.js"
+import type { RunRetryExecutionEvidence } from "../../run/schema/runRetryExecutionEvidenceSchema.js"
+import { executionStreamEventNormalize } from "../../stream/actions/executionStreamEventNormalize.js"
 import { sessionChatAdapterCreate } from "./sessionChatAdapterCreate.js"
 
 type SessionChatStreamCreateOptions = {
@@ -24,6 +27,7 @@ type SessionChatStreamCreateOptions = {
   }
   onTerminal?: (terminal: {
     assistantText?: string
+    executionEvidence: RunRetryExecutionEvidence
     failure?: { code: string; message: string }
     messageId?: string | null
     status: "succeeded" | "failed" | "aborted"
@@ -43,6 +47,14 @@ function sessionChatRunErrorCreate(message: string, code: string): StreamChunk {
   }
 }
 
+function sessionChatExecutionEvidenceResolve(chunk: StreamChunk): RunRetryExecutionEvidence | undefined {
+  const providerEvent = providerExecutionEventFromStreamChunk(chunk)
+  if (!providerEvent.success || providerEvent.data === null) return undefined
+  const normalized = executionStreamEventNormalize(providerEvent.data)
+  if (!normalized.success || normalized.data.eventType !== "tool_result") return undefined
+  return "tool_result"
+}
+
 function sessionChatAdapterErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "The chat adapter failed."
 }
@@ -59,6 +71,7 @@ function sessionChatFailureCreate(chunk: StreamChunk, fallbackCode: string, fall
 
 async function* sessionChatStreamGenerate(options: SessionChatStreamCreateOptions): AsyncGenerator<StreamChunk> {
   let assistantText = ""
+  let executionEvidence: RunRetryExecutionEvidence = "none"
   let terminalPersisted = false
   let terminal: StreamChunk | undefined
   let assistantMessageId: string | null = null
@@ -76,7 +89,7 @@ async function* sessionChatStreamGenerate(options: SessionChatStreamCreateOption
       const flushed = await options.providerOutput.flush()
       if (!flushed.success) throw new Error(flushed.errorMessage)
     }
-    await options.onTerminal?.({ ...input, messageId: assistantMessageId })
+    await options.onTerminal?.({ ...input, executionEvidence, messageId: assistantMessageId })
   }
 
   try {
@@ -91,6 +104,9 @@ async function* sessionChatStreamGenerate(options: SessionChatStreamCreateOption
       })) {
         if (options.signal.aborted) return
         if (terminal !== undefined) throw new Error("The chat adapter emitted data after completion.")
+
+        const chunkEvidence = sessionChatExecutionEvidenceResolve(chunk)
+        if (chunkEvidence !== undefined) executionEvidence = chunkEvidence
 
         if ("messageId" in chunk && typeof chunk.messageId === "string") assistantMessageId = chunk.messageId
 

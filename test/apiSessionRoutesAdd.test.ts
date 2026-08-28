@@ -752,6 +752,49 @@ test.skipIf(!databaseAvailable)(
   },
 )
 
+test.skipIf(!databaseAvailable)("session chat retries a transient failure before tool execution", async () => {
+  const created = await runApp.request("http://codeline.test/api/sessions", {
+    body: JSON.stringify({
+      clientRequestId: `session-chat-retry-${uuidv7()}`,
+      metadata: {},
+      primaryAgentId: agentId,
+      serverId,
+      title: "HTTP chat retry",
+    }),
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+  })
+  expect(created.status).toBe(201)
+  const sessionId = ((await created.json()) as { session: { id: string } }).session.id
+  const runId = `session-chat-retry-run-${uuidv7()}`
+  const response = await runApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+    body: JSON.stringify({
+      forwardedProps: { codelineExecution: { model: "simulation:retry-success", provider: "deterministic" } },
+      messages: [{ content: "Retry this transient chat", id: `prompt-${runId}`, role: "user" }],
+      runId,
+      threadId: sessionId,
+    }),
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+  })
+  expect(response.status).toBe(200)
+
+  let attempts = await database.select().from(attemptTable).where(eq(attemptTable.sessionId, sessionId))
+  for (
+    let attempt = 0;
+    attempt < 100 && attempts.find(({ ordinal }) => ordinal === 2)?.status !== "succeeded";
+    attempt += 1
+  ) {
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    attempts = await database.select().from(attemptTable).where(eq(attemptTable.sessionId, sessionId))
+  }
+  expect(attempts).toHaveLength(2)
+  expect(attempts.sort((left, right) => left.ordinal - right.ordinal).map((attempt) => attempt.status)).toEqual([
+    "failed",
+    "succeeded",
+  ])
+})
+
 test.skipIf(!databaseAvailable)(
   "session chat cancellation aborts a controlled stream without late deltas or duplicate terminal state",
   async () => {
