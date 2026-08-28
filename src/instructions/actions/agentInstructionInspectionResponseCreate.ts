@@ -95,6 +95,8 @@ export function agentInstructionInspectionResponseCreate(
     })),
     projectId: input.projectId,
     snapshots: snapshot.snapshots.map((entry) => ({
+      canonicalPath: entry.canonicalPath,
+      content: entry.content,
       digest: entry.digest,
       path: agentInstructionInspectionSafePathResolve(input.projectRoot, entry.source, entry.canonicalPath),
       precedence: entry.precedence,

@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
+import { createHash } from "node:crypto"
 import { createResult } from "@adaptive-ds/result"
 import { and, asc, eq } from "drizzle-orm"
 import { Hono } from "hono"
@@ -70,13 +71,34 @@ beforeAll(async () => {
     database,
     developmentUser.id,
     {
+      agentPrompt: "Branch session prompt",
       clientRequestId: `session-branch-source-${uuidv7()}`,
       metadata: { branch: "source" },
       primaryAgentId: fixture.agentId,
       serverId: fixture.serverId,
       title: "Branch source",
     },
-    { organizationId: developmentUser.id },
+    {
+      agentInstructionsDiscover: async () => {
+        const content = "Branch session instructions"
+        return createResult({
+          diagnostics: [],
+          snapshots: [
+            {
+              canonicalPath: "/tmp/codeline-branch-project/AGENTS.md",
+              content,
+              digest: `sha256-${createHash("sha256").update(content, "utf8").digest("hex")}`,
+              precedence: 1,
+              scope: ".",
+              size: Buffer.byteLength(content, "utf8"),
+              source: "project" as const,
+            },
+          ],
+          version: 1 as const,
+        })
+      },
+      organizationId: developmentUser.id,
+    },
   )
   if (!source.success) throw new Error(source.errorMessage)
   sourceSessionId = source.data.session.id
@@ -135,9 +157,20 @@ test.skipIf(!databaseAvailable)("branches an owned active session through a fina
   const body = await response.json()
   expect(body).toMatchObject({
     created: true,
-    session: { archivedAt: null, parentSessionId: sourceSessionId, title: "Branch source" },
+    session: {
+      agentPrompt: "Branch session prompt",
+      archivedAt: null,
+      parentSessionId: sourceSessionId,
+      title: "Branch source",
+    },
   })
   const targetSessionId = body.session.id as string
+
+  const [source] = await database.select().from(sessionTable).where(eq(sessionTable.id, sourceSessionId))
+  const [target] = await database.select().from(sessionTable).where(eq(sessionTable.id, targetSessionId))
+  expect(target?.agentPrompt).toBe(source?.agentPrompt)
+  expect(target?.instructionSnapshot).toEqual(source?.instructionSnapshot)
+  expect(target?.executionManifest?.instructions).toEqual(source?.executionManifest?.instructions)
 
   const copied = await database
     .select({ message: messageTable })

@@ -37,6 +37,7 @@ function runImmutableInputMatches(
 
 function runRepositoryExecutionManifestPolicyValidate(
   session: {
+    agentPrompt: string | null
     executionManifest: unknown
     executionSelection: unknown
     instructionSnapshot: unknown
@@ -65,6 +66,12 @@ function runRepositoryExecutionManifestPolicyValidate(
         runErrorCodes.executionSnapshotInvalid,
       )
   }
+  if (session.agentPrompt !== null && snapshot.agentPrompt !== session.agentPrompt)
+    return runResultCreateError(
+      op,
+      "The run agent prompt does not match the immutable session agent prompt.",
+      runErrorCodes.executionSnapshotInvalid,
+    )
 
   const selection = sessionExecutionSelectionCanonicalize(session.executionSelection, session.primaryAgentId)
   if (!selection.success)
@@ -143,6 +150,7 @@ export async function runRepositoryCreate(
         .select({
           executionSelection: sessionTable.executionSelection,
           executionManifest: sessionTable.executionManifest,
+          agentPrompt: sessionTable.agentPrompt,
           instructionSnapshot: sessionTable.instructionSnapshot,
           id: sessionTable.id,
           primaryAgentId: sessionTable.primaryAgentId,

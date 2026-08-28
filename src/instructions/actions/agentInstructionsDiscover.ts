@@ -1,12 +1,10 @@
 import * as crypto from "node:crypto"
-import type { Dir } from "node:fs"
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
 import { projectDirectoryCanonicalPathResolve } from "../../project/projectDirectoryCanonicalPathResolve.js"
-import { projectDiscoveryLimits } from "../../project/projectDiscoveryLimits.js"
 import { agentInstructionDiscoveryLimits } from "../agentInstructionDiscoveryLimits.js"
 import {
   type AgentInstructionSnapshot,
@@ -46,15 +44,9 @@ type AgentInstructionReadState = {
   totalBytes: number
 }
 
-type AgentInstructionDirectoryReadResult = {
-  children: string[]
-  truncated: boolean
-}
-
 /**
- * Dependency, VCS, and build directories are not authored project scopes. Descending
- * into them would surface third-party `AGENTS.md` files as if a maintainer had written
- * them for this project, and would consume the directory and byte budgets.
+ * Dependency, VCS, and build directories are not authored project scopes. They stay
+ * excluded even when a selected working directory is nested below one of them.
  */
 const agentInstructionsExcludedDirectoryNames: ReadonlySet<string> = new Set([
   ".cache",
@@ -136,48 +128,9 @@ function agentInstructionsLimitResolve(
   return createResult(resolved)
 }
 
-async function agentInstructionsDirectoryEntriesRead(
-  directory: AgentInstructionDirectory,
-): Promise<Result<AgentInstructionDirectoryReadResult>> {
-  const op = "agentInstructionsDiscover"
-  let handle: Dir
-  try {
-    handle = await fs.opendir(directory.path)
-  } catch (_error) {
-    return createResultError(op, "The instruction directory could not be read.")
-  }
-
-  const children: string[] = []
-  let truncated = false
-  let scannedEntries = 0
-  try {
-    for (;;) {
-      const entry = await handle.read()
-      if (entry === null || entry === undefined) break
-      scannedEntries += 1
-      if (scannedEntries > projectDiscoveryLimits.maximumEntriesPerRoot) {
-        truncated = true
-        break
-      }
-      if (entry.isDirectory() && !entry.isSymbolicLink() && !agentInstructionsDirectoryIsExcluded(entry.name))
-        children.push(entry.name)
-    }
-  } catch (_error) {
-    return createResultError(op, "The instruction directory could not be read.")
-  } finally {
-    try {
-      await handle.close()
-    } catch (_error) {
-      // Directory results are bounded and can be discarded if closing fails.
-    }
-  }
-
-  children.sort(agentInstructionsPathSort)
-  return createResult({ children, truncated })
-}
-
 async function agentInstructionsDirectoriesRead(
   projectRoot: string,
+  workingDirectory: string,
   maximumDirectories: number,
   diagnostics: AgentInstructionValidationDiagnostic[],
 ): Promise<AgentInstructionDirectory[]> {
@@ -189,61 +142,30 @@ async function agentInstructionsDirectoriesRead(
     },
   ]
 
-  for (let index = 0; index < directories.length; index += 1) {
-    const directory = directories[index]
-    if (directory === undefined) continue
-
-    const entries = await agentInstructionsDirectoryEntriesRead(directory)
-    if (!entries.success) {
+  const relativeWorkingDirectory = path.relative(projectRoot, workingDirectory)
+  const segments = relativeWorkingDirectory === "" ? [] : relativeWorkingDirectory.split(path.sep)
+  for (const segment of segments) {
+    if (agentInstructionsDirectoryIsExcluded(segment)) break
+    const parent = directories[directories.length - 1]
+    if (parent === undefined) break
+    if (directories.length >= maximumDirectories) {
       diagnostics.push(
         agentInstructionsDiagnosticCreate(
-          agentInstructionsDirectoryCandidateCreate(directory),
-          "directory-unavailable",
-          "The instruction directory could not be read.",
-          directory.path,
-        ),
-      )
-      continue
-    }
-    if (entries.data.truncated) {
-      diagnostics.push(
-        agentInstructionsDiagnosticCreate(
-          agentInstructionsDirectoryCandidateCreate(directory),
+          agentInstructionsDirectoryCandidateCreate(parent),
           "directory-entry-limit-exceeded",
-          `The instruction directory contains more than ${projectDiscoveryLimits.maximumEntriesPerRoot} entries.`,
-          directory.path,
+          `Instruction discovery is limited to ${maximumDirectories} directories.`,
+          parent.path,
         ),
       )
+      return directories
     }
 
-    for (const childName of entries.data.children) {
-      if (directories.length >= maximumDirectories) {
-        diagnostics.push(
-          agentInstructionsDiagnosticCreate(
-            agentInstructionsDirectoryCandidateCreate(directory),
-            "directory-entry-limit-exceeded",
-            `Instruction discovery is limited to ${maximumDirectories} directories.`,
-            directory.path,
-          ),
-        )
-        return directories
-      }
-
-      const childPath = path.join(directory.path, childName)
-      try {
-        const childStat = await fs.lstat(childPath)
-        if (childStat.isSymbolicLink() || !childStat.isDirectory()) continue
-      } catch (_error) {
-        // A directory can disappear between the directory read and lstat.
-        continue
-      }
-
-      directories.push({
-        path: childPath,
-        precedence: directory.precedence + 1,
-        scope: agentInstructionsScopeResolve(projectRoot, childPath),
-      })
-    }
+    const directoryPath = path.join(parent.path, segment)
+    directories.push({
+      path: directoryPath,
+      precedence: parent.precedence + 1,
+      scope: agentInstructionsScopeResolve(projectRoot, directoryPath),
+    })
   }
 
   return directories
@@ -532,7 +454,12 @@ export async function agentInstructionsDiscover(
 
   const globalAgentsPath = path.resolve(options.globalAgentsPath ?? path.join(os.homedir(), ".agents", "AGENTS.md"))
   const diagnostics: AgentInstructionValidationDiagnostic[] = []
-  const directories = await agentInstructionsDirectoriesRead(projectRoot.data, maxDirectories.data, diagnostics)
+  const directories = await agentInstructionsDirectoriesRead(
+    projectRoot.data,
+    workingDirectory.data,
+    maxDirectories.data,
+    diagnostics,
+  )
   const candidates = agentInstructionsCandidatesRead(projectRoot.data, globalAgentsPath, directories)
   const snapshots: AgentInstructionSnapshotEntry[] = []
   const state: AgentInstructionReadState = { seenCanonicalPaths: new Set(), totalBytes: 0 }

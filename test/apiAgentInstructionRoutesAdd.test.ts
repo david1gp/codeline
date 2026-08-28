@@ -48,7 +48,7 @@ afterAll(async () => {
   ])
 })
 
-test("serves authenticated instruction inspection with metadata but not instruction content", async () => {
+test("serves authenticated instruction inspection with editable content and canonical paths", async () => {
   const response = await app.request(`https://codeline.test/agent-instructions?project=${projectId}`)
 
   expect(response.status).toBe(200)
@@ -59,6 +59,8 @@ test("serves authenticated instruction inspection with metadata but not instruct
     projectId,
     snapshots: [
       {
+        canonicalPath: path.join(globalRoot, "AGENTS.md"),
+        content: "global instruction content",
         digest: digest("global instruction content"),
         path: "global/AGENTS.md",
         scope: "global",
@@ -66,24 +68,19 @@ test("serves authenticated instruction inspection with metadata but not instruct
         validation: "valid",
       },
       {
+        canonicalPath: path.join(projectRoot, "AGENTS.md"),
+        content: "project instruction content",
         digest: digest("project instruction content"),
         path: "AGENTS.md",
         scope: ".",
         source: "project",
         validation: "valid",
       },
-      {
-        digest: digest("nested instruction content"),
-        path: "nested/AGENTS.md",
-        scope: "nested",
-        source: "project",
-        validation: "valid",
-      },
     ],
     version: 1,
   })
-  expect(JSON.stringify(body)).not.toContain("global instruction content")
-  expect(JSON.stringify(body)).not.toContain(projectRoot)
+  expect(body.snapshots[0]?.content).toBe("global instruction content")
+  expect(body.snapshots[0]?.canonicalPath).toBe(path.join(globalRoot, "AGENTS.md"))
 })
 
 test("requires authentication and a valid discovered project", async () => {

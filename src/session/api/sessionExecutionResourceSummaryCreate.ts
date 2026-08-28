@@ -56,6 +56,8 @@ export function sessionExecutionResourceSummaryCreate(input: {
             version: 1 as const,
           },
     instructionSources: manifest.output.instructions.snapshots.map((snapshot) => ({
+      canonicalPath: snapshot.canonicalPath,
+      content: snapshot.content,
       digest: snapshot.digest,
       path: sessionExecutionResourceSummaryInstructionPathResolve(projectRoot, snapshot.source, snapshot.canonicalPath),
       precedence: snapshot.precedence,

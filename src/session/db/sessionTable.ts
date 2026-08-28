@@ -27,6 +27,7 @@ export const sessionTable = sqliteTable(
     }),
     title: text("title").notNull(),
     clientRequestId: text("client_request_id").notNull(),
+    agentPrompt: text("agent_prompt"),
     executionSelection: text("execution_selection", { mode: "json" }).$type<SessionExecutionSelection | null>(),
     skillSelection: text("skill_selection", { mode: "json" })
       .$type<SkillSelection>()

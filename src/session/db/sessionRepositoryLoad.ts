@@ -8,6 +8,7 @@ import { runExecutionManifestSchema } from "../../run/schema/runExecutionManifes
 import { serverTable } from "../../servers/db/serverTable.js"
 import { skillSelectionSchema } from "../../skills/schema/skillSelectionSchema.js"
 import { sessionMetadataSchema } from "../schema/sessionMetadataSchema.js"
+import { sessionAgentPromptSchema } from "../schema/sessionAgentPromptSchema.js"
 import { sessionTable } from "./sessionTable.js"
 
 export async function sessionRepositoryLoad(
@@ -42,6 +43,11 @@ export async function sessionRepositoryLoad(
     if (row !== undefined) {
       const instructionSnapshot = agentInstructionsSnapshotResolve(row.session.instructionSnapshot)
       if (!instructionSnapshot.success) return createResultError(op, "The session instruction snapshot is invalid.")
+      const agentPrompt =
+        row.session.agentPrompt === null
+          ? { success: true as const, output: null }
+          : v.safeParse(sessionAgentPromptSchema, row.session.agentPrompt)
+      if (!agentPrompt.success) return createResultError(op, "The session agent prompt is invalid.")
       const skillSelection = v.safeParse(skillSelectionSchema, row.session.skillSelection)
       if (!skillSelection.success) return createResultError(op, "The session skill selection is invalid.")
       const metadata = v.safeParse(sessionMetadataSchema, row.session.metadata)
@@ -55,6 +61,7 @@ export async function sessionRepositoryLoad(
         ...row,
         session: {
           ...row.session,
+          agentPrompt: agentPrompt.output,
           executionManifest: executionManifest.output,
           instructionSnapshot: instructionSnapshot.data,
           metadata: metadata.output,

@@ -12,6 +12,12 @@ const sessionExecutionResourceSummaryRelativePathSchema = v.pipe(
     return value.split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== "..")
   }),
 )
+const sessionExecutionResourceSummaryCanonicalPathSchema = v.pipe(
+  v.string(),
+  v.minLength(1),
+  v.maxLength(4_096),
+  v.check((value) => value.startsWith("/") || /^[A-Za-z]:[\\/]/.test(value)),
+)
 const sessionExecutionResourceSummaryNameSchema = v.pipe(
   v.string(),
   v.trim(),
@@ -50,6 +56,8 @@ const sessionExecutionResourceSummarySkillSchema = v.strictObject({
 })
 
 const sessionExecutionResourceSummaryInstructionSourceSchema = v.strictObject({
+  canonicalPath: v.optional(sessionExecutionResourceSummaryCanonicalPathSchema),
+  content: v.optional(v.string()),
   digest: sessionExecutionResourceSummaryDigestSchema,
   path: sessionExecutionResourceSummaryRelativePathSchema,
   precedence: v.pipe(

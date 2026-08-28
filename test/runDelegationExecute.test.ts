@@ -12,6 +12,7 @@ const parentDeadline = new Date("2030-01-01T00:01:00.000Z")
 const snapshot = {
   configuration: { model: "deterministic-model", provider: "deterministic" as const },
   configurationRevision: "delegation-test-revision",
+  agentPrompt: "Parent session prompt",
   executionManifest: {
     commandCatalog: { digest: null, version: 1 as const },
     instructions: { snapshots: [], version: 1 as const },
@@ -258,7 +259,7 @@ async function executeWithDelegationKey(
   )
 }
 
-test("admits a delegated child with its immutable execution snapshot", async () => {
+test("admits a delegated child with its own immutable agent prompt", async () => {
   const harness = harnessCreate()
   const childSnapshot = {
     agentPrompt: "Child prompt",
@@ -281,6 +282,8 @@ test("admits a delegated child with its immutable execution snapshot", async () 
 
   expect(result.success).toBe(true)
   expect(harness.admittedSnapshot).toEqual(childSnapshot)
+  expect(harness.parent.parentRun.snapshot).toMatchObject({ agentPrompt: "Parent session prompt" })
+  expect(harness.admittedSnapshot).toMatchObject({ agentPrompt: "Child prompt" })
 })
 
 test("does not activate a child admitted after parent cancellation", async () => {

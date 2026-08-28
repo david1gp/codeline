@@ -168,7 +168,7 @@ test("the sanitized summary validates against its contract and keeps the capture
   })
 })
 
-test("instruction sources are projected to project-relative paths and a stable global label", () => {
+test("instruction sources retain canonical paths alongside project-relative display paths", () => {
   const summary = sessionExecutionResourceSummaryCreate({
     executionManifest: manifestCreate(),
     projectPath: projectRoot,
@@ -177,15 +177,72 @@ test("instruction sources are projected to project-relative paths and a stable g
   expect(summary.success).toBe(true)
   if (!summary.success) return
   expect(
-    summary.data?.instructionSources.map(({ path: sourcePath, scope, source }) => ({ scope, source, sourcePath })),
+    summary.data?.instructionSources.map(({ canonicalPath, path: sourcePath, scope, source }) => ({
+      canonicalPath,
+      scope,
+      source,
+      sourcePath,
+    })),
   ).toEqual([
-    { scope: "global", source: "global", sourcePath: "global/AGENTS.md" },
-    { scope: ".", source: "project", sourcePath: "AGENTS.md" },
-    { scope: "src", source: "project", sourcePath: "src/AGENTS.md" },
+    { canonicalPath: `${globalRoot}/AGENTS.md`, scope: "global", source: "global", sourcePath: "global/AGENTS.md" },
+    { canonicalPath: `${projectRoot}/AGENTS.md`, scope: ".", source: "project", sourcePath: "AGENTS.md" },
+    { canonicalPath: `${projectRoot}/src/AGENTS.md`, scope: "src", source: "project", sourcePath: "src/AGENTS.md" },
   ])
 })
 
-test("the sanitized summary never exposes absolute filesystem paths or skill content", () => {
+test("captured summaries accept instruction sources without a canonical path", () => {
+  const summary = sessionExecutionResourceSummaryCreate({
+    executionManifest: manifestCreate(),
+    projectPath: projectRoot,
+  })
+
+  expect(summary.success).toBe(true)
+  if (!summary.success || summary.data === null) return
+
+  const legacySummary = {
+    ...summary.data,
+    instructionSources: summary.data.instructionSources.map(({ canonicalPath: _canonicalPath, ...source }) => source),
+  }
+  expect(v.safeParse(sessionExecutionResourceSummarySchema, legacySummary).success).toBe(true)
+})
+
+test("the sanitized summary retains effective instruction content with its source metadata", () => {
+  const editedContent = "edited café instructions"
+  const summary = sessionExecutionResourceSummaryCreate({
+    executionManifest: manifestCreate({
+      instructions: {
+        snapshots: [
+          instructionSnapshotCreate({
+            canonicalPath: `${projectRoot}/AGENTS.md`,
+            content: editedContent,
+            scope: ".",
+            source: "project",
+          }),
+        ],
+        version: 1 as const,
+      },
+    }),
+    projectPath: projectRoot,
+  })
+
+  expect(summary.success).toBe(true)
+  if (!summary.success) return
+  expect(summary.data?.instructionSources).toEqual([
+    {
+      canonicalPath: `${projectRoot}/AGENTS.md`,
+      content: editedContent,
+      digest: digestCreate(editedContent),
+      path: "AGENTS.md",
+      precedence: 1,
+      scope: ".",
+      size: Buffer.byteLength(editedContent, "utf8"),
+      source: "project",
+      validation: "valid",
+    },
+  ])
+})
+
+test("the sanitized summary preserves instruction paths without exposing skill content", () => {
   const summary = sessionExecutionResourceSummaryCreate({
     executionManifest: manifestCreate(),
     projectPath: projectRoot,
@@ -194,11 +251,10 @@ test("the sanitized summary never exposes absolute filesystem paths or skill con
   expect(summary.success).toBe(true)
   if (!summary.success) return
   const serialized = JSON.stringify(summary.data)
-  expect(serialized).not.toContain(projectRoot)
-  expect(serialized).not.toContain(globalRoot)
-  expect(serialized).not.toContain("canonicalPath")
+  expect(serialized).toContain(`${projectRoot}/AGENTS.md`)
+  expect(serialized).toContain(`${globalRoot}/AGENTS.md`)
   expect(serialized).not.toContain("code-style body")
-  expect(serialized).not.toContain("global instructions")
+  expect(serialized).toContain("global instructions")
   expect(summary.data?.skills[0]).toEqual({
     bundleDigest: agentBrowser.bundleDigest,
     bundlePath: "global/skills/browser",
@@ -236,6 +292,8 @@ test("an instruction path outside the project root is reduced to a safe placehol
   expect(summary.data?.instructionSources).toEqual([
     {
       digest: digestCreate("outside instructions"),
+      canonicalPath: "/elsewhere/AGENTS.md",
+      content: "outside instructions",
       path: "project",
       precedence: 1,
       scope: "project",
@@ -290,8 +348,10 @@ test("the session shell exposes the sanitized resources alongside the immutable 
   if (!shell.success) return
   expect(shell.data.executionResources?.presetName).toBe("focused")
   expect(shell.data.executionResources?.skills.map(({ name }) => name)).toEqual(["agent-browser", "code-style"])
+  expect(shell.data.executionResources?.instructionSources[0]?.canonicalPath).toBe(`${globalRoot}/AGENTS.md`)
+  expect(shell.data.executionResources?.instructionSources[1]?.content).toBe("root instructions")
   expect(shell.data.executionSelection?.tools.primary.tools).toEqual({ bash: true, webfetch: false })
-  expect(JSON.stringify(shell.data.executionResources)).not.toContain(projectRoot)
+  expect(JSON.stringify(shell.data.executionResources)).toContain(`${projectRoot}/AGENTS.md`)
 })
 
 test("a session shell without a manifest reports null execution resources", () => {

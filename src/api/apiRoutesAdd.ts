@@ -176,6 +176,7 @@ export function apiRoutesAdd(
     database: options.database,
     environment: options.providerEnvironment,
     fetch: options.providerFetch,
+    providerAgentCatalog: options.providerAgentCatalog,
   })
   if (options.database !== undefined) {
     apiSessionExecutionSelectionDefaultRoutesAdd(api, {

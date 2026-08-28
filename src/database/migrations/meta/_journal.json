@@ -43,6 +43,13 @@
       "when": 1787772669386,
       "tag": "0005_nifty_the_twelve",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1787901519486,
+      "tag": "0006_bumpy_joshua_kane",
+      "breakpoints": true
     }
   ]
 }

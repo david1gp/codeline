@@ -27,6 +27,7 @@ import { runCreate } from "../src/run/actions/runCreate.js"
 import { attemptTable } from "../src/run/db/attemptTable.js"
 import { runDelegationTable } from "../src/run/db/runDelegationTable.js"
 import { runTable } from "../src/run/db/runTable.js"
+import { runExecutionSnapshotSchema } from "../src/run/schema/runExecutionSnapshotSchema.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionChatAdapterCreate } from "../src/session/actions/sessionChatAdapterCreate.js"
 import { apiSessionRenameRoutesAdd } from "../src/session/api/apiSessionRenameRoutesAdd.js"
@@ -751,6 +752,39 @@ test.skipIf(!databaseAvailable)(
     ])
   },
 )
+
+test.skipIf(!databaseAvailable)("session chat HTTP propagates the session prompt into the run snapshot", async () => {
+  const input = {
+    agentPrompt: "Use this session-specific runtime prompt.",
+    clientRequestId: `session-chat-prompt-${uuidv7()}`,
+    metadata: {},
+    primaryAgentId: agentId,
+    serverId,
+    title: "Session prompt propagation",
+  }
+  const created = await runApp.request("http://codeline.test/api/sessions", {
+    body: JSON.stringify(input),
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+  })
+  expect(created.status).toBe(201)
+  const sessionId = ((await created.json()) as { session: { id: string } }).session.id
+  const runId = `session-chat-prompt-run-${uuidv7()}`
+  const response = await runApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+    body: JSON.stringify({
+      messages: [{ content: "Use the prompt.", id: `prompt-${runId}`, role: "user" }],
+      runId,
+      threadId: sessionId,
+    }),
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+  })
+  expect(response.status).toBe(200)
+
+  const [run] = await database.select().from(runTable).where(eq(runTable.clientRunId, runId))
+  const snapshot = v.safeParse(runExecutionSnapshotSchema, run?.snapshot)
+  expect(snapshot).toMatchObject({ success: true, output: { agentPrompt: input.agentPrompt } })
+})
 
 test.skipIf(!databaseAvailable)("session chat retries a transient failure before tool execution", async () => {
   const created = await runApp.request("http://codeline.test/api/sessions", {

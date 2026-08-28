@@ -24,7 +24,7 @@ afterEach(async () => {
   }
 })
 
-test("discovers global, project, and nested AGENTS.md files in stable precedence order", async () => {
+test("discovers only the applicable AGENTS.md hierarchy in stable precedence order", async () => {
   const projectsRoot = await temporaryDirectory("codeline-instructions-projects-")
   const projectRoot = path.join(projectsRoot, "example")
   const globalRoot = await temporaryDirectory("codeline-instructions-global-")
@@ -56,9 +56,7 @@ test("discovers global, project, and nested AGENTS.md files in stable precedence
   ).toEqual([
     { content: "global instructions", precedence: 0, scope: "global", source: "global" },
     { content: "project instructions", precedence: 1, scope: ".", source: "project" },
-    { content: "docs instructions", precedence: 2, scope: "docs", source: "project" },
     { content: "src instructions", precedence: 2, scope: "src", source: "project" },
-    { content: "deep instructions", precedence: 3, scope: "src/deep", source: "project" },
   ])
 
   for (const entry of discovered.data.snapshots) {
@@ -66,6 +64,8 @@ test("discovers global, project, and nested AGENTS.md files in stable precedence
     expect(entry.digest).toBe(digest(entry.content))
     expect(entry.size).toBe(Buffer.byteLength(entry.content, "utf8"))
   }
+  expect(discovered.data.snapshots.some(({ content }) => content === "docs instructions")).toBe(false)
+  expect(discovered.data.snapshots.some(({ content }) => content === "deep instructions")).toBe(false)
   expect(discovered.data.snapshots.some(({ canonicalPath }) => canonicalPath.endsWith("CLAUDE.md"))).toBe(false)
 })
 
@@ -94,6 +94,7 @@ test("reports bounded validation diagnostics and rejects an outside working dire
     globalAgentsPath: path.join(globalRoot, "AGENTS.md"),
     maxFileBytes: 2,
     projectRoot,
+    workingDirectory: path.join(projectRoot, "linked", "nested"),
   })
   expect(discovered.success).toBe(true)
   if (!discovered.success) return
@@ -136,7 +137,7 @@ test("enforces snapshot and total-byte budgets without changing discovery output
   expect(byteLimited.data.diagnostics.map(({ code }) => code)).toEqual(["total-byte-budget-exceeded"])
 })
 
-test("skips dependency, VCS, and build directories so third-party AGENTS.md never becomes project instruction", async () => {
+test("limits discovery to the selected hierarchy instead of scanning unrelated directories", async () => {
   const projectsRoot = await temporaryDirectory("codeline-instructions-excluded-")
   const projectRoot = path.join(projectsRoot, "example")
   const globalRoot = await temporaryDirectory("codeline-instructions-excluded-global-")
@@ -154,6 +155,7 @@ test("skips dependency, VCS, and build directories so third-party AGENTS.md neve
   const discovered = await agentInstructionsDiscover({
     globalAgentsPath: path.join(globalRoot, "AGENTS.md"),
     projectRoot,
+    workingDirectory: path.join(projectRoot, "src"),
   })
 
   expect(discovered.success).toBe(true)

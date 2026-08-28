@@ -228,6 +228,27 @@ function sessionInstructionContextCreate(
   }
 }
 
+function sessionCreateRequestHashInputCreate(input: v.InferOutput<typeof sessionCreateRequestSchema>): unknown {
+  return {
+    command: input.command,
+    metadata: input.metadata,
+    executionSelection: input.executionSelection,
+    skillSelection: input.skillSelection,
+    primaryAgentId: input.primaryAgentId,
+    projectPath: input.projectPath,
+    serverId: input.serverId,
+    title: input.title,
+    ...(input.agentPrompt === undefined ? {} : { agentPrompt: input.agentPrompt }),
+    ...(input.instructionOverrides === undefined
+      ? {}
+      : {
+          instructionOverrides: Object.fromEntries(
+            Object.entries(input.instructionOverrides).sort(([left], [right]) => left.localeCompare(right)),
+          ),
+        }),
+  }
+}
+
 function sessionChatChildExecutionStreamCreate(input: {
   adapter: CliProxyApiAdapter
   run: typeof runTable.$inferSelect
@@ -299,6 +320,7 @@ async function sessionChatAdmissionResolve(
   persistedSkillSelection: unknown,
   persistedExecutionManifest: unknown,
   persistedInstructionSnapshot: unknown,
+  persistedAgentPrompt: string | null,
   options: ApiSessionRoutesOptions,
   runLoadAction: typeof runLoad,
 ): Promise<Result<SessionChatAdmission>> {
@@ -334,6 +356,7 @@ async function sessionChatAdmissionResolve(
         ? {}
         : { executionManifest: persistedExecutionManifest }),
       agentInstructions: persistedInstructionSnapshot,
+      ...(persistedAgentPrompt === null ? {} : { agentPrompt: persistedAgentPrompt }),
       skillSelection: persistedSkillSelection,
     },
   )
@@ -413,16 +436,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     const parsed = apiRequestParse("sessionCreateRequestParse", sessionCreateRequestSchema, body)
     if (!parsed.success) return badRequest(context, "The session request is invalid.")
 
-    const requestHash = apiIdempotencyRequestHashCreate({
-      command: parsed.data.command,
-      metadata: parsed.data.metadata,
-      executionSelection: parsed.data.executionSelection,
-      skillSelection: parsed.data.skillSelection,
-      primaryAgentId: parsed.data.primaryAgentId,
-      projectPath: parsed.data.projectPath,
-      serverId: parsed.data.serverId,
-      title: parsed.data.title,
-    })
+    const requestHash = apiIdempotencyRequestHashCreate(sessionCreateRequestHashInputCreate(parsed.data))
     const result = await sessionCreate(options.database, userId, parsed.data, {
       idempotencyKey: parsed.data.clientRequestId,
       journal: {
@@ -457,6 +471,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
         return badRequest(context, result.errorMessage)
       if (result.errorMessage.includes("execution selection"))
         return badRequest(context, "The session execution selection is invalid.")
+      if (result.errorMessage.includes("instruction override")) return badRequest(context, result.errorMessage)
       if (result.errorMessage.includes("command") || result.errorMessage.includes("model override"))
         return badRequest(context, result.errorMessage)
       if (result.errorMessage.includes("project path"))
@@ -638,6 +653,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
         loaded.data.session.skillSelection,
         loaded.data.session.executionManifest,
         loaded.data.session.instructionSnapshot,
+        loaded.data.session.agentPrompt,
         options,
         runLoadAction,
       )
@@ -708,6 +724,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
       const agent = options.providerAgentCatalog.agents.find(({ id }) => id === loaded.data.session.primaryAgentId)
       runtimeAgentPrompt = agent?.prompt
     }
+    if (loaded.data.session.agentPrompt !== null) runtimeAgentPrompt = loaded.data.session.agentPrompt
 
     const delegatedTaskExecute = async (
       input: {

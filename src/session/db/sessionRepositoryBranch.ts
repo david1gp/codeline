@@ -15,6 +15,7 @@ import {
   sessionCreateMutationResponseSchema,
 } from "../api/sessionCreateMutationResponseSchema.js"
 import { sessionTable } from "./sessionTable.js"
+import { sessionAgentPromptSchema } from "../schema/sessionAgentPromptSchema.js"
 
 const sessionBranchOperation = "session.branch"
 
@@ -56,6 +57,11 @@ export async function sessionRepositoryBranch(
       return createResultError(op, "The source session instruction snapshot is invalid.")
     const skillSelection = v.safeParse(skillSelectionSchema, source.session.skillSelection)
     if (!skillSelection.success) return createResultError(op, "The source session skill selection is invalid.")
+    const agentPrompt =
+      source.session.agentPrompt === null
+        ? { success: true as const, output: null }
+        : v.safeParse(sessionAgentPromptSchema, source.session.agentPrompt)
+    if (!agentPrompt.success) return createResultError(op, "The source session agent prompt is invalid.")
     const executionManifest =
       source.session.executionManifest === null
         ? { success: true as const, output: null }
@@ -92,6 +98,7 @@ export async function sessionRepositoryBranch(
       .insert(sessionTable)
       .values({
         clientRequestId: input.clientRequestId,
+        agentPrompt: agentPrompt.output,
         executionSelection: source.session.executionSelection,
         executionManifest: executionManifest.output,
         instructionSnapshot: instructionSnapshot.data,

@@ -3,10 +3,11 @@ import { agentConfigurationSchema } from "../../agents/schema/agentConfiguration
 import { agentExecutionTargetSchema } from "../../agents/schema/agentExecutionTargetSchema.js"
 import { configurationRevisionSchema } from "../../configuration/configurationRevisionSchema.js"
 import { providerCatalogModelSchema } from "../../providers/schema/providerCatalogModelSchema.js"
+import { sessionAgentPromptSchema } from "../../session/schema/sessionAgentPromptSchema.js"
 import { runExecutionManifestSchema } from "./runExecutionManifestSchema.js"
 
 export const runExecutionSnapshotSchema = v.strictObject({
-  agentPrompt: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1))),
+  agentPrompt: v.optional(sessionAgentPromptSchema),
   catalogRevision: v.optional(v.pipe(v.string(), v.regex(/^sha256-[a-f0-9]{64}$/))),
   configuration: agentConfigurationSchema,
   configurationRevision: configurationRevisionSchema,

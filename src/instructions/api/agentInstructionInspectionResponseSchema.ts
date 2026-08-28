@@ -1,5 +1,12 @@
 import * as v from "valibot"
 
+const agentInstructionInspectionCanonicalPathSchema = v.pipe(
+  v.string(),
+  v.minLength(1),
+  v.maxLength(4_096),
+  v.check((value) => value.startsWith("/") || /^[A-Za-z]:[\\/]/.test(value)),
+)
+
 const agentInstructionInspectionDigestSchema = v.pipe(v.string(), v.regex(/^sha256-[a-f0-9]{64}$/))
 const agentInstructionInspectionPathSchema = v.pipe(
   v.string(),
@@ -40,6 +47,8 @@ const agentInstructionInspectionValidationCodeSchema = v.picklist([
 ])
 
 const agentInstructionInspectionSnapshotSchema = v.strictObject({
+  canonicalPath: v.optional(agentInstructionInspectionCanonicalPathSchema),
+  content: v.optional(v.string()),
   digest: agentInstructionInspectionDigestSchema,
   path: agentInstructionInspectionPathSchema,
   precedence: agentInstructionInspectionPrecedenceSchema,

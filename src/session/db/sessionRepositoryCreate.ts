@@ -17,6 +17,7 @@ import {
   sessionCreateMutationResponseSchema,
 } from "../api/sessionCreateMutationResponseSchema.js"
 import { sessionMetadataSchema } from "../schema/sessionMetadataSchema.js"
+import { sessionAgentPromptSchema } from "../schema/sessionAgentPromptSchema.js"
 import { sessionTable } from "./sessionTable.js"
 
 const sessionCreateOperation = "session.create"
@@ -45,6 +46,7 @@ export async function sessionRepositoryCreate(
     clientRequestId: string
     executionSelection?: unknown
     executionManifest?: unknown
+    agentPrompt?: unknown
     instructionSnapshot: unknown
     id?: string
     idempotencyKey?: string
@@ -63,6 +65,12 @@ export async function sessionRepositoryCreate(
   if (!executionSelection.success) return executionSelection
   const metadata = v.safeParse(sessionMetadataSchema, input.metadata ?? {})
   if (!metadata.success) return createResultError(op, "The session metadata is invalid.")
+  let agentPrompt: string | null = null
+  if (input.agentPrompt !== undefined && input.agentPrompt !== null) {
+    const parsedAgentPrompt = v.safeParse(sessionAgentPromptSchema, input.agentPrompt)
+    if (!parsedAgentPrompt.success) return createResultError(op, "The session agent prompt is invalid.")
+    agentPrompt = parsedAgentPrompt.output
+  }
   const instructionSnapshot = agentInstructionsSnapshotResolve(input.instructionSnapshot)
   if (!instructionSnapshot.success) return createResultError(op, "The agent instruction snapshot is invalid.")
   const skillSelection = v.safeParse(
@@ -150,6 +158,7 @@ export async function sessionRepositoryCreate(
       .insert(sessionTable)
       .values({
         clientRequestId: input.clientRequestId,
+        agentPrompt,
         executionSelection: executionSelection.data,
         executionManifest,
         instructionSnapshot: instructionSnapshot.data,

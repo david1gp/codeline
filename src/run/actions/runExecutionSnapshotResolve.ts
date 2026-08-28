@@ -12,6 +12,7 @@ import type { AgentInstructionsResolvedSnapshot } from "../../instructions/schem
 import { providerAgentCatalogExecutionResolve } from "../../providers/catalog/providerAgentCatalogExecutionResolve.js"
 import type { ProviderCatalog } from "../../providers/schema/providerCatalogSchema.js"
 import type { ToolName } from "../../tools/schema/toolNameSchema.js"
+import { sessionAgentPromptSchema } from "../../session/schema/sessionAgentPromptSchema.js"
 import { runErrorCodes } from "../errors/runErrorCodes.js"
 import { runResultCreateError } from "../errors/runResultCreateError.js"
 import { type RunExecutionManifest, runExecutionManifestSchema } from "../schema/runExecutionManifestSchema.js"
@@ -21,6 +22,7 @@ import { runExecutionManifestSelectionResolve } from "./runExecutionManifestSele
 import { runExecutionManifestToolDefaultsResolve } from "./runExecutionManifestToolDefaultsResolve.js"
 
 type RunExecutionSnapshotResolveOptions = {
+  agentPrompt?: unknown
   agentInstructions?: unknown
   command?: unknown
   commandCatalogDigest?: string | null
@@ -230,6 +232,17 @@ export function runExecutionSnapshotResolve(
     const resolved = agentConfigurationExecutionResolve(configuration, execution, parsedTarget.output.agentId)
     if (!resolved.success) return resolved
     snapshotConfiguration = resolved.data
+  }
+
+  if (options.agentPrompt !== undefined) {
+    const parsedAgentPrompt = v.safeParse(sessionAgentPromptSchema, options.agentPrompt)
+    if (!parsedAgentPrompt.success)
+      return runResultCreateError(
+        op,
+        "The run execution snapshot prompt is invalid.",
+        runErrorCodes.executionSnapshotInvalid,
+      )
+    agentPrompt = parsedAgentPrompt.output
   }
 
   const parsedSnapshotConfiguration = v.safeParse(agentConfigurationSchema, snapshotConfiguration)

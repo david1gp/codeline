@@ -11,6 +11,7 @@ import type { CommandSnapshot } from "../../commands/schema/commandSnapshotSchem
 import type { DatabaseClient } from "../../database/databaseClient.js"
 import { databaseExecutorTransactionRun } from "../../database/databaseExecutorTransactionRun.js"
 import { agentInstructionsDiscover } from "../../instructions/actions/agentInstructionsDiscover.js"
+import { agentInstructionsSnapshotOverrideApply } from "../../instructions/actions/agentInstructionsSnapshotOverrideApply.js"
 import { agentInstructionsSnapshotResolve } from "../../instructions/actions/agentInstructionsSnapshotResolve.js"
 import type { JournalEventRecipientResolver } from "../../journal/actions/journalEventRecipientResolver.js"
 import type { journalPostCommitPublishCreate } from "../../journal/actions/journalPostCommitPublishCreate.js"
@@ -52,6 +53,7 @@ export async function sessionCreate(
     "instructionSnapshot" | "metadata" | "projectPath" | "pinned"
   > & {
     command?: { arguments?: string; name: string }
+    instructionOverrides?: unknown
     metadata?: Record<string, unknown>
     projectPath?: string
   },
@@ -88,6 +90,12 @@ export async function sessionCreate(
   const instructionSnapshot = agentInstructionsSnapshotResolve(discoveredInstructions.data)
   if (!instructionSnapshot.success)
     return createResultError("sessionCreate", "The agent instruction snapshot is invalid.")
+  const effectiveInstructionSnapshot = agentInstructionsSnapshotOverrideApply({
+    overrides: input.instructionOverrides,
+    snapshot: instructionSnapshot.data,
+  })
+  if (!effectiveInstructionSnapshot.success)
+    return createResultError("sessionCreate", effectiveInstructionSnapshot.errorMessage)
 
   const discoveredCommands = await (options.commandCatalogDiscover ?? commandCatalogDiscover)({
     ...(options.globalCommandsPath === undefined ? {} : { globalCommandsPath: options.globalCommandsPath }),
@@ -228,7 +236,7 @@ export async function sessionCreate(
   }
 
   const executionManifest = runExecutionManifestSelectionResolve({
-    agentInstructions: instructionSnapshot.data,
+    agentInstructions: effectiveInstructionSnapshot.data,
     command:
       commandSnapshot === undefined || commandOverrides?.success !== true
         ? undefined
@@ -254,13 +262,13 @@ export async function sessionCreate(
   })
   if (!executionManifest.success) return createResultError("sessionCreate", executionManifest.errorMessage)
   const sessionId = uuidv7()
-  const { command: _command, ...repositoryInput } = input
+  const { command: _command, instructionOverrides: _instructionOverrides, ...repositoryInput } = input
   const mutation = (transaction: Parameters<typeof sessionRepositoryCreate>[0]) =>
     sessionRepositoryCreate(transaction, userId, options.organizationId, {
       ...repositoryInput,
       executionManifest: executionManifest.data,
       executionSelection,
-      instructionSnapshot: instructionSnapshot.data,
+      instructionSnapshot: effectiveInstructionSnapshot.data,
       id: sessionId,
       idempotencyKey: options.idempotencyKey,
       metadata: { ...input.metadata, ...commandMetadata },

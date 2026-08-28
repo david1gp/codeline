@@ -232,6 +232,7 @@ beforeAll(async () => {
       version: 1 as const,
     },
     id: fixture.selectedSessionId,
+    agentPrompt: "The parent session prompt.",
     instructionSnapshot: selectedInstructionSnapshot,
     metadata: {},
     primaryAgentId: fixture.agentId,
@@ -335,6 +336,7 @@ test.skipIf(!databaseAvailable)(
       clientRunId: `client-run-selected-${uuidv7()}`,
       snapshot: {
         ...input.snapshot,
+        agentPrompt: "The parent session prompt.",
         configuration: { ...input.snapshot.configuration, tools: { bash: true, webfetch: false } },
         executionManifest: selectionManifest,
       },
@@ -391,6 +393,7 @@ test.skipIf(!databaseAvailable)(
       parentRunId: root.data.run.id,
       snapshot: {
         ...root.data.run.snapshot,
+        agentPrompt: "The selected child agent prompt.",
         configuration: { ...root.data.run.snapshot.configuration, tools: { bash: false, webfetch: true } },
         executionManifest: explicitManifest,
         target: { agentId: fixture.selectedSubagentId, serverId: fixture.serverId },

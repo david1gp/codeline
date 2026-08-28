@@ -256,16 +256,27 @@ test.skipIf(!databaseAvailable)("session creation snapshots instructions before 
     if (!created.success) return
 
     expect(
-      created.data.session.instructionSnapshot.snapshots.map(({ source, scope, content }) => ({
+      created.data.session.instructionSnapshot.snapshots.map(({ canonicalPath, source, scope, content }) => ({
+        canonicalPath,
         content,
         scope,
         source,
       })),
     ).toEqual([
-      { content: "session global instructions", scope: "global", source: "global" },
-      { content: "session root instructions", scope: ".", source: "project" },
-      { content: "session src instructions", scope: "src", source: "project" },
+      {
+        canonicalPath: path.join(globalRoot, "AGENTS.md"),
+        content: "session global instructions",
+        scope: "global",
+        source: "global",
+      },
+      {
+        canonicalPath: path.join(projectRoot, "AGENTS.md"),
+        content: "session root instructions",
+        scope: ".",
+        source: "project",
+      },
     ])
+    expect(created.data.session.instructionSnapshot.snapshots.some(({ scope }) => scope === "src")).toBe(false)
     const [persisted] = await database.select().from(sessionTable).where(eq(sessionTable.id, created.data.session.id))
     expect(persisted?.instructionSnapshot).toEqual(created.data.session.instructionSnapshot)
 
@@ -289,4 +300,137 @@ test.skipIf(!databaseAvailable)("session creation snapshots instructions before 
       fs.rm(globalRoot, { force: true, recursive: true }),
     ])
   }
+})
+
+test.skipIf(!databaseAvailable)(
+  "session creation persists effective prompt and instruction overrides idempotently",
+  async () => {
+    if (userId === undefined) return
+    const projectsRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codeline-session-effective-context-projects-"))
+    const projectRoot = path.join(projectsRoot, "effective-context-project")
+    await fs.mkdir(projectRoot, { recursive: true })
+    const instructionPath = path.join(projectRoot, "AGENTS.md")
+    await fs.writeFile(instructionPath, "server instructions", "utf8")
+
+    try {
+      const input = {
+        agentPrompt: "Use the session prompt.",
+        clientRequestId: `session-test-effective-context-${uuidv7()}`,
+        instructionOverrides: { [instructionPath]: "edited café instructions" },
+        metadata: { context: "effective" },
+        primaryAgentId: fixture.agentId,
+        projectPath: projectRoot,
+        serverId: fixture.serverId,
+        title: "Effective context session",
+      }
+      const requestHash = apiIdempotencyRequestHashCreate(input)
+      const created = await sessionCreate(database, userId, input, {
+        idempotencyKey: input.clientRequestId,
+        organizationId: userId,
+        projectRootDirs: [projectsRoot],
+        requestHash,
+      })
+      expect(created).toMatchObject({
+        success: true,
+        data: { created: true, session: { agentPrompt: input.agentPrompt } },
+      })
+      if (!created.success) return
+
+      const effectiveEntry = created.data.session.instructionSnapshot.snapshots.find(
+        ({ canonicalPath }) => canonicalPath === instructionPath,
+      )
+      expect(effectiveEntry).toMatchObject({
+        canonicalPath: instructionPath,
+        content: "edited café instructions",
+        source: "project",
+      })
+      if (effectiveEntry === undefined) return
+      expect(effectiveEntry.size).toBe(Buffer.byteLength(effectiveEntry.content, "utf8"))
+      expect(created.data.session.executionManifest?.instructions.snapshots).toEqual(
+        created.data.session.instructionSnapshot.snapshots,
+      )
+
+      const [persisted] = await database.select().from(sessionTable).where(eq(sessionTable.id, created.data.session.id))
+      expect(persisted?.agentPrompt).toBe(input.agentPrompt)
+      expect(persisted?.instructionSnapshot).toEqual(created.data.session.instructionSnapshot)
+      expect(persisted?.executionManifest?.instructions).toEqual(created.data.session.instructionSnapshot)
+
+      const changedInstructions = await sessionCreate(
+        database,
+        userId,
+        { ...input, instructionOverrides: { [instructionPath]: "a different edit" } },
+        {
+          idempotencyKey: input.clientRequestId,
+          organizationId: userId,
+          projectRootDirs: [projectsRoot],
+          requestHash: apiIdempotencyRequestHashCreate({
+            ...input,
+            instructionOverrides: { [instructionPath]: "a different edit" },
+          }),
+        },
+      )
+      expect(changedInstructions).toMatchObject({ code: "idempotency_conflict", success: false })
+
+      const changed = await sessionCreate(
+        database,
+        userId,
+        { ...input, agentPrompt: "A different session prompt." },
+        {
+          idempotencyKey: input.clientRequestId,
+          organizationId: userId,
+          projectRootDirs: [projectsRoot],
+          requestHash: apiIdempotencyRequestHashCreate({ ...input, agentPrompt: "A different session prompt." }),
+        },
+      )
+      expect(changed).toMatchObject({ code: "idempotency_conflict", success: false })
+
+      const replayed = await sessionCreate(database, userId, input, {
+        idempotencyKey: input.clientRequestId,
+        organizationId: userId,
+        projectRootDirs: [projectsRoot],
+        requestHash,
+      })
+      expect(replayed).toMatchObject({ success: true, data: { replayed: true } })
+      if (replayed.success) {
+        expect(replayed.data.session.agentPrompt).toBe(input.agentPrompt)
+        expect(replayed.data.session.instructionSnapshot).toEqual(created.data.session.instructionSnapshot)
+        await sessionDelete(database, userId, replayed.data.session.id)
+      }
+    } finally {
+      await fs.rm(projectsRoot, { force: true, recursive: true })
+    }
+  },
+)
+
+test.skipIf(!databaseAvailable)("session creation distinguishes an empty prompt from an omitted prompt", async () => {
+  if (userId === undefined) return
+
+  const empty = await sessionCreate(
+    database,
+    userId,
+    {
+      agentPrompt: "",
+      clientRequestId: `session-test-empty-prompt-${uuidv7()}`,
+      primaryAgentId: fixture.agentId,
+      serverId: fixture.serverId,
+      title: "Empty session prompt",
+    },
+    { organizationId: userId },
+  )
+  const omitted = await sessionCreate(
+    database,
+    userId,
+    {
+      clientRequestId: `session-test-omitted-prompt-${uuidv7()}`,
+      primaryAgentId: fixture.agentId,
+      serverId: fixture.serverId,
+      title: "Omitted session prompt",
+    },
+    { organizationId: userId },
+  )
+
+  expect(empty).toMatchObject({ success: true, data: { session: { agentPrompt: "" } } })
+  expect(omitted).toMatchObject({ success: true, data: { session: { agentPrompt: null } } })
+  if (empty.success) await sessionDelete(database, userId, empty.data.session.id)
+  if (omitted.success) await sessionDelete(database, userId, omitted.data.session.id)
 })

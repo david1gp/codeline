@@ -5,6 +5,7 @@ import { sessionExecutionResourceSummaryCreate } from "./sessionExecutionResourc
 import { type SessionShell, sessionShellSchema } from "./sessionShellSchema.js"
 
 type SessionShellSource = {
+  agentPrompt?: string | null
   archivedAt: Date | string | null
   createdAt: Date | string
   executionManifest?: unknown
@@ -37,6 +38,7 @@ export function sessionShellCreate(session: SessionShellSource): Result<SessionS
 
   const parsed = v.safeParse(sessionShellSchema, {
     archivedAt: archivedAt ?? null,
+    agentPrompt: session.agentPrompt ?? null,
     createdAt,
     executionResources: executionResources.data,
     executionSelection: session.executionSelection ?? null,

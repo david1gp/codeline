@@ -194,6 +194,69 @@ test("run execution snapshot freezes the catalog revision, model metadata, promp
   expect(resolved.data.agentPrompt).toBe(snapshotPrompt)
 })
 
+test("run execution snapshot prefers the session prompt override", async () => {
+  const store = await createStore()
+  const written = await configurationStoreWrite(store, {
+    agentConfigurations: [
+      {
+        configuration: { model: "prompt-override-model", provider: "deterministic" },
+        target: { agentId: "build", serverId: "server-1" },
+      },
+    ],
+    version: 1,
+  })
+  expect(written.success).toBe(true)
+  if (!written.success) return
+
+  const catalogResult = await providerAgentCatalogLoad(process.cwd())
+  expect(catalogResult.success).toBe(true)
+  if (!catalogResult.success) return
+
+  const resolved = runExecutionSnapshotResolve({ agentId: "build", serverId: "server-1" }, store, {
+    agentPrompt: "Use the session-specific prompt.",
+    catalog: catalogResult.data,
+  })
+
+  expect(resolved).toMatchObject({ success: true, data: { agentPrompt: "Use the session-specific prompt." } })
+})
+
+test("run execution snapshot resolves a selected child agent's own prompt", async () => {
+  const store = await createStore()
+  const written = await configurationStoreWrite(store, {
+    agentConfigurations: [
+      {
+        configuration: { model: "child-prompt-model", provider: "deterministic" },
+        target: { agentId: "child-agent", serverId: "server-1" },
+      },
+    ],
+    version: 1,
+  })
+  expect(written.success).toBe(true)
+  if (!written.success) return
+
+  const catalogResult = await providerAgentCatalogLoad(process.cwd())
+  expect(catalogResult.success).toBe(true)
+  if (!catalogResult.success) return
+
+  const childCatalog = structuredClone(catalogResult.data)
+  const sourceAgent = childCatalog.agents[0]
+  expect(sourceAgent).toBeDefined()
+  if (sourceAgent === undefined) return
+  childCatalog.agents = [
+    {
+      ...sourceAgent,
+      id: "child-agent",
+      prompt: "The selected child agent prompt.",
+    },
+  ]
+
+  const resolved = runExecutionSnapshotResolve({ agentId: "child-agent", serverId: "server-1" }, store, {
+    catalog: childCatalog,
+  })
+
+  expect(resolved).toMatchObject({ success: true, data: { agentPrompt: "The selected child agent prompt." } })
+})
+
 test("run execution snapshot captures validated selection tools in its manifest", async () => {
   const store = await createStore()
   const written = await configurationStoreWrite(store, configuration("selection-model"))
