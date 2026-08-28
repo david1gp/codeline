@@ -99,6 +99,31 @@ test("returns a timeout while terminating a sleeping command", async () => {
   expect(Date.now() - startedAt).toBeLessThan(2_000)
 })
 
+test("times out when a descendant keeps stdout and stderr open after the shell exits", async () => {
+  const controller = new AbortController()
+  const execution = bashExecute(
+    { command: "sleep 10 & exit 0" },
+    { projectRoot, signal: controller.signal, timeoutMs: 50 },
+  )
+  let hungTimer: ReturnType<typeof setTimeout> | undefined
+  const result = await Promise.race([
+    execution,
+    new Promise<"hung">((resolve) => {
+      hungTimer = setTimeout(() => resolve("hung"), 1_000)
+    }),
+  ])
+  if (hungTimer !== undefined) clearTimeout(hungTimer)
+  controller.abort()
+  await execution
+
+  expect(result).not.toBe("hung")
+  expect(result).toMatchObject({
+    code: toolErrorCodes.timeout,
+    errorMessage: "The bash command timed out.",
+    success: false,
+  })
+})
+
 test("cancels while stdout and stderr reads are waiting for the process", async () => {
   const controller = new AbortController()
   const execution = bashExecute(

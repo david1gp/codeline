@@ -291,7 +291,6 @@ async function bashExecuteProcessRun(
 
   void child.exited.then(
     (exitCode) => {
-      if (timeoutHandle !== undefined) clearTimeout(timeoutHandle)
       settleProcessStatus({ exitCode, type: "finished" })
     },
     () => settleProcessStatus({ type: "failed" }),
@@ -305,7 +304,7 @@ async function bashExecuteProcessRun(
   })
   const [stdoutStatus, stderrStatus, exitStatus] = statuses
 
-  if (exitStatus.type === "aborted") {
+  if (outputSignal.aborted || exitStatus.type === "aborted") {
     const abortKind = bashExecuteAbortKindResolve(outputSignal)
     return bashExecuteError(
       abortKind === "timeout" ? toolErrorCodes.timeout : toolErrorCodes.aborted,
