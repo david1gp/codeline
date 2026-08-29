@@ -253,6 +253,46 @@ test("deduplicates the prepared user by durable identity rather than content", a
     expect(result.data.history.filter((message) => message.id === `${sessionId}-message-2`)).toHaveLength(1)
 })
 
+test("retains a conflicting durable user instead of matching it by sequence", async () => {
+  const sessionId = "session-chat-context-conflicting-identity"
+  const prompt = "current prompt"
+  await sessionCreate(sessionId, [
+    { content: "old context", role: "user" },
+    { content: prompt, role: "user" },
+  ])
+  const reconstructed = await sessionCompactionContextReconstruct(
+    database,
+    fixture.userId,
+    fixture.organizationId,
+    sessionId,
+  )
+  expect(reconstructed.success).toBe(true)
+  if (!reconstructed.success) return
+
+  const conflictingMessage = {
+    content: "conflicting message ".repeat(1_000),
+    id: "different-user",
+    role: "user" as const,
+    sequence: 2,
+  }
+  const result = await sessionChatContextPrepare({
+    ...contextOptions(
+      sessionId,
+      [...reconstructed.data.history, conflictingMessage],
+      prompt,
+      {},
+      {
+        id: `${sessionId}-message-2`,
+        sequence: 2,
+      },
+    ),
+    contextLimitTokens: 1_000,
+  })
+
+  expect(result).toMatchObject({ success: true, data: { advanced: true } })
+  if (result.success) expect(result.data.history).toContainEqual(conflictingMessage)
+})
+
 test("does not compact when compaction is disabled", async () => {
   const sessionId = "session-chat-context-compaction-disabled"
   await sessionCreate(sessionId, [

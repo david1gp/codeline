@@ -6,6 +6,7 @@ import { databaseExecutorTransactionRun } from "../../database/databaseExecutorT
 import { serverTable } from "../../servers/db/serverTable.js"
 import { sessionTable } from "../../session/db/sessionTable.js"
 import { uuidv7 } from "../../uuid/uuidv7.js"
+import { sessionCompactionCoverageValidate } from "./sessionCompactionCoverageValidate.js"
 import { sessionCompactionTable } from "./sessionCompactionTable.js"
 
 const sessionCompactionBeginInputSchema = v.object({
@@ -68,6 +69,13 @@ export async function sessionCompactionRepositoryBegin(
 
       if (parsedInput.output.sourceRevision !== session.session.revision)
         return createResultError(op, "The compaction source revision does not match the session revision.")
+
+      const coverage = await sessionCompactionCoverageValidate(
+        transaction,
+        sessionId,
+        parsedInput.output.coveredSequence,
+      )
+      if (!coverage.success) return createResultError(op, coverage.errorMessage)
 
       const [latest] = await transaction
         .select({

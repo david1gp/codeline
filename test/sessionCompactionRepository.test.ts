@@ -13,6 +13,7 @@ import { databaseConnectionClose } from "../src/database/databaseConnectionClose
 import { databaseConnectionCreate } from "../src/database/databaseConnectionCreate.js"
 import { databaseMigrate } from "../src/database/databaseMigrate.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
+import { messageRepositoryAppend } from "../src/message/db/messageRepositoryAppend.js"
 import { messageTable } from "../src/message/db/messageTable.js"
 import { organizationTable } from "../src/identity/db/organizationTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
@@ -241,12 +242,12 @@ test("compaction actions do not cross user or organization session boundaries", 
 test("compaction reservation is serialized so concurrent starts leave one active row", async () => {
   const results = await Promise.all([
     sessionCompactionBegin(database, fixture.userId, fixture.organizationId, fixture.sessionId, {
-      coveredSequence: 3,
+      coveredSequence: 2,
       id: "session-compaction-operation-concurrent-1",
       sourceRevision: 2,
     }),
     sessionCompactionBegin(database, fixture.userId, fixture.organizationId, fixture.sessionId, {
-      coveredSequence: 3,
+      coveredSequence: 2,
       id: "session-compaction-operation-concurrent-2",
       sourceRevision: 2,
     }),
@@ -259,4 +260,194 @@ test("compaction reservation is serialized so concurrent starts leave one active
     .from(sessionCompactionTable)
     .where(and(eq(sessionCompactionTable.sessionId, fixture.sessionId), eq(sessionCompactionTable.status, "running")))
   expect(active).toHaveLength(1)
+})
+
+async function sessionCreate(sessionId: string, sequences: readonly number[]): Promise<void> {
+  await database.insert(sessionTable).values({
+    clientRequestId: `${sessionId}-request`,
+    id: sessionId,
+    primaryAgentId: fixture.agentId,
+    serverId: fixture.serverId,
+    title: sessionId,
+    userId: fixture.userId,
+  })
+  await database.insert(messageTable).values(
+    sequences.map((sequence) => ({
+      agentId: fixture.agentId,
+      clientRequestId: `${sessionId}-message-${sequence}`,
+      content: `message ${sequence}`,
+      id: `${sessionId}-message-${sequence}`,
+      role: sequence % 2 === 1 ? ("user" as const) : ("assistant" as const),
+      sequence,
+      sessionId,
+    })),
+  )
+}
+
+test("validates compactable coverage ranges at begin", async () => {
+  const validSessionId = "session-compaction-coverage-valid"
+  const zeroSessionId = "session-compaction-coverage-zero"
+  const futureSessionId = "session-compaction-coverage-future"
+  const gapSessionId = "session-compaction-coverage-gap"
+  await sessionCreate(validSessionId, [1, 2, 3])
+  await sessionCreate(zeroSessionId, [1])
+  await sessionCreate(futureSessionId, [1, 2])
+  await sessionCreate(gapSessionId, [1, 3])
+
+  const valid = await sessionCompactionBegin(database, fixture.userId, fixture.organizationId, validSessionId, {
+    coveredSequence: 2,
+    id: "session-compaction-coverage-valid-operation",
+    sourceRevision: 1,
+  })
+  expect(valid).toMatchObject({ success: true, data: { created: true, compaction: { coveredSequence: 2 } } })
+  if (!valid.success) return
+  expect(
+    await sessionCompactionFinalize(database, fixture.userId, fixture.organizationId, validSessionId, {
+      compactionId: valid.data.compaction.id,
+      summary: "valid coverage",
+    }),
+  ).toMatchObject({ success: true, data: { changed: true } })
+
+  expect(
+    await sessionCompactionBegin(database, fixture.userId, fixture.organizationId, zeroSessionId, {
+      coveredSequence: 0,
+      id: "session-compaction-coverage-zero-operation",
+      sourceRevision: 1,
+    }),
+  ).toMatchObject({ success: false, errorMessage: "The compaction coverage boundary must be positive." })
+  expect(
+    await sessionCompactionBegin(database, fixture.userId, fixture.organizationId, futureSessionId, {
+      coveredSequence: 3,
+      id: "session-compaction-coverage-future-operation",
+      sourceRevision: 1,
+    }),
+  ).toMatchObject({
+    success: false,
+    errorMessage: "The compaction coverage boundary is not a durable message sequence.",
+  })
+  expect(
+    await sessionCompactionBegin(database, fixture.userId, fixture.organizationId, gapSessionId, {
+      coveredSequence: 3,
+      id: "session-compaction-coverage-gap-operation",
+      sourceRevision: 1,
+    }),
+  ).toMatchObject({
+    success: false,
+    errorMessage: "The durable message sequence contains a missing range.",
+  })
+})
+
+test("rejects a reversed tail boundary after a successful compaction", async () => {
+  const sessionId = "session-compaction-coverage-reversed"
+  await sessionCreate(sessionId, [1, 2, 3])
+  const first = await sessionCompactionBegin(database, fixture.userId, fixture.organizationId, sessionId, {
+    coveredSequence: 2,
+    id: "session-compaction-coverage-reversed-first",
+    sourceRevision: 1,
+  })
+  expect(first.success).toBe(true)
+  if (!first.success) return
+  expect(
+    await sessionCompactionFinalize(database, fixture.userId, fixture.organizationId, sessionId, {
+      compactionId: first.data.compaction.id,
+      summary: "first coverage",
+    }),
+  ).toMatchObject({ success: true })
+
+  expect(
+    await sessionCompactionBegin(database, fixture.userId, fixture.organizationId, sessionId, {
+      coveredSequence: 1,
+      id: "session-compaction-coverage-reversed-second",
+      sourceRevision: 2,
+    }),
+  ).toMatchObject({ success: false, errorMessage: "The compaction source cannot move backwards." })
+})
+
+test("revalidates the durable coverage range at finalize", async () => {
+  const sessionId = "session-compaction-coverage-finalize"
+  await sessionCreate(sessionId, [1, 2])
+  const begun = await sessionCompactionBegin(database, fixture.userId, fixture.organizationId, sessionId, {
+    coveredSequence: 2,
+    id: "session-compaction-coverage-finalize-operation",
+    sourceRevision: 1,
+  })
+  expect(begun.success).toBe(true)
+  if (!begun.success) return
+
+  await database.delete(messageTable).where(and(eq(messageTable.sessionId, sessionId), eq(messageTable.sequence, 2)))
+  expect(
+    await sessionCompactionFinalize(database, fixture.userId, fixture.organizationId, sessionId, {
+      compactionId: begun.data.compaction.id,
+      summary: "must not activate",
+    }),
+  ).toMatchObject({
+    success: false,
+    errorMessage: "The compaction coverage boundary is not a durable message sequence.",
+  })
+  await sessionCompactionFail(database, fixture.userId, fixture.organizationId, sessionId, {
+    compactionId: begun.data.compaction.id,
+    errorMessage: "missing durable sequence",
+  })
+})
+
+test("rejects finalization after a stale revision and concurrent append", async () => {
+  const staleSessionId = "session-compaction-coverage-stale"
+  await sessionCreate(staleSessionId, [1, 2])
+  const staleBegin = await sessionCompactionBegin(database, fixture.userId, fixture.organizationId, staleSessionId, {
+    coveredSequence: 1,
+    id: "session-compaction-coverage-stale-operation",
+    sourceRevision: 1,
+  })
+  expect(staleBegin.success).toBe(true)
+  if (!staleBegin.success) return
+  expect(
+    await messageRepositoryAppend(database, fixture.userId, staleSessionId, {
+      clientRequestId: "session-compaction-coverage-stale-message",
+      content: "new tail",
+      role: "user",
+    }),
+  ).toMatchObject({ success: true, data: { message: { sequence: 3 } } })
+  expect(
+    await sessionCompactionFinalize(database, fixture.userId, fixture.organizationId, staleSessionId, {
+      compactionId: staleBegin.data.compaction.id,
+      summary: "must not activate",
+    }),
+  ).toMatchObject({ success: false, errorMessage: "The session changed during compaction." })
+  await sessionCompactionFail(database, fixture.userId, fixture.organizationId, staleSessionId, {
+    compactionId: staleBegin.data.compaction.id,
+    errorMessage: "stale revision",
+  })
+
+  const concurrentSessionId = "session-compaction-coverage-concurrent"
+  await sessionCreate(concurrentSessionId, [1])
+  const [begun, appended] = await Promise.all([
+    sessionCompactionBegin(database, fixture.userId, fixture.organizationId, concurrentSessionId, {
+      coveredSequence: 1,
+      id: "session-compaction-coverage-concurrent-operation",
+      sourceRevision: 1,
+    }),
+    messageRepositoryAppend(database, fixture.userId, concurrentSessionId, {
+      clientRequestId: "session-compaction-coverage-concurrent-message",
+      content: "concurrent tail",
+      role: "assistant",
+    }),
+  ])
+  expect(appended).toMatchObject({ success: true, data: { message: { sequence: 2 } } })
+  if (!begun.success) {
+    expect(begun.errorMessage).toBe("The compaction source revision does not match the session revision.")
+    return
+  }
+  expect(begun.data.created).toBe(true)
+  const finalized = await sessionCompactionFinalize(
+    database,
+    fixture.userId,
+    fixture.organizationId,
+    concurrentSessionId,
+    { compactionId: begun.data.compaction.id, summary: "must not activate" },
+  )
+  expect(finalized).toMatchObject({ success: false, errorMessage: "The session changed during compaction." })
+  await sessionCompactionFail(database, fixture.userId, fixture.organizationId, concurrentSessionId, {
+    compactionId: begun.data.compaction.id,
+    errorMessage: "concurrent stale revision",
+  })
 })

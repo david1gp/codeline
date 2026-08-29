@@ -1,6 +1,6 @@
 import * as os from "node:os"
 import * as path from "node:path"
-import { createResult, createResultError, type Result } from "@adaptive-ds/result"
+import { createResult, createResultError, createResultErrorCode, type Result } from "@adaptive-ds/result"
 import type { Context } from "hono"
 import { Hono } from "hono"
 import * as v from "valibot"
@@ -135,6 +135,23 @@ function internalServerError(context: ApiContext) {
 function sessionChatCompactionFailureMessageResolve(message: string): string {
   const resolved = message.trim()
   return (resolved.length === 0 ? "The compaction failed." : resolved).slice(0, 2_000)
+}
+
+function sessionChatCompactionFailureResolve(error: unknown): { code: string; message: string } {
+  let code: unknown
+  let message: unknown
+  if (typeof error === "string") message = error
+  if (error instanceof Error) message = error.message
+  if (typeof error === "object" && error !== null) {
+    if ("code" in error) code = error.code
+    if ("errorMessage" in error) message = error.errorMessage
+    else if ("message" in error) message = error.message
+  }
+  const resolvedCode = typeof code === "string" ? code.trim().slice(0, 100) : ""
+  return {
+    code: resolvedCode.length === 0 ? "compaction_failed" : resolvedCode,
+    message: sessionChatCompactionFailureMessageResolve(typeof message === "string" ? message : ""),
+  }
 }
 
 function preconditionFailed(context: ApiContext, errorData: string | null | undefined, message: string, op: string) {
@@ -1021,6 +1038,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
             },
             sessionId,
             userId,
+            ...(manualCompactionRequested ? { runTransition: runTransitionAction } : {}),
           })
     let providerOutput = createdProviderOutput
     if (options.runActiveRegistry !== undefined) {
@@ -1073,16 +1091,21 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     }
 
     if (manualCompactionRequested) {
+      let manualCompactionTerminalStatus: "aborted" | "failed" | "succeeded" | undefined
+      let manualCompactionFailurePromise: Promise<Result<void>> | undefined
+      let manualCompactionAbortPromise: Promise<Result<void>> | undefined
       const manualCompactionRunFinalize = async (input: {
         failure?: { code: string; message: string }
         reason?: string
         status: "aborted" | "failed" | "succeeded"
       }): Promise<Result<void>> => {
+        if (manualCompactionTerminalStatus !== undefined) return createResult(undefined)
         if (providerOutput !== undefined) {
           const finalized = await providerOutput.finalize(input)
           if (!finalized.success) return finalized
           activeRun = finalized.data.run
           activeAttempt = finalized.data.attempt
+          manualCompactionTerminalStatus = input.status
           return createResult(undefined)
         }
         if (activeRun === undefined) return createResult(undefined)
@@ -1106,13 +1129,119 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
         if (!transitioned.success) return transitioned
         activeRun = transitioned.data.run
         activeAttempt = transitioned.data.attempt
+        manualCompactionTerminalStatus = input.status
         return createResult(undefined)
+      }
+
+      const manualCompactionRunFinalizeAttempt = async (input: Parameters<typeof manualCompactionRunFinalize>[0]) => {
+        try {
+          return await manualCompactionRunFinalize(input)
+        } catch (error: unknown) {
+          const failure = sessionChatCompactionFailureResolve(error)
+          return createResultErrorCode("manualCompactionRunFinalize", failure.message, failure.code)
+        }
+      }
+
+      const manualCompactionRunDurableStateResolve = async (): Promise<Result<boolean>> => {
+        if (manualCompactionTerminalStatus !== undefined) return createResult(true)
+        try {
+          const loadedRun = await runLoadAction(options.database, userId, sessionId, commandRunId)
+          if (!loadedRun.success) return loadedRun
+          activeRun = loadedRun.data.run
+          activeAttempt = loadedRun.data.attempt
+          if (
+            loadedRun.data.run.status === "aborted" ||
+            loadedRun.data.run.status === "failed" ||
+            loadedRun.data.run.status === "succeeded"
+          ) {
+            manualCompactionTerminalStatus = loadedRun.data.run.status
+            return createResult(true)
+          }
+          return createResult(false)
+        } catch (error: unknown) {
+          const failure = sessionChatCompactionFailureResolve(error)
+          return createResultErrorCode("manualCompactionRunDurableStateResolve", failure.message, failure.code)
+        }
+      }
+
+      const manualCompactionRunFailureFinalize = (failure: {
+        code: string
+        message: string
+      }): Promise<Result<void>> => {
+        if (manualCompactionFailurePromise !== undefined) return manualCompactionFailurePromise
+        manualCompactionFailurePromise = (async () => {
+          try {
+            if (manualCompactionTerminalStatus !== undefined) return createResult(undefined)
+            const current = await manualCompactionRunDurableStateResolve()
+            if (current.success && current.data) return createResult(undefined)
+
+            const finalized = await manualCompactionRunFinalizeAttempt({ failure, status: "failed" })
+            if (finalized.success) return finalized
+            const afterFinalization = await manualCompactionRunDurableStateResolve()
+            if (afterFinalization.success && afterFinalization.data) return createResult(undefined)
+
+            const retried = await manualCompactionRunFinalizeAttempt({ failure, status: "failed" })
+            if (retried.success) return retried
+            const afterRetry = await manualCompactionRunDurableStateResolve()
+            if (afterRetry.success && afterRetry.data) return createResult(undefined)
+            return retried
+          } catch (error: unknown) {
+            const resolved = sessionChatCompactionFailureResolve(error)
+            return createResultErrorCode("manualCompactionRunFailureFinalize", resolved.message, resolved.code)
+          }
+        })()
+        return manualCompactionFailurePromise
+      }
+
+      const manualCompactionRunAbortFinalize = (): Promise<Result<void>> => {
+        if (manualCompactionAbortPromise !== undefined) return manualCompactionAbortPromise
+        manualCompactionAbortPromise = (async () => {
+          try {
+            if (manualCompactionTerminalStatus !== undefined) return createResult(undefined)
+            const current = await manualCompactionRunDurableStateResolve()
+            if (current.success && current.data) return createResult(undefined)
+
+            const finalized = await manualCompactionRunFinalizeAttempt({
+              reason: "The chat run was aborted.",
+              status: "aborted",
+            })
+            if (finalized.success) return finalized
+            const afterFinalization = await manualCompactionRunDurableStateResolve()
+            if (afterFinalization.success && afterFinalization.data) return createResult(undefined)
+
+            const retried = await manualCompactionRunFinalizeAttempt({
+              reason: "The chat run was aborted.",
+              status: "aborted",
+            })
+            if (retried.success) return retried
+            const afterRetry = await manualCompactionRunDurableStateResolve()
+            if (afterRetry.success && afterRetry.data) return createResult(undefined)
+            return retried
+          } catch (error: unknown) {
+            const failure = sessionChatCompactionFailureResolve(error)
+            return createResultErrorCode("manualCompactionRunAbortFinalize", failure.message, failure.code)
+          }
+        })()
+        return manualCompactionAbortPromise
+      }
+
+      const manualCompactionRunFailureFinalizeChecked = async (failure: {
+        code: string
+        message: string
+      }): Promise<void> => {
+        const finalized = await manualCompactionRunFailureFinalize(failure)
+        if (!finalized.success) throw new Error(finalized.errorMessage)
+      }
+
+      const manualCompactionRunAbortFinalizeChecked = async (): Promise<void> => {
+        const finalized = await manualCompactionRunAbortFinalize()
+        if (!finalized.success) throw new Error(finalized.errorMessage)
       }
 
       const manualCompactionExecute = async (): Promise<void> => {
         try {
           if (executionSignal.aborted) {
-            await manualCompactionRunFinalize({ reason: "The chat run was aborted.", status: "aborted" })
+            await manualCompactionRunAbortFinalizeChecked()
             return
           }
 
@@ -1126,9 +1255,9 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
             sessionChatContextLimitResolve(runtimeConfiguration, runtimeModelContextLimitTokens),
           )
           if (policy === undefined) {
-            await manualCompactionRunFinalize({
-              failure: { code: "compaction_failed", message: "The compaction configuration is invalid." },
-              status: "failed",
+            await manualCompactionRunFailureFinalizeChecked({
+              code: "compaction_failed",
+              message: "The compaction configuration is invalid.",
             })
             return
           }
@@ -1147,41 +1276,37 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
             sourceRevision: loaded.data.session.revision,
           })
           if (executionSignal.aborted) {
-            await manualCompactionRunFinalize({ reason: "The chat run was aborted.", status: "aborted" })
+            await manualCompactionRunAbortFinalizeChecked()
             return
           }
           if (!generated.success) {
-            await manualCompactionRunFinalize({
-              failure: {
-                code: "compaction_failed",
-                message: sessionChatCompactionFailureMessageResolve(generated.errorMessage),
-              },
-              status: "failed",
-            })
+            await manualCompactionRunFailureFinalizeChecked(sessionChatCompactionFailureResolve(generated))
             return
           }
-          await manualCompactionRunFinalize({ status: "succeeded" })
+          const finalized = await manualCompactionRunFinalizeAttempt({ status: "succeeded" })
+          if (finalized.success) return
+          await manualCompactionRunFailureFinalizeChecked(sessionChatCompactionFailureResolve(finalized))
         } catch (error: unknown) {
           if (executionSignal.aborted) {
-            await manualCompactionRunFinalize({ reason: "The chat run was aborted.", status: "aborted" })
+            await manualCompactionRunAbortFinalizeChecked()
             return
           }
-          await manualCompactionRunFinalize({
-            failure: {
-              code: "compaction_failed",
-              message: sessionChatCompactionFailureMessageResolve(
-                error instanceof Error ? error.message : "The compaction failed.",
-              ),
-            },
-            status: "failed",
-          })
+          await manualCompactionRunFailureFinalizeChecked(sessionChatCompactionFailureResolve(error))
         } finally {
           unregisterCancellation?.()
           unregisterShutdown?.()
         }
       }
 
-      void manualCompactionExecute().catch(() => undefined)
+      void manualCompactionExecute().catch((error: unknown) => {
+        const handling = executionSignal.aborted
+          ? manualCompactionRunAbortFinalize()
+          : manualCompactionRunFailureFinalize(sessionChatCompactionFailureResolve(error))
+        void handling.then((result) => {
+          if (result.success) return
+          console.error("Manual compaction terminal handling failed.", result)
+        })
+      })
       return context.json(commandResponse.data)
     }
 

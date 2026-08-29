@@ -47,10 +47,9 @@ function sessionChatContextPreparedUserMessageMatches(
   message: CompactionMessage,
   preparedUserMessage: { id: string; sequence: number },
 ): boolean {
-  return (
-    message.role === "user" &&
-    (message.id === preparedUserMessage.id || message.sequence === preparedUserMessage.sequence)
-  )
+  if (message.role !== "user") return false
+  if (message.id !== undefined) return message.id === preparedUserMessage.id
+  return message.sequence === preparedUserMessage.sequence
 }
 
 function sessionChatContextProjectedMessagesResolve(

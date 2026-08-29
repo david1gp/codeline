@@ -5,6 +5,7 @@ import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { databaseExecutorTransactionRun } from "../../database/databaseExecutorTransactionRun.js"
 import { serverTable } from "../../servers/db/serverTable.js"
 import { sessionTable } from "../../session/db/sessionTable.js"
+import { sessionCompactionCoverageValidate } from "./sessionCompactionCoverageValidate.js"
 import { sessionCompactionTable } from "./sessionCompactionTable.js"
 
 const sessionCompactionFinalizeInputSchema = v.object({
@@ -63,6 +64,9 @@ export async function sessionCompactionRepositoryFinalize(
         return createResultError(op, "The session revision is older than the compaction source.")
       if (session.session.revision > compaction.sourceRevision)
         return sessionCompactionConflict(op, "The session changed during compaction.")
+
+      const coverage = await sessionCompactionCoverageValidate(transaction, sessionId, compaction.coveredSequence)
+      if (!coverage.success) return createResultError(op, coverage.errorMessage)
 
       const [previous] = await transaction
         .select({

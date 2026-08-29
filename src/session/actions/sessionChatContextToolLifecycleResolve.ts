@@ -9,10 +9,9 @@ function sessionChatContextPreparedUserMessageMatches(
   message: CompactionMessage,
   preparedUserMessage: { id: string; sequence: number },
 ): boolean {
-  return (
-    message.role === "user" &&
-    (message.id === preparedUserMessage.id || message.sequence === preparedUserMessage.sequence)
-  )
+  if (message.role !== "user") return false
+  if (message.id !== undefined) return message.id === preparedUserMessage.id
+  return message.sequence === preparedUserMessage.sequence
 }
 
 function sessionChatContextPreparedUserIndexResolve(
@@ -31,6 +30,7 @@ function sessionChatContextPreparedUserIndexResolve(
 
 function sessionChatContextToolLifecycleComplete(history: readonly CompactionMessage[]): boolean {
   const pendingToolCallIds = new Set<string>()
+  const assistantToolCallIds = new Set<string>()
   let lifecycleFound = false
   for (const message of history) {
     if (message.role === "assistant" && (message.toolCalls?.length ?? 0) > 0) {
@@ -38,6 +38,8 @@ function sessionChatContextToolLifecycleComplete(history: readonly CompactionMes
       for (const toolCall of message.toolCalls ?? []) {
         const toolCallId = toolCall.toolCallId ?? toolCall.id
         if (toolCallId === undefined || toolCallId.length === 0) return false
+        if (assistantToolCallIds.has(toolCallId)) return false
+        assistantToolCallIds.add(toolCallId)
         pendingToolCallIds.add(toolCallId)
       }
     }

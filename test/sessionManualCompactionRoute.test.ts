@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto"
 import { mkdtemp, rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-import { createResult, createResultError } from "@adaptive-ds/result"
+import { createResult, createResultError, createResultErrorCode } from "@adaptive-ds/result"
 import { EventType, type StreamChunk } from "@tanstack/ai"
 import { asc, eq } from "drizzle-orm"
 import { Hono } from "hono"
@@ -25,6 +25,7 @@ import { messageTable } from "../src/message/db/messageTable.js"
 import type { CliProxyApiAdapter, CliProxyApiAdapterInput } from "../src/providers/runtime/cliProxyApiAdapterCreate.js"
 import type { ProviderRuntimeAdapterOptions } from "../src/providers/runtime/providerRuntimeAdapterCreate.js"
 import { runTable } from "../src/run/db/runTable.js"
+import { runTransition } from "../src/run/actions/runTransition.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { apiSessionRoutesAdd } from "../src/session/api/apiSessionRoutesAdd.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
@@ -90,6 +91,7 @@ function manualCompactionAppCreate(
   options: {
     auto?: boolean
     providerRuntimeAdapterCreate?: (options: ProviderRuntimeAdapterOptions) => CliProxyApiAdapter
+    runTransition?: typeof runTransition
     sessionCompactionGenerate?: typeof sessionCompactionGenerate
   } = {},
 ) {
@@ -103,6 +105,7 @@ function manualCompactionAppCreate(
     ...(options.providerRuntimeAdapterCreate === undefined
       ? {}
       : { providerRuntimeAdapterCreate: options.providerRuntimeAdapterCreate }),
+    ...(options.runTransition === undefined ? {} : { runTransition: options.runTransition }),
     ...(options.sessionCompactionGenerate === undefined
       ? {}
       : { sessionCompactionGenerate: options.sessionCompactionGenerate }),
@@ -159,6 +162,22 @@ async function runWait(clientRunId: string): Promise<typeof runTable.$inferSelec
     await new Promise((resolve) => setTimeout(resolve, 5))
   }
   throw new Error(`Timed out waiting for run ${clientRunId}.`)
+}
+
+async function runTerminalEventTypes(runId: string): Promise<string[]> {
+  const events = await database
+    .select({ eventType: journalEventTable.eventType })
+    .from(journalEventTable)
+    .where(eq(journalEventTable.runId, runId))
+  return events
+    .map(({ eventType }) => eventType)
+    .filter((eventType) => eventType === "run-completed" || eventType === "run-failed" || eventType === "run-cancelled")
+}
+
+async function expectNoActiveRun(app: ReturnType<typeof appCreate>, sessionId: string): Promise<void> {
+  const response = await app.request(`http://codeline.test/api/sessions/${sessionId}/active-runs`)
+  expect(response.status).toBe(200)
+  expect(await response.json()).toEqual({ runs: [] })
 }
 
 function summaryAdapterCreate(observed: CliProxyApiAdapterInput[]) {
@@ -327,6 +346,81 @@ test("manual compaction publishes an established failure for busy generation", a
       .from(journalEventTable)
       .where(eq(journalEventTable.runId, run.id)),
   ).toContainEqual({ eventType: "run-failed" })
+})
+
+test("manual compaction finalizes a run when the summary action rejects", async () => {
+  const app = manualCompactionAppCreate({
+    sessionCompactionGenerate: async () => {
+      throw createResultErrorCode("failureInjection", "The summary action was rejected.", "summary_action_rejected")
+    },
+  })
+  const { runId, sessionId } = await sessionCreate()
+  expect((await chatStart(app, sessionId, runId)).status).toBe(200)
+
+  const run = await runWait(runId)
+  expect(run).toMatchObject({
+    failure: { code: "summary_action_rejected", message: "The summary action was rejected." },
+    status: "failed",
+  })
+  await expectNoActiveRun(app, sessionId)
+  expect(await runTerminalEventTypes(run.id)).toEqual(["run-failed"])
+})
+
+test("manual compaction falls back when successful summary finalization is rejected", async () => {
+  const terminalTransitions: string[] = []
+  const app = manualCompactionAppCreate({
+    runTransition: async (...args) => {
+      const input = args[4]
+      if (input.status !== "running") {
+        terminalTransitions.push(input.status)
+        if (input.status === "succeeded")
+          return createResultErrorCode(
+            "failureInjection",
+            "The summary finalization was rejected.",
+            "summary_finalization_rejected",
+          )
+      }
+      return runTransition(...args)
+    },
+  })
+  const { runId, sessionId } = await sessionCreate()
+  expect((await chatStart(app, sessionId, runId)).status).toBe(200)
+
+  const run = await runWait(runId)
+  expect(run).toMatchObject({
+    failure: { code: "summary_finalization_rejected", message: "The summary finalization was rejected." },
+    status: "failed",
+  })
+  await expectNoActiveRun(app, sessionId)
+  expect(terminalTransitions).toEqual(["succeeded", "failed"])
+  expect(await runTerminalEventTypes(run.id)).toEqual(["run-failed"])
+})
+
+test("manual compaction retries a rejected terminal transition without duplicating finalization", async () => {
+  let failedTransitions = 0
+  const app = manualCompactionAppCreate({
+    runTransition: async (...args) => {
+      if (args[4].status === "failed") {
+        failedTransitions += 1
+        if (failedTransitions === 1) throw new Error("The terminal transition was rejected.")
+      }
+      return runTransition(...args)
+    },
+    sessionCompactionGenerate: async () => {
+      throw createResultErrorCode("failureInjection", "The summary action was rejected.", "summary_action_rejected")
+    },
+  })
+  const { runId, sessionId } = await sessionCreate()
+  expect((await chatStart(app, sessionId, runId)).status).toBe(200)
+
+  const run = await runWait(runId)
+  expect(run).toMatchObject({
+    failure: { code: "summary_action_rejected", message: "The summary action was rejected." },
+    status: "failed",
+  })
+  await expectNoActiveRun(app, sessionId)
+  expect(failedTransitions).toBe(2)
+  expect(await runTerminalEventTypes(run.id)).toEqual(["run-failed"])
 })
 
 test("commands with arguments or similar names remain on the generic command path", async () => {
