@@ -20,7 +20,7 @@ Make `/sessions/new` the canonical entry point for starting a session and ensure
 
 - [x] 1. Make the New Session action navigate directly to `/sessions/new`.
 - [x] 2. Fix new-session project options and empty-state behavior using the shared registry.
-- [ ] 3. Run focused checks and browser verification on the managed preview service.
+- [x] 3. Run focused checks and browser verification on the managed preview service.
 - [ ] 4. Review, commit, and deploy the completed changes.
 
 ## Paths
