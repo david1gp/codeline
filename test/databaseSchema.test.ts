@@ -20,6 +20,7 @@ const expectedTables = [
   "note",
   "project",
   "project_folder",
+  "project_folder_assignment_backfill",
   "project_registry_session_path_backfill",
   "run",
   "run_delegation",

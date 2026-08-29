@@ -8,6 +8,7 @@ import { databaseMigrate } from "../src/database/databaseMigrate.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { organizationTable } from "../src/identity/db/organizationTable.js"
 import { projectFolderRepositoryCreate } from "../src/project/db/projectFolderRepositoryCreate.js"
+import { projectFolderBootstrapEnsure } from "../src/project/db/projectFolderBootstrapEnsure.js"
 import { projectFolderRepositoryDelete } from "../src/project/db/projectFolderRepositoryDelete.js"
 import { projectFolderRepositoryList } from "../src/project/db/projectFolderRepositoryList.js"
 import { projectFolderRepositoryUpdate } from "../src/project/db/projectFolderRepositoryUpdate.js"
@@ -221,6 +222,23 @@ test("project folders enforce ownership and unique names across CRUD and assignm
     const project = await projectRegistryRepositoryUpsert(fixture.database, firstUserId, { path: projectPath })
     expect(project.success).toBe(true)
     if (!project.success) return
+
+    const bootstrapped = await projectFolderBootstrapEnsure(fixture.database, firstUserId)
+    expect(bootstrapped.success).toBe(true)
+    const bootstrappedFolders = await projectFolderRepositoryList(fixture.database, firstUserId)
+    expect(bootstrappedFolders.success).toBe(true)
+    if (!bootstrappedFolders.success) return
+    const personalFolder = bootstrappedFolders.data.find((folder) => folder.bootstrapKey === "personal")
+    expect(personalFolder).toBeDefined()
+    if (personalFolder === undefined) return
+    const registeredAgain = await projectRegistryRepositoryUpsert(
+      fixture.database,
+      firstUserId,
+      { path: projectPath },
+      undefined,
+      [],
+    )
+    expect(registeredAgain).toMatchObject({ success: true, data: { parentFolderId: personalFolder.id } })
 
     expect(
       await projectRegistryRepositoryMove(fixture.database, secondUserId, project.data.id, {

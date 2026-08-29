@@ -11,6 +11,8 @@ import { databaseSchema } from "../src/database/databaseSchema.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { organizationTable } from "../src/identity/db/organizationTable.js"
 import { projectRegistryRepositoryDelete } from "../src/project/db/projectRegistryRepositoryDelete.js"
+import { projectFolderAssignmentBackfillTable } from "../src/project/db/projectFolderAssignmentBackfillTable.js"
+import { projectFolderTable } from "../src/project/db/projectFolderTable.js"
 import { projectRegistrySessionPathBackfillTable } from "../src/project/db/projectRegistrySessionPathBackfillTable.js"
 import { projectTable } from "../src/project/db/projectTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
@@ -65,6 +67,72 @@ test("project registry migration creates the user-scoped table and constraints",
   } finally {
     client.close()
     await fixture.dispose()
+  }
+})
+
+test("project folder backfill categorizes existing projects once and falls back to personal", async () => {
+  const fixture = await temporaryDatabaseCreate()
+  const { database } = fixture
+  const rootsDirectory = await mkdtemp(path.join(os.tmpdir(), "codeline-project-folder-backfill-roots."))
+  const adaptiveRoot = path.join(rootsDirectory, "adaptive")
+  const leoRoot = path.join(rootsDirectory, "leo")
+  const adaptiveProject = path.join(adaptiveRoot, "project")
+  const leoProject = path.join(leoRoot, "project")
+  const outsideProject = await mkdtemp(path.join(os.tmpdir(), "codeline-project-folder-backfill-outside."))
+  const backfillMarkerId = "project-folder-assignments"
+
+  try {
+    await mkdir(adaptiveProject, { recursive: true })
+    await mkdir(leoProject, { recursive: true })
+    await database.insert(applicationUserTable).values([
+      { id: "project-folder-backfill-user-one", displayName: "Project Folder Backfill User One" },
+      { id: "project-folder-backfill-user-two", displayName: "Project Folder Backfill User Two" },
+    ])
+    await database.insert(projectTable).values([
+      { id: "project-folder-backfill-adaptive", userId: "project-folder-backfill-user-one", path: adaptiveProject },
+      { id: "project-folder-backfill-leo", userId: "project-folder-backfill-user-one", path: leoProject },
+      { id: "project-folder-backfill-personal", userId: "project-folder-backfill-user-two", path: outsideProject },
+    ])
+    await database
+      .delete(projectFolderAssignmentBackfillTable)
+      .where(eq(projectFolderAssignmentBackfillTable.id, backfillMarkerId))
+
+    const backfilled = await databaseMigrate(fixture.filePath, { projectRootDirs: [adaptiveRoot, leoRoot] })
+    expect(backfilled.success).toBe(true)
+
+    const folders = await database.select().from(projectFolderTable)
+    const folderId = new Map(folders.map((folder) => [`${folder.userId}:${folder.bootstrapKey}`, folder.id]))
+    expect(await database.select().from(projectTable).orderBy(projectTable.id)).toMatchObject([
+      {
+        id: "project-folder-backfill-adaptive",
+        parentFolderId: folderId.get("project-folder-backfill-user-one:adaptive"),
+      },
+      {
+        id: "project-folder-backfill-leo",
+        parentFolderId: folderId.get("project-folder-backfill-user-one:leo"),
+      },
+      {
+        id: "project-folder-backfill-personal",
+        parentFolderId: folderId.get("project-folder-backfill-user-two:personal"),
+      },
+    ])
+
+    await database
+      .update(projectTable)
+      .set({ parentFolderId: null })
+      .where(eq(projectTable.id, "project-folder-backfill-personal"))
+    const rerun = await databaseMigrate(fixture.filePath, { projectRootDirs: [adaptiveRoot, leoRoot] })
+    expect(rerun.success).toBe(true)
+    expect(
+      await database
+        .select({ parentFolderId: projectTable.parentFolderId })
+        .from(projectTable)
+        .where(eq(projectTable.id, "project-folder-backfill-personal")),
+    ).toEqual([{ parentFolderId: null }])
+  } finally {
+    await fixture.dispose()
+    await rm(rootsDirectory, { force: true, recursive: true })
+    await rm(outsideProject, { force: true, recursive: true })
   }
 })
 
@@ -297,6 +365,7 @@ test("project registry backfill runs when an upgraded database has no completion
     )
     await client.execute("DROP TABLE session_view")
     await client.execute("DROP TABLE project_folder")
+    await client.execute("DROP TABLE project_folder_assignment_backfill")
     await client.execute("DROP TABLE session_compaction")
     await client.execute(
       "DELETE FROM __drizzle_migrations WHERE created_at >= (SELECT created_at FROM __drizzle_migrations ORDER BY created_at LIMIT 1 OFFSET 8)",
@@ -435,6 +504,7 @@ test("project registry forward migration repairs legacy 64-hex IDs and is stable
     )
     await client.execute("DROP TABLE session_view")
     await client.execute("DROP TABLE project_folder")
+    await client.execute("DROP TABLE project_folder_assignment_backfill")
     await client.execute("DROP TABLE session_compaction")
     await client.execute(
       "DELETE FROM __drizzle_migrations WHERE created_at >= (SELECT created_at FROM __drizzle_migrations ORDER BY created_at LIMIT 1 OFFSET 10)",
