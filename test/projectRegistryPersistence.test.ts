@@ -290,7 +290,7 @@ test("project registry backfill runs when an upgraded database has no completion
     })
 
     await client.execute(
-      "DELETE FROM __drizzle_migrations WHERE created_at IN (SELECT created_at FROM __drizzle_migrations ORDER BY created_at DESC LIMIT 2)",
+      "DELETE FROM __drizzle_migrations WHERE created_at IN (SELECT created_at FROM __drizzle_migrations ORDER BY created_at DESC LIMIT 3)",
     )
     await client.execute("DROP TABLE project_registry_session_path_backfill")
     client.close()
@@ -394,6 +394,59 @@ test("project registry migration replaces malformed UUID-shaped IDs and preserve
     expect(projectsAfterSecondMigration).toEqual(projectsAfterFirstMigration)
   } finally {
     client.close()
+    await fixture.dispose()
+  }
+})
+
+test("project registry forward migration repairs legacy 64-hex IDs and is stable on rerun", async () => {
+  const fixture = await temporaryDatabaseCreate()
+  const client = createClient({ url: `file://${fixture.filePath}` })
+  const legacyHexProjectId = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  let clientClosed = false
+
+  try {
+    await fixture.database.insert(applicationUserTable).values({
+      id: "project-registry-forward-migration-user",
+      displayName: "Project Registry Forward Migration User",
+    })
+    await fixture.database.insert(projectTable).values([
+      {
+        id: legacyHexProjectId,
+        userId: "project-registry-forward-migration-user",
+        path: "/tmp/codeline-project-registry-forward-legacy-hex",
+        displayName: "Legacy Hex Project",
+      },
+    ])
+
+    await client.execute(
+      "DELETE FROM __drizzle_migrations WHERE created_at IN (SELECT created_at FROM __drizzle_migrations ORDER BY created_at DESC LIMIT 1)",
+    )
+    client.close()
+    clientClosed = true
+
+    const migrated = await databaseMigrate(fixture.filePath)
+    expect(migrated.success).toBe(true)
+
+    const projectsAfterMigration = await fixture.database.select().from(projectTable)
+    expect(projectsAfterMigration).toMatchObject([
+      {
+        userId: "project-registry-forward-migration-user",
+        path: "/tmp/codeline-project-registry-forward-legacy-hex",
+        displayName: "Legacy Hex Project",
+      },
+    ])
+    expect(projectsAfterMigration[0]?.id).toMatch(uuidv7Pattern)
+    expect(projectsAfterMigration[0]?.id).not.toBe(legacyHexProjectId)
+
+    const rerunClient = createClient({ url: `file://${fixture.filePath}` })
+    const migration = await Bun.file(
+      new URL("../src/database/migrations/0010_repair_persisted_project_uuidv7.sql", import.meta.url),
+    ).text()
+    await rerunClient.execute(migration)
+    rerunClient.close()
+    expect(await fixture.database.select().from(projectTable)).toEqual(projectsAfterMigration)
+  } finally {
+    if (!clientClosed) client.close()
     await fixture.dispose()
   }
 })
