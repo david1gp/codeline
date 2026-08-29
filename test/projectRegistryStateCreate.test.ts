@@ -20,7 +20,7 @@ test("projectRegistryStateCreate loads registered projects with account scoping"
       accountId: () => "user-1",
       fetch: async (input) => {
         requests.push({ url: String(input) })
-        return Response.json({ projects: projectsData, truncated: false })
+        return Response.json({ folders: [], projects: projectsData, truncated: false })
       },
     })
     return { dispose, state }
@@ -41,7 +41,7 @@ test("projectRegistryStateCreate handles empty state", async () => {
   const root = createRoot((dispose) => {
     const state = projectRegistryStateCreate({
       accountId: () => "user-2",
-      fetch: async () => Response.json({ projects: [], truncated: false }),
+      fetch: async () => Response.json({ folders: [], projects: [], truncated: false }),
     })
     return { dispose, state }
   })
@@ -65,6 +65,7 @@ test("projectRegistryStateCreate handles error and retry", async () => {
           return Response.json({ error: { code: "internal_server_error", message: "Database down" } }, { status: 500 })
         }
         return Response.json({
+          folders: [],
           projects: [{ available: true, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fa2", label: "Retried Project" }],
           truncated: false,
         })
@@ -111,11 +112,12 @@ test("projectRegistryStateCreate projectRegister posts to registry and refreshes
         listCount += 1
         if (listCount > 1) {
           return Response.json({
+            folders: [],
             projects: [{ available: true, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fa3", label: "New Registered" }],
             truncated: false,
           })
         }
-        return Response.json({ projects: [], truncated: false })
+        return Response.json({ folders: [], projects: [], truncated: false })
       },
     })
     return { dispose, state }
@@ -162,11 +164,13 @@ test("projectRegistryStateCreate projectRename patches registry and refreshes qu
         listCount += 1
         if (listCount > 1) {
           return Response.json({
+            folders: [],
             projects: [{ available: true, id: projectId, label: "Renamed Title" }],
             truncated: false,
           })
         }
         return Response.json({
+          folders: [],
           projects: [{ available: true, id: projectId, label: "Initial Title" }],
           truncated: false,
         })
@@ -208,9 +212,10 @@ test("projectRegistryStateCreate projectRemove deletes from registry and refresh
 
         listCount += 1
         if (listCount > 1) {
-          return Response.json({ projects: [], truncated: false })
+          return Response.json({ folders: [], projects: [], truncated: false })
         }
         return Response.json({
+          folders: [],
           projects: [{ available: true, id: projectId, label: "To Remove" }],
           truncated: false,
         })
@@ -249,6 +254,7 @@ test("projectRegistryStateCreate openCodeImport posts to import endpoint and ref
         listCount += 1
         if (listCount > 1) {
           return Response.json({
+            folders: [],
             projects: [
               { available: true, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb0", label: "Imported 1" },
               { available: true, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb1", label: "Imported 2" },
@@ -257,7 +263,7 @@ test("projectRegistryStateCreate openCodeImport posts to import endpoint and ref
             truncated: false,
           })
         }
-        return Response.json({ projects: [], truncated: false })
+        return Response.json({ folders: [], projects: [], truncated: false })
       },
     })
     return { dispose, state }
@@ -275,5 +281,89 @@ test("projectRegistryStateCreate openCodeImport posts to import endpoint and ref
   await tick()
   expect(root.state.projects()).toHaveLength(3)
   expect(requests).toContainEqual({ method: "POST", url: "/api/project/registry/import" })
+  root.dispose()
+})
+
+test("projectRegistryStateCreate manages folders and project assignment", async () => {
+  const projectId = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc0"
+  const folderId = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc1"
+  const requests: Array<{ body?: string; method: string; url: string }> = []
+  let folders: Array<{ active: boolean; id: string; label: string; unseenEnded: boolean }> = []
+  let project = {
+    active: false,
+    available: true,
+    folderId: null as string | null,
+    id: projectId,
+    label: "Project",
+    parentFolder: null as { id: string; label: string } | null,
+    unseenEnded: false,
+  }
+
+  const root = createRoot((dispose) => {
+    const state = projectRegistryStateCreate({
+      accountId: () => "user-8",
+      fetch: async (input, init) => {
+        const url = String(input)
+        const method = init?.method ?? "GET"
+        requests.push({ body: init?.body === undefined ? undefined : String(init.body), method, url })
+
+        if (url === "/api/project/registry/folders" && method === "POST") {
+          folders = [{ active: false, id: folderId, label: "Workspace", unseenEnded: false }]
+          return Response.json({ folder: folders[0] })
+        }
+        if (url === `/api/project/registry/folders/${folderId}` && method === "PATCH") {
+          folders = [{ active: false, id: folderId, label: "Renamed", unseenEnded: false }]
+          return Response.json({ folder: folders[0] })
+        }
+        if (url === `/api/project/registry/folders/${folderId}` && method === "DELETE") {
+          folders = []
+          project = { ...project, folderId: null, parentFolder: null }
+          return new Response(null, { status: 204 })
+        }
+        if (url === `/api/project/registry/move/${projectId}` && method === "PATCH") {
+          const moveInput = JSON.parse(String(init?.body)) as { folderId: string | null }
+          project = {
+            ...project,
+            folderId: moveInput.folderId,
+            parentFolder: moveInput.folderId === null ? null : { id: folderId, label: "Workspace" },
+          }
+          return Response.json({ project })
+        }
+        return Response.json({ folders, projects: [project], truncated: false })
+      },
+    })
+    return { dispose, state }
+  })
+
+  await tick()
+  expect(root.state.folders()).toHaveLength(0)
+
+  const created = await root.state.folderCreate({ name: "Workspace" })
+  expect(created.success).toBe(true)
+  await tick()
+  expect(root.state.folderFind(folderId)?.label).toBe("Workspace")
+
+  const renamed = await root.state.folderRename(folderId, { name: "Renamed" })
+  expect(renamed.success).toBe(true)
+  await tick()
+  expect(root.state.folders()[0]?.label).toBe("Renamed")
+
+  const moved = await root.state.projectMove(projectId, { folderId })
+  expect(moved.success).toBe(true)
+  await tick()
+  expect(root.state.projectFind(projectId)?.folderId).toBe(folderId)
+
+  const unassigned = await root.state.projectMove(projectId, { folderId: null })
+  expect(unassigned.success).toBe(true)
+  await tick()
+  expect(root.state.projectFind(projectId)?.folderId).toBe(null)
+
+  const removed = await root.state.folderRemove(folderId)
+  expect(removed.success).toBe(true)
+  await tick()
+  expect(root.state.folders()).toHaveLength(0)
+  expect(requests.map(({ method, url }) => `${method} ${url}`)).toContain(
+    `PATCH /api/project/registry/move/${projectId}`,
+  )
   root.dispose()
 })

@@ -1,10 +1,12 @@
 import { createSignal, useContext } from "solid-js"
 import * as v from "valibot"
 import { projectApiProjectQuerySchema } from "../project/api/projectApiProjectQuerySchema.js"
-import type { ProjectRegistryApiProject } from "../project/api/projectRegistryApiProjectSchema.js"
-import { type ProjectRegistryState, projectRegistryStateCreate } from "../project/ui/projectRegistryStateCreate.js"
-import { appShellContext } from "./appShellContext.js"
+import { projectRegistryStateCreate } from "../project/ui/projectRegistryStateCreate.js"
+import type { ProjectRegistryState } from "../project/ui/projectRegistryState.js"
 import { applicationAccountContext } from "./applicationAccountContext.js"
+import { appShellContext } from "./appShellContext.js"
+import { filesProjectSelectorOptionsDerive } from "./filesProjectSelectorOptionsDerive.js"
+import type { FilesScreenProject } from "./filesScreenView.js"
 
 const filesSelectedProjectStorageKey = "codeline.explorer.selectedProjectId"
 
@@ -66,9 +68,25 @@ export function filesPageStateCreate(options: FilesPageStateOptions = {}) {
   const persistedProjectId = filesSelectedProjectIdRead(storage)
   const selectedProjectId = createSignalObject<string | null>(persistedProjectId)
 
-  const availableProjects = (): readonly ProjectRegistryApiProject[] => registry.availableProjects()
+  const registryProjects = (): readonly FilesScreenProject[] =>
+    registry.availableProjects().map(({ id, label, parentFolder }) => ({
+      id,
+      label,
+      parentFolder: parentFolder ?? null,
+    }))
 
-  const selectedProject = (): ProjectRegistryApiProject | null => {
+  const availableProjects = (): readonly FilesScreenProject[] => {
+    const projects = registryProjects()
+    const options = filesProjectSelectorOptionsDerive(projects)
+    const projectsById = new Map(projects.map((project) => [project.id, project]))
+    return options
+      .flatMap((option) => (option.type === "item" ? [projectsById.get(option.value)] : []))
+      .filter((project): project is FilesScreenProject => project !== undefined)
+  }
+
+  const projectSelectorOptions = () => filesProjectSelectorOptionsDerive(registryProjects())
+
+  const selectedProject = (): FilesScreenProject | null => {
     const available = availableProjects()
     if (available.length === 0) return null
     const currentId = selectedProjectId.get()
@@ -86,6 +104,7 @@ export function filesPageStateCreate(options: FilesPageStateOptions = {}) {
   }
 
   return {
+    projectSelectorOptions,
     projects: availableProjects,
     truncated: () => false,
     projectSelect: (projectId: string) => {

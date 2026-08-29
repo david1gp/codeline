@@ -240,3 +240,124 @@ test("sidebar actions project remove is a no-op if projectId is undefined", asyn
   expect(removeCalled).toBe(false)
   expect(actions.dialog().kind).toBe("closed")
 })
+
+test("sidebar actions folder create posts new folder", async () => {
+  const requests: RecordedRequest[] = []
+  let created = false
+
+  const actions = sessionSidebarActionsStateCreate({
+    fetcher: async (input, init) => {
+      requests.push({ ifMatch: null, method: init?.method ?? "GET", url: String(input) })
+      return Response.json({
+        folder: { active: false, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fe0", label: "My Folder", unseenEnded: false },
+      })
+    },
+    onFolderCreated: () => {
+      created = true
+    },
+    sessionIdsForProject: () => [],
+    sessionTitle: () => undefined,
+    sessionTitlesForProject: () => [],
+  })
+
+  actions.folderCreateOpen()
+  expect(actions.dialog().kind).toBe("folderCreate")
+
+  actions.draftChange("My Folder")
+  await actions.folderCreateSubmit()
+
+  expect(requests).toEqual([{ ifMatch: null, method: "POST", url: "/api/project/registry/folders" }])
+  expect(created).toBe(true)
+  expect(actions.dialog().kind).toBe("closed")
+})
+
+test("sidebar actions folder rename patches folder name", async () => {
+  const requests: RecordedRequest[] = []
+  let renamed = false
+  const folderId = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fe1"
+
+  const actions = sessionSidebarActionsStateCreate({
+    fetcher: async (input, init) => {
+      requests.push({ ifMatch: null, method: init?.method ?? "GET", url: String(input) })
+      return Response.json({
+        folder: { active: false, id: folderId, label: "Renamed Folder", unseenEnded: false },
+      })
+    },
+    onFolderRenamed: () => {
+      renamed = true
+    },
+    sessionIdsForProject: () => [],
+    sessionTitle: () => undefined,
+    sessionTitlesForProject: () => [],
+  })
+
+  actions.folderRenameOpen({ id: folderId, label: "Original Folder" })
+  expect(actions.dialog().kind).toBe("folderRename")
+  expect(actions.draft()).toBe("Original Folder")
+
+  actions.draftChange("Renamed Folder")
+  await actions.folderRenameSubmit()
+
+  expect(requests).toEqual([{ ifMatch: null, method: "PATCH", url: `/api/project/registry/folders/${folderId}` }])
+  expect(renamed).toBe(true)
+  expect(actions.dialog().kind).toBe("closed")
+})
+
+test("sidebar actions folder delete removes folder", async () => {
+  const requests: RecordedRequest[] = []
+  let removed = false
+  const folderId = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fe2"
+
+  const actions = sessionSidebarActionsStateCreate({
+    fetcher: async (input, init) => {
+      requests.push({ ifMatch: null, method: init?.method ?? "GET", url: String(input) })
+      return new Response(null, { status: 204 })
+    },
+    onFolderRemoved: () => {
+      removed = true
+    },
+    sessionIdsForProject: () => [],
+    sessionTitle: () => undefined,
+    sessionTitlesForProject: () => [],
+  })
+
+  actions.folderDeleteOpen({ id: folderId, label: "To Delete" })
+  expect(actions.dialog().kind).toBe("folderDelete")
+
+  await actions.folderDeleteSubmit()
+
+  expect(requests).toEqual([{ ifMatch: null, method: "DELETE", url: `/api/project/registry/folders/${folderId}` }])
+  expect(removed).toBe(true)
+  expect(actions.dialog().kind).toBe("closed")
+})
+
+test("sidebar actions project move assigns or unassigns folder", async () => {
+  const requests: RecordedRequest[] = []
+  let moved = false
+  const projectId = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fe3"
+  const folderId = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fe4"
+
+  const actions = sessionSidebarActionsStateCreate({
+    fetcher: async (input, init) => {
+      requests.push({ ifMatch: null, method: init?.method ?? "GET", url: String(input) })
+      return Response.json({
+        project: { available: true, folderId, id: projectId, label: "Project" },
+      })
+    },
+    onProjectMoved: () => {
+      moved = true
+    },
+    sessionIdsForProject: () => [],
+    sessionTitle: () => undefined,
+    sessionTitlesForProject: () => [],
+  })
+
+  actions.projectMoveOpen({ folderId: null, id: projectId, label: "Project" })
+  expect(actions.dialog().kind).toBe("projectMove")
+
+  await actions.projectMoveSubmit(folderId)
+
+  expect(requests).toEqual([{ ifMatch: null, method: "PATCH", url: `/api/project/registry/move/${projectId}` }])
+  expect(moved).toBe(true)
+  expect(actions.dialog().kind).toBe("closed")
+})

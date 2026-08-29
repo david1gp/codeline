@@ -1,7 +1,7 @@
 import { createSignalObject } from "@adaptive-ds/solid-ui/utils/createSignalObject"
 import { useNavigate } from "@solidjs/router"
 import * as v from "valibot"
-import type { ProjectRegistryState } from "../../project/ui/projectRegistryStateCreate.js"
+import type { ProjectRegistryState } from "../../project/ui/projectRegistryState.js"
 import { uuidv7 } from "../../uuid/uuidv7.js"
 import { noteCreateRequest } from "../client/noteCreateRequest.js"
 import type { NewNoteScreenView } from "./newNoteScreenView.js"

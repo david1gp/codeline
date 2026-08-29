@@ -200,6 +200,11 @@ function harnessCreate(
       },
       finalize: async () => createResult(undefined),
       flush: async () => createResult(undefined),
+      start: async () => {
+        const transitioned = await optionsForAction.runTransition(childRun.id, { status: "running" })
+        if (!transitioned.success) return transitioned
+        return createResult({ attempt: childAttempt, changed: true, run: childRun })
+      },
     }),
     setTimeout: (handler, timeout) => globalThis.setTimeout(handler, timeout),
   }

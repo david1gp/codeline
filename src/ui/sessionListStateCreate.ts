@@ -3,15 +3,16 @@ import { createSignalObject } from "@adaptive-ds/solid-ui/utils/createSignalObje
 import { type Accessor, createEffect, onCleanup, useContext } from "solid-js"
 import * as v from "valibot"
 import { apiHttpClientCreate } from "../api/client/apiHttpClientCreate.js"
-import type { ProjectRegistryState } from "../project/ui/projectRegistryStateCreate.js"
+import { projectFolderDisclosureStateCreate } from "../project/ui/projectFolderDisclosureStateCreate.js"
+import type { ProjectRegistryState } from "../project/ui/projectRegistryState.js"
 import type { SessionShell } from "../session/api/sessionShellSchema.js"
 import { sessionListPageLoad } from "../session/client/sessionListPageLoad.js"
 import { sessionRenameRequestSchema } from "../session/schema/sessionRenameRequestSchema.js"
 import { sessionDeleteRequest } from "../session/ui/sessionDeleteRequest.js"
 import { sessionEtagFetch } from "../session/ui/sessionEtagFetch.js"
 import { sessionRenameRequest } from "../session/ui/sessionRenameRequest.js"
-import { appShellContext } from "./appShellContext.js"
 import { applicationAccountContext } from "./applicationAccountContext.js"
+import { appShellContext } from "./appShellContext.js"
 import { eventFeedCoordinatorContext } from "./eventFeedCoordinatorContext.js"
 import { sessionBranchTreeStateCreate } from "./sessionBranchTreeStateCreate.js"
 import type { SessionNavigationState } from "./sessionNavigationStateCreate.js"
@@ -65,6 +66,9 @@ export function sessionListStateCreate(
   const localActiveTab = createSignalObject<SessionSidebarTab>(search.isActive() ? "search" : "recent")
   const activeTab = sidebarRoute?.activeTab ?? localActiveTab.get
   const selectTab = sidebarRoute?.selectTab ?? localActiveTab.set
+  const disclosure = projectFolderDisclosureStateCreate({
+    accountId: () => account?.userId() ?? null,
+  })
 
   const sessions = () => pageResults.get().flat()
   const canLoadMore = () => nextCursor.get() !== null
@@ -133,10 +137,23 @@ export function sessionListStateCreate(
   }
 
   const actions = sessionSidebarActionsStateCreate({
+    availableFolders: () => projectRegistry?.folders?.() ?? [],
     fetcher,
+    folderCreate: projectRegistry?.folderCreate ? (name) => projectRegistry.folderCreate!({ name }) : undefined,
+    folderRemove: projectRegistry?.folderRemove ? (folderId) => projectRegistry.folderRemove!(folderId) : undefined,
+    folderRename: projectRegistry?.folderRename
+      ? (folderId, name) => projectRegistry.folderRename!(folderId, { name })
+      : undefined,
+    onFolderCreated: () => projectRegistry?.refresh(),
+    onFolderRemoved: () => projectRegistry?.refresh(),
+    onFolderRenamed: () => projectRegistry?.refresh(),
+    onProjectMoved: () => projectRegistry?.refresh(),
     onProjectRemoved: () => projectRegistry?.refresh(),
     onProjectRenamed: () => projectRegistry?.refresh(),
     onSessionDeleted: sessionDeletedHandle,
+    projectMove: projectRegistry?.projectMove
+      ? (projectId, folderId) => projectRegistry.projectMove!(projectId, { folderId })
+      : undefined,
     projectRemove: projectRegistry ? (projectId) => projectRegistry.projectRemove(projectId) : undefined,
     projectRename: projectRegistry
       ? (projectId, title) => projectRegistry.projectRename(projectId, { displayName: title })
@@ -159,13 +176,23 @@ export function sessionListStateCreate(
       sessions().map((session) => [session.projectPath, actions.projectLabel(session.projectPath)]),
     )
     const registered = projectRegistry ? projectRegistry.projects() : []
-    return sessionSidebarDerive(sessionsWithWorking(), search.sessions(), Date.now(), overrides, registered)
+    const folders = projectRegistry?.folders ? projectRegistry.folders() : []
+    return sessionSidebarDerive(sessionsWithWorking(), search.sessions(), Date.now(), overrides, registered, folders)
   }
   const activeRows = () => {
     const tab = activeTab()
     if (tab === "projects") return []
     return sidebarTabs()[tab]
   }
+  const folderIsDescendantSelected = (folder: ReturnType<typeof sidebarTabs>["folders"][number]) =>
+    folder.projects.some((project) =>
+      project.sessions.some((row) => navigation().selectedSessionId() === row.session.id),
+    )
+  const folderIsOpen = (folder: ReturnType<typeof sidebarTabs>["folders"][number]) =>
+    disclosure.isFolderOpen(folder.id, folderIsDescendantSelected(folder))
+  const projectIsOpen = (project: ReturnType<typeof sidebarTabs>["projects"][number]) =>
+    project.sessions.some((row) => navigation().selectedSessionId() === row.session.id)
+  const folderToggle = (folderId: string, open: boolean) => disclosure.folderToggle(folderId, open)
   const visibleSessions = () =>
     search.isActive() ? search.sessions().map(sessionSearchResultAdapt) : sessionsWithWorking()
   const branchTree = sessionBranchTreeStateCreate({
@@ -198,38 +225,28 @@ export function sessionListStateCreate(
   if (unregisterEventFeed !== undefined) onCleanup(unregisterEventFeed)
 
   return {
-    roots: branchTree.roots,
-    selectedAncestry: branchTree.selectedAncestry,
-    sidebar: {
-      activeTab,
-      activeRows,
-      canLoadMore,
-      isLoadingMore: isLoadingMore.get,
-      loadMore,
-      projectGroups: () => sidebarTabs().projects,
-      selectTab,
-      tabs: sidebarTabs,
+    actions,
+    disclosure,
+    folderIsOpen,
+    folderToggle,
+    isEmpty: () => {
+      const tab = activeTab()
+      if (tab === "search") return !search.isActive() || (search.isComplete() && activeRows().length === 0)
+      if (status.get() !== "complete") return false
+      return tab === "projects"
+        ? sidebarTabs().folders.length === 0 && sidebarTabs().uncategorizedProjects.length === 0
+        : activeRows().length === 0
     },
-    projectRegistry,
-    query: search.query,
-    refresh: revalidate,
-    revalidate,
-    updateQuery: (value: string) => {
-      if (activeTab() !== "search") selectTab("search")
-      search.updateQuery(value)
-    },
-    isSelected: (sessionId: string) => navigation().selectedSessionId() === sessionId,
     isError: () => (activeTab() === "search" ? search.isError() : status.get() === "error" && sessions().length === 0),
     isLoading: () =>
       activeTab() === "search"
         ? search.isLoading() && activeRows().length === 0
         : status.get() === "loading" && sessions().length === 0,
-    isEmpty: () => {
-      const tab = activeTab()
-      if (tab === "search") return !search.isActive() || (search.isComplete() && activeRows().length === 0)
-      if (status.get() !== "complete") return false
-      return tab === "projects" ? sidebarTabs().projects.length === 0 : activeRows().length === 0
-    },
+    isSelected: (sessionId: string) => navigation().selectedSessionId() === sessionId,
+    projectIsOpen,
+    projectRegistry,
+    query: search.query,
+    refresh: revalidate,
     retry: () => {
       if (activeTab() === "search") {
         search.retry()
@@ -242,6 +259,26 @@ export function sessionListStateCreate(
       requestedPage.set({ cursor: undefined, index: 0 })
       refreshVersion.set(refreshVersion.get() + 1)
     },
+    revalidate,
+    roots: branchTree.roots,
+    selectedAncestry: branchTree.selectedAncestry,
+    selectSession: (sessionId: string) => navigation().selectSession(sessionId),
+    sidebar: {
+      activeRows,
+      activeTab,
+      canLoadMore,
+      folders: () => sidebarTabs().folders,
+      isLoadingMore: isLoadingMore.get,
+      loadMore,
+      projectGroups: () => sidebarTabs().projects,
+      selectTab,
+      tabs: sidebarTabs,
+      uncategorizedProjects: () => sidebarTabs().uncategorizedProjects,
+    },
+    updateQuery: (value: string) => {
+      if (activeTab() !== "search") selectTab("search")
+      search.updateQuery(value)
+    },
     emptyMessage: () => {
       if (!isSignedIn()) return "Sign in to see your conversations."
       if (activeTab() === "search" && !search.isActive()) return "Enter a search term to find conversations."
@@ -250,8 +287,6 @@ export function sessionListStateCreate(
       if (activeTab() === "projects") return "No projects with active conversations."
       return "No active conversations."
     },
-    selectSession: (sessionId: string) => navigation().selectSession(sessionId),
-    actions,
   }
 }
 

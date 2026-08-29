@@ -222,7 +222,7 @@ export function eventFeedStateCreate(options: EventFeedStateCreateOptions) {
   function eventFeedStateRunEnsure(
     event: Extract<
       JournalEvent,
-      { eventType: "delta" | "run-completed" | "run-failed" | "run-cancelled" | "run-interrupted" }
+      { eventType: "delta" | "run-started" | "run-completed" | "run-failed" | "run-cancelled" | "run-interrupted" }
     >,
   ): Result<EventFeedRun> {
     const existing = activeRuns.get(event.runId)
@@ -274,6 +274,15 @@ export function eventFeedStateCreate(options: EventFeedStateCreateOptions) {
           serverRevision: stale.serverRevision,
         },
       })
+    }
+
+    if (event.eventType === "run-started") {
+      const ensured = eventFeedStateRunEnsure(event)
+      if (!ensured.success) return ensured
+      const run = ensured.data
+      if (run.phase !== "active" || run.superseded) return createResult({ ignored: "terminal-run", instruction: null })
+      if (event.sequence > run.lastSequence) run.lastSequence = event.sequence
+      return createResult({ instruction: null })
     }
 
     if (event.eventType === "delta") {

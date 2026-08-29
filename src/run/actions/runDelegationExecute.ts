@@ -52,6 +52,9 @@ type RunDelegationProviderOutput = {
     status: "aborted" | "failed" | "succeeded"
   }) => Promise<Result<unknown>>
   flush: () => Promise<Result<void>>
+  start: () => Promise<
+    Result<{ attempt?: typeof attemptTable.$inferSelect; changed?: boolean; run?: typeof runTable.$inferSelect }>
+  >
 }
 
 type RunDelegationExecuteOptions = {
@@ -80,7 +83,7 @@ type RunDelegationExecuteOptions = {
     options: { executionEvidence: RunRetryExecutionEvidence; now: () => Date },
   ) => Promise<Result<RunDelegationRetry>>
   runTransition: (runId: string, input: RunTransitionInput) => Promise<Result<RunDelegationTransition>>
-  providerOutputCreate?: (input: { requestId: string; runId: string; sessionId: string }) => RunDelegationProviderOutput
+  providerOutputCreate: (input: { requestId: string; runId: string; sessionId: string }) => RunDelegationProviderOutput
   clearTimeout?: (handle: ReturnType<typeof setTimeout>) => void
   now?: () => Date
   setTimeout?: (handler: () => void, timeout: number) => ReturnType<typeof setTimeout>
@@ -608,7 +611,7 @@ export async function runDelegationExecute(
 
   let currentRun = child.data.run
   let currentAttempt = child.data.attempt
-  const providerOutput = options.providerOutputCreate?.({
+  const providerOutput = options.providerOutputCreate({
     requestId: input.delegationKey,
     runId: child.data.run.id,
     sessionId: input.parentRun.sessionId,
@@ -646,7 +649,7 @@ export async function runDelegationExecute(
         return createResult({ failure, status: "aborted", text: "" })
       }
 
-      const running = await options.runTransition(currentRun.id, { status: "running" })
+      const running = await providerOutput.start()
       if (!running.success) return running
       if (running.data.run !== undefined) currentRun = running.data.run
       if (running.data.attempt !== undefined) currentAttempt = running.data.attempt

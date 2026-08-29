@@ -1,6 +1,6 @@
 import { onCleanup, useContext } from "solid-js"
 import { markdownHtmlRender } from "../../markdown/markdownHtmlRender.js"
-import type { ProjectRegistryState } from "../../project/ui/projectRegistryStateCreate.js"
+import type { ProjectRegistryState } from "../../project/ui/projectRegistryState.js"
 import { eventFeedCoordinatorContext } from "../../ui/eventFeedCoordinatorContext.js"
 import { httpQueryDataStatusResolve } from "../../ui/httpQueryDataStatusResolve.js"
 import { noteRepresentationEtagCreate } from "../api/noteRepresentationEtagCreate.js"

@@ -184,9 +184,19 @@ test("New Session lists registered projects with 0 sessions and sets projectIdOv
   const newSessionStarts: number[] = []
 
   const registeredProjects = [
-    { available: true, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc1", label: "Active" },
-    { available: true, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc2", label: "Zero Session Project" },
-    { available: false, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc3", label: "Unavailable Project" },
+    { available: true, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc1", label: "Active", parentFolder: null },
+    {
+      available: true,
+      id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc2",
+      label: "Zero Session Project",
+      parentFolder: null,
+    },
+    {
+      available: false,
+      id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc3",
+      label: "Unavailable Project",
+      parentFolder: null,
+    },
   ]
 
   const mockRegistry = {
@@ -257,8 +267,18 @@ test("New Session when active project is unavailable selects first available pro
   const newSessionStarts: number[] = []
 
   const registeredProjects = [
-    { available: false, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc4", label: "Unavailable Project" },
-    { available: true, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc5", label: "Available Project" },
+    {
+      available: false,
+      id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc4",
+      label: "Unavailable Project",
+      parentFolder: null,
+    },
+    {
+      available: true,
+      id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc5",
+      label: "Available Project",
+      parentFolder: null,
+    },
   ]
 
   const mockRegistry = {
@@ -319,14 +339,24 @@ test("New Session with empty registry defaults to new project option", () => {
     projectRegister: async () => ({
       success: true as const,
       data: {
-        project: { available: true, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc6", label: "Brand New" },
+        project: {
+          available: true,
+          id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc6",
+          label: "Brand New",
+          parentFolder: null,
+        },
       },
     }),
     projectRemove: async () => ({ success: true as const, data: undefined }),
     projectRename: async () => ({
       success: true as const,
       data: {
-        project: { available: true, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc6", label: "Brand New" },
+        project: {
+          available: true,
+          id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc6",
+          label: "Brand New",
+          parentFolder: null,
+        },
       },
     }),
     projects: () => [],
@@ -364,6 +394,7 @@ test("New Session with empty registry defaults to new project option", () => {
     available: true,
     id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc6",
     label: "Brand New",
+    parentFolder: null,
   })
   expect(state.newProjectOpen()).toBe(false)
   expect(projectIdOverride.get()).toBe("0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc6")

@@ -12,6 +12,7 @@ const streamSseEventTypeSchema = v.picklist([
   "run-completed",
   "run-failed",
   "run-interrupted",
+  "run-started",
 ])
 const streamSseFrameDataSchema = v.pipe(journalEventSchema)
 

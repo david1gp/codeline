@@ -915,7 +915,7 @@ test.skipIf(!databaseAvailable)(
       await promiseWithTimeout(stream.streamFinished, 3_000, "stream completion")
 
       const runEvents = publishedEvents.filter((event) => event.runId === durableRunId)
-      expect(runEvents.map((event) => event.eventType)).toEqual(["delta", "run-cancelled"])
+      expect(runEvents.map((event) => event.eventType)).toEqual(["run-started", "delta", "run-cancelled"])
       expect(
         runEvents
           .filter((event) => event.eventType === "delta")
@@ -948,7 +948,7 @@ test.skipIf(!databaseAvailable)(
         .from(journalEventTable)
         .where(eq(journalEventTable.runId, durableRunId))
         .orderBy(asc(journalEventTable.sequence))
-      expect(journalEvents).toEqual([{ eventType: "run-cancelled" }])
+      expect(journalEvents).toEqual([{ eventType: "run-started" }, { eventType: "run-cancelled" }])
 
       const repeatedCancellation = await abortApp.request(
         `http://codeline.test/api/sessions/${sessionId}/runs/${clientRunId}/cancel`,
@@ -979,7 +979,7 @@ test.skipIf(!databaseAvailable)(
         clientRequestId: `session-chat-selection-${uuidv7()}`,
         executionSelection: {
           tools: {
-            primary: { agentId, tools: { bash: true, webfetch: false } },
+            primary: { agentId, tools: { bash: true, edit: true, read: true, webfetch: false, write: true } },
             selectableSubagents: [{ agentId: selectedSubagentId, tools: { bash: false, webfetch: true } }],
           },
           version: 1,
@@ -1010,10 +1010,10 @@ test.skipIf(!databaseAvailable)(
     const [run] = await database.select().from(runTable).where(eq(runTable.sessionId, sessionId))
     expect(run).toMatchObject({ snapshot: { configuration: { model: "forwarded-model" } } })
     expect(run?.snapshot).toMatchObject({
-      configuration: { tools: { bash: true, webfetch: false } },
+      configuration: { tools: { bash: true, edit: true, read: true, webfetch: false, write: true } },
       executionManifest: {
         tools: {
-          primary: { agentId, tools: ["bash", "skill", "delegate_task"] },
+          primary: { agentId, tools: ["bash", "read", "write", "edit", "skill", "delegate_task"] },
           selectableSubagents: [{ agentId: selectedSubagentId, tools: ["webfetch", "skill", "delegate_task"] }],
         },
       },

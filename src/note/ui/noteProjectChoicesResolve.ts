@@ -15,6 +15,7 @@ export function noteProjectChoicesResolve(
     available: false,
     id: currentProjectId,
     label: noteProjectLabelResolve(projects, currentProjectId, currentProjectPath),
+    parentFolder: null,
   }
   return [choice, ...available]
 }

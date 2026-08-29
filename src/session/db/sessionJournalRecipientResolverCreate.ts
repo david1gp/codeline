@@ -21,6 +21,20 @@ export function sessionJournalRecipientResolverCreate(
 ): JournalEventRecipientResolver {
   return async (transaction, resource): Promise<Result<readonly string[]>> => {
     const op = "sessionJournalRecipientResolver"
+    if (resource.resourceType === "session-list") {
+      const [session] = await transaction
+        .select({ userId: sessionTable.userId })
+        .from(sessionTable)
+        .innerJoin(
+          serverTable,
+          and(eq(sessionTable.serverId, serverTable.id), eq(serverTable.organizationId, options.organizationId)),
+        )
+        .where(eq(sessionTable.userId, resource.resourceId))
+        .limit(1)
+      if (session === undefined)
+        return createResultError(op, "The session list journal resource could not be authorized.")
+      return createResult([session.userId])
+    }
     if (resource.resourceType !== "session") return createResultError(op, "The session journal resource is invalid.")
 
     const [session] = await transaction

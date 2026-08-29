@@ -1,5 +1,5 @@
 import { onCleanup, useContext } from "solid-js"
-import type { ProjectRegistryState } from "../../project/ui/projectRegistryStateCreate.js"
+import type { ProjectRegistryState } from "../../project/ui/projectRegistryState.js"
 import { eventFeedCoordinatorContext } from "../../ui/eventFeedCoordinatorContext.js"
 import { httpQueryDataStatusResolve } from "../../ui/httpQueryDataStatusResolve.js"
 import { noteGroupsDerive } from "./noteGroupsDerive.js"

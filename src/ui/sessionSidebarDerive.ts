@@ -1,3 +1,4 @@
+import type { ProjectRegistryApiFolder } from "../project/api/projectRegistryApiFolderSchema.js"
 import type { ProjectRegistryApiProject } from "../project/api/projectRegistryApiProjectSchema.js"
 import type { SessionShell } from "../session/api/sessionShellSchema.js"
 import { sessionSearchResultAdapt } from "./sessionSearchResultAdapt.js"
@@ -14,17 +15,29 @@ export type SessionSidebarRow = {
 
 export type SessionSidebarProjectGroup = {
   available?: boolean
+  folderId?: string | null
+  parentFolder?: { id: string; label: string } | null
   projectId?: string
   projectLabel: string
   projectPath: string
   sessions: readonly SessionSidebarRow[]
 }
 
+export type SessionSidebarFolderGroup = {
+  active: boolean
+  id: string
+  label: string
+  projects: readonly SessionSidebarProjectGroup[]
+  unseenEnded: boolean
+}
+
 export type SessionSidebarTabs = {
+  folders: readonly SessionSidebarFolderGroup[]
+  pinned: readonly SessionSidebarRow[]
   projects: readonly SessionSidebarProjectGroup[]
   recent: readonly SessionSidebarRow[]
   search: readonly SessionSidebarRow[]
-  pinned: readonly SessionSidebarRow[]
+  uncategorizedProjects: readonly SessionSidebarProjectGroup[]
 }
 
 function sessionUpdatedAtMillisecondsResolve(value: SessionSidebarSession["updatedAt"]): number {
@@ -59,6 +72,7 @@ export function sessionSidebarDerive(
   now: number = Date.now(),
   projectLabels: Record<string, string> = {},
   registeredProjects: readonly ProjectRegistryApiProject[] = [],
+  registeredFolders: readonly ProjectRegistryApiFolder[] = [],
 ): SessionSidebarTabs {
   const recent = [...activeSessions]
     .sort(sessionSidebarSessionCompare)
@@ -67,6 +81,7 @@ export function sessionSidebarDerive(
 
   const matchedSessionIds = new Set<string>()
   const groups: SessionSidebarProjectGroup[] = []
+  const registeredFolderMap = new Map(registeredFolders.map((folder) => [folder.id, folder]))
 
   for (const reg of registeredProjects) {
     const matchingSessions: SessionSidebarRow[] = []
@@ -80,6 +95,12 @@ export function sessionSidebarDerive(
 
     groups.push({
       available: reg.available,
+      folderId: registeredFolderMap.has(reg.folderId ?? "")
+        ? (reg.folderId ?? null)
+        : registeredFolderMap.has(reg.parentFolder?.id ?? "")
+          ? (reg.parentFolder?.id ?? null)
+          : null,
+      parentFolder: reg.parentFolder ?? null,
       projectId: reg.id,
       projectLabel: reg.label,
       projectPath: matchingSessions[0]?.session.projectPath ?? "",
@@ -98,6 +119,8 @@ export function sessionSidebarDerive(
   for (const [projectPath, sessions] of remainingByPath) {
     groups.push({
       available: true,
+      folderId: null,
+      parentFolder: null,
       projectLabel: projectLabels[projectPath] ?? sessionSidebarProjectLabelResolve(projectPath),
       projectPath,
       sessions,
@@ -117,12 +140,26 @@ export function sessionSidebarDerive(
     )
   })
 
+  const folders: SessionSidebarFolderGroup[] = registeredFolders.map((folder) => ({
+    active: folder.active,
+    id: folder.id,
+    label: folder.label,
+    projects: groups.filter((group) => group.folderId === folder.id),
+    unseenEnded: folder.unseenEnded,
+  }))
+
+  const uncategorizedProjects = groups.filter(
+    (group) => group.folderId === null || group.folderId === undefined || !registeredFolderMap.has(group.folderId),
+  )
+
   return {
+    folders,
     pinned,
     projects: groups,
     recent,
     search: searchResults.map((result) =>
       sessionSidebarRowCreate(sessionSearchResultAdapt(result), now, projectLabels),
     ),
+    uncategorizedProjects,
   }
 }

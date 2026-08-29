@@ -197,11 +197,13 @@ test("note detail preserves existing unavailable project assignment in choices a
     available: true,
     id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc0",
     label: "Available Project",
+    parentFolder: null,
   }
   const unavailableProject = {
     available: false,
     id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc1",
     label: "Unavailable Project",
+    parentFolder: null,
   }
   const noteWithUnavailable = {
     ...noteCreate("note-5", "Note with project", 1),
@@ -212,7 +214,7 @@ test("note detail preserves existing unavailable project assignment in choices a
   const fetcher: NoteFetch = async (input) => {
     const url = String(input)
     if (url === "/api/project/registry") {
-      return Response.json({ projects: [availableProject, unavailableProject], truncated: false })
+      return Response.json({ folders: [], projects: [availableProject, unavailableProject], truncated: false })
     }
     return Response.json(noteWithUnavailable, { headers: { ETag: '"note-5-1"' } })
   }

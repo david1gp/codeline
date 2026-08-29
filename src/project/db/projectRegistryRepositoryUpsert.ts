@@ -3,6 +3,7 @@ import { createResult, createResultError, type Result } from "@adaptive-ds/resul
 import * as v from "valibot"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { uuidv7 } from "../../uuid/uuidv7.js"
+import { projectFolderAssignmentIdResolve } from "./projectFolderAssignmentIdResolve.js"
 import { type Project, projectTable } from "./projectTable.js"
 
 const projectRegistryRepositoryUpsertInputSchema = v.strictObject({
@@ -15,6 +16,7 @@ export async function projectRegistryRepositoryUpsert(
   userId: string,
   input: unknown,
   displayName?: string | null,
+  rootDirs?: readonly string[],
 ): Promise<Result<Project>> {
   const op = "projectRegistryRepositoryUpsert"
   const parsed = v.safeParse(
@@ -27,6 +29,13 @@ export async function projectRegistryRepositoryUpsert(
   }
 
   const now = new Date()
+  let parentFolderId: string | undefined
+  if (rootDirs !== undefined) {
+    const parentFolder = await projectFolderAssignmentIdResolve(database, userId, parsed.output.path, rootDirs)
+    if (!parentFolder.success) return createResultError(op, parentFolder.errorMessage)
+    parentFolderId = parentFolder.data
+  }
+
   try {
     const [project] = await database
       .insert(projectTable)
@@ -34,6 +43,7 @@ export async function projectRegistryRepositoryUpsert(
         createdAt: now,
         displayName: parsed.output.displayName ?? null,
         id: uuidv7(),
+        ...(parentFolderId === undefined ? {} : { parentFolderId }),
         path: parsed.output.path,
         updatedAt: now,
         userId,

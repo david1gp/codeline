@@ -1,7 +1,7 @@
 import type { Accessor } from "solid-js"
 import { signalObjectCreate } from "../../ui/signalObjectCreate.js"
 import { projectRegistryOpenCodeImportRequest } from "../client/projectRegistryOpenCodeImportRequest.js"
-import type { ProjectRegistryState } from "./projectRegistryStateCreate.js"
+import type { ProjectRegistryState } from "./projectRegistryState.js"
 
 export type ProjectRegistryImportStatus = "idle" | "importing" | "success" | "error"
 

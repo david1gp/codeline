@@ -12,6 +12,13 @@ type JournalEventAppendResult = {
   events: Array<typeof journalEventTable.$inferSelect>
 }
 
+const journalRunLifecycleEventTypes = [
+  "run-started",
+  "run-completed",
+  "run-failed",
+  "run-cancelled",
+  "run-interrupted",
+] as const
 const journalTerminalEventTypes = ["run-completed", "run-failed", "run-cancelled", "run-interrupted"] as const
 
 function journalEventPayloadObject(payload: JournalEventAppendInput["payload"]): Record<string, unknown> | undefined {
@@ -27,14 +34,14 @@ function journalEventResourceMatchesPayload(input: JournalEventAppendInput): boo
   const resourceId = payload.resourceId
   if (typeof resourceId === "string" && resourceId !== input.resource.resourceId) return false
 
-  if (input.eventType === "delta" || journalTerminalEventTypes.includes(input.eventType as never)) {
+  if (input.eventType === "delta" || journalRunLifecycleEventTypes.includes(input.eventType as never)) {
     if (input.resource.resourceType !== "run" || payload.runId !== input.resource.resourceId) return false
   }
   return true
 }
 
 function journalEventRunId(input: JournalEventAppendInput): string | undefined {
-  if (input.eventType !== "delta" && !journalTerminalEventTypes.includes(input.eventType as never)) return undefined
+  if (input.eventType !== "delta" && !journalRunLifecycleEventTypes.includes(input.eventType as never)) return undefined
   const payload = journalEventPayloadObject(input.payload)
   return typeof payload?.runId === "string" ? payload.runId : undefined
 }

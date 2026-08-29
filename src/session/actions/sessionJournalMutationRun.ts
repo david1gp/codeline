@@ -10,6 +10,7 @@ type SessionJournalMutationRunInput<T> = {
   postCommitPublish: ReturnType<typeof journalPostCommitPublishCreate>
   resourceIdsResolve?: (transaction: DatabaseTransaction) => Promise<Result<readonly string[]>>
   resourceId: string
+  resourceType?: "session" | "session-list"
   resolveRecipients: JournalEventRecipientResolver
   revisionResolve: (value: T, resourceId: string) => number | undefined
   replayResolve: (value: T) => boolean
@@ -23,6 +24,7 @@ export function sessionJournalMutationRun<T>(input: SessionJournalMutationRunInp
   })
   let mutation: T | undefined
   let resourceIds: readonly string[] | undefined
+  const resourceType = input.resourceType ?? "session"
   return writer.run({
     mutate: async (transaction) => {
       const result = await input.mutate(transaction)
@@ -36,7 +38,7 @@ export function sessionJournalMutationRun<T>(input: SessionJournalMutationRunInp
           : await input.resourceIdsResolve(transaction)
       if (!resolved.success) return resolved
       resourceIds = [...new Set([input.resourceId, ...resolved.data])]
-      return createResult(resourceIds.map((resourceId) => ({ resourceId, resourceType: "session" as const })))
+      return createResult(resourceIds.map((resourceId) => ({ resourceId, resourceType })))
     },
     write: async (_transaction, journal) => {
       if (mutation === undefined)
@@ -50,8 +52,8 @@ export function sessionJournalMutationRun<T>(input: SessionJournalMutationRunInp
           return createResultError("sessionJournalMutationRun", "The session revision is missing.")
         const appended = await journal.append({
           eventType: "invalidate",
-          payload: { resourceId, resourceType: "session", revision },
-          resource: { resourceId, resourceType: "session" },
+          payload: { resourceId, resourceType, revision },
+          resource: { resourceId, resourceType },
         })
         if (!appended.success) return createResultError("sessionJournalMutationRun", appended.errorMessage)
       }

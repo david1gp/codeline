@@ -11,11 +11,13 @@ const availableProject = {
   available: true,
   id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb0",
   label: "Codeline",
+  parentFolder: null,
 }
 const unavailableProject = {
   available: false,
   id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb1",
   label: "Unavailable",
+  parentFolder: null,
 }
 
 test("note project list state loads registered labels and availability for note groups and assignments", async () => {
@@ -27,7 +29,7 @@ test("note project list state loads registered labels and availability for note 
       fetcher: async (input) => {
         expect(String(input)).toBe("/api/project/registry")
         calls += 1
-        return Response.json({ projects: [availableProject, unavailableProject], truncated: false })
+        return Response.json({ folders: [], projects: [availableProject, unavailableProject], truncated: false })
       },
     }),
   }))

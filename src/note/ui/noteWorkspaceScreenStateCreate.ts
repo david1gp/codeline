@@ -1,4 +1,4 @@
-import type { ProjectRegistryState } from "../../project/ui/projectRegistryStateCreate.js"
+import type { ProjectRegistryState } from "../../project/ui/projectRegistryState.js"
 import { notePageStateCreate } from "./notePageStateCreate.js"
 import { noteWorkspacePageStateCreate } from "./noteWorkspacePageStateCreate.js"
 import type { NoteWorkspaceScreenView } from "./noteWorkspaceScreenView.js"

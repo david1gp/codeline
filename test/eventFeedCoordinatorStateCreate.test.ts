@@ -116,7 +116,13 @@ function frame(
         ? { resourceId: "session-1", resourceType: "session", revision: sequence }
         : eventType === "delta"
           ? { delta: "fragment", deltaKind: "text", messageId: null, runId: "run-1", sessionId: "session-1" }
-          : { runId: "run-1", sessionId: "session-1", sessionRevision: sequence, reason: "test" }),
+          : eventType === "run-completed"
+            ? { messageId: null, runId: "run-1", sessionId: "session-1", sessionRevision: sequence }
+            : eventType === "run-started"
+              ? { runId: "run-1", sessionId: "session-1" }
+              : eventType === "run-failed"
+                ? { failure: null, runId: "run-1", sessionId: "session-1", sessionRevision: sequence }
+                : { runId: "run-1", sessionId: "session-1", sessionRevision: sequence, reason: "test" }),
     ...values,
   }
   return { data, event: eventType, id: `cursor-${sequence}` } as StreamSseFrame
@@ -286,6 +292,74 @@ test("routes resource invalidations to the matching registered refresh seams", a
   expect(calls).toEqual(["session-list", "session", "messages", "delegations", "stream", "note-list", "note-detail"])
 
   coordinator.unregisterNoteDetail({ noteId: "note-1", refresh: () => undefined })
+  coordinator.close()
+})
+
+test("refreshes the registry status seam for run start and every terminal event", async () => {
+  let refreshCount = 0
+  const { coordinator, source } = coordinatorCreate()
+  coordinator.registerRunLifecycle(() => {
+    refreshCount += 1
+  })
+
+  source.emit(frame("run-started", 1))
+  source.emit(frame("run-completed", 2))
+  source.emit(frame("run-failed", 3))
+  source.emit(frame("run-cancelled", 4))
+  source.emit(frame("run-interrupted", 5))
+  await flush()
+
+  expect(refreshCount).toBe(5)
+  coordinator.close()
+})
+
+test("refreshes the registry status seam during reset reconciliation", async () => {
+  let refreshCount = 0
+  const { coordinator, source } = coordinatorCreate()
+  coordinator.registerRunLifecycle(() => {
+    refreshCount += 1
+  })
+
+  source.emit(frame("reset", 1))
+  await flush()
+
+  expect(refreshCount).toBe(1)
+  coordinator.close()
+})
+
+test("acknowledges the selected session after a completion snapshot refresh", async () => {
+  const calls: string[] = []
+  const { coordinator, source } = coordinatorCreate({
+    reconciliation: reconciliation({
+      activeRunSnapshotLoad: (input) =>
+        createResult({
+          lastSequence: 2,
+          partialText: "",
+          runId: input.runId,
+          sessionId: input.sessionId,
+          status: "succeeded",
+        }),
+      sessionSnapshotReplace: () => {
+        calls.push("snapshot")
+        return createResult(undefined)
+      },
+    }),
+  })
+  coordinator.registerSelectedSession({
+    completion: () => {
+      calls.push("acknowledge")
+    },
+    refresh: () => {
+      calls.push("session")
+    },
+    sessionId: "session-1",
+  })
+
+  source.open()
+  source.emit(frame("run-completed", 1))
+  await flush()
+
+  expect(calls).toEqual(["snapshot", "session", "acknowledge"])
   coordinator.close()
 })
 

@@ -172,6 +172,51 @@ function runInput(clientRunId: string, streamId: string) {
   }
 }
 
+test.skipIf(!databaseAvailable)(
+  "publishes run-started only after an accepted run is admitted for execution",
+  async () => {
+    const runId = `run-feed-start-${uuidv7()}`
+    const created = await runCreate(database, fixture.userId, fixture.sessionId, runInput(runId, `stream-${runId}`))
+    expect(created).toMatchObject({ success: true, data: { created: true, run: { status: "accepted" } } })
+    if (!created.success) return
+
+    const cursorCodecResult = journalCursorCodecCreate({ randomBytes, secret: `run-feed-start-secret-${uuidv7()}` })
+    expect(cursorCodecResult.success).toBe(true)
+    if (!cursorCodecResult.success) return
+    const frames: StreamSseFrame[] = []
+    const provider = runProviderOutputCreate({
+      database,
+      journalPostCommitPublish: journalPostCommitPublishCreate({
+        cursorCodec: cursorCodecResult.data,
+        liveSubscription: { publish: (_userId, frame) => frames.push(frame) },
+      }),
+      requestId: `request-${created.data.run.id}`,
+      runId: created.data.run.id,
+      scheduler: new TestScheduler(),
+      sessionId: fixture.sessionId,
+      userId: fixture.userId,
+    })
+
+    const started = await provider.start()
+    expect(started).toMatchObject({ success: true, data: { changed: true, run: { status: "running" } } })
+    const [run] = await database
+      .select({ status: runTable.status })
+      .from(runTable)
+      .where(eq(runTable.id, created.data.run.id))
+    const events = await database
+      .select({ eventType: journalEventTable.eventType, payload: journalEventTable.payload })
+      .from(journalEventTable)
+      .where(eq(journalEventTable.runId, created.data.run.id))
+    expect(run?.status).toBe("running")
+    expect(events).toMatchObject([
+      { eventType: "run-started", payload: { runId: created.data.run.id, sessionId: fixture.sessionId } },
+    ])
+    expect(frames.map((frame) => frame.event)).toEqual(["run-started"])
+
+    expect(await provider.finalize({ reason: "test-complete", status: "aborted" })).toMatchObject({ success: true })
+  },
+)
+
 async function flush(): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, 0))
 }

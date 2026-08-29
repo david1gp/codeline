@@ -1,4 +1,5 @@
 import { createSignalObject } from "@adaptive-ds/solid-ui/utils/createSignalObject"
+import { projectFolderDisclosureStateCreate } from "../../project/ui/projectFolderDisclosureStateCreate.js"
 import { sessionBranchTreeStateCreate } from "../sessionBranchTreeStateCreate.js"
 import type { SessionListState } from "../sessionListStateCreate.js"
 import { sessionSidebarActionsStateCreate } from "../sessionSidebarActionsStateCreate.js"
@@ -16,6 +17,7 @@ export function demoSessionListStateCreate(options: DemoSessionListStateOptions)
   const query = createSignalObject("")
   const isEmptyVariant = () => options.variant() === "empty"
   const activeTab = createSignalObject<SessionSidebarTab>("recent")
+  const disclosure = projectFolderDisclosureStateCreate()
   const sidebarTabs = () =>
     sessionSidebarDerive(
       isEmptyVariant()
@@ -43,15 +45,29 @@ export function demoSessionListStateCreate(options: DemoSessionListStateOptions)
     sessionTitle: (sessionId) => sessions().find((session) => session.id === sessionId)?.title,
     sessionTitlesForProject: () => sessions().map((session) => session.title),
   })
+  const folderIsOpen = (folder: ReturnType<typeof sidebarTabs>["folders"][number]) =>
+    disclosure.isFolderOpen(
+      folder.id,
+      folder.projects.some((project) =>
+        project.sessions.some((row) => options.selectedSessionId.get() === row.session.id),
+      ),
+    )
+  const folderToggle = (folderId: string, open: boolean) => disclosure.folderToggle(folderId, open)
+  const projectIsOpen = (project: ReturnType<typeof sidebarTabs>["projects"][number]) =>
+    project.sessions.some((row) => options.selectedSessionId.get() === row.session.id)
 
   return {
     actions,
+    disclosure,
     emptyMessage: () =>
       query.get().trim().length > 0 ? "No conversations match your search." : "No active conversations.",
     isEmpty: () => sessions().length === 0,
     isError: () => options.variant() === "error",
     isLoading: () => options.variant() === "loading",
     isSelected: (sessionId: string) => options.selectedSessionId.get() === sessionId,
+    folderIsOpen,
+    folderToggle,
+    projectIsOpen,
     query: query.get,
     projectRegistry: undefined,
     refresh: () => {},
@@ -67,11 +83,13 @@ export function demoSessionListStateCreate(options: DemoSessionListStateOptions)
         return sidebarTabs()[tab]
       },
       canLoadMore: () => false,
+      folders: () => sidebarTabs().folders,
       isLoadingMore: () => false,
       loadMore: () => {},
       projectGroups: () => sidebarTabs().projects,
       selectTab: activeTab.set,
       tabs: sidebarTabs,
+      uncategorizedProjects: () => sidebarTabs().uncategorizedProjects,
     },
     selectSession: (sessionId: string) => {
       options.selectedSessionId.set(sessionId)

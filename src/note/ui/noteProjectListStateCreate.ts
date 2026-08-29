@@ -1,6 +1,7 @@
 import { useContext } from "solid-js"
 import type { ProjectRegistryApiProject } from "../../project/api/projectRegistryApiProjectSchema.js"
-import { type ProjectRegistryState, projectRegistryStateCreate } from "../../project/ui/projectRegistryStateCreate.js"
+import { projectRegistryStateCreate } from "../../project/ui/projectRegistryStateCreate.js"
+import type { ProjectRegistryState } from "../../project/ui/projectRegistryState.js"
 import { applicationAccountContext } from "../../ui/applicationAccountContext.js"
 import { appShellContext } from "../../ui/appShellContext.js"
 

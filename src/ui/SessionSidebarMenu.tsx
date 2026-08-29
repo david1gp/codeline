@@ -1,4 +1,5 @@
 import { mdiDotsHorizontal } from "@adaptive-ds/mdi/mdiDotsHorizontal.js"
+import { Show } from "solid-js"
 import { Button } from "#ui/interactive/button/Button.jsx"
 import { buttonVariant } from "#ui/interactive/button/buttonCva.js"
 import { CorvuPopoverIcon } from "#ui/interactive/popover/CorvuPopoverIcon.jsx"
@@ -6,8 +7,9 @@ import { CorvuPopoverIcon } from "#ui/interactive/popover/CorvuPopoverIcon.jsx"
 export function SessionSidebarMenu(props: {
   ariaLabel: string
   deleteLabel?: string
-  onDelete: () => void
-  onRename: () => void
+  onDelete?: () => void
+  onMove?: () => void
+  onRename?: () => void
 }) {
   return (
     <CorvuPopoverIcon
@@ -23,16 +25,29 @@ export function SessionSidebarMenu(props: {
         event.stopPropagation()
       }}
     >
-      <Button class="h-8 justify-start px-2 text-xs font-normal" variant={buttonVariant.ghost} onClick={props.onRename}>
-        Rename
-      </Button>
-      <Button
-        class="h-8 justify-start px-2 text-xs font-normal text-danger"
-        variant={buttonVariant.ghost}
-        onClick={props.onDelete}
-      >
-        {props.deleteLabel ?? "Delete"}
-      </Button>
+      <Show when={props.onRename !== undefined}>
+        <Button
+          class="h-8 justify-start px-2 text-xs font-normal"
+          variant={buttonVariant.ghost}
+          onClick={props.onRename}
+        >
+          Rename
+        </Button>
+      </Show>
+      <Show when={props.onMove !== undefined}>
+        <Button class="h-8 justify-start px-2 text-xs font-normal" variant={buttonVariant.ghost} onClick={props.onMove}>
+          Move
+        </Button>
+      </Show>
+      <Show when={props.onDelete !== undefined}>
+        <Button
+          class="h-8 justify-start px-2 text-xs font-normal text-danger"
+          variant={buttonVariant.ghost}
+          onClick={props.onDelete}
+        >
+          {props.deleteLabel ?? "Delete"}
+        </Button>
+      </Show>
     </CorvuPopoverIcon>
   )
 }

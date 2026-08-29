@@ -2,13 +2,21 @@ import type { Result } from "@adaptive-ds/result"
 import type { Accessor } from "solid-js"
 import { httpQueryAccountCacheCreate } from "../../ui/httpQueryAccountCacheCreate.js"
 import { httpQueryStateCreate } from "../../ui/httpQueryStateCreate.js"
+import type { ProjectRegistryApiFolderResponse } from "../api/projectRegistryApiFolderResponseSchema.js"
+import type { ProjectRegistryApiFolder } from "../api/projectRegistryApiFolderSchema.js"
 import type { ProjectRegistryApiListResponse } from "../api/projectRegistryApiListResponseSchema.js"
 import type { ProjectRegistryApiProjectResponse } from "../api/projectRegistryApiProjectResponseSchema.js"
 import type { ProjectRegistryApiProject } from "../api/projectRegistryApiProjectSchema.js"
+import type { ProjectRegistryFolderRequest } from "../api/projectRegistryFolderRequestSchema.js"
+import type { ProjectRegistryMoveRequest } from "../api/projectRegistryMoveRequestSchema.js"
 import type { ProjectRegistryOpenCodeImportResponse } from "../api/projectRegistryOpenCodeImportResponseSchema.js"
 import type { ProjectRegistryRegisterRequest } from "../api/projectRegistryRegisterRequestSchema.js"
 import type { ProjectRegistryRenameRequest } from "../api/projectRegistryRenameRequestSchema.js"
+import { projectRegistryFolderCreateRequest } from "../client/projectRegistryFolderCreateRequest.js"
+import { projectRegistryFolderRemoveRequest } from "../client/projectRegistryFolderRemoveRequest.js"
+import { projectRegistryFolderRenameRequest } from "../client/projectRegistryFolderRenameRequest.js"
 import { projectRegistryListFetch } from "../client/projectRegistryListFetch.js"
+import { projectRegistryMoveRequest } from "../client/projectRegistryMoveRequest.js"
 import { projectRegistryOpenCodeImportRequest } from "../client/projectRegistryOpenCodeImportRequest.js"
 import { projectRegistryRegisterRequest } from "../client/projectRegistryRegisterRequest.js"
 import { projectRegistryRemoveRequest } from "../client/projectRegistryRemoveRequest.js"
@@ -32,8 +40,11 @@ export function projectRegistryStateCreate(options: ProjectRegistryStateOptions 
   })
 
   const projects = (): readonly ProjectRegistryApiProject[] => query.data()?.projects ?? []
+  const folders = (): readonly ProjectRegistryApiFolder[] => query.data()?.folders ?? []
   const availableProjects = (): readonly ProjectRegistryApiProject[] =>
     projects().filter((project) => project.available)
+  const folderFind = (folderId: string): ProjectRegistryApiFolder | undefined =>
+    folders().find((folder) => folder.id === folderId)
   const projectFind = (projectId: string): ProjectRegistryApiProject | undefined =>
     projects().find((project) => project.id === projectId)
 
@@ -81,9 +92,46 @@ export function projectRegistryStateCreate(options: ProjectRegistryStateOptions 
     return result
   }
 
+  const folderCreate = async (
+    input: ProjectRegistryFolderRequest,
+  ): Promise<Result<ProjectRegistryApiFolderResponse>> => {
+    const result = await projectRegistryFolderCreateRequest(input, { fetch: fetchImplementation })
+    if (result.success) query.refresh()
+    return result
+  }
+
+  const folderRename = async (
+    folderId: string,
+    input: ProjectRegistryFolderRequest,
+  ): Promise<Result<ProjectRegistryApiFolderResponse>> => {
+    const result = await projectRegistryFolderRenameRequest(folderId, input, { fetch: fetchImplementation })
+    if (result.success) query.refresh()
+    return result
+  }
+
+  const folderRemove = async (folderId: string): Promise<Result<undefined>> => {
+    const result = await projectRegistryFolderRemoveRequest(folderId, { fetch: fetchImplementation })
+    if (result.success) query.refresh()
+    return result
+  }
+
+  const projectMove = async (
+    projectId: string,
+    input: ProjectRegistryMoveRequest,
+  ): Promise<Result<ProjectRegistryApiProjectResponse>> => {
+    const result = await projectRegistryMoveRequest(projectId, input, { fetch: fetchImplementation })
+    if (result.success) query.refresh()
+    return result
+  }
+
   return {
     availableProjects,
     errorMessage: query.errorMessage,
+    folderCreate,
+    folderFind,
+    folderRemove,
+    folderRename,
+    folders,
     isEmpty: () => status() === "empty",
     isError: query.isError,
     isLoading: query.isLoading,
@@ -92,6 +140,7 @@ export function projectRegistryStateCreate(options: ProjectRegistryStateOptions 
     projectOpenCodeImport: openCodeImport,
     projectRegister,
     projectRemove,
+    projectMove,
     projectRename,
     projects,
     refresh: () => {
@@ -103,5 +152,3 @@ export function projectRegistryStateCreate(options: ProjectRegistryStateOptions 
     status,
   }
 }
-
-export type ProjectRegistryState = ReturnType<typeof projectRegistryStateCreate>

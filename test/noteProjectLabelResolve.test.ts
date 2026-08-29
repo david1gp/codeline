@@ -2,8 +2,13 @@ import { expect, test } from "bun:test"
 import { noteProjectLabelResolve } from "../src/note/ui/noteProjectLabelResolve.js"
 
 const projects = [
-  { available: true, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb4", label: "Codeline" },
-  { available: false, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb5", label: "Unavailable Project" },
+  { available: true, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb4", label: "Codeline", parentFolder: null },
+  {
+    available: false,
+    id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb5",
+    label: "Unavailable Project",
+    parentFolder: null,
+  },
 ]
 
 test("note project labels resolve registered IDs and preserve legacy paths", () => {

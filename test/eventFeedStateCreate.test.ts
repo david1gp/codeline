@@ -131,6 +131,39 @@ test("deduplicates events and completion supersedes deltas with authoritative re
   expect(feed.state().activeRuns.get("run-1")?.partialText).toBe("")
 })
 
+test("registers a run from its typed start event before the first delta", () => {
+  const { feed } = createFeed({ asOfCursor: "cursor-1", lastEventId: "cursor-1" })
+  expect(
+    feed.apply(
+      event("cursor-2", 2, {
+        eventType: "run-started",
+        runId: "run-1",
+        sessionId: "session-1",
+      }),
+    ),
+  ).toMatchObject({ success: true, data: { applied: true, instruction: null } })
+  expect(feed.state().activeRuns.get("run-1")).toMatchObject({
+    lastSequence: 2,
+    phase: "active",
+    partialText: "",
+    terminalStatus: null,
+  })
+
+  expect(
+    feed.apply(
+      event("cursor-3", 3, {
+        delta: "first",
+        deltaKind: "text",
+        eventType: "delta",
+        messageId: null,
+        runId: "run-1",
+        sessionId: "session-1",
+      }),
+    ),
+  ).toMatchObject({ success: true, data: { applied: true } })
+  expect(feed.state().activeRuns.get("run-1")).toMatchObject({ lastSequence: 3, partialText: "first" })
+})
+
 test("maps lifecycle checkpoints to active-state reconciliation and accepts authoritative replacement", () => {
   const { feed } = createFeed({ asOfCursor: "cursor-1", lastEventId: "cursor-1" })
   expect(

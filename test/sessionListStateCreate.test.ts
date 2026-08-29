@@ -235,7 +235,7 @@ test("session list rejects invalid rename titles before issuing a request", asyn
 
 test("session list projects tab merges registered projects with 0 sessions", async () => {
   const projectId = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fab"
-  const registeredProjects = [{ available: true, id: projectId, label: "Empty Registered Project" }]
+  const registeredProjects = [{ available: true, id: projectId, label: "Empty Registered Project", parentFolder: null }]
   const mockRegistry = {
     availableProjects: () => registeredProjects,
     errorMessage: () => undefined,
@@ -272,5 +272,86 @@ test("session list projects tab merges registered projects with 0 sessions", asy
   expect(groups[1]?.projectLabel).toBe("Empty Registered Project")
   expect(groups[1]?.sessions).toHaveLength(0)
   expect(groups[1]?.projectId).toBe(projectId)
+  root.rootDispose()
+})
+
+test("session list projects tab organizes folders and uncategorized projects", async () => {
+  const folderId = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fac"
+  const projectId1 = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fad"
+  const projectId2 = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fae"
+
+  const registeredProjects = [
+    {
+      available: true,
+      folderId,
+      id: projectId1,
+      label: "Foldered Project",
+      parentFolder: { id: folderId, label: "Work" },
+    },
+    {
+      available: true,
+      folderId: null,
+      id: projectId2,
+      label: "Uncategorized Project",
+      parentFolder: null,
+    },
+  ]
+  const folders = [
+    {
+      active: true,
+      id: folderId,
+      label: "Work",
+      unseenEnded: false,
+    },
+  ]
+
+  const mockRegistry = {
+    availableProjects: () => registeredProjects,
+    errorMessage: () => undefined,
+    folderCreate: async () => ({ success: true as const, data: { folder: folders[0]! } }),
+    folderFind: (id: string) => folders.find((f) => f.id === id),
+    folderRemove: async () => ({ success: true as const, data: undefined }),
+    folderRename: async () => ({ success: true as const, data: { folder: folders[0]! } }),
+    folders: () => folders,
+    isEmpty: () => false,
+    isError: () => false,
+    isLoading: () => false,
+    openCodeImport: async () => ({ success: true as const, data: { importedCount: 0 } }),
+    projectFind: (id: string) => registeredProjects.find((p) => p.id === id),
+    projectMove: async () => ({ success: true as const, data: { project: registeredProjects[0]! } }),
+    projectOpenCodeImport: async () => ({ success: true as const, data: { importedCount: 0 } }),
+    projectRegister: async () => ({ success: true as const, data: { project: registeredProjects[0]! } }),
+    projectRemove: async () => ({ success: true as const, data: undefined }),
+    projectRename: async () => ({ success: true as const, data: { project: registeredProjects[0]! } }),
+    projects: () => registeredProjects,
+    refresh: () => {},
+    retry: () => {},
+    status: () => "ready" as const,
+  }
+
+  const root = createRoot((rootDispose) => ({
+    rootDispose,
+    state: sessionListStateCreate(() => navigation, undefined, {
+      fetcher: async () => pageResponse([], null),
+      projectRegistry: mockRegistry,
+    }),
+  }))
+
+  await flush()
+  root.state.sidebar.selectTab("projects")
+  expect(root.state.sidebar.folders()).toHaveLength(1)
+  expect(root.state.sidebar.folders()[0]?.label).toBe("Work")
+  expect(root.state.sidebar.folders()[0]?.projects).toHaveLength(1)
+  expect(root.state.sidebar.folders()[0]?.projects[0]?.projectId).toBe(projectId1)
+
+  expect(root.state.sidebar.uncategorizedProjects()).toHaveLength(1)
+  expect(root.state.sidebar.uncategorizedProjects()[0]?.projectId).toBe(projectId2)
+
+  // Test disclosure
+  expect(root.state.disclosure.isFolderOpen(folderId)).toBe(true)
+  root.state.disclosure.folderToggle(folderId, false)
+  expect(root.state.disclosure.isFolderOpen(folderId, false)).toBe(false)
+  // Force open when descendant selected
+  expect(root.state.disclosure.isFolderOpen(folderId, true)).toBe(true)
   root.rootDispose()
 })

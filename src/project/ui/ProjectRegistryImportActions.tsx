@@ -2,7 +2,7 @@ import { Show } from "solid-js"
 import { Button } from "#ui/interactive/button/Button.jsx"
 import { buttonVariant } from "#ui/interactive/button/buttonCva.js"
 import { projectRegistryImportActionsStateCreate } from "./projectRegistryImportActionsStateCreate.js"
-import type { ProjectRegistryState } from "./projectRegistryStateCreate.js"
+import type { ProjectRegistryState } from "./projectRegistryState.js"
 
 export function ProjectRegistryImportActions(props: {
   fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>

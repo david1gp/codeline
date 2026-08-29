@@ -1,6 +1,6 @@
 import { type Accessor, useContext } from "solid-js"
 import type { ProjectRegistryApiProject } from "../project/api/projectRegistryApiProjectSchema.js"
-import type { ProjectRegistryState } from "../project/ui/projectRegistryStateCreate.js"
+import type { ProjectRegistryState } from "../project/ui/projectRegistryState.js"
 import { appShellContext } from "./appShellContext.js"
 import type { ActiveProjectState } from "./activeProjectStateCreate.js"
 import type { SessionProjectIdOverride } from "./sessionProjectIdOverride.js"

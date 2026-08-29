@@ -1,5 +1,5 @@
 import { Show } from "solid-js"
-import type { ProjectRegistryState } from "../project/ui/projectRegistryStateCreate.js"
+import type { ProjectRegistryState } from "../project/ui/projectRegistryState.js"
 import type { ActiveProjectState } from "./activeProjectStateCreate.js"
 import { NewSessionDialog } from "./NewSessionDialog.js"
 import { SessionList } from "./SessionList.js"

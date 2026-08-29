@@ -57,6 +57,10 @@ type RunProviderOutputFinalizeResult = {
   run: typeof runTable.$inferSelect
 }
 
+type RunProviderOutputStartResult = RunProviderOutputFinalizeResult & {
+  changed: boolean
+}
+
 type RunProviderOutputToolUpdate = {
   detail: string | undefined
   key: string | undefined
@@ -549,6 +553,49 @@ export function runProviderOutputCreate(options: RunProviderOutputCreateOptions)
     return flushesAwait()
   }
 
+  const start = async (): Promise<Result<RunProviderOutputStartResult>> => {
+    let transition: RunProviderOutputStartResult | undefined
+    const started = await journalWriter.run<RunProviderOutputStartResult>({
+      mutate: async (transaction) => {
+        const transitioned = await transitionRun(transaction, options.userId, options.sessionId, options.runId, {
+          status: "running",
+        })
+        if (!transitioned.success) return transitioned
+        transition = {
+          attempt: transitioned.data.attempt,
+          changed: transitioned.data.changed,
+          run: transitioned.data.run,
+        }
+        return createResult(transition)
+      },
+      resources: [resource],
+      write: async (_transaction, journal) => {
+        if (transition === undefined)
+          return runResultCreateError(
+            "runProviderOutput",
+            "The run start mutation result is missing.",
+            runErrorCodes.mutationMissing,
+          )
+        if (!transition.changed) return createResult(undefined)
+        const appended = await journal.append({
+          eventType: "run-started",
+          payload: { runId: options.runId, sessionId: options.sessionId },
+          resource,
+        })
+        if (!appended.success) return appended
+        return createResult(undefined)
+      },
+    })
+    if (!started.success) return started
+    if (transition === undefined)
+      return runResultCreateError(
+        "runProviderOutput",
+        "The run start mutation result is missing.",
+        runErrorCodes.mutationMissing,
+      )
+    return createResult(transition)
+  }
+
   const finalize = async (input: RunProviderOutputFinalizeInput): Promise<Result<RunProviderOutputFinalizeResult>> => {
     const flushed = await flush()
     if (!flushed.success) return flushed
@@ -596,5 +643,5 @@ export function runProviderOutputCreate(options: RunProviderOutputCreateOptions)
     return finalized
   }
 
-  return { append, finalize, flush, pendingCount: coalescer.pendingCount }
+  return { append, finalize, flush, pendingCount: coalescer.pendingCount, start }
 }

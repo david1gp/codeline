@@ -8,8 +8,16 @@ import { apiRequestParse } from "../../api/apiRequestParse.js"
 import type { AppEnvironment } from "../../api/appEnvironment.js"
 import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.js"
 import type { DatabaseClient } from "../../database/databaseClient.js"
+import { projectFolderRepositoryCreate } from "../db/projectFolderRepositoryCreate.js"
+import { projectFolderRepositoryDelete } from "../db/projectFolderRepositoryDelete.js"
+import { projectFolderRepositoryList } from "../db/projectFolderRepositoryList.js"
+import { projectFolderRepositoryUpdate } from "../db/projectFolderRepositoryUpdate.js"
+import { projectFolderResolve } from "../db/projectFolderResolve.js"
+import type { ProjectFolderStatus } from "../db/projectFolderStatus.js"
+import { projectFolderStatusList } from "../db/projectFolderStatusList.js"
 import { projectRegistryRepositoryDelete } from "../db/projectRegistryRepositoryDelete.js"
 import { projectRegistryRepositoryList } from "../db/projectRegistryRepositoryList.js"
+import { projectRegistryRepositoryMove } from "../db/projectRegistryRepositoryMove.js"
 import { projectRegistryRepositoryResolve } from "../db/projectRegistryRepositoryResolve.js"
 import { projectRegistryRepositoryResolvePath } from "../db/projectRegistryRepositoryResolvePath.js"
 import { projectRegistryRepositoryUpdate } from "../db/projectRegistryRepositoryUpdate.js"
@@ -21,6 +29,7 @@ import { type ProjectDiscoveryEntriesReadResult, projectDiscoveryEntriesRead } f
 import { projectDiscoveryLimits } from "../projectDiscoveryLimits.js"
 import { projectDiscoveryList } from "../projectDiscoveryList.js"
 import { projectDownloadPrepare } from "../projectDownloadPrepare.js"
+import { projectFolderIdSchema } from "../projectFolderIdSchema.js"
 import { projectGitBranchDelete } from "../projectGitBranchDelete.js"
 import { projectGitBranchListRead } from "../projectGitBranchListRead.js"
 import { projectGitBranchNameSchema } from "../projectGitBranchNameSchema.js"
@@ -48,15 +57,17 @@ import type { ProjectApiListResponse } from "./projectApiListResponseSchema.js"
 import type { ProjectApiMetadataResponse } from "./projectApiMetadataResponseSchema.js"
 import { projectApiPathQuerySchema } from "./projectApiPathQuerySchema.js"
 import type { ProjectApiPreviewResponse } from "./projectApiPreviewResponseSchema.js"
-import { projectDiscoveryApiProjectQuerySchema } from "./projectDiscoveryApiProjectQuerySchema.js"
 import { projectApiProjectQuerySchema } from "./projectApiProjectQuerySchema.js"
 import type { ProjectApiTextResponse } from "./projectApiTextResponseSchema.js"
+import { projectDiscoveryApiProjectQuerySchema } from "./projectDiscoveryApiProjectQuerySchema.js"
+import type { ProjectRegistryApiFolder } from "./projectRegistryApiFolderSchema.js"
 import {
   type ProjectRegistryApiListResponse,
   projectRegistryApiListResponseSchema,
 } from "./projectRegistryApiListResponseSchema.js"
 import type { ProjectRegistryApiProjectResponse } from "./projectRegistryApiProjectResponseSchema.js"
 import type { ProjectRegistryApiProject } from "./projectRegistryApiProjectSchema.js"
+import { projectRegistryFolderRequestSchema } from "./projectRegistryFolderRequestSchema.js"
 import {
   type ProjectRegistryOpenCodeImportResponse,
   projectRegistryOpenCodeImportResponseSchema,
@@ -128,20 +139,61 @@ function registryBadRequest(context: ApiContext, message = "The project registry
   return context.json(response, 400)
 }
 
+function registryConflict(context: ApiContext, message: string) {
+  const response = { error: { code: "conflict", message } } satisfies ApiErrorResponse
+  return context.json(response, 409)
+}
+
 function projectRegistryLabelCreate(displayName: string | null, projectPath: string): string {
   const value = displayName?.trim() || projectPath.split(/[\\/]/).at(-1) || projectPath
   return [...value].slice(0, projectDiscoveryLimits.maximumLabelLength).join("")
 }
 
+type ProjectRegistryStatus = Pick<ProjectFolderStatus, "active" | "unseenEnded">
+
+type ProjectRegistryParentFolder = { id: string; label: string } | null
+
 async function projectRegistryApiProjectCreate(
-  project: { displayName: string | null; id: string; path: string },
+  project: { displayName: string | null; id: string; parentFolderId: string | null; path: string },
   rootDirs: readonly string[],
+  parentFolder: ProjectRegistryParentFolder,
+  status: ProjectRegistryStatus = { active: false, unseenEnded: false },
 ): Promise<ProjectRegistryApiProject> {
   const available = (await projectRegistryPathCanonicalize(project.path, rootDirs)).success
   return {
+    active: status.active,
     available,
+    folderId: project.parentFolderId,
     id: project.id,
     label: projectRegistryLabelCreate(project.displayName, project.path),
+    parentFolder,
+    unseenEnded: status.unseenEnded,
+  }
+}
+
+function projectRegistryParentFolderFind(
+  folders: readonly { id: string; name: string }[],
+  parentFolderId: string | null,
+): ProjectRegistryParentFolder {
+  if (parentFolderId === null) return null
+  const folder = folders.find((candidate) => candidate.id === parentFolderId)
+  return folder === undefined ? null : { id: folder.id, label: folder.name }
+}
+
+function projectRegistryStatusMapCreate(statuses: readonly ProjectFolderStatus[]): Map<string, ProjectRegistryStatus> {
+  return new Map(statuses.map((status) => [status.projectId, status]))
+}
+
+function projectRegistryFolderCreate(
+  folder: { id: string; name: string },
+  statuses: readonly ProjectFolderStatus[],
+): ProjectRegistryApiFolder {
+  const projects = statuses.filter((status) => status.folderId === folder.id)
+  return {
+    active: projects.some((status) => status.active),
+    id: folder.id,
+    label: folder.name,
+    unseenEnded: projects.some((status) => status.unseenEnded),
   }
 }
 
@@ -167,7 +219,7 @@ async function projectRegistryIdentityResolve(
   if (!project.success || project.data === undefined)
     return createResultError(op, "The requested project was not found.")
 
-  const publicProject = await projectRegistryApiProjectCreate(project.data, options.rootDirs ?? [])
+  const publicProject = await projectRegistryApiProjectCreate(project.data, options.rootDirs ?? [], null)
   if (!publicProject.available) return createResultError(op, "The requested project was not found.")
   return createResult({ id: publicProject.id, label: publicProject.label })
 }
@@ -320,6 +372,90 @@ export function apiProjectRoutesAdd(api: Hono<AppEnvironment>, options: ApiProje
     return discoveryRead()
   }
 
+  const registryFolderStatusesLoad = async (
+    context: ApiContext,
+    userId: string,
+  ): Promise<Result<ProjectFolderStatus[]>> => {
+    const organizationId = context.get("requestIdentity")?.organizationId
+    if (organizationId === undefined) return createResult([])
+    return projectFolderStatusList(options.database as DatabaseClient, userId, organizationId)
+  }
+
+  const registryFolderList = async (context: ApiContext) => {
+    if (options.database === undefined) return registryInternalServerError(context)
+    const userId = registryRequestUserId(context, options)
+    if (userId === undefined) return unauthorized(context)
+
+    const folders = await projectFolderRepositoryList(options.database, userId)
+    if (!folders.success) return registryInternalServerError(context)
+    const statuses = await registryFolderStatusesLoad(context, userId)
+    if (!statuses.success) return registryInternalServerError(context)
+    return context.json({
+      folders: folders.data.map((folder) => projectRegistryFolderCreate(folder, statuses.data)),
+    })
+  }
+
+  const registryFolderCreate = async (context: ApiContext) => {
+    if (options.database === undefined) return registryInternalServerError(context)
+    const userId = registryRequestUserId(context, options)
+    if (userId === undefined) return unauthorized(context)
+    const body = await context.req.json<unknown>().catch(() => undefined)
+    const parsed = apiRequestParse("projectRegistryFolderRequestParse", projectRegistryFolderRequestSchema, body)
+    if (!parsed.success) return registryBadRequest(context, "The project folder request is invalid.")
+
+    const folder = await projectFolderRepositoryCreate(options.database, userId, parsed.data)
+    if (!folder.success) {
+      return folder.errorMessage === "The project folder name is already in use."
+        ? registryConflict(context, folder.errorMessage)
+        : registryInternalServerError(context)
+    }
+    const statuses = await registryFolderStatusesLoad(context, userId)
+    if (!statuses.success) return registryInternalServerError(context)
+    return context.json({
+      folder: projectRegistryFolderCreate(folder.data, statuses.data),
+    })
+  }
+
+  const registryFolderIdParse = (context: ApiContext, folderId: string) => {
+    const parsed = v.safeParse(projectFolderIdSchema, folderId)
+    return parsed.success ? parsed.output : registryBadRequest(context, "The project folder selection is invalid.")
+  }
+
+  const registryFolderRename = async (context: ApiContext, folderId: string) => {
+    if (options.database === undefined) return registryInternalServerError(context)
+    const userId = registryRequestUserId(context, options)
+    if (userId === undefined) return unauthorized(context)
+    const parsedId = registryFolderIdParse(context, folderId)
+    if (parsedId instanceof Response) return parsedId
+    const body = await context.req.json<unknown>().catch(() => undefined)
+    const parsed = apiRequestParse("projectRegistryFolderRequestParse", projectRegistryFolderRequestSchema, body)
+    if (!parsed.success) return registryBadRequest(context, "The project folder request is invalid.")
+
+    const folder = await projectFolderRepositoryUpdate(options.database, userId, parsedId, parsed.data)
+    if (!folder.success) {
+      return folder.errorMessage === "The project folder name is already in use."
+        ? registryConflict(context, folder.errorMessage)
+        : registryUnavailable(context)
+    }
+    const statuses = await registryFolderStatusesLoad(context, userId)
+    if (!statuses.success) return registryInternalServerError(context)
+    return context.json({
+      folder: projectRegistryFolderCreate(folder.data, statuses.data),
+    })
+  }
+
+  const registryFolderRemove = async (context: ApiContext, folderId: string) => {
+    if (options.database === undefined) return registryInternalServerError(context)
+    const userId = registryRequestUserId(context, options)
+    if (userId === undefined) return unauthorized(context)
+    const parsedId = registryFolderIdParse(context, folderId)
+    if (parsedId instanceof Response) return parsedId
+
+    const folder = await projectFolderRepositoryDelete(options.database, userId, parsedId)
+    if (!folder.success) return registryUnavailable(context)
+    return new Response(null, { status: 204 })
+  }
+
   const registryList = async (context: ApiContext) => {
     if (options.database === undefined) return registryInternalServerError(context)
     const userId = registryRequestUserId(context, options)
@@ -327,10 +463,26 @@ export function apiProjectRoutesAdd(api: Hono<AppEnvironment>, options: ApiProje
 
     const result = await projectRegistryRepositoryList(options.database, userId)
     if (!result.success) return registryInternalServerError(context)
+    const folders = await projectFolderRepositoryList(options.database, userId)
+    if (!folders.success) return registryInternalServerError(context)
+    const statuses = await registryFolderStatusesLoad(context, userId)
+    if (!statuses.success) return registryInternalServerError(context)
+    const statusMap = projectRegistryStatusMapCreate(statuses.data)
     const projects = await Promise.all(
-      result.data.map((project) => projectRegistryApiProjectCreate(project, options.rootDirs ?? [])),
+      result.data.map((project) =>
+        projectRegistryApiProjectCreate(
+          project,
+          options.rootDirs ?? [],
+          projectRegistryParentFolderFind(folders.data, project.parentFolderId),
+          statusMap.get(project.id),
+        ),
+      ),
     )
-    const response = { projects, truncated: false } satisfies ProjectRegistryApiListResponse
+    const response = {
+      folders: folders.data.map((folder) => projectRegistryFolderCreate(folder, statuses.data)),
+      projects,
+      truncated: false,
+    } satisfies ProjectRegistryApiListResponse
     if (!v.safeParse(projectRegistryApiListResponseSchema, response).success)
       return registryInternalServerError(context)
     return context.json(response)
@@ -347,13 +499,29 @@ export function apiProjectRoutesAdd(api: Hono<AppEnvironment>, options: ApiProje
 
     const canonical = await projectRegistryPathCanonicalize(parsed.data.path, options.rootDirs ?? [])
     if (!canonical.success) return registryBadRequest(context, "The project path is invalid.")
-    const result = await projectRegistryRepositoryUpsert(options.database, userId, {
-      displayName: parsed.data.displayName,
-      path: canonical.data,
-    })
+    const result = await projectRegistryRepositoryUpsert(
+      options.database,
+      userId,
+      {
+        displayName: parsed.data.displayName,
+        path: canonical.data,
+      },
+      undefined,
+      options.rootDirs ?? [],
+    )
     if (!result.success) return registryInternalServerError(context)
 
-    const project = await projectRegistryApiProjectCreate(result.data, options.rootDirs ?? [])
+    const statuses = await registryFolderStatusesLoad(context, userId)
+    if (!statuses.success) return registryInternalServerError(context)
+    const status = statuses.data.find((entry) => entry.projectId === result.data.id)
+    const parentFolder = await projectFolderResolve(options.database, userId, result.data.parentFolderId)
+    if (!parentFolder.success) return registryInternalServerError(context)
+    const project = await projectRegistryApiProjectCreate(
+      result.data,
+      options.rootDirs ?? [],
+      parentFolder.data,
+      status,
+    )
     return context.json(projectRegistryProjectResponseCreate(project))
   }
 
@@ -368,7 +536,17 @@ export function apiProjectRoutesAdd(api: Hono<AppEnvironment>, options: ApiProje
 
     const result = await projectRegistryRepositoryResolve(options.database, userId, parsed.data.project)
     if (!result.success) return registryUnavailable(context)
-    const project = await projectRegistryApiProjectCreate(result.data, options.rootDirs ?? [])
+    const statuses = await registryFolderStatusesLoad(context, userId)
+    if (!statuses.success) return registryInternalServerError(context)
+    const status = statuses.data.find((entry) => entry.projectId === result.data.id)
+    const parentFolder = await projectFolderResolve(options.database, userId, result.data.parentFolderId)
+    if (!parentFolder.success) return registryInternalServerError(context)
+    const project = await projectRegistryApiProjectCreate(
+      result.data,
+      options.rootDirs ?? [],
+      parentFolder.data,
+      status,
+    )
     return context.json(projectRegistryProjectResponseCreate(project))
   }
 
@@ -414,7 +592,48 @@ export function apiProjectRoutesAdd(api: Hono<AppEnvironment>, options: ApiProje
     const result = await projectRegistryRepositoryUpdate(options.database, userId, id.data.project, parsed.data)
     if (!result.success) return registryUnavailable(context)
 
-    const project = await projectRegistryApiProjectCreate(result.data, options.rootDirs ?? [])
+    const statuses = await registryFolderStatusesLoad(context, userId)
+    if (!statuses.success) return registryInternalServerError(context)
+    const status = statuses.data.find((entry) => entry.projectId === result.data.id)
+    const parentFolder = await projectFolderResolve(options.database, userId, result.data.parentFolderId)
+    if (!parentFolder.success) return registryInternalServerError(context)
+    const project = await projectRegistryApiProjectCreate(
+      result.data,
+      options.rootDirs ?? [],
+      parentFolder.data,
+      status,
+    )
+    return context.json(projectRegistryProjectResponseCreate(project))
+  }
+
+  const registryMove = async (context: ApiContext, projectId: string) => {
+    if (options.database === undefined) return registryInternalServerError(context)
+    const userId = registryRequestUserId(context, options)
+    if (userId === undefined) return unauthorized(context)
+    const id = apiRequestParse("projectRegistryProjectQueryParse", projectApiProjectQuerySchema, { project: projectId })
+    if (!id.success) return registryBadRequest(context, "The project selection is invalid.")
+
+    const body = await context.req.json<unknown>().catch(() => undefined)
+    const result = await projectRegistryRepositoryMove(options.database, userId, id.data.project, body)
+    if (!result.success) {
+      return result.errorMessage === "The project folder could not be found."
+        ? registryUnavailable(context)
+        : result.errorMessage === "The project move input is invalid."
+          ? registryBadRequest(context, "The project move request is invalid.")
+          : registryUnavailable(context)
+    }
+
+    const statuses = await registryFolderStatusesLoad(context, userId)
+    if (!statuses.success) return registryInternalServerError(context)
+    const status = statuses.data.find((entry) => entry.projectId === result.data.id)
+    const parentFolder = await projectFolderResolve(options.database, userId, result.data.parentFolderId)
+    if (!parentFolder.success) return registryInternalServerError(context)
+    const project = await projectRegistryApiProjectCreate(
+      result.data,
+      options.rootDirs ?? [],
+      parentFolder.data,
+      status,
+    )
     return context.json(projectRegistryProjectResponseCreate(project))
   }
 
@@ -432,10 +651,26 @@ export function apiProjectRoutesAdd(api: Hono<AppEnvironment>, options: ApiProje
 
   api.get("/project/registry", registryList)
   api.get("/project/registry/list", registryList)
+  api.get("/project/registry/folders", registryFolderList)
+  api.get("/project/registry/folder", registryFolderList)
   api.post("/project/registry", registryRegister)
   api.post("/project/registry/register", registryRegister)
+  api.post("/project/registry/folders", registryFolderCreate)
+  api.post("/project/registry/folder", registryFolderCreate)
   api.get("/project/registry/resolve", registryResolveQuery)
   api.post("/project/registry/import", registryOpenCodeImport)
+  api.patch("/project/registry/folders/:folderId", (context) =>
+    registryFolderRename(context, context.req.param("folderId")),
+  )
+  api.patch("/project/registry/folder/:folderId", (context) =>
+    registryFolderRename(context, context.req.param("folderId")),
+  )
+  api.delete("/project/registry/folders/:folderId", (context) =>
+    registryFolderRemove(context, context.req.param("folderId")),
+  )
+  api.delete("/project/registry/folder/:folderId", (context) =>
+    registryFolderRemove(context, context.req.param("folderId")),
+  )
   api.patch("/project/registry/rename/:projectId", (context) => registryRename(context, context.req.param("projectId")))
   api.delete("/project/registry/remove/:projectId", (context) =>
     registryRemove(context, context.req.param("projectId")),
@@ -443,10 +678,13 @@ export function apiProjectRoutesAdd(api: Hono<AppEnvironment>, options: ApiProje
   api.get("/project/registry/:projectId", (context) => registryResolve(context, context.req.param("projectId")))
   api.patch("/project/registry/:projectId", (context) => registryRename(context, context.req.param("projectId")))
   api.delete("/project/registry/:projectId", (context) => registryRemove(context, context.req.param("projectId")))
+  api.patch("/project/registry/move/:projectId", (context) => registryMove(context, context.req.param("projectId")))
+  api.patch("/project/registry/:projectId/folder", (context) => registryMove(context, context.req.param("projectId")))
   api.get("/project/resolve", registryResolveQuery)
   api.post("/project/register", registryRegister)
   api.patch("/project/rename/:projectId", (context) => registryRename(context, context.req.param("projectId")))
   api.delete("/project/remove/:projectId", (context) => registryRemove(context, context.req.param("projectId")))
+  api.patch("/project/move/:projectId", (context) => registryMove(context, context.req.param("projectId")))
 
   api.get("/project/list", async (context) => {
     if (options.database !== undefined) return registryList(context)

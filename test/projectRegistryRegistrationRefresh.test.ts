@@ -45,7 +45,7 @@ test("registering a new project refreshes shared registry and updates sidebar, N
     const method = init?.method ?? "GET"
 
     if (url === "/api/project/registry" && method === "GET") {
-      return Response.json({ projects: currentProjects, truncated: false })
+      return Response.json({ folders: [], projects: currentProjects, truncated: false })
     }
 
     if (url === "/api/project/registry" && method === "POST") {
@@ -213,7 +213,7 @@ test("New Project dialog without explicit projectRegistry prop inherits and refr
     const method = init?.method ?? "GET"
 
     if (url === "/api/project/registry" && method === "GET") {
-      return Response.json({ projects: currentProjects, truncated: false })
+      return Response.json({ folders: [], projects: currentProjects, truncated: false })
     }
 
     if (url === "/api/project/registry" && method === "POST") {

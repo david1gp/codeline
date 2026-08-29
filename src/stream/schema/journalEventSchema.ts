@@ -33,6 +33,12 @@ export const journalEventSchema = v.variant("eventType", [
   }),
   v.strictObject({
     ...journalEventBaseEntries,
+    eventType: v.literal("run-started"),
+    runId: apiPublicIdSchema,
+    sessionId: apiPublicIdSchema,
+  }),
+  v.strictObject({
+    ...journalEventBaseEntries,
     eventType: v.literal("run-completed"),
     messageId: v.nullable(apiPublicIdSchema),
     runId: apiPublicIdSchema,

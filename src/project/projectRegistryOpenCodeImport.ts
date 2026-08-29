@@ -81,7 +81,7 @@ export async function projectRegistryOpenCodeImport(
   }
 
   for (const projectPath of canonicalPaths) {
-    const upserted = await projectRegistryRepositoryUpsert(database, userId, { path: projectPath })
+    const upserted = await projectRegistryRepositoryUpsert(database, userId, { path: projectPath }, undefined, rootDirs)
     if (!upserted.success) return createResultError(op, "The imported projects could not be saved.")
   }
 

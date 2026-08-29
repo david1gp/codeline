@@ -28,7 +28,7 @@ export const journalEventTable = sqliteTable(
     index("journal_event_compact_retention_idx")
       .on(table.userId, table.createdAt, table.sequence, table.id)
       .where(
-        sql`${table.eventType} in ('invalidate', 'run-completed', 'run-failed', 'run-cancelled', 'run-interrupted')`,
+        sql`${table.eventType} in ('invalidate', 'run-started', 'run-completed', 'run-failed', 'run-cancelled', 'run-interrupted')`,
       ),
   ],
 )

@@ -10,16 +10,23 @@ import { externalIdentityUpsert } from "../identity/db/externalIdentityUpsert.js
 import { organizationMemberTable } from "../identity/db/organizationMemberTable.js"
 import { organizationTable } from "../identity/db/organizationTable.js"
 import { messageTable } from "../message/db/messageTable.js"
+import { attemptTable } from "../run/db/attemptTable.js"
+import { runTable } from "../run/db/runTable.js"
 import { providerAgentCatalogAgentNameCreate } from "../providers/catalog/providerAgentCatalogAgentNameCreate.js"
 import { providerAgentCatalogConfigurationCompile } from "../providers/catalog/providerAgentCatalogConfigurationCompile.js"
 import { providerAgentCatalogLoad } from "../providers/catalog/providerAgentCatalogLoad.js"
 import type { ProviderCatalog } from "../providers/schema/providerCatalogSchema.js"
 import { serverTable } from "../servers/db/serverTable.js"
 import { sessionTable } from "../session/db/sessionTable.js"
+import { sessionViewTable } from "../session/db/sessionViewTable.js"
+import { projectFolderBootstrapEnsure } from "../project/db/projectFolderBootstrapEnsure.js"
+import { projectFolderBootstrapIdLoad } from "../project/db/projectFolderBootstrapIdLoad.js"
+import { projectTable } from "../project/db/projectTable.js"
 import type { DatabaseClient, DatabaseExecutor } from "./databaseClient.js"
 import { databaseTransactionRun } from "./databaseTransactionRun.js"
 import { exampleDataConfigurationReconcile } from "./exampleDataConfigurationReconcile.js"
 import { exampleDataFixture } from "./exampleDataFixture.js"
+import { uuidv7 } from "../uuid/uuidv7.js"
 
 function date(value: string): Date {
   return new Date(value)
@@ -34,6 +41,170 @@ async function exampleDataMessagesDelete(database: DatabaseExecutor): Promise<vo
   const messageIds = exampleDataFixture.sessions.flatMap((session) => session.messages.map((message) => message.id))
 
   await database.delete(messageTable).where(inArray(messageTable.id, messageIds))
+}
+
+async function exampleDataOwnedRunRowsDelete(database: DatabaseExecutor): Promise<void> {
+  const runIds = exampleDataFixture.runs.map((run) => run.id)
+  const sessionIds = exampleDataFixture.sessionViews.map((sessionView) => sessionView.sessionId)
+
+  await database.delete(runTable).where(inArray(runTable.id, runIds))
+  await database.delete(sessionViewTable).where(inArray(sessionViewTable.sessionId, sessionIds))
+}
+
+async function exampleDataProjectsReconcile(database: DatabaseExecutor, userId: string): Promise<Result<void>> {
+  const op = "exampleDataProjectsReconcile"
+  const bootstrapped = await projectFolderBootstrapEnsure(database, userId)
+  if (!bootstrapped.success) return createResultError(op, bootstrapped.errorMessage)
+
+  try {
+    for (const fixtureProject of exampleDataFixture.projects) {
+      const folder = await projectFolderBootstrapIdLoad(database, userId, fixtureProject.folderKey)
+      if (!folder.success) return createResultError(op, folder.errorMessage)
+      if (folder.data === undefined) return createResultError(op, "The example project folder could not be found.")
+
+      await database
+        .insert(projectTable)
+        .values({
+          createdAt: date(fixtureProject.createdAt),
+          displayName: fixtureProject.displayName,
+          id: userId === exampleDataFixture.user.id ? fixtureProject.id : uuidv7(),
+          parentFolderId: folder.data,
+          path: fixtureProject.path,
+          updatedAt: date(fixtureProject.updatedAt),
+          userId,
+        })
+        .onConflictDoUpdate({
+          target: [projectTable.userId, projectTable.path],
+          set: {
+            displayName: fixtureProject.displayName,
+            parentFolderId: folder.data,
+            updatedAt: date(fixtureProject.updatedAt),
+          },
+        })
+    }
+
+    return createResult(undefined)
+  } catch (_error) {
+    return createResultError(op, "The example projects could not be reconciled.")
+  }
+}
+
+async function exampleDataRunsReconcile(database: DatabaseExecutor, userId: string): Promise<Result<void>> {
+  const op = "exampleDataRunsReconcile"
+
+  try {
+    for (const fixtureRun of exampleDataFixture.runs) {
+      await database
+        .insert(runTable)
+        .values({
+          budget: fixtureRun.budget,
+          clientRunId: fixtureRun.clientRunId,
+          createdAt: date(fixtureRun.createdAt),
+          deadlineAt: date(fixtureRun.deadlineAt),
+          failure: fixtureRun.failure,
+          finishedAt: fixtureRun.finishedAt === null ? null : date(fixtureRun.finishedAt),
+          id: fixtureRun.id,
+          sessionId: fixtureRun.sessionId,
+          snapshot: fixtureRun.snapshot,
+          startedAt: date(fixtureRun.startedAt),
+          status: fixtureRun.status,
+          streamId: fixtureRun.streamId,
+          updatedAt: date(fixtureRun.updatedAt),
+          userId,
+        })
+        .onConflictDoUpdate({
+          target: runTable.id,
+          set: {
+            budget: fixtureRun.budget,
+            clientRunId: fixtureRun.clientRunId,
+            createdAt: date(fixtureRun.createdAt),
+            deadlineAt: date(fixtureRun.deadlineAt),
+            failure: fixtureRun.failure,
+            finishedAt: fixtureRun.finishedAt === null ? null : date(fixtureRun.finishedAt),
+            sessionId: fixtureRun.sessionId,
+            snapshot: fixtureRun.snapshot,
+            startedAt: date(fixtureRun.startedAt),
+            status: fixtureRun.status,
+            streamId: fixtureRun.streamId,
+            updatedAt: date(fixtureRun.updatedAt),
+            userId,
+          },
+        })
+    }
+
+    for (const fixtureAttempt of exampleDataFixture.attempts) {
+      await database
+        .insert(attemptTable)
+        .values({
+          budget: fixtureAttempt.budget,
+          createdAt: date(fixtureAttempt.createdAt),
+          failure: fixtureAttempt.failure,
+          finishedAt: fixtureAttempt.finishedAt === null ? null : date(fixtureAttempt.finishedAt),
+          id: fixtureAttempt.id,
+          ordinal: fixtureAttempt.ordinal,
+          runId: fixtureAttempt.runId,
+          sessionId: fixtureAttempt.sessionId,
+          snapshot: fixtureAttempt.snapshot,
+          startedAt: date(fixtureAttempt.startedAt),
+          status: fixtureAttempt.status,
+          streamId: fixtureAttempt.streamId,
+          updatedAt: date(fixtureAttempt.updatedAt),
+          userId,
+        })
+        .onConflictDoUpdate({
+          target: attemptTable.id,
+          set: {
+            budget: fixtureAttempt.budget,
+            createdAt: date(fixtureAttempt.createdAt),
+            failure: fixtureAttempt.failure,
+            finishedAt: fixtureAttempt.finishedAt === null ? null : date(fixtureAttempt.finishedAt),
+            ordinal: fixtureAttempt.ordinal,
+            runId: fixtureAttempt.runId,
+            sessionId: fixtureAttempt.sessionId,
+            snapshot: fixtureAttempt.snapshot,
+            startedAt: date(fixtureAttempt.startedAt),
+            status: fixtureAttempt.status,
+            streamId: fixtureAttempt.streamId,
+            updatedAt: date(fixtureAttempt.updatedAt),
+            userId,
+          },
+        })
+    }
+
+    return createResult(undefined)
+  } catch (_error) {
+    return createResultError(op, "The example runs could not be reconciled.")
+  }
+}
+
+async function exampleDataSessionViewsReconcile(database: DatabaseExecutor, userId: string): Promise<Result<void>> {
+  const op = "exampleDataSessionViewsReconcile"
+
+  try {
+    for (const fixtureSessionView of exampleDataFixture.sessionViews) {
+      await database
+        .insert(sessionViewTable)
+        .values({
+          acknowledgedFinishedAt: date(fixtureSessionView.acknowledgedFinishedAt),
+          createdAt: date(fixtureSessionView.createdAt),
+          sessionId: fixtureSessionView.sessionId,
+          updatedAt: date(fixtureSessionView.updatedAt),
+          userId,
+        })
+        .onConflictDoUpdate({
+          target: [sessionViewTable.userId, sessionViewTable.sessionId],
+          set: {
+            acknowledgedFinishedAt: date(fixtureSessionView.acknowledgedFinishedAt),
+            createdAt: date(fixtureSessionView.createdAt),
+            updatedAt: date(fixtureSessionView.updatedAt),
+          },
+        })
+    }
+
+    return createResult(undefined)
+  } catch (_error) {
+    return createResultError(op, "The example session views could not be reconciled.")
+  }
 }
 
 async function exampleDataOrganizationReconcile(
@@ -131,6 +302,10 @@ async function exampleDataRowsReconcile(
       subject: membershipSubject,
     })
     if (!externalIdentity.success) return createResultError(op, externalIdentity.errorMessage)
+
+    const projects = await exampleDataProjectsReconcile(database, fixtureUser.id)
+    if (!projects.success) return createResultError(op, projects.errorMessage)
+    await exampleDataOwnedRunRowsDelete(database)
 
     await database
       .insert(organizationMemberTable)
@@ -271,6 +446,11 @@ async function exampleDataRowsReconcile(
           })
       }
     }
+
+    const runs = await exampleDataRunsReconcile(database, fixtureUser.id)
+    if (!runs.success) return createResultError(op, runs.errorMessage)
+    const sessionViews = await exampleDataSessionViewsReconcile(database, fixtureUser.id)
+    if (!sessionViews.success) return createResultError(op, sessionViews.errorMessage)
 
     const catalogAgents = [...catalogConfigurations.data].sort((left, right) => {
       const leftMode = catalogAgentMode(left.configuration) === "primary" ? 0 : 1

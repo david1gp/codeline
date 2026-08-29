@@ -1,7 +1,7 @@
 import { createMemo } from "solid-js"
 import type { ProjectBrowserView } from "../project/projectBrowserView.js"
 import { projectBrowserViewCreate } from "../project/projectBrowserViewCreate.js"
-import type { ProjectRegistryState } from "../project/ui/projectRegistryStateCreate.js"
+import type { ProjectRegistryState } from "../project/ui/projectRegistryState.js"
 import { filesPageStateCreate } from "./filesPageStateCreate.js"
 import type { FilesScreenView } from "./filesScreenView.js"
 

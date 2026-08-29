@@ -42,8 +42,13 @@ test("note groups use registered labels without changing group or note ordering"
 
   expect(
     noteGroupsDerive(notes, [
-      { available: true, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb8", label: "Codeline" },
-      { available: false, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb9", label: "Unavailable Project" },
+      { available: true, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb8", label: "Codeline", parentFolder: null },
+      {
+        available: false,
+        id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb9",
+        label: "Unavailable Project",
+        parentFolder: null,
+      },
     ]),
   ).toEqual([
     {
@@ -95,8 +100,8 @@ test("note groups keep duplicate project labels separate by opaque project ID", 
     noteGroupsDerive(
       [firstNote, secondNote],
       [
-        { available: true, id: firstProjectId, label: "Shared label" },
-        { available: true, id: secondProjectId, label: "Shared label" },
+        { available: true, id: firstProjectId, label: "Shared label", parentFolder: null },
+        { available: true, id: secondProjectId, label: "Shared label", parentFolder: null },
       ],
     ),
   ).toEqual([

@@ -33,7 +33,8 @@ test("notes page state loads typed notes, project labels, and refreshes after re
           return Response.json([{ ...note, content: noteListCalls === 1 ? note.content : "Updated" }])
         }
         return Response.json({
-          projects: [{ available: true, id: projectId, label: "Codeline" }],
+          folders: [],
+          projects: [{ available: true, id: projectId, label: "Codeline", parentFolder: null }],
           truncated: false,
         })
       },

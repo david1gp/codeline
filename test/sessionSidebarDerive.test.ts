@@ -112,8 +112,8 @@ test("sidebar merges registered projects with zero sessions alongside historical
     now,
     {},
     [
-      { available: true, id: regId1, label: "codeline" },
-      { available: false, id: regId2, label: "empty-registered" },
+      { available: true, id: regId1, label: "codeline", parentFolder: null },
+      { available: false, id: regId2, label: "empty-registered", parentFolder: null },
     ],
   )
 
@@ -143,8 +143,8 @@ test("sidebar keeps duplicate registered labels and unmatched historical session
     now,
     { "/legacy/first": "first" },
     [
-      { available: true, id: firstProjectId, label: "first" },
-      { available: true, id: secondProjectId, label: "first" },
+      { available: true, id: firstProjectId, label: "first", parentFolder: null },
+      { available: true, id: secondProjectId, label: "first", parentFolder: null },
     ],
   )
 
@@ -169,4 +169,69 @@ test("updated timestamp titles contain local and UTC absolute timestamps", () =>
   expect(formatted.title).toContain("Local:")
   expect(formatted.title).toContain("UTC:")
   expect(formatted.title).toContain("2026-08-15T12:00:00.000Z")
+})
+
+test("sidebar groups registered projects into user folders while isolating uncategorized projects", () => {
+  const folderId1 = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fd0"
+  const folderId2 = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fd1"
+  const regId1 = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fd2"
+  const regId2 = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fd3"
+  const regId3 = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fd4"
+  const regId4 = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fd5"
+
+  const derived = sessionSidebarDerive(
+    [
+      session({ id: "s-1", projectId: regId1, projectPath: "/work/p1", updatedAt: now }),
+      session({ id: "s-2", projectId: regId2, projectPath: "/work/p2", updatedAt: now - 10_000 }),
+      session({ id: "s-3", projectId: regId3, projectPath: "/work/p3", updatedAt: now - 20_000 }),
+      session({ id: "s-4", projectId: regId4, projectPath: "/work/p4", updatedAt: now - 25_000 }),
+      session({ id: "s-hist", projectPath: "/legacy/hist", updatedAt: now - 30_000 }),
+    ],
+    [],
+    now,
+    {},
+    [
+      {
+        available: true,
+        folderId: folderId1,
+        id: regId1,
+        label: "Project One",
+        parentFolder: { id: folderId1, label: "Work" },
+      },
+      {
+        available: true,
+        folderId: folderId1,
+        id: regId2,
+        label: "Project Two",
+        parentFolder: { id: folderId1, label: "Work" },
+      },
+      { available: true, folderId: null, id: regId3, label: "Unassigned Project", parentFolder: null },
+      {
+        available: true,
+        folderId: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fff",
+        id: regId4,
+        label: "Parent Folder Project",
+        parentFolder: { id: folderId1, label: "Work" },
+      },
+    ],
+    [
+      { active: true, id: folderId1, label: "Work", unseenEnded: false },
+      { active: false, id: folderId2, label: "Empty Folder", unseenEnded: true },
+    ],
+  )
+
+  expect(derived.folders).toHaveLength(2)
+  expect(derived.folders[0]?.id).toBe(folderId1)
+  expect(derived.folders[0]?.label).toBe("Work")
+  expect(derived.folders[0]?.active).toBe(true)
+  expect(derived.folders[0]?.unseenEnded).toBe(false)
+  expect(derived.folders[0]?.projects.map((p) => p.projectId)).toEqual([regId4, regId1, regId2])
+
+  expect(derived.folders[1]?.id).toBe(folderId2)
+  expect(derived.folders[1]?.label).toBe("Empty Folder")
+  expect(derived.folders[1]?.active).toBe(false)
+  expect(derived.folders[1]?.unseenEnded).toBe(true)
+  expect(derived.folders[1]?.projects).toHaveLength(0)
+
+  expect(derived.uncategorizedProjects.map((p) => p.projectLabel)).toEqual(["hist", "Unassigned Project"])
 })

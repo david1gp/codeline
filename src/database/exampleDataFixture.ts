@@ -1,5 +1,35 @@
+import { dirname, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 import type { AgentConfiguration } from "../agents/schema/agentConfigurationSchema.js"
+import type { RunBudget } from "../run/schema/runBudgetSchema.js"
+import type { RunExecutionSnapshot } from "../run/schema/runExecutionSnapshotSchema.js"
 import { simulationScenarioSessionMetadata } from "../simulation/simulationScenarioSessionMetadata.js"
+import type { ProjectFolderBootstrapKey } from "../project/projectFolderBootstrapKeySchema.js"
+
+const exampleDataProjectPaths = {
+  adaptive: resolve(dirname(fileURLToPath(import.meta.url)), "../../example-projects/adaptive"),
+  leo: resolve(dirname(fileURLToPath(import.meta.url)), "../../example-projects/leo"),
+  personal: resolve(dirname(fileURLToPath(import.meta.url)), "../../example-projects/personal"),
+} satisfies Record<ProjectFolderBootstrapKey, string>
+
+const exampleDataRunBudget = {
+  maxAttempts: 1,
+  maxChildDepth: 0,
+  maxChildRuns: 0,
+  maxDurationMs: 300_000,
+} satisfies RunBudget
+
+function exampleDataRunSnapshotCreate(agentId: string, serverId: string): RunExecutionSnapshot {
+  return {
+    configuration: {
+      model: "development-default",
+      provider: "deterministic",
+      tools: { bash: false, webfetch: false },
+    },
+    configurationRevision: "example-data-v1",
+    target: { agentId, serverId },
+  }
+}
 
 type ExampleDataFixture = {
   user: {
@@ -40,6 +70,14 @@ type ExampleDataFixture = {
     createdAt: string
     updatedAt: string
   }[]
+  projects: readonly {
+    id: string
+    path: string
+    displayName: string
+    folderKey: ProjectFolderBootstrapKey
+    createdAt: string
+    updatedAt: string
+  }[]
   sessions: readonly {
     id: string
     serverId: string
@@ -63,6 +101,42 @@ type ExampleDataFixture = {
       finalizedAt: string
       createdAt: string
     }[]
+  }[]
+  runs: readonly {
+    id: string
+    sessionId: string
+    clientRunId: string
+    streamId: string
+    status: "succeeded"
+    snapshot: RunExecutionSnapshot
+    budget: RunBudget
+    deadlineAt: string
+    failure: null
+    startedAt: string
+    finishedAt: string | null
+    createdAt: string
+    updatedAt: string
+  }[]
+  attempts: readonly {
+    id: string
+    runId: string
+    sessionId: string
+    ordinal: number
+    streamId: string
+    status: "succeeded"
+    snapshot: RunExecutionSnapshot
+    budget: RunBudget
+    failure: null
+    startedAt: string
+    finishedAt: string | null
+    createdAt: string
+    updatedAt: string
+  }[]
+  sessionViews: readonly {
+    sessionId: string
+    acknowledgedFinishedAt: string
+    createdAt: string
+    updatedAt: string
   }[]
 }
 
@@ -164,12 +238,38 @@ export const exampleDataFixture = {
       updatedAt: `2026-08-12T08:${String(20 + index).padStart(2, "0")}:00.000Z`,
     })),
   ],
+  projects: [
+    {
+      id: "11111111-1111-7111-8111-111111111111",
+      path: exampleDataProjectPaths.adaptive,
+      displayName: "Adaptive example project",
+      folderKey: "adaptive",
+      createdAt: "2026-08-12T08:02:50.000Z",
+      updatedAt: "2026-08-12T08:02:50.000Z",
+    },
+    {
+      id: "22222222-2222-7222-8222-222222222222",
+      path: exampleDataProjectPaths.leo,
+      displayName: "Leo example project",
+      folderKey: "leo",
+      createdAt: "2026-08-12T08:02:55.000Z",
+      updatedAt: "2026-08-12T08:02:55.000Z",
+    },
+    {
+      id: "33333333-3333-7333-8333-333333333333",
+      path: exampleDataProjectPaths.personal,
+      displayName: "Personal example project",
+      folderKey: "personal",
+      createdAt: "2026-08-12T08:02:59.000Z",
+      updatedAt: "2026-08-12T08:02:59.000Z",
+    },
+  ],
   sessions: [
     {
       id: "example-session-active-1",
       serverId: "example-server-local",
       primaryAgentId: "example-agent-local",
-      projectPath: "~",
+      projectPath: exampleDataProjectPaths.adaptive,
       pinned: true,
       parentSessionId: null,
       title: "Build the workspace shell",
@@ -205,7 +305,7 @@ export const exampleDataFixture = {
       id: "example-session-active-2",
       serverId: "example-server-local",
       primaryAgentId: "example-agent-local",
-      projectPath: "~",
+      projectPath: exampleDataProjectPaths.leo,
       pinned: false,
       parentSessionId: "example-session-active-1",
       title: "Verify synchronized messages",
@@ -241,7 +341,7 @@ export const exampleDataFixture = {
       id: "example-session-archived-1",
       serverId: "example-server-local",
       primaryAgentId: "example-agent-local",
-      projectPath: "~",
+      projectPath: exampleDataProjectPaths.personal,
       pinned: true,
       parentSessionId: "example-session-active-2",
       title: "Archive the completed walkthrough",
@@ -277,7 +377,7 @@ export const exampleDataFixture = {
       id: "example-session-remote-1",
       serverId: "example-server-remote",
       primaryAgentId: "example-agent-remote",
-      projectPath: "~",
+      projectPath: exampleDataProjectPaths.personal,
       pinned: true,
       parentSessionId: null,
       title: "Switch to the remote server",
@@ -313,7 +413,9 @@ export const exampleDataFixture = {
       id: scenario.sessionId,
       serverId: "example-server-local",
       primaryAgentId: scenario.agentId,
-      projectPath: "~",
+      projectPath:
+        [exampleDataProjectPaths.adaptive, exampleDataProjectPaths.leo, exampleDataProjectPaths.personal][index % 3] ??
+        exampleDataProjectPaths.personal,
       pinned: index % 2 === 0,
       parentSessionId: null,
       title: `Simulation ${scenario.model} session`,
@@ -324,5 +426,47 @@ export const exampleDataFixture = {
       updatedAt: `2026-08-12T08:${String(30 + index).padStart(2, "0")}:00.000Z`,
       messages: [],
     })),
+  ],
+  runs: [
+    {
+      id: "example-run-ended-1",
+      sessionId: "example-session-active-2",
+      clientRunId: "example-client-run-ended-1",
+      streamId: "example-stream-ended-1",
+      status: "succeeded",
+      snapshot: exampleDataRunSnapshotCreate("example-agent-local", "example-server-local"),
+      budget: exampleDataRunBudget,
+      deadlineAt: "2026-08-12T09:07:00.000Z",
+      failure: null,
+      startedAt: "2026-08-12T08:07:00.000Z",
+      finishedAt: "2026-08-12T08:08:30.000Z",
+      createdAt: "2026-08-12T08:06:30.000Z",
+      updatedAt: "2026-08-12T08:08:30.000Z",
+    },
+  ],
+  attempts: [
+    {
+      id: "example-attempt-ended-1",
+      runId: "example-run-ended-1",
+      sessionId: "example-session-active-2",
+      ordinal: 1,
+      streamId: "example-stream-ended-1",
+      status: "succeeded",
+      snapshot: exampleDataRunSnapshotCreate("example-agent-local", "example-server-local"),
+      budget: exampleDataRunBudget,
+      failure: null,
+      startedAt: "2026-08-12T08:07:00.000Z",
+      finishedAt: "2026-08-12T08:08:30.000Z",
+      createdAt: "2026-08-12T08:06:30.000Z",
+      updatedAt: "2026-08-12T08:08:30.000Z",
+    },
+  ],
+  sessionViews: [
+    {
+      sessionId: "example-session-active-2",
+      acknowledgedFinishedAt: "2026-08-12T08:08:00.000Z",
+      createdAt: "2026-08-12T08:08:00.000Z",
+      updatedAt: "2026-08-12T08:08:00.000Z",
+    },
   ],
 } satisfies ExampleDataFixture

@@ -1,4 +1,6 @@
 import { mdiFolderMultipleOutline } from "@adaptive-ds/mdi/mdiFolderMultipleOutline.js"
+import { mdiFolderOutline } from "@adaptive-ds/mdi/mdiFolderOutline.js"
+import { mdiFolderPlusOutline } from "@adaptive-ds/mdi/mdiFolderPlusOutline.js"
 import { mdiHistory } from "@adaptive-ds/mdi/mdiHistory.js"
 import { mdiLoading } from "@adaptive-ds/mdi/mdiLoading.js"
 import { mdiMagnify } from "@adaptive-ds/mdi/mdiMagnify.js"
@@ -11,8 +13,8 @@ import { Button } from "#ui/interactive/button/Button.jsx"
 import { ButtonIconOnly } from "#ui/interactive/button/ButtonIconOnly.jsx"
 import { buttonVariant } from "#ui/interactive/button/buttonCva.js"
 import { Icon } from "#ui/static/icon/Icon.jsx"
-import type { ProjectRegistryState } from "../project/ui/projectRegistryStateCreate.js"
 import { ProjectAvatar } from "../project/ui/ProjectAvatar.js"
+import type { ProjectRegistryState } from "../project/ui/projectRegistryState.js"
 import type { ActiveProjectState } from "./activeProjectStateCreate.js"
 import { NewProjectDialog } from "./NewProjectDialog.js"
 import { SessionSidebarDialogs } from "./SessionSidebarDialogs.js"
@@ -181,12 +183,24 @@ export function SessionList(props: {
       </Show>
 
       <Show when={props.state.sidebar.activeTab() === "projects"}>
-        <div class="shrink-0 border-line border-b p-2">
-          <NewProjectDialog
-            activeProject={props.activeProject}
-            idPrefix={`${prefix()}-new-project`}
-            projectRegistry={props.projectRegistry ?? props.state.projectRegistry}
-          />
+        <div class="flex items-center gap-1.5 shrink-0 border-line border-b p-2">
+          <div class="min-w-0 flex-1">
+            <NewProjectDialog
+              activeProject={props.activeProject}
+              idPrefix={`${prefix()}-new-project`}
+              projectRegistry={props.projectRegistry ?? props.state.projectRegistry}
+            />
+          </div>
+          <Button
+            class="h-8 shrink-0 px-2 text-xs font-normal text-faint hover:bg-surface-hover hover:text-strong"
+            variant={buttonVariant.ghost}
+            title="New folder"
+            aria-label="New folder"
+            onClick={() => props.state.actions.folderCreateOpen()}
+          >
+            <Icon path={mdiFolderPlusOutline} class="mr-1 size-3.5" />
+            New Folder
+          </Button>
         </div>
       </Show>
 
@@ -223,9 +237,122 @@ export function SessionList(props: {
           </Match>
           <Match when={props.state.sidebar.activeTab() === "projects"}>
             <div class="py-1">
-              <For each={props.state.sidebar.projectGroups()}>
+              <For each={props.state.sidebar.folders()}>
+                {(folder) => (
+                  <details
+                    class="group/folder"
+                    open={props.state.folderIsOpen(folder)}
+                    onToggle={(event) => {
+                      if (event.target === event.currentTarget) {
+                        props.state.folderToggle(folder.id, event.currentTarget.open)
+                      }
+                    }}
+                  >
+                    <summary class="flex min-h-10 cursor-pointer list-none items-center gap-2 px-3 text-xs font-semibold text-strong hover:bg-surface-hover">
+                      <Icon path={mdiFolderOutline} class="size-4 shrink-0 text-faint" />
+                      <span class="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap" title={folder.label}>
+                        {folder.label}
+                      </span>
+                      <Show when={folder.active || folder.unseenEnded}>
+                        <span
+                          class="size-2 shrink-0 rounded-full"
+                          classList={{
+                            "bg-emerald-500": folder.active,
+                            "bg-blue-500": !folder.active && folder.unseenEnded,
+                          }}
+                          title={folder.active ? "Active session in folder" : "Unseen ended session in folder"}
+                          role="status"
+                          aria-label={folder.active ? "Active session in folder" : "Unseen ended session in folder"}
+                        />
+                      </Show>
+                      <SessionSidebarMenu
+                        ariaLabel={`Folder actions for ${folder.label}`}
+                        deleteLabel="Delete"
+                        onRename={() => props.state.actions.folderRenameOpen(folder)}
+                        onDelete={() => props.state.actions.folderDeleteOpen(folder)}
+                      />
+                    </summary>
+                    <Show when={folder.projects.length > 0}>
+                      <div class="ml-3 border-line-subtle border-l">
+                        <For each={folder.projects}>
+                          {(project) => (
+                            <details class="group" open={props.state.projectIsOpen(project)}>
+                              <summary class="flex min-h-10 cursor-pointer list-none items-center gap-2 px-3 text-xs font-semibold text-strong hover:bg-surface-hover">
+                                <ProjectAvatar name={project.projectLabel} />
+                                <span
+                                  class="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
+                                  classList={{ "text-faint": project.available === false }}
+                                  title={project.projectPath || project.projectLabel}
+                                >
+                                  {project.projectLabel}
+                                  {project.available === false ? " (unavailable)" : ""}
+                                </span>
+                                <SessionSidebarMenu
+                                  ariaLabel={`Project actions for ${project.projectLabel}`}
+                                  deleteLabel={project.projectId !== undefined ? "Remove" : "Delete"}
+                                  onRename={() => props.state.actions.projectRenameOpen(project)}
+                                  onMove={
+                                    project.projectId !== undefined
+                                      ? () => props.state.actions.projectMoveOpen(project)
+                                      : undefined
+                                  }
+                                  onDelete={() =>
+                                    project.projectId !== undefined
+                                      ? props.state.actions.projectRemoveOpen(project)
+                                      : props.state.actions.projectDeleteOpen(project)
+                                  }
+                                />
+                                <ButtonIconOnly
+                                  class="size-6 shrink-0 rounded-md text-faint hover:bg-transparent hover:text-faint disabled:opacity-40"
+                                  disabled={project.available === false}
+                                  icon={mdiPlus}
+                                  iconClass="size-3.5 fill-current text-faint dark:fill-current"
+                                  title={
+                                    project.available === false
+                                      ? `${project.projectLabel} is unavailable`
+                                      : `New session in ${project.projectLabel}`
+                                  }
+                                  aria-label={
+                                    project.available === false
+                                      ? `${project.projectLabel} is unavailable`
+                                      : `New session in ${project.projectLabel}`
+                                  }
+                                  variant={buttonVariant.ghost}
+                                  onClick={(event) => {
+                                    event.preventDefault()
+                                    event.stopPropagation()
+                                    if (project.available === false) return
+                                    props.sessionCreateInProject?.(project.projectPath, project.projectId)
+                                  }}
+                                />
+                              </summary>
+                              <Show when={project.sessions.length > 0}>
+                                <div class="ml-3 border-line-subtle border-l">
+                                  <SessionRows
+                                    hideProjectLabel
+                                    rows={project.sessions}
+                                    isSelected={props.state.isSelected}
+                                    onSessionDelete={props.state.actions.sessionDeleteOpen}
+                                    onSessionDeleteImmediate={(sessionId) =>
+                                      void props.state.actions.sessionDeleteImmediate(sessionId)
+                                    }
+                                    onSessionRename={props.state.actions.sessionRenameOpen}
+                                    selectSession={selectSession}
+                                  />
+                                </div>
+                              </Show>
+                            </details>
+                          )}
+                        </For>
+                      </div>
+                    </Show>
+                  </details>
+                )}
+              </For>
+
+              <For each={props.state.sidebar.uncategorizedProjects()}>
                 {(project) => (
-                  <details class="group" open={project.sessions.some((row) => props.state.isSelected(row.session.id))}>
+                  <details class="group" open={props.state.projectIsOpen(project)}>
                     <summary class="flex min-h-10 cursor-pointer list-none items-center gap-2 px-3 text-xs font-semibold text-strong hover:bg-surface-hover">
                       <ProjectAvatar name={project.projectLabel} />
                       <span
@@ -240,6 +367,11 @@ export function SessionList(props: {
                         ariaLabel={`Project actions for ${project.projectLabel}`}
                         deleteLabel={project.projectId !== undefined ? "Remove" : "Delete"}
                         onRename={() => props.state.actions.projectRenameOpen(project)}
+                        onMove={
+                          project.projectId !== undefined
+                            ? () => props.state.actions.projectMoveOpen(project)
+                            : undefined
+                        }
                         onDelete={() =>
                           project.projectId !== undefined
                             ? props.state.actions.projectRemoveOpen(project)

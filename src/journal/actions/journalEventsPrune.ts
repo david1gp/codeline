@@ -14,6 +14,7 @@ import {
 
 const compactJournalEventTypes = [
   "invalidate",
+  "run-started",
   "run-completed",
   "run-failed",
   "run-cancelled",

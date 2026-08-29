@@ -1,7 +1,7 @@
 import { createSignalObject } from "@adaptive-ds/solid-ui/utils/createSignalObject"
 import { useNavigate } from "@solidjs/router"
 import { createEffect, onCleanup, useContext } from "solid-js"
-import type { ProjectRegistryState } from "../../project/ui/projectRegistryStateCreate.js"
+import type { ProjectRegistryState } from "../../project/ui/projectRegistryState.js"
 import { applicationAccountContext } from "../../ui/applicationAccountContext.js"
 import { appShellContext } from "../../ui/appShellContext.js"
 import { eventFeedCoordinatorContext } from "../../ui/eventFeedCoordinatorContext.js"

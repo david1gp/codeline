@@ -1,8 +1,10 @@
+import type { SelectSingleEntry } from "#ui/input/select/SelectSingleEntry.js"
 import type { ProjectBrowserView } from "../project/projectBrowserView.js"
 
 export type FilesScreenProject = {
   id: string
   label: string
+  parentFolder: { id: string; label: string } | null
 }
 
 /**
@@ -12,6 +14,7 @@ export type FilesScreenProject = {
  */
 export type FilesScreenView = {
   browser: () => ProjectBrowserView | null
+  projectSelectorOptions: () => SelectSingleEntry[]
   projects: () => readonly FilesScreenProject[]
   projectSelect: (projectId: string) => void
   retry: () => void

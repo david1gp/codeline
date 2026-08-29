@@ -50,6 +50,7 @@ test("project registry migration creates the user-scoped table and constraints",
       "user_id",
       "path",
       "display_name",
+      "parent_folder_id",
       "created_at",
       "updated_at",
     ])
@@ -60,7 +61,7 @@ test("project registry migration creates the user-scoped table and constraints",
     expect(indexNames).toContain("project_user_path_unique")
 
     const foreignKeys = await client.execute("PRAGMA foreign_key_list('project')")
-    expect(foreignKeys.rows).toMatchObject([{ table: "identity_user", on_delete: "CASCADE" }])
+    expect(foreignKeys.rows).toContainEqual(expect.objectContaining({ table: "identity_user", on_delete: "CASCADE" }))
   } finally {
     client.close()
     await fixture.dispose()
@@ -289,10 +290,19 @@ test("project registry backfill runs when an upgraded database has no completion
       projectPath: validProject,
     })
 
+    await client.execute("PRAGMA foreign_keys=OFF")
+    await client.execute("DROP INDEX journal_event_compact_retention_idx")
     await client.execute(
-      "DELETE FROM __drizzle_migrations WHERE created_at IN (SELECT created_at FROM __drizzle_migrations ORDER BY created_at DESC LIMIT 3)",
+      "CREATE INDEX journal_event_compact_retention_idx ON journal_event (user_id,created_at,sequence,id) WHERE event_type in ('invalidate', 'run-completed', 'run-failed', 'run-cancelled', 'run-interrupted')",
+    )
+    await client.execute("DROP TABLE session_view")
+    await client.execute("DROP TABLE project_folder")
+    await client.execute("DROP TABLE session_compaction")
+    await client.execute(
+      "DELETE FROM __drizzle_migrations WHERE created_at >= (SELECT created_at FROM __drizzle_migrations ORDER BY created_at LIMIT 1 OFFSET 8)",
     )
     await client.execute("DROP TABLE project_registry_session_path_backfill")
+    await client.execute("PRAGMA foreign_keys=ON")
     client.close()
     clientClosed = true
 
@@ -418,9 +428,18 @@ test("project registry forward migration repairs legacy 64-hex IDs and is stable
       },
     ])
 
+    await client.execute("PRAGMA foreign_keys=OFF")
+    await client.execute("DROP INDEX journal_event_compact_retention_idx")
     await client.execute(
-      "DELETE FROM __drizzle_migrations WHERE created_at IN (SELECT created_at FROM __drizzle_migrations ORDER BY created_at DESC LIMIT 1)",
+      "CREATE INDEX journal_event_compact_retention_idx ON journal_event (user_id,created_at,sequence,id) WHERE event_type in ('invalidate', 'run-completed', 'run-failed', 'run-cancelled', 'run-interrupted')",
     )
+    await client.execute("DROP TABLE session_view")
+    await client.execute("DROP TABLE project_folder")
+    await client.execute("DROP TABLE session_compaction")
+    await client.execute(
+      "DELETE FROM __drizzle_migrations WHERE created_at >= (SELECT created_at FROM __drizzle_migrations ORDER BY created_at LIMIT 1 OFFSET 10)",
+    )
+    await client.execute("PRAGMA foreign_keys=ON")
     client.close()
     clientClosed = true
 

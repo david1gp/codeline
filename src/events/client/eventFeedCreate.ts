@@ -28,6 +28,7 @@ const eventFeedEventTypes = [
   "run-completed",
   "run-failed",
   "run-interrupted",
+  "run-started",
 ] as const
 const eventFeedClosedReadyState = 2
 const eventFeedPath = "/api/events"

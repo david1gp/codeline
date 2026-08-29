@@ -1,4 +1,8 @@
 import type { Result } from "@adaptive-ds/result"
+import { projectRegistryFolderCreateRequest } from "../project/client/projectRegistryFolderCreateRequest.js"
+import { projectRegistryFolderRemoveRequest } from "../project/client/projectRegistryFolderRemoveRequest.js"
+import { projectRegistryFolderRenameRequest } from "../project/client/projectRegistryFolderRenameRequest.js"
+import { projectRegistryMoveRequest } from "../project/client/projectRegistryMoveRequest.js"
 import { projectRegistryRemoveRequest } from "../project/client/projectRegistryRemoveRequest.js"
 import { projectRegistryRenameRequest } from "../project/client/projectRegistryRenameRequest.js"
 import { sessionSidebarProjectLabelOverridesLoad } from "./sessionSidebarProjectLabelOverridesLoad.js"
@@ -8,8 +12,14 @@ import { sessionSidebarSessionDelete } from "./sessionSidebarSessionDelete.js"
 import { sessionSidebarSessionRename } from "./sessionSidebarSessionRename.js"
 import { signalObjectCreate } from "./signalObjectCreate.js"
 
+export type SessionSidebarFolderTarget = {
+  id: string
+  label: string
+}
+
 export type SessionSidebarProjectTarget = {
   available?: boolean
+  folderId?: string | null
   id?: string
   label?: string
   path?: string
@@ -20,6 +30,10 @@ export type SessionSidebarProjectTarget = {
 
 type SessionSidebarDialog =
   | { kind: "closed" }
+  | { kind: "folderCreate" }
+  | { kind: "folderRename"; folderId: string; folderLabel: string }
+  | { kind: "folderDelete"; folderId: string; folderLabel: string }
+  | { kind: "projectMove"; currentFolderId: string | null; projectId: string; projectLabel: string }
   | { kind: "projectRename"; projectId?: string; projectPath: string }
   | { kind: "projectRemove"; projectId?: string; projectPath: string; projectLabel: string }
   | { kind: "projectDelete"; projectPath: string }
@@ -27,10 +41,19 @@ type SessionSidebarDialog =
   | { kind: "sessionDelete"; sessionId: string }
 
 type SessionSidebarActionsOptions = {
+  availableFolders?: () => readonly { id: string; label: string }[]
   fetcher?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+  folderCreate?: (name: string) => Promise<Result<unknown>>
+  folderRemove?: (folderId: string) => Promise<Result<unknown>>
+  folderRename?: (folderId: string, name: string) => Promise<Result<unknown>>
+  onFolderCreated?: (folderId?: string) => void
+  onFolderRemoved?: (folderId?: string) => void
+  onFolderRenamed?: (folderId?: string) => void
+  onProjectMoved?: (projectId?: string) => void
   onProjectRemoved?: (projectId?: string) => void
   onProjectRenamed?: (projectId?: string, displayName?: string) => void
   onSessionDeleted?: (sessionId: string) => void
+  projectMove?: (projectId: string, folderId: string | null) => Promise<Result<unknown>>
   projectRemove?: (projectId: string) => Promise<Result<undefined>>
   projectRename?: (projectId: string, displayName: string) => Promise<Result<unknown>>
   sessionDelete?: (sessionId: string) => Promise<Result<true>>
@@ -56,6 +79,118 @@ export function sessionSidebarActionsStateCreate(options: SessionSidebarActionsO
     dialog.set({ kind: "closed" })
     draft.set("")
     errorMessage.set(null)
+  }
+
+  const folderCreateOpen = () => {
+    dialog.set({ kind: "folderCreate" })
+    draft.set("")
+    errorMessage.set(null)
+  }
+
+  const folderCreateSubmit = async () => {
+    const current = dialog.get()
+    if (current.kind !== "folderCreate" || isSaving.get()) return
+    const name = draft.get().trim()
+    if (name.length === 0) {
+      errorMessage.set("Enter a folder name.")
+      return
+    }
+    isSaving.set(true)
+    errorMessage.set(null)
+
+    const result =
+      options.folderCreate === undefined
+        ? await projectRegistryFolderCreateRequest({ name }, { fetch: fetcher })
+        : await options.folderCreate(name)
+    isSaving.set(false)
+    if (!result.success) {
+      errorMessage.set(result.errorMessage)
+      return
+    }
+    options.onFolderCreated?.()
+    dialogClose()
+  }
+
+  const folderRenameOpen = (target: SessionSidebarFolderTarget) => {
+    dialog.set({ kind: "folderRename", folderId: target.id, folderLabel: target.label })
+    draft.set(target.label)
+    errorMessage.set(null)
+  }
+
+  const folderRenameSubmit = async () => {
+    const current = dialog.get()
+    if (current.kind !== "folderRename" || isSaving.get()) return
+    const name = draft.get().trim()
+    if (name.length === 0) {
+      errorMessage.set("Enter a folder name.")
+      return
+    }
+    isSaving.set(true)
+    errorMessage.set(null)
+
+    const result =
+      options.folderRename === undefined
+        ? await projectRegistryFolderRenameRequest(current.folderId, { name }, { fetch: fetcher })
+        : await options.folderRename(current.folderId, name)
+    isSaving.set(false)
+    if (!result.success) {
+      errorMessage.set(result.errorMessage)
+      return
+    }
+    options.onFolderRenamed?.(current.folderId)
+    dialogClose()
+  }
+
+  const folderDeleteOpen = (target: SessionSidebarFolderTarget) => {
+    dialog.set({ kind: "folderDelete", folderId: target.id, folderLabel: target.label })
+    errorMessage.set(null)
+  }
+
+  const folderDeleteSubmit = async () => {
+    const current = dialog.get()
+    if (current.kind !== "folderDelete" || isSaving.get()) return
+    isSaving.set(true)
+    errorMessage.set(null)
+
+    const result =
+      options.folderRemove === undefined
+        ? await projectRegistryFolderRemoveRequest(current.folderId, { fetch: fetcher })
+        : await options.folderRemove(current.folderId)
+    isSaving.set(false)
+    if (!result.success) {
+      errorMessage.set(result.errorMessage)
+      return
+    }
+    options.onFolderRemoved?.(current.folderId)
+    dialogClose()
+  }
+
+  const projectMoveOpen = (target: SessionSidebarProjectTarget) => {
+    const projectId = target.projectId ?? target.id ?? ""
+    const projectLabel = target.projectLabel ?? target.label ?? ""
+    const currentFolderId = target.folderId ?? null
+    dialog.set({ kind: "projectMove", currentFolderId, projectId, projectLabel })
+    draft.set(currentFolderId ?? "")
+    errorMessage.set(null)
+  }
+
+  const projectMoveSubmit = async (targetFolderId: string | null) => {
+    const current = dialog.get()
+    if (current.kind !== "projectMove" || isSaving.get()) return
+    isSaving.set(true)
+    errorMessage.set(null)
+
+    const result =
+      options.projectMove === undefined
+        ? await projectRegistryMoveRequest(current.projectId, { folderId: targetFolderId }, { fetch: fetcher })
+        : await options.projectMove(current.projectId, targetFolderId)
+    isSaving.set(false)
+    if (!result.success) {
+      errorMessage.set(result.errorMessage)
+      return
+    }
+    options.onProjectMoved?.(current.projectId)
+    dialogClose()
   }
 
   const projectRenameOpen = (target: SessionSidebarProjectTarget | string) => {
@@ -236,6 +371,7 @@ export function sessionSidebarActionsStateCreate(options: SessionSidebarActionsO
   }
 
   return {
+    availableFolders: options.availableFolders,
     dialog: dialog.get,
     dialogClose,
     draft: draft.get,
@@ -244,10 +380,18 @@ export function sessionSidebarActionsStateCreate(options: SessionSidebarActionsO
       errorMessage.set(null)
     },
     errorMessage: errorMessage.get,
+    folderCreateOpen,
+    folderCreateSubmit,
+    folderDeleteOpen,
+    folderDeleteSubmit,
+    folderRenameOpen,
+    folderRenameSubmit,
     isSaving: isSaving.get,
     projectDeleteOpen,
     projectDeleteSubmit,
     projectLabel,
+    projectMoveOpen,
+    projectMoveSubmit,
     projectRemoveOpen,
     projectRemoveSubmit,
     projectRenameOpen,

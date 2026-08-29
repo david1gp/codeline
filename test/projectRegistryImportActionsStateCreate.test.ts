@@ -46,6 +46,7 @@ test("projectRegistryImportActionsStateCreate imports projects and provides coun
 
         refreshCount += 1
         return Response.json({
+          folders: [],
           projects: [
             { available: true, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fd0", label: "Imported Alpha" },
             { available: true, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fd1", label: "Imported Beta" },

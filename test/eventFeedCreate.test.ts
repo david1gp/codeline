@@ -87,16 +87,18 @@ function frame(
           ? { resourceId: "session-1", resourceType: "session", revision: 2 }
           : eventType === "run-completed"
             ? { messageId: null, runId: "run-1", sessionId: "session-1", sessionRevision: 2 }
-            : {
-                ...(eventType === "run-failed"
-                  ? { failure: null }
-                  : eventType === "run-cancelled"
-                    ? { reason: "user-requested" }
-                    : { reason: "api-restarted" }),
-                runId: "run-1",
-                sessionId: "session-1",
-                sessionRevision: 2,
-              }),
+            : eventType === "run-started"
+              ? { runId: "run-1", sessionId: "session-1" }
+              : {
+                  ...(eventType === "run-failed"
+                    ? { failure: null }
+                    : eventType === "run-cancelled"
+                      ? { reason: "user-requested" }
+                      : { reason: "api-restarted" }),
+                  runId: "run-1",
+                  sessionId: "session-1",
+                  sessionRevision: 2,
+                }),
     ...values,
   }
   return { data, event: eventType, id: `cursor-${sequence}` } as StreamSseFrame
@@ -222,6 +224,19 @@ test("runs one authenticated transport, applies normal deltas, and demultiplexes
   expect(feed.getUrl()).toBe("/api/events?after=cursor-2")
   expect(feed.getState()).toEqual(feed.dataState.status)
   expect(states).toEqual(["reconnecting", "connected", "connected", "connected"])
+})
+
+test("subscribes to typed run-started events on the single feed", () => {
+  const { feed, source } = createFakeFeed()
+  source.emit(frame("run-started", 1))
+
+  expect(feed.dataState.activeRuns.get("run-1")).toMatchObject({
+    lastSequence: 1,
+    phase: "active",
+    sessionId: "session-1",
+  })
+  expect(feed.getUrl()).toBe("/api/events?after=cursor-1")
+  feed.close()
 })
 
 test("requires an opaque bootstrap cursor and only opens a cursorless feed explicitly", () => {

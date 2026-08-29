@@ -8,6 +8,7 @@ import { applicationShellStateCreate } from "./applicationShellStateCreate.js"
 import { appShellContext } from "./appShellContext.js"
 import { chatCommandCatalogStateCreate } from "./chatCommandCatalogStateCreate.js"
 import { filesScreenViewCreate } from "./filesScreenViewCreate.js"
+import { eventFeedCoordinatorContext } from "./eventFeedCoordinatorContext.js"
 import { selectedSessionStateCreate } from "./selectedSessionStateCreate.js"
 import { sessionDrawerContext } from "./sessionDrawerContext.js"
 import { sessionListStateCreate } from "./sessionListStateCreate.js"
@@ -32,6 +33,7 @@ export function workspaceScreenStateCreate(
 ): WorkspaceScreenView {
   const shell = useContext(applicationShellContext) ?? applicationShellStateCreate()
   const appShell = useContext(appShellContext)
+  const eventFeed = useContext(eventFeedCoordinatorContext)
   const activeProject = appShell?.activeProject ?? activeProjectStateCreate()
   const drawer = useContext(sessionDrawerContext) ?? workspacePageStateCreate()
   const account = useContext(applicationAccountContext)
@@ -42,6 +44,8 @@ export function workspaceScreenStateCreate(
       accountId: () => account?.userId() ?? null,
       fetch: options.fetcher,
     })
+  const unregisterProjectRegistryEventFeed = eventFeed?.registerRunLifecycle(() => projectRegistry.refresh())
+  if (unregisterProjectRegistryEventFeed !== undefined) onCleanup(unregisterProjectRegistryEventFeed)
   // `~` is a valid session reference, but it is not necessarily a project in the
   // configured discovery roots. Path-based project reads must wait for a confirmed path.
   const discoveredProjectPathResolve = (path: string | null) => (path === "~" ? null : path)

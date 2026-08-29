@@ -1,5 +1,5 @@
 import { createResultError } from "@adaptive-ds/result"
-import type { ProjectRegistryState } from "../../project/ui/projectRegistryStateCreate.js"
+import type { ProjectRegistryState } from "../../project/ui/projectRegistryState.js"
 
 export function demoProjectRegistryStateCreate(): ProjectRegistryState {
   return {

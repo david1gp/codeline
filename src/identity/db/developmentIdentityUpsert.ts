@@ -1,4 +1,5 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
+import { projectFolderBootstrapEnsure } from "../../project/db/projectFolderBootstrapEnsure.js"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import type { ApplicationUser } from "./applicationUserTable.js"
 import { applicationUserUpsert } from "./applicationUserUpsert.js"
@@ -24,6 +25,9 @@ export async function developmentIdentityUpsert(
       email: identity.email,
     })
     if (!user.success) return createResultError(op, "The development identity could not be stored.")
+
+    const bootstrapped = await projectFolderBootstrapEnsure(database, user.data.id)
+    if (!bootstrapped.success) return createResultError(op, bootstrapped.errorMessage)
 
     const storedIdentity = await externalIdentityUpsert(database, {
       userId: user.data.id,

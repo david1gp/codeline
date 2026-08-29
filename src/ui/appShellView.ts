@@ -1,4 +1,4 @@
-import type { ProjectRegistryState } from "../project/ui/projectRegistryStateCreate.js"
+import type { ProjectRegistryState } from "../project/ui/projectRegistryState.js"
 import type { ActiveProjectState } from "./activeProjectStateCreate.js"
 import type { ConnectionStatusView } from "./connectionStatusView.js"
 import type { EventFeedConnectionView } from "./eventFeedConnectionView.js"

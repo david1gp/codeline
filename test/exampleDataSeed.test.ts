@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
 import { mkdtemp, rm } from "node:fs/promises"
-import { dirname, join, resolve } from "node:path"
+import { dirname, isAbsolute, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { and, eq, inArray } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/libsql"
@@ -16,9 +16,14 @@ import { externalIdentityTable } from "../src/identity/db/externalIdentityTable.
 import { organizationMemberTable } from "../src/identity/db/organizationMemberTable.js"
 import { organizationTable } from "../src/identity/db/organizationTable.js"
 import { messageTable } from "../src/message/db/messageTable.js"
+import { projectFolderTable } from "../src/project/db/projectFolderTable.js"
+import { projectTable } from "../src/project/db/projectTable.js"
 import { providerAgentCatalogLoad } from "../src/providers/catalog/providerAgentCatalogLoad.js"
+import { attemptTable } from "../src/run/db/attemptTable.js"
+import { runTable } from "../src/run/db/runTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
+import { sessionViewTable } from "../src/session/db/sessionViewTable.js"
 import { simulationScenarioSessionMetadata } from "../src/simulation/simulationScenarioSessionMetadata.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
 
@@ -35,6 +40,9 @@ const serverIds = exampleDataFixture.servers.map((server) => server.id)
 const agentIds = exampleDataFixture.agents.map((agent) => agent.id)
 const sessionIds = exampleDataFixture.sessions.map((session) => session.id)
 const messageIds = exampleDataFixture.sessions.flatMap((session) => session.messages.map((message) => message.id))
+const projectIds = exampleDataFixture.projects.map((project) => project.id)
+const runIds = exampleDataFixture.runs.map((run) => run.id)
+const attemptIds = exampleDataFixture.attempts.map((attempt) => attempt.id)
 const organizationExternalId = "seed-test-contentoren-organization"
 const unrelated = {
   agentId: `seed-test-agent-${uuidv7()}`,
@@ -138,7 +146,23 @@ test("the typed fixture has stable counts, IDs, timestamps, and content", () => 
   expect(exampleDataFixture.sessions.slice(4).map((session) => session.primaryAgentId)).toEqual(
     Object.values(simulationScenarioSessionMetadata).map((scenario) => scenario.agentId),
   )
-  expect(exampleDataFixture.sessions.every((session) => session.projectPath === "~")).toBe(true)
+  expect(exampleDataFixture.projects.map((project) => project.id)).toEqual([
+    "11111111-1111-7111-8111-111111111111",
+    "22222222-2222-7222-8222-222222222222",
+    "33333333-3333-7333-8333-333333333333",
+  ])
+  expect(exampleDataFixture.projects.map((project) => project.folderKey)).toEqual(["adaptive", "leo", "personal"])
+  expect(exampleDataFixture.projects.every((project) => isAbsolute(project.path))).toBe(true)
+  expect(exampleDataFixture.sessions.slice(0, 4).map((session) => session.projectPath)).toEqual(
+    exampleDataFixture.projects
+      .map((project) => project.path)
+      .slice(0, 3)
+      .concat(exampleDataFixture.projects.map((project) => project.path).slice(2, 3)),
+  )
+  expect(exampleDataFixture.runs.map((run) => `${run.sessionId}:${run.status}`)).toEqual([
+    "example-session-active-2:succeeded",
+  ])
+  expect(exampleDataFixture.sessionViews.map((view) => view.sessionId)).toEqual(["example-session-active-2"])
   expect(exampleDataFixture.sessions.map((session) => session.pinned).slice(0, 4)).toEqual([true, false, true, true])
 })
 
@@ -159,7 +183,7 @@ test("development fixture can list and use seeded organization servers", async (
       oidcOrganizationId: organizationExternalId,
     },
     database,
-    projectRootDirs: [],
+    projectRootDirs: [resolve(dirname(fileURLToPath(import.meta.url)), "..")],
   })
   const developmentServers = await developmentApp.request("/api/servers")
   expect(developmentServers.status).toBe(200)
@@ -173,6 +197,56 @@ test("development fixture can list and use seeded organization servers", async (
   expect(developmentAgents.status).toBe(200)
   const developmentAgentsBody = (await developmentAgents.json()) as { agents: Array<{ id: string }> }
   expect(developmentAgentsBody.agents.some((agent) => agent.id === "example-agent-local")).toBe(true)
+
+  const registry = await developmentApp.request("/api/project/registry")
+  expect(registry.status).toBe(200)
+  const registryBody = (await registry.json()) as {
+    folders: Array<{ active: boolean; label: string; unseenEnded: boolean }>
+    projects: Array<{
+      active: boolean
+      available: boolean
+      folderId: string | null
+      id: string
+      label: string
+      parentFolder: { id: string; label: string } | null
+      unseenEnded: boolean
+    }>
+  }
+  expect(registryBody.projects).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        active: false,
+        available: true,
+        id: "11111111-1111-7111-8111-111111111111",
+        label: "Adaptive example project",
+        parentFolder: expect.objectContaining({ label: "adaptive" }),
+        unseenEnded: false,
+      }),
+      expect.objectContaining({
+        active: false,
+        available: true,
+        id: "22222222-2222-7222-8222-222222222222",
+        label: "Leo example project",
+        parentFolder: expect.objectContaining({ label: "leo" }),
+        unseenEnded: true,
+      }),
+      expect.objectContaining({
+        active: false,
+        available: true,
+        id: "33333333-3333-7333-8333-333333333333",
+        label: "Personal example project",
+        parentFolder: expect.objectContaining({ label: "personal" }),
+        unseenEnded: false,
+      }),
+    ]),
+  )
+  expect(registryBody.folders).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ active: false, label: "adaptive", unseenEnded: false }),
+      expect.objectContaining({ active: false, label: "leo", unseenEnded: true }),
+      expect.objectContaining({ active: false, label: "personal", unseenEnded: false }),
+    ]),
+  )
 })
 
 test("rejects an incomplete OIDC fixture identity override", async () => {
@@ -398,6 +472,40 @@ test("reset preserves unrelated data and descendant links", async () => {
 
   const sessions = await database.select().from(sessionTable).where(inArray(sessionTable.id, sessionIds))
   const messages = await database.select().from(messageTable).where(inArray(messageTable.id, messageIds))
+  const projects = await database.select().from(projectTable).where(inArray(projectTable.id, projectIds))
+  const folders = await database
+    .select({ bootstrapKey: projectFolderTable.bootstrapKey, id: projectFolderTable.id })
+    .from(projectFolderTable)
+    .where(eq(projectFolderTable.userId, exampleDataFixture.user.id))
+  const runs = await database.select().from(runTable).where(inArray(runTable.id, runIds))
+  const attempts = await database.select().from(attemptTable).where(inArray(attemptTable.id, attemptIds))
+  const sessionViews = await database
+    .select({ acknowledgedFinishedAt: sessionViewTable.acknowledgedFinishedAt, sessionId: sessionViewTable.sessionId })
+    .from(sessionViewTable)
+    .where(eq(sessionViewTable.userId, exampleDataFixture.user.id))
+  expect(projects).toHaveLength(exampleDataFixture.projects.length)
+  expect(projects.every((project) => project.parentFolderId !== null)).toBe(true)
+  expect(
+    projects
+      .map((project) => ({ id: project.id, path: project.path }))
+      .sort((left, right) => left.id.localeCompare(right.id)),
+  ).toEqual(
+    exampleDataFixture.projects
+      .map((project) => ({ id: project.id, path: project.path }))
+      .sort((left, right) => left.id.localeCompare(right.id)),
+  )
+  expect(folders.map((folder) => folder.bootstrapKey).sort()).toEqual(["adaptive", "leo", "personal"])
+  expect(
+    runs.map((run) => ({ id: run.id, status: run.status })).sort((left, right) => left.id.localeCompare(right.id)),
+  ).toEqual([{ id: "example-run-ended-1", status: "succeeded" }])
+  expect(
+    attempts
+      .map((attempt) => ({ id: attempt.id, status: attempt.status }))
+      .sort((left, right) => left.id.localeCompare(right.id)),
+  ).toEqual([{ id: "example-attempt-ended-1", status: "succeeded" }])
+  expect(sessionViews).toEqual([
+    { acknowledgedFinishedAt: new Date("2026-08-12T08:08:00.000Z"), sessionId: "example-session-active-2" },
+  ])
   expect(sessions).toHaveLength(14)
   expect(sessions.every((session) => session.userId === exampleDataFixture.user.id)).toBe(true)
   expect(
@@ -418,7 +526,9 @@ test("reset preserves unrelated data and descendant links", async () => {
   expect(sessions.find((session) => session.id === "example-session-active-2")?.parentSessionId).toBe(
     "example-session-active-1",
   )
-  expect(sessions.find((session) => session.id === "example-session-active-2")?.projectPath).toBe("~")
+  expect(sessions.find((session) => session.id === "example-session-active-2")?.projectPath).toBe(
+    exampleDataFixture.projects[1]?.path,
+  )
   expect(sessions.find((session) => session.id === "example-session-active-2")?.pinned).toBe(false)
   expect(messages).toHaveLength(8)
   expect(messages.find((message) => message.id === "example-message-active-2-assistant")?.content).toBe(

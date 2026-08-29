@@ -2,6 +2,7 @@ import { createHash } from "node:crypto"
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import { and, eq } from "drizzle-orm"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
+import { projectFolderBootstrapEnsure } from "../../project/db/projectFolderBootstrapEnsure.js"
 import type { ApplicationUser } from "../db/applicationUserTable.js"
 import { applicationUserTable } from "../db/applicationUserTable.js"
 import { applicationUserUpsert } from "../db/applicationUserUpsert.js"
@@ -39,6 +40,9 @@ export async function oidcIdentityUpsert(
       ...(profile.verifiedEmail === undefined ? {} : { email: profile.verifiedEmail }),
     })
     if (!storedUser.success) return createResultError(op, storedUser.errorMessage)
+
+    const bootstrapped = await projectFolderBootstrapEnsure(database, storedUser.data.id)
+    if (!bootstrapped.success) return createResultError(op, bootstrapped.errorMessage)
 
     if (existingIdentity === undefined) {
       const storedIdentity = await externalIdentityUpsert(database, {

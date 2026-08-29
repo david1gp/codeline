@@ -5,7 +5,7 @@ import { projectApiDirectorySuggestionsResponseSchema } from "../project/api/pro
 import { projectRegistryApiProjectResponseSchema } from "../project/api/projectRegistryApiProjectResponseSchema.js"
 import type { ProjectRegistryApiProject } from "../project/api/projectRegistryApiProjectSchema.js"
 import { projectRegistryRegisterRequestSchema } from "../project/api/projectRegistryRegisterRequestSchema.js"
-import type { ProjectRegistryState } from "../project/ui/projectRegistryStateCreate.js"
+import type { ProjectRegistryState } from "../project/ui/projectRegistryState.js"
 import { appShellContext } from "./appShellContext.js"
 import type { ActiveProjectState } from "./activeProjectStateCreate.js"
 import { signalObjectCreate } from "./signalObjectCreate.js"

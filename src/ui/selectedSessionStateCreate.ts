@@ -30,6 +30,7 @@ import { sessionSettledCompletionCacheRegistry } from "./sessionSettledCompletio
 import { sessionStreamStateCreate } from "./sessionStreamStateCreate.js"
 import { sessionSubagentThreadStateCreate } from "./sessionSubagentThreadStateCreate.js"
 import { signalObjectCreate } from "./signalObjectCreate.js"
+import { sessionViewAcknowledgeStateCreate } from "./sessionViewAcknowledgeStateCreate.js"
 
 type SelectedSessionStateOptions = {
   codelineExecution: Accessor<CodelineExecution | null>
@@ -79,6 +80,12 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
         ? ("unknown" as const)
         : ("complete" as const),
   })
+  const sessionView = sessionViewAcknowledgeStateCreate({ fetch: fetcher, isOnline })
+  let viewedSelectionId: string | null = null
+  const selectedSessionViewAcknowledge = (force = false) => {
+    const sessionId = selectedSessionId()
+    if (sessionId !== null) sessionView.acknowledge(sessionId, force)
+  }
   const messagesQuery = httpQueryStateCreate({
     enabled: isSignedIn,
     key: () => liveSession()?.id,
@@ -243,6 +250,7 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
 
   const unregisterEventFeed = [
     eventFeed?.registerSelectedSession({
+      completion: () => selectedSessionViewAcknowledge(true),
       refresh: () => {
         sessionQuery.refresh()
       },
@@ -265,6 +273,23 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
   ].filter((unregister): unregister is () => void => unregister !== undefined)
   onCleanup(() => {
     for (const unregister of unregisterEventFeed) unregister()
+  })
+
+  createEffect(() => {
+    const selectedId = selectedSessionId()
+    if (selectedId !== viewedSelectionId) {
+      if (viewedSelectionId !== null) sessionView.reset(viewedSelectionId)
+      viewedSelectionId = selectedId
+    }
+    const current = liveSession()
+    if (
+      selectedId !== null &&
+      current?.id === selectedId &&
+      sessionResult().type === "complete" &&
+      isOnline() &&
+      isSignedIn()
+    )
+      selectedSessionViewAcknowledge()
   })
 
   createEffect(() => {
