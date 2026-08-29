@@ -12,6 +12,28 @@ Make Codeline execution agents selectable and configurable from the workspace se
 - Support selecting existing agents and creating/updating an agent configuration from the setup panel.
 - Keep provider connectivity validation server-side and authenticated.
 
+## Context compaction configuration
+
+Persisted agent/API payloads carry the optional `compaction` member inside `configuration`. It is
+accepted by `POST /api/servers/:serverId/agents` and
+`PATCH /api/servers/:serverId/agents/:agentId`, returned by the corresponding agent detail API,
+and resolved at chat execution time. Omitted fields use these exact defaults:
+
+| Property | Default | Validation |
+| --- | ---: | --- |
+| `auto` | `true` | Boolean. |
+| `enabled` | `true` | Boolean. |
+| `maxOverflowRetries` | `1` | Safe integer from `0` through `3`. |
+| `maxSummaryTokens` | `1024` | Positive safe integer; no greater than `reserveOutputTokens`. |
+| `pressureThreshold` | `0.8` | Finite number greater than `0` and at most `1`. |
+| `recentTokenBudget` | `4096` | Positive safe integer. |
+| `reserveOutputTokens` | `2048` | Positive safe integer. |
+
+The object is strict: unknown properties are rejected. The model context limit comes from model
+metadata when available and otherwise uses the compaction policy fallback of `128000` tokens. The
+outer overflow retry count above is separate from the independently bounded delegated tool-loop
+retry, whose runtime default is one retry.
+
 ## Approach
 
 - Add ownership-checked agent detail, create/update, model discovery, and connection-test API capabilities.

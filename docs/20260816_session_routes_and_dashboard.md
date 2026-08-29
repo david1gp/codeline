@@ -15,6 +15,33 @@ Move the session workspace to `/sessions`, give each sidebar tab its own route, 
 - On mobile, activating the Sessions top-navigation item opens the existing session sidebar as an accessible full-width dialog. Selecting a session closes the dialog and leaves the session view underneath.
 - Native project-group expanded/collapsed state remains reload-transient; only the requested most-recent sidebar tab is newly persisted.
 
+## Chat API compaction contract
+
+The authenticated chat transport is `POST /api/sessions/:sessionId/chat`. Its request includes
+`messages`, `runId`, and `threadId` (which must equal `:sessionId`), and the final message must be
+a non-empty plain-text user message. The response is the normal command response
+`{ "runId": "...", "sessionId": "..." }`.
+
+Manual compaction is not a separate endpoint or command with arguments. It is selected only when
+the final user content, after trimming whitespace, is exactly `/compact`; `/compact now` and other
+similar names do not select it. The control prompt is neither persisted as a user message nor
+forwarded to a provider.
+
+Before a provider request, automatic compaction pressure uses the configured `pressureThreshold`
+against the input budget left after `reserveOutputTokens`. Reported provider usage is preferred;
+when it is unavailable or unusable, Codeline uses a safe serialized estimate (including any
+estimable trailing input) and otherwise leaves the context unchanged. A `provider_context_overflow`
+from the outer request can trigger a separately bounded retry using `maxOverflowRetries`; this
+does not consume generic retry admission. Delegated tool loops have their own in-memory overflow
+retry bound (one by default), retry only before non-error content is emitted, and do not
+re-execute tools.
+
+Compaction is non-destructive. Durable user/assistant transcript rows and the compaction lifecycle
+remain available; model context is projected as the latest successful `compaction-summary` system
+message followed by the durable tail after its covered sequence. Delegated provider tool-call and
+tool-result handling remains lifecycle-safe in memory, where complete call/result boundaries are
+required before compaction.
+
 ## Approach
 
 - Introduce a validated persisted session-tab route state shared by navigation, route composition, and the sidebar tabs.

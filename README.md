@@ -87,6 +87,7 @@ Workspace and catalog data:
 - `GET /api/sessions/:sessionId`, `PATCH /api/sessions/:sessionId`
 - `POST /api/sessions/:sessionId/archive`, `DELETE /api/sessions/:sessionId`
 - `GET /api/sessions/:sessionId/messages`, `POST /api/sessions/:sessionId/messages`
+- `POST /api/sessions/:sessionId/chat` starts a chat run and returns `{ "runId": "...", "sessionId": "..." }`.
 
 Test seams:
 
@@ -129,6 +130,16 @@ Codeline defines provider models and agent configurations through checked-in fil
   - `generation`: Optional transport-supported generation parameters (e.g. `reasoningEffort`). Stale or unsupported generation defaults (such as arbitrary `maxTokens: 100000` or `temperature: 0.7`) are omitted.
   - `enabled`: Boolean availability (defaults to `true`).
 - **Markdown Body**: The non-empty system prompt defining the agent's instructions, role, and workflow.
+
+### Context compaction configuration
+
+Persisted/API agent configurations accept an optional `configuration.compaction` object. Its fields,
+defaults, and validation are documented in [Execution agent configuration](./docs/20260815_execution-agent-configuration.md).
+Automatic compaction checks pressure before each provider request, prefers reported input usage, and
+falls back to a safe estimate when usage is unavailable. It keeps durable transcript history intact;
+the model receives the latest successful summary plus the retained tail. The outer
+`provider_context_overflow` retry is bounded by `maxOverflowRetries`; delegated tool loops use a
+separate in-memory retry bound.
 
 ### UI Grouped Selector Behavior
 
