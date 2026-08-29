@@ -21,7 +21,6 @@ export function SessionSidebarMenu(props: {
       variant={buttonVariant.ghost}
       innerClass="grid min-w-36 gap-1 border border-line bg-surface-raised p-1 text-foreground shadow-lg"
       onClick={(event) => {
-        event.preventDefault()
         event.stopPropagation()
       }}
     >
