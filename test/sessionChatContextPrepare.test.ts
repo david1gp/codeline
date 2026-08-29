@@ -41,13 +41,17 @@ const compactionConfiguration = {
   reserveOutputTokens: 10,
 }
 
-function completedText(text: string): StreamChunk[] {
+function completedText(
+  text: string,
+  usage?: { completionTokens: number; promptTokens: number; totalTokens: number },
+): StreamChunk[] {
   return [
     { runId: "run", threadId: "session", timestamp: 1, type: EventType.RUN_STARTED },
     { delta: text, messageId: "message", timestamp: 2, type: EventType.TEXT_MESSAGE_CONTENT },
     {
       finishReason: "stop",
       outcome: { type: "success" },
+      ...(usage === undefined ? {} : { usage }),
       runId: "run",
       threadId: "session",
       timestamp: 3,
@@ -496,4 +500,51 @@ test("outer requests preserve the original history when summary generation fails
   expect(
     observed?.history.filter((message) => message.role === "user" && message.content === "current prompt"),
   ).toHaveLength(1)
+})
+
+test("persists successful provider usage for the next session context request", async () => {
+  const sessionId = "session-chat-context-reported-usage"
+  await sessionCreate(sessionId, [{ content: "current prompt", role: "user" }])
+  const reconstructed = await sessionCompactionContextReconstruct(
+    database,
+    fixture.userId,
+    fixture.organizationId,
+    sessionId,
+  )
+  expect(reconstructed.success).toBe(true)
+  if (!reconstructed.success) return
+
+  const adapter = ((_input: CliProxyApiAdapterInput) =>
+    (async function* () {
+      yield* completedText("done", { completionTokens: 20, promptTokens: 1_000, totalTokens: 1_020 })
+    })()) as CliProxyApiAdapter
+  const stream = sessionChatStreamCreate({
+    adapter,
+    compactionConfiguration: { ...compactionConfiguration, pressureThreshold: 0.9 },
+    contextLimitTokens: 10_000,
+    database,
+    history: reconstructed.data.history,
+    organizationId: fixture.organizationId,
+    preparedUserMessage: { id: `${sessionId}-message-1`, sequence: 1 },
+    prompt: "current prompt",
+    requestId: `${sessionId}-request-2`,
+    runId: `${sessionId}-run-2`,
+    sessionId,
+    signal: new AbortController().signal,
+    userId: fixture.userId,
+  })
+  for await (const _chunk of stream) {
+    // Consume the provider stream so the assistant message is persisted.
+  }
+
+  const next = await sessionCompactionContextReconstruct(
+    database,
+    fixture.userId,
+    fixture.organizationId,
+    sessionId,
+  )
+  expect(next).toMatchObject({
+    success: true,
+    data: { history: [{ role: "user" }, { reportedUsage: { inputTokens: 1_000 }, role: "assistant" }] },
+  })
 })

@@ -9,6 +9,8 @@ import type { journalRunDeltasDelete } from "../../journal/actions/journalRunDel
 import { journalRunFinalize } from "../../journal/actions/journalRunFinalize.js"
 import { journalWriteCreate } from "../../journal/actions/journalWriteCreate.js"
 import { messageAppend } from "../../message/actions/messageAppend.js"
+import type { CompactionTokenUsage } from "../../compaction/compactionTokenUsage.js"
+import { compactionTokenUsageMetadataCreate } from "../../compaction/compactionTokenUsageMetadataCreate.js"
 import { providerExecutionEventFromStreamChunk } from "../../providers/runtime/providerExecutionEventFromStreamChunk.js"
 import { sessionTable } from "../../session/db/sessionTable.js"
 import { executionStreamEventNormalize } from "../../stream/actions/executionStreamEventNormalize.js"
@@ -50,6 +52,7 @@ type RunProviderOutputFinalizeInput = {
   messageId?: string | null
   reason?: string
   status: "aborted" | "failed" | "succeeded"
+  usage?: CompactionTokenUsage
 }
 
 type RunProviderOutputFinalizeResult = {
@@ -626,6 +629,7 @@ export function runProviderOutputCreate(options: RunProviderOutputCreateOptions)
         const message = await appendMessage(transaction, options.userId, options.sessionId, {
           clientRequestId: `${options.requestId}:assistant`,
           content: input.assistantText,
+          ...(input.usage === undefined ? {} : { metadata: compactionTokenUsageMetadataCreate(input.usage) }),
           role: "assistant",
         })
         if (!message.success) return message

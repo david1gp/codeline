@@ -4,10 +4,12 @@ import { sessionCompactionContextReconstruct } from "../../compaction/actions/se
 import { sessionCompactionGenerate } from "../../compaction/actions/sessionCompactionGenerate.js"
 import { compactionConfigurationDefaults } from "../../compaction/compactionConfigurationDefaults.js"
 import type { CompactionConfiguration } from "../../compaction/compactionConfigurationSchema.js"
+import { compactionContextUsageResolve } from "../../compaction/compactionContextUsageResolve.js"
 import type { CompactionMessage } from "../../compaction/compactionMessage.js"
 import { compactionPolicyFromConfiguration } from "../../compaction/compactionPolicyFromConfiguration.js"
 import { compactionPressureResolve } from "../../compaction/compactionPressureResolve.js"
 import { compactionTokenEstimate } from "../../compaction/compactionTokenEstimate.js"
+import type { CompactionTokenUsage } from "../../compaction/compactionTokenUsage.js"
 import type { DatabaseClient } from "../../database/databaseClient.js"
 import type { CliProxyApiAdapter } from "../../providers/runtime/cliProxyApiAdapterCreate.js"
 import type { providerRuntimeAdapterResolve } from "../../providers/runtime/providerRuntimeAdapterResolve.js"
@@ -23,6 +25,7 @@ type SessionChatContextPrepareOptions = {
   history: Array<CompactionMessage>
   organizationId: string
   prompt: string
+  reportedUsage?: CompactionTokenUsage
   preparedUserMessage?: { id: string; sequence: number }
   runtimeConfiguration?: AgentConfiguration
   runtimeAdapterCreate?: Parameters<typeof providerRuntimeAdapterResolve>[1]["runtimeAdapterCreate"]
@@ -98,6 +101,10 @@ export async function sessionChatContextPrepare(
   const pressure = compactionPressureResolve({
     contextLimitTokens: policy.data.contextLimitTokens,
     estimatedInputTokens: estimated.data,
+    ...compactionContextUsageResolve({
+      messages: projectedMessages,
+      reportedUsage: options.reportedUsage,
+    }),
     pressureThreshold: policy.data.pressureThreshold,
     reserveOutputTokens: policy.data.reserveOutputTokens,
   })

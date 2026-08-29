@@ -185,6 +185,85 @@ test("CLIProxyAPI and Codex-LB preserve UTF-8 text across arbitrary SSE chunk bo
   }
 })
 
+test("OpenAI-compatible SSE usage reaches the completed TanStack stream chunk", async () => {
+  for (const provider of ["cliproxyapi", "codex-lb"] as const) {
+    const adapter = providerOpenAiCompatibleTextAdapterCreate({
+      baseUrl: "https://provider.test/v1",
+      fetch: async () =>
+        sseResponse([
+          {
+            choices: [{ delta: { content: "done" }, finish_reason: null, index: 0 }],
+            id: "usage-1",
+            model: "provider-model",
+            object: "chat.completion.chunk",
+          },
+          {
+            choices: [{ delta: {}, finish_reason: "stop", index: 0 }],
+            id: "usage-2",
+            model: "provider-model",
+            object: "chat.completion.chunk",
+          },
+          {
+            choices: [],
+            id: "usage-3",
+            model: "provider-model",
+            object: "chat.completion.chunk",
+            usage: { completion_tokens: 20, prompt_tokens: 100, total_tokens: 120 },
+          },
+        ]),
+      model: "provider-model",
+      provider,
+      resolvedBearerSecret: secretValue,
+    })
+
+    const chunks: StreamChunk[] = []
+    for await (const chunk of adapter.chatStream(streamInput(new AbortController().signal))) chunks.push(chunk)
+
+    expect(chunks.at(-1)).toMatchObject({
+      type: EventType.RUN_FINISHED,
+      usage: { completionTokens: 20, promptTokens: 100, totalTokens: 120 },
+    })
+  }
+})
+
+test("OpenAI-compatible Responses SSE usage reaches the completed TanStack stream chunk", async () => {
+  for (const provider of ["cliproxyapi", "codex-lb"] as const) {
+    const adapter = providerOpenAiCompatibleTextAdapterCreate({
+      baseUrl: "https://provider.test/v1",
+      fetch: async () =>
+        sseResponse([
+          {
+            response: { id: "response-1", model: "provider-model", status: "in_progress" },
+            type: "response.created",
+          },
+          { delta: "done", type: "response.output_text.delta" },
+          {
+            response: {
+              id: "response-1",
+              model: "provider-model",
+              output: [],
+              status: "completed",
+              usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+            },
+            type: "response.completed",
+          },
+        ]),
+      model: "provider-model",
+      provider,
+      resolvedBearerSecret: secretValue,
+      transport: "openai/responses",
+    })
+
+    const chunks: StreamChunk[] = []
+    for await (const chunk of adapter.chatStream(streamInput(new AbortController().signal))) chunks.push(chunk)
+
+    expect(chunks.at(-1)).toMatchObject({
+      type: EventType.RUN_FINISHED,
+      usage: { completionTokens: 20, promptTokens: 100, totalTokens: 120 },
+    })
+  }
+})
+
 test("invalid provider SSE JSON becomes a bounded canonical error", async () => {
   for (const provider of ["cliproxyapi", "codex-lb"] as const) {
     const adapter = providerOpenAiCompatibleTextAdapterCreate({

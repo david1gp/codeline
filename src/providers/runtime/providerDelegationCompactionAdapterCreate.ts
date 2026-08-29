@@ -4,15 +4,20 @@ import { compactionContextSelect } from "../../compaction/compactionContextSelec
 import { compactionContextSerialize } from "../../compaction/compactionContextSerialize.js"
 import type { CompactionMessage } from "../../compaction/compactionMessage.js"
 import type { CompactionPolicy } from "../../compaction/compactionPolicy.js"
+import { compactionContextUsageResolve } from "../../compaction/compactionContextUsageResolve.js"
 import { compactionPressureResolve } from "../../compaction/compactionPressureResolve.js"
 import { compactionSummaryPromptCreate } from "../../compaction/compactionSummaryPromptCreate.js"
 import { compactionTokenEstimate } from "../../compaction/compactionTokenEstimate.js"
+import type { CompactionTokenUsage } from "../../compaction/compactionTokenUsage.js"
+import { compactionTokenUsageResolve } from "../../compaction/compactionTokenUsageResolve.js"
 
 type ProviderDelegationCompactionState = {
   projectedMessages: Array<ModelMessage>
   sourceMessages: Array<ModelMessage>
   summaryAttempted?: boolean
   summary?: string
+  reportedUsage?: CompactionTokenUsage
+  reportedUsageMessageCount?: number
 }
 
 type ProviderDelegationSummaryState = {
@@ -218,6 +223,13 @@ async function providerDelegationCompactionMessagesResolve(
   const pressure = compactionPressureResolve({
     contextLimitTokens: options.policy.contextLimitTokens,
     estimatedInputTokens: estimate.data,
+    ...compactionContextUsageResolve({
+      messages: state.projectedMessages as unknown as Array<CompactionMessage>,
+      ...(state.reportedUsage === undefined ? {} : { reportedUsage: state.reportedUsage }),
+      ...(state.reportedUsageMessageCount === undefined
+        ? {}
+        : { reportedUsageMessageIndex: state.reportedUsageMessageCount - 1 }),
+    }),
     pressureThreshold: options.policy.pressureThreshold,
     reserveOutputTokens: options.policy.reserveOutputTokens,
   })
@@ -267,6 +279,8 @@ async function providerDelegationCompactionMessagesResolve(
       sourceMessages: originalMessages,
       summaryAttempted: true,
       summary: generated.data,
+      reportedUsage: undefined,
+      reportedUsageMessageCount: undefined,
     },
     messages: projectedMessages,
     compacted: true,
@@ -304,12 +318,20 @@ export function providerDelegationCompactionAdapterCreate(options: {
       const bufferedChunks: Array<StreamChunk> = []
       let emittedNonErrorContent = false
       let overflowChunk: StreamChunk | undefined
+      let completedUsage: CompactionTokenUsage | undefined
 
       try {
         for await (const chunk of options.adapter.chatStream({ ...input, messages: requestMessages })) {
           if (providerDelegationCompactionOverflowChunk(chunk)) {
             overflowChunk = chunk
             break
+          }
+
+          if (
+            chunk.type === EventType.RUN_FINISHED &&
+            (chunk.outcome === undefined || chunk.outcome.type === "success")
+          ) {
+            completedUsage = compactionTokenUsageResolve(chunk)
           }
 
           if (!emittedNonErrorContent && chunk.type === EventType.RUN_STARTED) {
@@ -328,6 +350,9 @@ export function providerDelegationCompactionAdapterCreate(options: {
       }
 
       if (overflowChunk === undefined) {
+        if (completedUsage !== undefined) {
+          state = { ...state, reportedUsage: completedUsage, reportedUsageMessageCount: requestMessages.length }
+        }
         yield* bufferedChunks
         return
       }

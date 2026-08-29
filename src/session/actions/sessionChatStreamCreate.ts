@@ -1,7 +1,10 @@
 import { createResultError, type Result } from "@adaptive-ds/result"
 import { EventType, type StreamChunk } from "@tanstack/ai"
 import type { AgentConfiguration } from "../../agents/schema/agentConfigurationSchema.js"
+import type { CompactionTokenUsage } from "../../compaction/compactionTokenUsage.js"
 import type { CompactionMessage } from "../../compaction/compactionMessage.js"
+import { compactionTokenUsageMetadataCreate } from "../../compaction/compactionTokenUsageMetadataCreate.js"
+import { compactionTokenUsageResolve } from "../../compaction/compactionTokenUsageResolve.js"
 import type { DatabaseClient } from "../../database/databaseClient.js"
 import { databaseTransactionRun } from "../../database/databaseTransactionRun.js"
 import { messageAppend } from "../../message/actions/messageAppend.js"
@@ -28,6 +31,7 @@ type SessionChatStreamCreateOptions = {
   organizationId?: string
   preparedUserMessage?: { id: string; sequence: number }
   prompt: string
+  reportedUsage?: CompactionTokenUsage
   requestId: string
   runId: string
   sessionId: string
@@ -48,6 +52,7 @@ type SessionChatStreamCreateOptions = {
     failure?: { code: string; message: string }
     messageId?: string | null
     status: "succeeded" | "failed" | "aborted"
+    usage?: CompactionTokenUsage
   }) => Promise<void>
   onContextPrepared?: (history: Array<CompactionMessage>, sourceRevision?: number) => void
 }
@@ -104,6 +109,7 @@ async function* sessionChatStreamGenerate(options: SessionChatStreamCreateOption
     assistantText?: string
     failure?: { code: string; message: string }
     status: "succeeded" | "failed" | "aborted"
+    usage?: CompactionTokenUsage
   }): Promise<void> => {
     if (options.providerOutput !== undefined) {
       const flushed = await options.providerOutput.flush()
@@ -125,6 +131,7 @@ async function* sessionChatStreamGenerate(options: SessionChatStreamCreateOption
         organizationId: options.organizationId,
         preparedUserMessage: options.preparedUserMessage,
         prompt: options.prompt,
+        reportedUsage: options.reportedUsage,
         runtimeConfiguration: options.runtimeConfiguration,
         runtimeAdapterCreate: options.runtimeAdapterCreate,
         sessionId: options.sessionId,
@@ -239,6 +246,7 @@ async function* sessionChatStreamGenerate(options: SessionChatStreamCreateOption
       return
     }
     if (options.providerOutput === undefined) {
+      const reportedUsage = compactionTokenUsageResolve(terminal)
       const persisted = await databaseTransactionRun(options.database, (transaction) =>
         (async () => {
           if (options.signal.aborted)
@@ -246,6 +254,7 @@ async function* sessionChatStreamGenerate(options: SessionChatStreamCreateOption
           const result = await messageAppend(transaction, options.userId, options.sessionId, {
             clientRequestId: `${options.requestId}:assistant`,
             content: assistantText,
+            ...(reportedUsage === undefined ? {} : { metadata: compactionTokenUsageMetadataCreate(reportedUsage) }),
             role: "assistant",
           })
           if (options.signal.aborted)
@@ -266,7 +275,12 @@ async function* sessionChatStreamGenerate(options: SessionChatStreamCreateOption
         return
       }
     }
-    await terminalNotify({ assistantText, status: "succeeded" })
+    const reportedUsage = compactionTokenUsageResolve(terminal)
+    await terminalNotify({
+      assistantText,
+      status: "succeeded",
+      ...(reportedUsage === undefined ? {} : { usage: reportedUsage }),
+    })
     await eventPersist(terminal)
     terminalPersisted = true
     yield terminal

@@ -17,10 +17,37 @@ test("prefers reported input usage over the conservative estimate", () => {
   expect(result).toMatchObject({ success: true, data: { inputTokens: 6_500, shouldCompact: true } })
 })
 
+test("adds only trailing estimates to reported input usage", () => {
+  const result = compactionPressureResolve({
+    ...pressureInput,
+    estimatedInputTokens: 9_000,
+    estimatedTrailingInputTokens: 300,
+    reportedUsage: { inputTokens: 6_500, outputTokens: 20 },
+  })
+
+  expect(result).toMatchObject({ success: true, data: { inputTokens: 6_800, shouldCompact: true } })
+})
+
 test("uses estimation when reported input usage is unavailable", () => {
   const result = compactionPressureResolve({ ...pressureInput, estimatedInputTokens: 6_400 })
 
   expect(result).toMatchObject({ success: true, data: { inputTokens: 6_400, shouldCompact: true } })
+})
+
+test("falls back to estimation for zero or malformed reported usage", () => {
+  for (const reportedUsage of [
+    { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+    { inputTokens: Number.NaN },
+    { inputTokens: -1 },
+  ]) {
+    const result = compactionPressureResolve({
+      ...pressureInput,
+      estimatedInputTokens: 6_400,
+      reportedUsage,
+    })
+
+    expect(result).toMatchObject({ success: true, data: { inputTokens: 6_400, shouldCompact: true } })
+  }
 })
 
 test("rejects invalid context accounting", () => {

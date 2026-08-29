@@ -1,10 +1,12 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import type { CompactionPressureDecision } from "./compactionPressureDecision.js"
 import type { CompactionTokenUsage } from "./compactionTokenUsage.js"
+import { compactionTokenUsageResolve } from "./compactionTokenUsageResolve.js"
 
 export function compactionPressureResolve(input: {
   contextLimitTokens: number
   estimatedInputTokens: number
+  estimatedTrailingInputTokens?: number
   pressureThreshold: number
   reserveOutputTokens: number
   reportedUsage?: CompactionTokenUsage
@@ -25,11 +27,19 @@ export function compactionPressureResolve(input: {
   if (!Number.isSafeInteger(input.estimatedInputTokens) || input.estimatedInputTokens < 0) {
     return createResultError(op, "estimatedInputTokens must be a non-negative integer.")
   }
-  const reportedInputTokens = input.reportedUsage?.inputTokens ?? input.reportedUsage?.totalTokens
-  if (reportedInputTokens !== undefined && (!Number.isSafeInteger(reportedInputTokens) || reportedInputTokens < 0)) {
-    return createResultError(op, "Reported token usage must contain non-negative integers.")
+  if (
+    input.estimatedTrailingInputTokens !== undefined &&
+    (!Number.isSafeInteger(input.estimatedTrailingInputTokens) || input.estimatedTrailingInputTokens < 0)
+  ) {
+    return createResultError(op, "estimatedTrailingInputTokens must be a non-negative integer.")
   }
-  const inputTokens = reportedInputTokens ?? input.estimatedInputTokens
+  const reportedUsage = compactionTokenUsageResolve(input.reportedUsage)
+  const reportedInputTokens = reportedUsage?.inputTokens ?? reportedUsage?.totalTokens
+  const inputTokens =
+    reportedInputTokens === undefined
+      ? input.estimatedInputTokens
+      : reportedInputTokens + (input.estimatedTrailingInputTokens ?? 0)
+  if (!Number.isSafeInteger(inputTokens)) return createResultError(op, "Token usage exceeds safe integer bounds.")
   const availableInputTokens = input.contextLimitTokens - input.reserveOutputTokens
   const pressureRatio = inputTokens / availableInputTokens
   return createResult({

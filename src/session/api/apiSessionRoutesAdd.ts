@@ -1351,6 +1351,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
                 const finalized = await providerOutput.finalize({
                   assistantText: terminal.assistantText,
                   messageId: terminal.messageId,
+                  ...(terminal.usage === undefined ? {} : { usage: terminal.usage }),
                   status: terminal.status,
                 })
                 if (!finalized.success) throw new Error(finalized.errorMessage)

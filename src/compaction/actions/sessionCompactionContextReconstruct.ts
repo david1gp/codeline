@@ -4,6 +4,7 @@ import { messageLoadDurableHistory } from "../../message/actions/messageLoadDura
 import type { messageTable } from "../../message/db/messageTable.js"
 import { compactionContextSelect } from "../compactionContextSelect.js"
 import type { CompactionMessage } from "../compactionMessage.js"
+import { compactionTokenUsageResolve } from "../compactionTokenUsageResolve.js"
 import { sessionCompactionTable } from "../db/sessionCompactionTable.js"
 import { sessionCompactionLoadLatestSuccessful } from "./sessionCompactionLoadLatestSuccessful.js"
 
@@ -11,6 +12,22 @@ type SessionCompactionContextReconstructResult = {
   compaction: typeof sessionCompactionTable.$inferSelect | undefined
   durableHistory: Array<typeof messageTable.$inferSelect>
   history: Array<CompactionMessage>
+}
+
+function sessionCompactionHistoryResolve(
+  messages: readonly (typeof messageTable.$inferSelect)[],
+  compaction: typeof sessionCompactionTable.$inferSelect | undefined,
+): Array<CompactionMessage> {
+  return messages.map((message) => {
+    const usage =
+      message.role === "assistant" &&
+      (compaction === undefined || message.createdAt > (compaction.completedAt ?? compaction.startedAt))
+        ? compactionTokenUsageResolve(message.metadata)
+        : undefined
+    return usage === undefined
+      ? (message as unknown as CompactionMessage)
+      : ({ ...message, reportedUsage: usage } as unknown as CompactionMessage)
+  })
 }
 
 export async function sessionCompactionContextReconstruct(
@@ -30,7 +47,7 @@ export async function sessionCompactionContextReconstruct(
     return createResult({
       compaction: undefined,
       durableHistory: durableHistory.data,
-      history: durableHistory.data as unknown as CompactionMessage[],
+      history: sessionCompactionHistoryResolve(durableHistory.data, undefined),
     })
 
   const tail = durableHistory.data.filter((message) => message.sequence > compaction.coveredSequence)
@@ -45,6 +62,6 @@ export async function sessionCompactionContextReconstruct(
   return createResult({
     compaction,
     durableHistory: durableHistory.data,
-    history: [...selected.data.context],
+    history: sessionCompactionHistoryResolve(selected.data.context as typeof messageTable.$inferSelect[], compaction),
   })
 }
