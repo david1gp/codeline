@@ -40,6 +40,12 @@ export function compactionContextUsageResolve(input: {
   const directUsage = compactionTokenUsageResolve(input.reportedUsage)
   if (directUsage !== undefined) {
     if (input.reportedUsageMessageIndex === undefined) return { reportedUsage: directUsage }
+    if (
+      !Number.isSafeInteger(input.reportedUsageMessageIndex) ||
+      input.reportedUsageMessageIndex < -1 ||
+      input.reportedUsageMessageIndex >= input.messages.length
+    )
+      return {}
     const estimatedTrailingInputTokens = compactionContextTrailingEstimateResolve(
       input.messages,
       input.reportedUsageMessageIndex,

@@ -16,6 +16,7 @@ function compactionTokenEstimateSerialize(value: unknown, seen: Set<object>): st
   }
   const record = value as Record<string, unknown>
   const output = `{${Object.keys(record)
+    .filter((key) => key !== "__codeline_reported_usage" && key !== "reportedUsage")
     .sort()
     .map((key) => `${JSON.stringify(key)}:${compactionTokenEstimateSerialize(record[key], seen)}`)
     .join(",")}}`

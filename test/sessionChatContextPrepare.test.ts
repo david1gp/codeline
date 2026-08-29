@@ -537,12 +537,7 @@ test("persists successful provider usage for the next session context request", 
     // Consume the provider stream so the assistant message is persisted.
   }
 
-  const next = await sessionCompactionContextReconstruct(
-    database,
-    fixture.userId,
-    fixture.organizationId,
-    sessionId,
-  )
+  const next = await sessionCompactionContextReconstruct(database, fixture.userId, fixture.organizationId, sessionId)
   expect(next).toMatchObject({
     success: true,
     data: { history: [{ role: "user" }, { reportedUsage: { inputTokens: 1_000 }, role: "assistant" }] },

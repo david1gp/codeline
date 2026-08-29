@@ -31,6 +31,14 @@ function compactionToolOutputBound(value: unknown, maxChars: number): unknown {
   return serialized.slice(0, Math.max(0, maxChars - marker.length)) + marker.slice(0, maxChars)
 }
 
+function compactionMessageMetadataSerializable(metadata: unknown): unknown {
+  if (metadata === null || typeof metadata !== "object" || Array.isArray(metadata)) return metadata
+  const record = metadata as Record<string, unknown>
+  if (!Object.hasOwn(record, "__codeline_reported_usage")) return metadata
+  const { __codeline_reported_usage: _reportedUsage, ...withoutReportedUsage } = record
+  return withoutReportedUsage
+}
+
 function compactionMessageSerializable(
   message: CompactionMessage,
   maxToolOutputChars: number,
@@ -43,7 +51,11 @@ function compactionMessageSerializable(
     output.content =
       message.role === "tool" ? compactionToolOutputBound(message.content, maxToolOutputChars) : message.content
   }
-  if (message.metadata !== undefined) output.metadata = message.metadata
+  if (message.metadata !== undefined) {
+    const metadata = compactionMessageMetadataSerializable(message.metadata)
+    if (typeof metadata !== "object" || metadata === null || Object.keys(metadata).length > 0)
+      output.metadata = metadata
+  }
   return output
 }
 

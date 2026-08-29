@@ -62,6 +62,6 @@ export async function sessionCompactionContextReconstruct(
   return createResult({
     compaction,
     durableHistory: durableHistory.data,
-    history: sessionCompactionHistoryResolve(selected.data.context as typeof messageTable.$inferSelect[], compaction),
+    history: sessionCompactionHistoryResolve(selected.data.context as (typeof messageTable.$inferSelect)[], compaction),
   })
 }
