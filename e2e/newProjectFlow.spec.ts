@@ -14,7 +14,7 @@ async function memberContextOpen(browser: Browser, token: string): Promise<Brows
   return context
 }
 
-test("New Session then New project renames the action and opens project creation", async ({ browser }) => {
+test("New Session navigates directly to the new-session workspace", async ({ browser }) => {
   const runId = e2eRunIdCreate()
   const contexts: BrowserContext[] = []
   let deletedUserIds: string[] = []
@@ -27,38 +27,11 @@ test("New Session then New project renames the action and opens project creation
     contexts.push(context)
 
     const page = await context.newPage()
-    await page.goto("/sessions?tab=recent")
+    await page.goto("/sessions?tab=projects")
 
-    const dialog = page.getByRole("dialog")
-
-    // Open the New Session dialog from the sidebar trigger.
     await page.getByRole("button", { name: "New Session", exact: true }).click()
-    await expect(dialog).toBeVisible()
-    const projectSelect = dialog.getByLabel("Project")
-    await expect(projectSelect).toBeVisible()
-    const primaryButton = dialog.getByRole("button", { name: "Use project" })
-    await expect(primaryButton).toBeVisible()
-
-    // Selecting "New project" only renames the primary action; the session step stays visible.
-    await projectSelect.selectOption({ label: "New project" })
-    const newProjectButton = dialog.getByRole("button", { name: "New Project" })
-    await expect(newProjectButton).toBeVisible()
-    await expect(projectSelect).toBeVisible()
-
-    // Submitting the renamed action swaps the same dialog to the project-creation step.
-    await newProjectButton.click()
-    await expect(dialog.getByText("Select an existing folder. Codeline will not create a directory.")).toBeVisible()
-    const folderInput = dialog.getByLabel("Folder path")
-    await expect(folderInput).toBeVisible()
-    await expect(dialog.getByRole("button", { name: "Use Project" })).toBeVisible()
-    // The session step is no longer shown while the project step is active.
-    await expect(projectSelect).toHaveCount(0)
-
-    // Closing and reopening resets the single dialog back to the session step.
-    await page.keyboard.press("Escape")
-    await expect(dialog).toHaveCount(0)
-    await page.getByRole("button", { name: "New Session", exact: true }).click()
-    await expect(page.getByRole("dialog").getByLabel("Project")).toBeVisible()
+    await expect(page).toHaveURL(/\/sessions\/new\?tab=projects$/)
+    await expect(page.getByRole("dialog")).toHaveCount(0)
 
     await page.close()
   } finally {

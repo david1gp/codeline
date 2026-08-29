@@ -1,10 +1,11 @@
+import { mdiPlus } from "@adaptive-ds/mdi/mdiPlus.js"
 import { Show } from "solid-js"
+import { Button } from "#ui/interactive/button/Button.jsx"
+import { buttonVariant } from "#ui/interactive/button/buttonCva.js"
+import { Icon } from "#ui/static/icon/Icon.jsx"
 import type { ProjectRegistryState } from "../project/ui/projectRegistryState.js"
 import type { ActiveProjectState } from "./activeProjectStateCreate.js"
-import { NewSessionDialog } from "./NewSessionDialog.js"
 import { SessionList } from "./SessionList.js"
-import type { SessionProjectIdOverride } from "./sessionProjectIdOverride.js"
-import type { SessionProjectPathOverride } from "./sessionProjectPathOverride.js"
 import type { SessionListState } from "./sessionListStateCreate.js"
 import type { SessionTargetSelectorState } from "./sessionTargetSelectorStateCreate.js"
 
@@ -14,8 +15,6 @@ export function SessionSidebar(props: {
   headingId?: string
   idPrefix?: string
   initialFocus?: (element: HTMLElement) => void
-  projectIdOverride?: SessionProjectIdOverride
-  projectPathOverride: SessionProjectPathOverride
   projectRegistry?: ProjectRegistryState
   sessionList: SessionListState
   sessionTarget: SessionTargetSelectorState
@@ -39,15 +38,14 @@ export function SessionSidebar(props: {
         <h2 class="sr-only" id={props.headingId}>
           Sessions
         </h2>
-        <NewSessionDialog
-          activeProject={props.activeProject}
-          idPrefix={props.idPrefix ?? "desktop-session"}
-          projectIdOverride={props.projectIdOverride}
-          projectPathOverride={props.projectPathOverride}
-          projectRegistry={props.projectRegistry}
-          projects={props.projectRegistry ? props.projectRegistry.projects : props.sessionList.sidebar.projectGroups}
-          sessionTarget={props.sessionTarget}
-        />
+        <Button
+          class="h-9 w-full justify-center"
+          variant={buttonVariant.contrast}
+          onClick={() => props.sessionTarget.sessionNew?.()}
+        >
+          <Icon path={mdiPlus} class="mr-2 size-4" />
+          New Session
+        </Button>
         <Show when={props.sessionTarget.sessionCreateStatus() === "error"}>
           <p class="mt-2 mb-0 text-[11px] text-danger" role="alert">
             The new session could not be created. Select New Session to retry.
