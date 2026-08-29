@@ -11,13 +11,29 @@ const resetScript = await Bun.file(new URL("../scripts/dbReset.ts", import.meta.
 const seedScript = await Bun.file(new URL("../scripts/dbSeed.ts", import.meta.url)).text()
 const resetLockScript = await Bun.file(new URL("../scripts/managedDatabaseResetLockRun.ts", import.meta.url)).text()
 const consumersScript = await Bun.file(new URL("../scripts/managedDatabaseConsumersStop.ts", import.meta.url)).text()
+const apiUnit = await Bun.file(new URL("../ops/dev/systemd/codeline-dev-api.service", import.meta.url)).text()
+const installScript = await Bun.file(new URL("../ops/dev/systemd/install.sh", import.meta.url)).text()
 const installScriptPath = new URL("../ops/dev/systemd/install.sh", import.meta.url).pathname
+const openCodeSkillsPath = new URL("../.opencode/skills", import.meta.url).pathname
 
 test("the known managed consumer inventory remains explicit", () => {
   expect(managedDatabaseConsumerUnitsRead()).toEqual(["codeline-dev-api.service"])
   expect(consumersScript).toContain("managedDatabaseConsumerUnitsRead()")
   expect(consumersScript).toContain('"codeline-dev.target"')
   expect(consumersScript).not.toContain("codeline-dev-postgres.service")
+})
+
+test("the managed service uses the active adaptive checkout", () => {
+  expect(apiUnit).toContain("WorkingDirectory=%h/adaptive/codeline")
+  expect(apiUnit).toContain("EnvironmentFile=%h/adaptive/codeline/.env")
+  expect(apiUnit).toContain("ExecStartPost=%h/adaptive/codeline/ops/dev/codeline-dev.sh wait api")
+  expect(apiUnit).not.toContain("%h/codeline")
+  expect(installScript).toContain('stable_checkout="$HOME/adaptive/codeline"')
+  expect(installScript).not.toContain('stable_checkout="$HOME/codeline"')
+})
+
+test("the repository OpenCode skills link uses the checked-in skills directory", async () => {
+  expect(await fs.readlink(openCodeSkillsPath)).toBe("../.agents/skills")
 })
 
 type InstallScenario = "active" | "absent" | "failed" | "query-error"

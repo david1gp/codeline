@@ -6,11 +6,11 @@ PartOf=codeline-dev.target
 
 [Service]
 Type=simple
-WorkingDirectory=%h/codeline
-EnvironmentFile=%h/codeline/.env
+WorkingDirectory=%h/adaptive/codeline
+EnvironmentFile=%h/adaptive/codeline/.env
 Environment=PATH=%h/.local/bin:%h/.bun/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=/usr/bin/env bun ./dist/server/index.js
-ExecStartPost=%h/codeline/ops/dev/codeline-dev.sh wait api
+ExecStartPost=%h/adaptive/codeline/ops/dev/codeline-dev.sh wait api
 Restart=on-failure
 RestartSec=2s
 TimeoutStopSec=30s

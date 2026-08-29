@@ -5,7 +5,7 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 root=$(git -C "$script_dir/../.." rev-parse --show-toplevel)
 config_dir=${XDG_CONFIG_HOME:-$HOME/.config}
 unit_dir="$config_dir/systemd/user"
-stable_checkout="$HOME/codeline"
+stable_checkout="$HOME/adaptive/codeline"
 
 fail() {
   printf 'codeline-dev-systemd: %s\n' "$1" >&2
