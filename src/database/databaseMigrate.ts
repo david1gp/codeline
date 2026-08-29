@@ -5,6 +5,8 @@ import { drizzle } from "drizzle-orm/libsql"
 import { migrate } from "drizzle-orm/libsql/migrator"
 import { projectRegistrySessionPathBackfill } from "../project/db/projectRegistrySessionPathBackfill.js"
 import { projectRegistrySessionPathBackfillTable } from "../project/db/projectRegistrySessionPathBackfillTable.js"
+import { projectFolderAssignmentBackfill } from "../project/db/projectFolderAssignmentBackfill.js"
+import { projectFolderAssignmentBackfillTable } from "../project/db/projectFolderAssignmentBackfillTable.js"
 import type { DatabaseClient } from "./databaseClient.js"
 import { databasePath } from "./databasePath.js"
 import { databaseSchema } from "./databaseSchema.js"
@@ -13,6 +15,7 @@ import { openLibsql } from "./openLibsql.js"
 
 const migrationsFolder = fileURLToPath(new URL("./migrations", import.meta.url))
 const projectRegistrySessionPathBackfillMarkerId = "session-project-paths"
+const projectFolderAssignmentBackfillMarkerId = "project-folder-assignments"
 
 type DatabaseMigrateOptions = {
   projectRootDirs?: readonly string[]
@@ -34,7 +37,7 @@ export async function databaseMigrate(
     if (!backfilled.success) {
       result = backfilled
     } else {
-      result = createResult(undefined)
+      result = await projectFolderAssignmentBackfillRun(typedDatabase, options.projectRootDirs ?? [])
     }
   } catch (_error) {
     result = createResultError(op, "The database migrations could not be applied.")
@@ -49,6 +52,28 @@ export async function databaseMigrate(
   }
 
   return result
+}
+
+async function projectFolderAssignmentBackfillRun(
+  database: DatabaseClient,
+  rootDirs: readonly string[],
+): Promise<Result<void>> {
+  return await databaseTransactionRun(database, async (transaction) => {
+    const [marker] = await transaction
+      .select({ id: projectFolderAssignmentBackfillTable.id })
+      .from(projectFolderAssignmentBackfillTable)
+      .where(eq(projectFolderAssignmentBackfillTable.id, projectFolderAssignmentBackfillMarkerId))
+      .limit(1)
+    if (marker !== undefined) return createResult(undefined)
+
+    const backfilled = await projectFolderAssignmentBackfill(transaction, rootDirs)
+    if (!backfilled.success) return backfilled
+
+    await transaction
+      .insert(projectFolderAssignmentBackfillTable)
+      .values({ id: projectFolderAssignmentBackfillMarkerId })
+    return createResult(undefined)
+  })
 }
 
 async function projectRegistrySessionPathBackfillRun(

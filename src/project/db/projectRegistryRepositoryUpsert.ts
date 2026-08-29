@@ -31,7 +31,9 @@ export async function projectRegistryRepositoryUpsert(
   const now = new Date()
   let parentFolderId: string | undefined
   if (rootDirs !== undefined) {
-    const parentFolder = await projectFolderAssignmentIdResolve(database, userId, parsed.output.path, rootDirs)
+    const parentFolder = await projectFolderAssignmentIdResolve(database, userId, parsed.output.path, rootDirs, {
+      unmatchedToPersonal: true,
+    })
     if (!parentFolder.success) return createResultError(op, parentFolder.errorMessage)
     parentFolderId = parentFolder.data
   }
@@ -52,6 +54,7 @@ export async function projectRegistryRepositoryUpsert(
         target: [projectTable.userId, projectTable.path],
         set: {
           ...(parsed.output.displayName === undefined ? {} : { displayName: parsed.output.displayName }),
+          ...(parentFolderId === undefined ? {} : { parentFolderId }),
           updatedAt: now,
         },
       })
