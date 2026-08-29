@@ -91,6 +91,17 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
     key: () => liveSession()?.id,
     load: (sessionId, signal) => sessionFinalizedMessagesFetch(sessionId, { signal }),
   })
+  const messagesReloadVersion = signalObjectCreate(0)
+  let messagesRefreshPending = false
+  const messagesRefresh = () => {
+    messagesRefreshPending = true
+    messagesQuery.refresh()
+  }
+  createEffect(() => {
+    if (!messagesRefreshPending || !messagesQuery.isComplete()) return
+    messagesRefreshPending = false
+    messagesReloadVersion.set(messagesReloadVersion.get() + 1)
+  })
   const messages = () => messagesQuery.data()?.messages ?? settledCache.record()?.payload.messages
   const messagesResult = () => ({
     retry: messagesQuery.retry,
@@ -167,6 +178,7 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
   }
 
   const chatCreateLive = sessionChatStateCacheCreate({
+    authoritativeReloadVersion: messagesReloadVersion.get,
     chatStateCreate: sessionChatStateCreate,
     codelineExecution: options.codelineExecution,
     ...(options.commandCatalog === undefined ? {} : { commandCatalog: options.commandCatalog }),
@@ -242,7 +254,7 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
 
   const revalidate = () => {
     sessionQuery.refresh()
-    messagesQuery.refresh()
+    messagesRefresh()
     delegationsQuery.refresh()
     streamState.revalidate()
     settledCache.revalidate()
@@ -258,7 +270,7 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
     }),
     eventFeed?.registerSelectedMessages({
       refresh: () => {
-        messagesQuery.refresh()
+        messagesRefresh()
       },
       sessionId: selectedSessionId,
     }),

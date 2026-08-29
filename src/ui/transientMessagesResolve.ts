@@ -12,6 +12,10 @@ type DurableMessage = {
   role: string
 }
 
+type TransientMessagesResolveOptions = {
+  hideManualCompaction?: boolean
+}
+
 function transientMessageKey(role: string, content: string): string {
   return `${role}\u0000${content.trim()}`
 }
@@ -56,6 +60,7 @@ function durableAssistantsSupersede(
 export function transientMessagesResolve(
   transient: ReadonlyArray<TransientMessage>,
   durable: ReadonlyArray<DurableMessage>,
+  options: TransientMessagesResolveOptions = {},
 ): Array<TransientMessage> {
   const durableCounts = new Map<string, number>()
   for (const message of durable) {
@@ -66,6 +71,8 @@ export function transientMessagesResolve(
   const supersededAssistants = durableAssistantsSupersede(transient, durable)
   const remaining: Array<TransientMessage> = []
   for (const message of transient) {
+    if (options.hideManualCompaction === true && message.role === "user" && message.content.trim() === "/compact")
+      continue
     if (message.content.trim().length === 0) {
       // A turn that only produced tool or thinking activity still has to render.
       if ((message.activities?.length ?? 0) > 0) remaining.push(message)

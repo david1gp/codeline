@@ -106,3 +106,18 @@ test("transient messages converge by durable occurrence without dropping repeate
     ]),
   ).toEqual([{ content: "same prompt", id: "transient-2", role: "user" }])
 })
+
+test("hides only the reserved manual compaction prompt after its lifecycle settles", () => {
+  const resolved = transientMessagesResolve(
+    [
+      { content: "  /compact \n", id: "compact", role: "user" },
+      { content: "/compact extra", id: "argument", role: "user" },
+      { content: "/compactly", id: "similar", role: "user" },
+      { content: "ordinary prompt", id: "ordinary", role: "user" },
+    ],
+    [],
+    { hideManualCompaction: true },
+  )
+
+  expect(resolved.map((message) => message.id)).toEqual(["argument", "similar", "ordinary"])
+})

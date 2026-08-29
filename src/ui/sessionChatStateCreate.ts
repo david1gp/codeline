@@ -7,6 +7,7 @@ import { chatComposerStateCreate } from "./chatComposerStateCreate.js"
 import { transientMessagesResolve } from "./transientMessagesResolve.js"
 
 type SessionChatStateOptions = {
+  authoritativeReloadVersion?: () => number
   codelineExecution: Accessor<CodelineExecution | null>
   /** Project command catalog backing slash-command autocomplete for this session. */
   commandCatalog?: ChatCommandCatalogSource
@@ -17,6 +18,9 @@ type SessionChatStateOptions = {
 export function sessionChatStateCreate(options: SessionChatStateOptions) {
   let command: ChatCommandComposerView | undefined
   const composer = chatComposerStateCreate({
+    ...(options.authoritativeReloadVersion === undefined
+      ? {}
+      : { authoritativeReloadVersion: options.authoritativeReloadVersion }),
     codelineExecution: options.codelineExecution,
     ...(options.commandCatalog === undefined
       ? {}
@@ -56,7 +60,10 @@ export function sessionChatStateCreate(options: SessionChatStateOptions) {
       event.preventDefault()
       void composer.submit().catch(() => undefined)
     },
-    pendingMessages: () => transientMessagesResolve(composer.transientMessages(), options.durableMessages()),
+    pendingMessages: () =>
+      transientMessagesResolve(composer.transientMessages(), options.durableMessages(), {
+        hideManualCompaction: composer.manualCompactionHidden(),
+      }),
     recoveryStatus: composer.recoveryStatus,
     runId: composer.runId,
     stopHandle: () => void composer.stop(),

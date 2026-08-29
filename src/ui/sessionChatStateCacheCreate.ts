@@ -5,6 +5,7 @@ import type { ChatCommandCatalogSource } from "./chatCommandView.js"
 import type { SessionChatState, sessionChatStateCreate } from "./sessionChatStateCreate.js"
 
 type SessionChatStateCacheOptions = {
+  authoritativeReloadVersion?: () => number
   chatStateCreate: typeof sessionChatStateCreate
   codelineExecution: Accessor<CodelineExecution | null>
   commandCatalog?: ChatCommandCatalogSource
@@ -34,6 +35,9 @@ export function sessionChatStateCacheCreate(options: SessionChatStateCacheOption
       dispose,
       sessionId,
       state: options.chatStateCreate({
+        ...(options.authoritativeReloadVersion === undefined
+          ? {}
+          : { authoritativeReloadVersion: options.authoritativeReloadVersion }),
         codelineExecution: options.codelineExecution,
         ...(options.commandCatalog === undefined ? {} : { commandCatalog: options.commandCatalog }),
         durableMessages: options.durableMessages,

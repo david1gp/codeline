@@ -435,3 +435,122 @@ test("sends queued command invocations to provider requests in FIFO order", asyn
   root.dispose()
   imported.setConnectionFactory(undefined)
 })
+
+test("removes the exact manual compaction prompt after terminal success", async () => {
+  imported.setConnection(undefined)
+  imported.setConnectionFactory(undefined)
+
+  const snapshotEntered = deferredCreate<void>()
+  const releaseSnapshot = deferredCreate<void>()
+  const root = createRoot((dispose) => ({
+    dispose,
+    state: imported.chatComposerStateCreate({
+      fetcher: async (_input, init) => {
+        if (init?.method === "POST") return jsonResponse({ runId: "run-success", sessionId: "session-1" })
+        snapshotEntered.resolve(undefined)
+        await releaseSnapshot.promise
+        return jsonResponse({ lastSequence: 1, partialText: "", status: "succeeded" })
+      },
+      sessionId: "session-1",
+    }),
+  }))
+
+  root.state.setDraft("  /compact \n")
+  const submitted = root.state.submit()
+  await snapshotEntered.promise
+  expect(root.state.transientMessages().map((message) => message.content)).toEqual(["/compact"])
+
+  releaseSnapshot.resolve(undefined)
+  await submitted
+  expect(root.state.transientMessages()).toEqual([])
+  root.dispose()
+})
+
+test("removes the exact manual compaction prompt after terminal failure", async () => {
+  imported.setConnection(undefined)
+  imported.setConnectionFactory(undefined)
+
+  const root = createRoot((dispose) => ({
+    dispose,
+    state: imported.chatComposerStateCreate({
+      fetcher: async (_input, init) => {
+        if (init?.method === "POST") return jsonResponse({ runId: "run-failure", sessionId: "session-1" })
+        return jsonResponse({
+          failure: { code: "compaction_failed", message: "Compaction failed." },
+          lastSequence: 1,
+          partialText: "",
+          status: "failed",
+        })
+      },
+      sessionId: "session-1",
+    }),
+  }))
+
+  root.state.setDraft("/compact")
+  await root.state.submit()
+  expect(root.state.transientMessages().filter((message) => message.role === "user")).toEqual([])
+  root.dispose()
+})
+
+test("removes the exact manual compaction prompt when authoritative reload completes", async () => {
+  imported.setConnection(undefined)
+  imported.setConnectionFactory(undefined)
+
+  const [reloadVersion, reloadVersionSet] = createSignal(0)
+  const snapshotEntered = deferredCreate<void>()
+  const releaseSnapshot = deferredCreate<void>()
+  const root = createRoot((dispose) => ({
+    dispose,
+    state: imported.chatComposerStateCreate({
+      authoritativeReloadVersion: reloadVersion,
+      fetcher: async (_input, init) => {
+        if (init?.method === "POST") return jsonResponse({ runId: "run-reload", sessionId: "session-1" })
+        snapshotEntered.resolve(undefined)
+        await releaseSnapshot.promise
+        return jsonResponse({ lastSequence: 1, partialText: "", status: "succeeded" })
+      },
+      sessionId: "session-1",
+    }),
+  }))
+
+  root.state.setDraft("/compact")
+  const submitted = root.state.submit()
+  await snapshotEntered.promise
+  expect(root.state.transientMessages().map((message) => message.content)).toEqual(["/compact"])
+
+  reloadVersionSet(1)
+  expect(root.state.transientMessages()).toEqual([])
+  releaseSnapshot.resolve(undefined)
+  await submitted
+  root.dispose()
+})
+
+test("keeps ordinary optimistic prompts available for existing reconciliation", async () => {
+  imported.setConnection(undefined)
+  imported.setConnectionFactory(undefined)
+
+  const snapshotEntered = deferredCreate<void>()
+  const releaseSnapshot = deferredCreate<void>()
+  const root = createRoot((dispose) => ({
+    dispose,
+    state: imported.chatComposerStateCreate({
+      fetcher: async (_input, init) => {
+        if (init?.method === "POST") return jsonResponse({ runId: "run-ordinary", sessionId: "session-1" })
+        snapshotEntered.resolve(undefined)
+        await releaseSnapshot.promise
+        return jsonResponse({ lastSequence: 1, partialText: "", status: "succeeded" })
+      },
+      sessionId: "session-1",
+    }),
+  }))
+
+  root.state.setDraft("ordinary prompt")
+  const submitted = root.state.submit()
+  await snapshotEntered.promise
+  expect(root.state.transientMessages().map((message) => message.content)).toEqual(["ordinary prompt"])
+
+  releaseSnapshot.resolve(undefined)
+  await submitted
+  expect(root.state.transientMessages().map((message) => message.content)).toEqual(["ordinary prompt"])
+  root.dispose()
+})

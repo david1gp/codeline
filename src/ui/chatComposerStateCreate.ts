@@ -11,6 +11,7 @@ import { transientMessageActivitiesResolve } from "./transientMessageActivitiesR
 import type { TransientMessage } from "./transientMessagesResolve.js"
 
 type ChatComposerOptions = {
+  authoritativeReloadVersion?: () => number
   codelineExecution?: () => CodelineExecution | null
   /**
    * Slash-command resolution for the current draft. A blocking validation message
@@ -47,11 +48,13 @@ export function chatComposerStateCreate(options: ChatComposerOptions) {
   const stopError = createSignalObject<string | undefined>(undefined)
   const stopping = createSignalObject(false)
   const commandError = createSignalObject<string | undefined>(undefined)
+  const manualCompactionHidden = createSignalObject(true)
   // Captured at submit time: the draft is cleared before the turn starts, so the
   // resolved invocation can no longer be derived from it when the request is sent.
   // Keep one token per submission because queued sends start after the submitting
   // call has already returned.
   const pendingCommands: Array<{ invocation?: CommandInvocation }> = []
+  let manualCompactionReloadVersion = options.authoritativeReloadVersion?.()
   let runFailed = false
   const connection = sessionChatConnectionCreate({
     command: () => pendingCommands.shift()?.invocation,
@@ -76,13 +79,21 @@ export function chatComposerStateCreate(options: ChatComposerOptions) {
     onChunk: (chunk) => {
       activity.chunkObserve(chunk)
       if (chunk.type === "RUN_ERROR") runFailed = true
+      if (chunk.type === "RUN_ERROR" || chunk.type === "RUN_FINISHED") manualCompactionHidden.set(true)
     },
     onError: () => {
       runFailed = true
+      manualCompactionHidden.set(true)
     },
     threadId: options.sessionId,
   })
   createEffect(syncForwardedProps)
+  createEffect(() => {
+    const current = options.authoritativeReloadVersion?.()
+    if (current === undefined || current === manualCompactionReloadVersion) return
+    manualCompactionReloadVersion = current
+    manualCompactionHidden.set(true)
+  })
 
   const transientMessages = createMemo<Array<TransientMessage>>(() =>
     chat
@@ -93,7 +104,11 @@ export function chatComposerStateCreate(options: ChatComposerOptions) {
         content: chatMessageText(message.parts),
         id: message.id,
         role: message.role as "assistant" | "user",
-      })),
+      }))
+      .filter(
+        (message) =>
+          !(manualCompactionHidden.get() && message.role === "user" && message.content.trim() === "/compact"),
+      ),
   )
 
   const submit = async () => {
@@ -110,6 +125,11 @@ export function chatComposerStateCreate(options: ChatComposerOptions) {
     }
     const pendingCommand = { invocation: options.command?.invocation() }
     pendingCommands.push(pendingCommand)
+    const isManualCompaction = prompt === "/compact"
+    if (isManualCompaction) {
+      manualCompactionReloadVersion = options.authoritativeReloadVersion?.()
+      manualCompactionHidden.set(false)
+    }
     commandError.set(undefined)
     draft.set("")
     stopError.set(undefined)
@@ -120,6 +140,7 @@ export function chatComposerStateCreate(options: ChatComposerOptions) {
     } catch (error) {
       const pendingCommandIndex = pendingCommands.indexOf(pendingCommand)
       if (pendingCommandIndex >= 0) pendingCommands.splice(pendingCommandIndex, 1)
+      if (isManualCompaction) manualCompactionHidden.set(true)
       draft.set(preservedDraft)
       throw error
     } finally {
@@ -147,6 +168,7 @@ export function chatComposerStateCreate(options: ChatComposerOptions) {
       isBusy: chat.isLoading(),
       isStopping: stopping.get(),
       localStop: () => {
+        manualCompactionHidden.set(true)
         pendingCommands.length = 0
         chat.stop()
       },
@@ -166,6 +188,7 @@ export function chatComposerStateCreate(options: ChatComposerOptions) {
     errorMessage: () =>
       commandError.get() ?? stopError.get() ?? (recoveryStatus.get() === "stale" ? undefined : chat.error()?.message),
     isBusy: chat.isLoading,
+    manualCompactionHidden: manualCompactionHidden.get,
     recoveryStatus: recoveryStatus.get,
     runId: chat.runId,
     setDraft: (value: string) => {
