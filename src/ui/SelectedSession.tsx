@@ -31,11 +31,9 @@ export function SelectedSession(props: {
             <div class="flex min-h-0 min-w-0 flex-1 max-[1100px]:flex-col max-[1100px]:overflow-y-auto">
               <div class="flex min-h-0 min-w-0 flex-1 flex-col max-[1100px]:min-h-[60vh]">
                 <div class="shrink-0 px-4 pt-6 pb-4 text-center max-[760px]:px-3 max-[760px]:pt-4">
-                  <p class="m-0 text-[11px] font-semibold tracking-[0.14em] text-faint uppercase">No conversation</p>
-                  <h2 class="mt-2 mb-0 text-2xl font-semibold tracking-[-0.02em]">Select a conversation</h2>
-                  <p class="mx-auto mt-3 mb-0 max-w-[540px] text-sm leading-relaxed text-faint">
-                    Choose a session from the sidebar, or start a new one.
-                  </p>
+                  <h2 class="m-0 text-2xl font-semibold tracking-[-0.02em]">
+                    Select a conversation or start a new one.
+                  </h2>
                 </div>
                 <SessionChat
                   isFilling

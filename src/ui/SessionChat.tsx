@@ -118,7 +118,7 @@ export function SessionChat(props: {
               aria-label="Message"
               placeholder={
                 props.state.readOnlyNotice?.() === undefined
-                  ? "Send a message, or type / to run a command. Enter sends, Shift+Enter adds a newline."
+                  ? "Send a message, or type / to run a command.\nEnter sends. Shift+Enter adds a newline."
                   : "Read-only. Sending is unavailable."
               }
               rows={2}

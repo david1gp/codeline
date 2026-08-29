@@ -39,8 +39,9 @@ test("the initial composer keeps execution and provider targets visible", async 
 test("the no-selection view keeps the composer instead of a preparing placeholder", async () => {
   const selectedSession = await Bun.file(new URL("../src/ui/SelectedSession.tsx", import.meta.url)).text()
 
-  expect(selectedSession).toContain("Select a conversation")
-  expect(selectedSession).toContain("Choose a session from the sidebar, or start a new one.")
+  expect(selectedSession).toContain("Select a conversation or start a new one.")
+  expect(selectedSession).not.toContain("No conversation")
+  expect(selectedSession).not.toContain("Choose a session from the sidebar, or start a new one.")
   expect(selectedSession).not.toContain("Preparing your conversation")
   expect(selectedSession).not.toContain("Preparing conversation before messages can be sent.")
   expect(selectedSession).not.toContain("Start a new conversation")
