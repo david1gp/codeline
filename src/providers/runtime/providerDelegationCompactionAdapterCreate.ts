@@ -25,6 +25,11 @@ type ProviderDelegationSummaryState = {
   text: string
 }
 
+type ProviderDelegationCompactionStateStore = {
+  byIdentity: Map<string, ProviderDelegationCompactionState>
+  byRequest: WeakMap<object, ProviderDelegationCompactionState>
+}
+
 const DEFAULT_PROVIDER_DELEGATION_MAX_OVERFLOW_RETRIES = 1
 
 function providerDelegationCompactionToolCallIds(message: CompactionMessage): Array<string> {
@@ -297,18 +302,56 @@ function providerDelegationCompactionOverflowChunk(chunk: StreamChunk): boolean 
   return chunk.type === EventType.RUN_ERROR && chunk.code === "provider_context_overflow"
 }
 
+function providerDelegationCompactionStateStoreCreate(): ProviderDelegationCompactionStateStore {
+  return { byIdentity: new Map(), byRequest: new WeakMap() }
+}
+
+function providerDelegationCompactionStateIdentityResolve(
+  input: Parameters<AnyTextAdapter["chatStream"]>[0],
+): string | undefined {
+  if (input.threadId === undefined && input.runId === undefined) return undefined
+  return JSON.stringify([input.threadId ?? null, input.runId ?? null])
+}
+
+function providerDelegationCompactionStateResolve(
+  store: ProviderDelegationCompactionStateStore,
+  input: Parameters<AnyTextAdapter["chatStream"]>[0],
+): {
+  get: () => ProviderDelegationCompactionState | undefined
+  set: (state: ProviderDelegationCompactionState) => void
+} {
+  const request = input.request
+  if (typeof request === "object" && request !== null) {
+    return {
+      get: () => store.byRequest.get(request),
+      set: (state) => store.byRequest.set(request, state),
+    }
+  }
+
+  const identity = providerDelegationCompactionStateIdentityResolve(input)
+  if (identity === undefined) return { get: () => undefined, set: () => undefined }
+  return {
+    get: () => store.byIdentity.get(identity),
+    set: (state) => store.byIdentity.set(identity, state),
+  }
+}
+
 export function providerDelegationCompactionAdapterCreate(options: {
   adapter: AnyTextAdapter
   maxOverflowRetries?: number
   policy: CompactionPolicy
   summaryAdapter: AnyTextAdapter
 }): AnyTextAdapter {
-  let state: ProviderDelegationCompactionState | undefined
+  const stateStore = providerDelegationCompactionStateStoreCreate()
   const adapter = Object.create(options.adapter) as AnyTextAdapter
   adapter.chatStream = async function* (input: Parameters<AnyTextAdapter["chatStream"]>[0]) {
+    const stateReference = providerDelegationCompactionStateResolve(stateStore, input)
+    let state = stateReference.get()
     const projection = providerDelegationCompactionProjectionResolve(state, input.messages, options.policy)
+    stateReference.set(projection.state)
     state = projection.state
     const prepared = await providerDelegationCompactionMessagesResolve(state, { input, ...options })
+    stateReference.set(prepared.state)
     state = prepared.state
     let requestMessages = prepared.messages
     let overflowRetryCount = 0
@@ -352,6 +395,7 @@ export function providerDelegationCompactionAdapterCreate(options: {
       if (overflowChunk === undefined) {
         if (completedUsage !== undefined) {
           state = { ...state, reportedUsage: completedUsage, reportedUsageMessageCount: requestMessages.length }
+          stateReference.set(state)
         }
         yield* bufferedChunks
         return
@@ -369,6 +413,7 @@ export function providerDelegationCompactionAdapterCreate(options: {
         policy: options.policy,
         summaryAdapter: options.summaryAdapter,
       })
+      stateReference.set(recovered.state)
       state = recovered.state
       if (input.request?.signal?.aborted || !recovered.compacted) {
         yield* bufferedChunks
