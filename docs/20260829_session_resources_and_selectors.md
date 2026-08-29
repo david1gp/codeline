@@ -29,7 +29,7 @@ Improve session creation and project selection, expose the repository skills con
 - [x] 3. Add parent-folder project data and the grouped project selector.
 - [x] 4. Add the immutable default `All` skill preset and resource-selector behavior.
 - [x] 5. Verify focused tests and the combined managed preview in a browser.
-- [ ] 6. Create and push conventional commits with the commits skill, then deploy.
+- [x] 6. Create and push conventional commits with the commits skill, then deploy.
 
 # Paths
 
