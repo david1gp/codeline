@@ -32,6 +32,7 @@ test("runtime migration configuration uses SQLite and an absolute file URL", asy
   expect(JSON.parse(result.stdout)).toEqual({
     dialect: "sqlite",
     schema: [
+      "./src/compaction/db/*Table.ts",
       "./src/api/db/*Table.ts",
       "./src/identity/db/*Table.ts",
       "./src/servers/db/*Table.ts",

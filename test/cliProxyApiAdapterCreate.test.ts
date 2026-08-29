@@ -16,6 +16,16 @@ if (!validSettingsResult.success) {
 }
 const validSettings = validSettingsResult.data
 
+function completedTextResponse(): Response {
+  const source = [
+    `data: ${JSON.stringify({ choices: [{ delta: { content: "done" }, finish_reason: null }] })}`,
+    `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop" }] })}`,
+    "data: [DONE]",
+    "",
+  ].join("\n\n")
+  return new Response(source, { headers: { "content-type": "text/event-stream" }, status: 200 })
+}
+
 test("mocked CLIProxyAPI adapter streams expected chunk sequence and preserves runId and session/thread ID", async () => {
   const controller = new AbortController()
   const environment = { CLIPROXYAPI_API_KEY: "secret-key-123" }
@@ -102,6 +112,83 @@ test("mocked CLIProxyAPI adapter supports custom deterministic chunks", async ()
   }
 
   expect(emittedDeltas).toEqual(customChunks)
+})
+
+test("deduplicates the current prepared user by durable identity", async () => {
+  let requestMessages: unknown
+  const adapter = cliProxyApiAdapterCreate({
+    environment: { CLIPROXYAPI_API_KEY: "secret-key-123" },
+    fetch: async (_input, init) => {
+      requestMessages = (JSON.parse(String(init?.body)) as { messages: unknown }).messages
+      return completedTextResponse()
+    },
+    settings: validSettings,
+  })
+
+  for await (const _chunk of adapter({
+    history: [
+      { content: "older", id: "message-1", role: "user", sequence: 1 },
+      { content: "same prompt", id: "message-2", role: "user", sequence: 2 },
+      { content: "later request", id: "message-3", role: "user", sequence: 3 },
+    ],
+    preparedUserMessage: { id: "message-2", sequence: 2 },
+    prompt: "same prompt",
+    runId: "run-dedupe",
+    sessionId: "session-dedupe",
+    signal: new AbortController().signal,
+  })) {
+    // Consume the response stream.
+  }
+
+  expect(requestMessages).toMatchObject([
+    { content: "older", role: "user" },
+    { content: "same prompt", role: "user" },
+    { content: "later request", role: "user" },
+  ])
+  expect(
+    (requestMessages as Array<{ content: string }>).filter((message) => message.content === "same prompt"),
+  ).toHaveLength(1)
+})
+
+test("appends an explicit non-durable prompt once without inferring an old durable user", async () => {
+  const requests: Array<unknown> = []
+  const adapter = cliProxyApiAdapterCreate({
+    environment: { CLIPROXYAPI_API_KEY: "secret-key-123" },
+    fetch: async (_input, init) => {
+      requests.push((JSON.parse(String(init?.body)) as { messages: unknown }).messages)
+      return completedTextResponse()
+    },
+    settings: validSettings,
+  })
+
+  for (const history of [
+    [
+      { content: "older", id: "message-1", role: "user", sequence: 1 },
+      { content: "answer", role: "assistant" },
+    ],
+    [
+      { content: "older", id: "message-1", role: "user", sequence: 1 },
+      { content: "answer", role: "assistant" },
+      { content: "new prompt", role: "user" },
+    ],
+  ] as Array<Array<{ content: string; id?: string; role: "assistant" | "user"; sequence?: number }>>) {
+    for await (const _chunk of adapter({
+      history,
+      prompt: "new prompt",
+      runId: `run-${requests.length}`,
+      sessionId: "session-explicit-prompt",
+      signal: new AbortController().signal,
+    })) {
+      // Consume the response stream.
+    }
+  }
+
+  expect(requests[0]).toEqual([
+    { content: "older", role: "user" },
+    { content: "answer", role: "assistant" },
+    { content: "new prompt", role: "user" },
+  ])
+  expect(requests[1]).toEqual(requests[0])
 })
 
 test("secret resolution resolves $CLIPROXYAPI_API_KEY without exposing secret or reference in output", async () => {

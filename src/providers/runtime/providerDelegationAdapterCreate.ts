@@ -19,6 +19,7 @@ type ProviderDelegationAdapterCreateOptions = {
   enabledTools?: readonly ToolName[]
   instructionContext?: ProviderInstructionContext
   model: string
+  projectRoot?: string
   skillDescriptionCatalog?: SkillDescriptionCatalog
   skillSnapshots?: readonly SkillSnapshot[]
   systemPrompt?: string
@@ -38,13 +39,24 @@ function providerDelegationPromptResolve(messages: Array<ModelMessage>): string 
 
 function providerDelegationMessagesResolve(input: CliProxyApiAdapterInput): Array<ModelMessage> {
   const messages: Array<ModelMessage> = []
+  let preparedUserMessageAdded = false
   for (const message of input.history as Array<{
     content: unknown
+    id?: string
     role: string
+    sequence?: number
     toolCallId?: string
     toolCalls?: ModelMessage["toolCalls"]
   }>) {
     if (message.role !== "user" && message.role !== "assistant" && message.role !== "tool") continue
+    if (
+      input.preparedUserMessage !== undefined &&
+      message.role === "user" &&
+      (message.id === input.preparedUserMessage.id || message.sequence === input.preparedUserMessage.sequence)
+    ) {
+      if (preparedUserMessageAdded) continue
+      preparedUserMessageAdded = true
+    }
     messages.push({
       content:
         typeof message.content === "string" || message.content === null || Array.isArray(message.content)
@@ -57,7 +69,14 @@ function providerDelegationMessagesResolve(input: CliProxyApiAdapterInput): Arra
   }
 
   const last = messages.at(-1)
-  if (last?.role !== "user" || last.content !== input.prompt) messages.push({ content: input.prompt, role: "user" })
+  const preparedUserMessagePresent = input.history.some(
+    (message) =>
+      input.preparedUserMessage !== undefined &&
+      message.role === "user" &&
+      (message.id === input.preparedUserMessage.id || message.sequence === input.preparedUserMessage.sequence),
+  )
+  if (!preparedUserMessagePresent && (last?.role !== "user" || last.content !== input.prompt))
+    messages.push({ content: input.prompt, role: "user" })
   return messages
 }
 
@@ -79,6 +98,7 @@ function providerDelegationAdapterModelCreate(options: ProviderDelegationAdapter
         runId: input.runId ?? input.threadId ?? "delegation-run",
         sessionId: input.threadId ?? "delegation-session",
         signal: input.request?.signal ?? new AbortController().signal,
+        currentUserMessageIncluded: true,
         ...(input.tools === undefined ? {} : { tools: input.tools }),
         ...(systemPrompt === undefined ? {} : { systemPrompt }),
       })
@@ -101,6 +121,7 @@ export function providerDelegationAdapterCreate(options: ProviderDelegationAdapt
     ...(options.delegateTask === undefined ? {} : { delegateTask: options.delegateTask }),
     ...(options.enabledTools === undefined ? {} : { enabledTools: options.enabledTools }),
     ...(options.instructionContext === undefined ? {} : { instructionContext: options.instructionContext }),
+    ...(options.projectRoot === undefined ? {} : { projectRoot: options.projectRoot }),
     ...(options.skillDescriptionCatalog === undefined
       ? {}
       : { skillDescriptionCatalog: options.skillDescriptionCatalog }),

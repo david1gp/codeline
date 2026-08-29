@@ -1,9 +1,10 @@
 import { EventType, type StreamChunk } from "@tanstack/ai"
-import type { messageTable } from "../../message/db/messageTable.js"
+import type { CompactionMessage } from "../../compaction/compactionMessage.js"
 
 type SessionChatAdapterInput = {
   attemptOrdinal?: number
-  history: Array<typeof messageTable.$inferSelect>
+  history: Array<CompactionMessage>
+  preparedUserMessage?: { id: string; sequence: number }
   prompt: string
   runId: string
   sessionId: string

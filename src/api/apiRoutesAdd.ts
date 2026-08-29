@@ -42,6 +42,7 @@ import { runLoad } from "../run/actions/runLoad.js"
 import { runRetryAttemptCreate } from "../run/actions/runRetryAttemptCreate.js"
 import { runSessionSnapshotLoad } from "../run/actions/runSessionSnapshotLoad.js"
 import { runTransition } from "../run/actions/runTransition.js"
+import { sessionCompactionGenerate } from "../compaction/actions/sessionCompactionGenerate.js"
 import { apiRunRoutesAdd } from "../run/api/apiRunRoutesAdd.js"
 import { runErrorCatalog } from "../run/errors/runErrorCatalog.js"
 import type { serverShutdownCoordinatorCreate } from "../server/serverShutdownCoordinatorCreate.js"
@@ -99,6 +100,7 @@ type ApiRoutesAddOptions = {
   runRetryAttemptCreate?: typeof runRetryAttemptCreate
   runSessionSnapshotLoad?: typeof runSessionSnapshotLoad
   runTransition?: typeof runTransition
+  sessionCompactionGenerate?: typeof sessionCompactionGenerate
   shutdownCoordinator?: ReturnType<typeof serverShutdownCoordinatorCreate>
   identitySessionRevoke?: typeof identitySessionRevoke
   identitySessionCreate?: typeof import("../identity/actions/identitySessionCreate.js").identitySessionCreate

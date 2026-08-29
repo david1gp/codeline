@@ -44,6 +44,7 @@ import { runRetryAttemptCreate } from "../run/actions/runRetryAttemptCreate.js"
 import { runTransition } from "../run/actions/runTransition.js"
 import type { serverShutdownCoordinatorCreate } from "../server/serverShutdownCoordinatorCreate.js"
 import { sessionChatAdapterCreate } from "../session/actions/sessionChatAdapterCreate.js"
+import { sessionCompactionGenerate } from "../compaction/actions/sessionCompactionGenerate.js"
 import { skillCatalogDiscover } from "../skills/actions/skillCatalogDiscover.js"
 import { skillPresetCatalogLoad } from "../skills/actions/skillPresetCatalogLoad.js"
 import type { streamLiveSubscriptionCreate } from "../stream/actions/streamLiveSubscriptionCreate.js"
@@ -99,6 +100,7 @@ export type AppCreateOptions = {
   runLoad?: typeof runLoad
   runRetryAttemptCreate?: typeof runRetryAttemptCreate
   runTransition?: typeof runTransition
+  sessionCompactionGenerate?: typeof sessionCompactionGenerate
   shutdownCoordinator?: ReturnType<typeof serverShutdownCoordinatorCreate>
   sessionChatAdapter?: typeof sessionChatAdapterCreate
   journalCursorCodec?: JournalCursorCodec
@@ -207,6 +209,7 @@ export function appCreate(options: AppCreateOptions = {}): App {
     runLoad: options.runLoad,
     runRetryAttemptCreate: options.runRetryAttemptCreate,
     runTransition: options.runTransition,
+    sessionCompactionGenerate: options.sessionCompactionGenerate,
     shutdownCoordinator,
     identitySessionRevoke: options.identitySessionRevoke,
     identitySessionCreate: options.identitySessionCreate,

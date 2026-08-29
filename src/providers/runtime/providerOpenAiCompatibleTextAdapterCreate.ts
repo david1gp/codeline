@@ -6,6 +6,7 @@ type ProviderFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<R
 type ProviderFailureCode =
   | "chat_interrupted"
   | "provider_connection_failed"
+  | "provider_context_overflow"
   | "provider_failed"
   | "provider_rate_limited"
   | "provider_unavailable"
@@ -21,10 +22,12 @@ export type ProviderOpenAiCompatibleTextAdapterOptions = {
 
 type OpenAiCompatibleTextAdapter = ReturnType<typeof openaiCompatibleText>
 type ProviderTextOptions = Parameters<OpenAiCompatibleTextAdapter["chatStream"]>[0]
+type ProviderFailureState = { code?: ProviderFailureCode }
 
 const providerFailureMessages: Record<ProviderFailureCode, string> = {
   chat_interrupted: "The provider request was aborted.",
   provider_connection_failed: "The provider connection failed.",
+  provider_context_overflow: "The provider context window was exceeded.",
   provider_failed: "The provider rejected the request.",
   provider_rate_limited: "The provider rate limit was exceeded.",
   provider_unavailable: "The provider is unavailable.",
@@ -42,10 +45,84 @@ function providerFailureCodeFromStatus(status: number): ProviderFailureCode {
   return "provider_failed"
 }
 
+function providerContextOverflowDetect(value: string): boolean {
+  const normalized = value.toLowerCase()
+  return (
+    /context[\s_-]*(?:length|window)[\s_-]*(?:exceed(?:ed|s)?|overflow|too\s+(?:large|long))/.test(normalized) ||
+    /maximum\s+context\s+(?:length|window)/.test(normalized) ||
+    /(?:input|prompt|request)[^.!?]{0,100}(?:exceed(?:ed|s)?|too\s+(?:large|long))[^.!?]{0,100}context/.test(
+      normalized,
+    ) ||
+    /(?:input|prompt|request)\s+too\s+(?:large|long)[^.!?]{0,100}(?:model\s+)?context/.test(normalized)
+  )
+}
+
+type ProviderErrorFields = {
+  code?: string
+  message?: string
+  param?: string
+  type?: string
+}
+
+type ProviderErrorFieldsParse = {
+  fields: ProviderErrorFields
+  structured: boolean
+}
+
+function providerErrorFieldsParse(value: unknown): ProviderErrorFieldsParse | undefined {
+  let parsed = value
+  if (typeof parsed === "string") {
+    try {
+      parsed = JSON.parse(parsed)
+    } catch (_error) {
+      return undefined
+    }
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return undefined
+
+  const record = parsed as Record<string, unknown>
+  const candidate =
+    typeof record.error === "object" && record.error !== null && !Array.isArray(record.error)
+      ? (record.error as Record<string, unknown>)
+      : record
+  const fields: ProviderErrorFields = {}
+  for (const field of ["code", "message", "param", "type"] as const) {
+    if (typeof candidate[field] === "string") fields[field] = candidate[field]
+  }
+  return {
+    fields,
+    structured: "error" in record || Object.keys(fields).length > 0,
+  }
+}
+
+function providerErrorFieldsOverflowDetect(fields: ProviderErrorFields): boolean {
+  return Object.values(fields).some((value) => providerContextOverflowDetect(value))
+}
+
+function providerFailureCodeFromBody(body: string): ProviderFailureCode | undefined {
+  const parsed = providerErrorFieldsParse(body)
+  if (parsed?.structured) {
+    return providerErrorFieldsOverflowDetect(parsed.fields) ? "provider_context_overflow" : undefined
+  }
+  return providerContextOverflowDetect(body) ? "provider_context_overflow" : undefined
+}
+
+async function providerFailureCodeFromResponse(response: Response): Promise<ProviderFailureCode> {
+  try {
+    const body = await response.clone().text()
+    const bodyCode = providerFailureCodeFromBody(body.slice(0, 8_192))
+    if (bodyCode !== undefined) return bodyCode
+  } catch (_error) {
+    // The status remains a safe fallback when an error body cannot be inspected.
+  }
+  return providerFailureCodeFromStatus(response.status)
+}
+
 function providerFailureCodeResolve(code: unknown, fallbackCode?: ProviderFailureCode): ProviderFailureCode {
   if (code === "aborted" || code === "chat_interrupted") return "chat_interrupted"
   if (
     code === "provider_connection_failed" ||
+    code === "provider_context_overflow" ||
     code === "provider_failed" ||
     code === "provider_rate_limited" ||
     code === "provider_unavailable"
@@ -78,7 +155,19 @@ function providerStreamChunkUndefinedFieldsRemove(value: unknown): unknown {
 function providerStreamChunkSanitize(chunk: StreamChunk, fallbackCode?: ProviderFailureCode): StreamChunk {
   const sanitizedChunk = providerStreamChunkUndefinedFieldsRemove(chunk) as StreamChunk
   if (sanitizedChunk.type !== EventType.RUN_ERROR) return sanitizedChunk
-  const code = fallbackCode ?? providerFailureCodeResolve(sanitizedChunk.code)
+  const errorCandidates: unknown[] = [sanitizedChunk]
+  if (typeof sanitizedChunk === "object" && sanitizedChunk !== null) {
+    const chunkRecord = sanitizedChunk as Record<string, unknown>
+    if (chunkRecord.error !== undefined) errorCandidates.push(chunkRecord.error)
+    if (chunkRecord.rawEvent !== undefined) errorCandidates.push(chunkRecord.rawEvent)
+  }
+  const hasContextOverflow = errorCandidates.some((candidate) => {
+    const parsed = providerErrorFieldsParse(candidate)
+    return parsed !== undefined && providerErrorFieldsOverflowDetect(parsed.fields)
+  })
+  const code = hasContextOverflow
+    ? "provider_context_overflow"
+    : (fallbackCode ?? providerFailureCodeResolve(sanitizedChunk.code))
   return {
     code,
     message: providerFailureMessages[code],
@@ -88,7 +177,7 @@ function providerStreamChunkSanitize(chunk: StreamChunk, fallbackCode?: Provider
 
 function providerFetchCreate(
   options: ProviderOpenAiCompatibleTextAdapterOptions,
-  state: { code?: ProviderFailureCode },
+  state: ProviderFailureState,
 ): ProviderFetch {
   return async (input, init) => {
     try {
@@ -97,7 +186,7 @@ function providerFetchCreate(
         state.code = undefined
         return response
       }
-      state.code = providerFailureCodeFromStatus(response.status)
+      state.code = await providerFailureCodeFromResponse(response)
       throw providerFailureErrorCreate(state.code)
     } catch (error) {
       const errorCode = error instanceof Error ? (error as Error & { code?: unknown }).code : undefined
@@ -105,6 +194,7 @@ function providerFetchCreate(
         error instanceof Error &&
         (errorCode === "chat_interrupted" ||
           errorCode === "provider_connection_failed" ||
+          errorCode === "provider_context_overflow" ||
           errorCode === "provider_failed" ||
           errorCode === "provider_rate_limited" ||
           errorCode === "provider_unavailable")
@@ -124,7 +214,7 @@ function providerFetchCreate(
 async function* providerChatStreamCreate(
   adapter: OpenAiCompatibleTextAdapter,
   options: ProviderTextOptions,
-  state: { code?: ProviderFailureCode },
+  state: ProviderFailureState,
 ): AsyncGenerator<StreamChunk> {
   state.code = undefined
   const stream = adapter.chatStream({
@@ -154,11 +244,11 @@ async function* providerChatStreamCreate(
   }
 }
 
-export function providerOpenAiCompatibleTextAdapterCreate(
+function providerOpenAiCompatibleTextAdapterWithStateCreate(
   options: ProviderOpenAiCompatibleTextAdapterOptions,
+  state: ProviderFailureState,
 ): OpenAiCompatibleTextAdapter {
-  const state: { code?: ProviderFailureCode } = {}
-  const adapter = openaiCompatibleText(options.model, {
+  return openaiCompatibleText(options.model, {
     api: options.transport === "openai/responses" ? "responses" : "chat-completions",
     apiKey: options.resolvedBearerSecret,
     baseURL: options.baseUrl,
@@ -166,7 +256,17 @@ export function providerOpenAiCompatibleTextAdapterCreate(
     maxRetries: 0,
     name: options.provider === "cliproxyapi" ? "CLIProxyAPI" : "Codex-LB",
   })
+}
+
+export function providerOpenAiCompatibleTextAdapterCreate(
+  options: ProviderOpenAiCompatibleTextAdapterOptions,
+): OpenAiCompatibleTextAdapter {
+  const adapter = providerOpenAiCompatibleTextAdapterWithStateCreate(options, {})
   const wrappedAdapter = Object.create(adapter) as OpenAiCompatibleTextAdapter
-  wrappedAdapter.chatStream = (streamOptions) => providerChatStreamCreate(adapter, streamOptions, state)
+  wrappedAdapter.chatStream = (streamOptions) => {
+    const state: ProviderFailureState = {}
+    const requestAdapter = providerOpenAiCompatibleTextAdapterWithStateCreate(options, state)
+    return providerChatStreamCreate(requestAdapter, streamOptions, state)
+  }
   return wrappedAdapter
 }

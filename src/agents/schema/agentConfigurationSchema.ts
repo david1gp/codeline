@@ -1,4 +1,5 @@
 import * as v from "valibot"
+import { compactionConfigurationSchema } from "../../compaction/compactionConfigurationSchema.js"
 import { providerCatalogModelSchema } from "../../providers/schema/providerCatalogModelSchema.js"
 import { providerGenerationSchema } from "../../providers/schema/providerGenerationSchema.js"
 import { secretReferenceSchema } from "../../providers/schema/secretReferenceSchema.js"
@@ -42,6 +43,7 @@ const catalogAgentMetadataSchema = v.strictObject({
 const catalogOptionsSchema = v.record(v.string(), v.unknown())
 
 const deterministicAgentConfigurationSchema = v.strictObject({
+  compaction: v.optional(compactionConfigurationSchema),
   provider: v.literal("deterministic"),
   model: agentModelSchema,
   generation: v.optional(providerGenerationSchema),
@@ -49,6 +51,7 @@ const deterministicAgentConfigurationSchema = v.strictObject({
 })
 
 const cliproxyapiAgentConfigurationSchema = v.strictObject({
+  compaction: v.optional(compactionConfigurationSchema),
   provider: v.literal("cliproxyapi"),
   model: agentModelSchema,
   baseUrl: providerBaseUrlSchema,
@@ -64,6 +67,7 @@ const cliproxyapiAgentConfigurationSchema = v.strictObject({
 })
 
 const codexLbAgentConfigurationSchema = v.strictObject({
+  compaction: v.optional(compactionConfigurationSchema),
   provider: v.literal("codex-lb"),
   model: agentModelSchema,
   baseUrl: providerBaseUrlSchema,
@@ -86,15 +90,19 @@ const agentConfigurationVariantSchema = v.variant("provider", [
 
 export const agentConfigurationSchema = v.pipe(
   agentConfigurationVariantSchema,
-  v.transform(
-    (configuration): v.InferInput<typeof agentConfigurationVariantSchema> => ({
+  v.transform((configuration): v.InferInput<typeof agentConfigurationVariantSchema> => {
+    const tools = configuration.tools
+    return {
       ...configuration,
       tools: {
-        bash: configuration.tools?.bash ?? false,
-        webfetch: configuration.tools?.webfetch ?? false,
+        bash: tools?.bash ?? false,
+        webfetch: tools?.webfetch ?? false,
+        ...(tools?.read === undefined ? {} : { read: tools.read }),
+        ...(tools?.write === undefined ? {} : { write: tools.write }),
+        ...(tools?.edit === undefined ? {} : { edit: tools.edit }),
       },
-    }),
-  ),
+    }
+  }),
 )
 
 export type AgentConfiguration = v.InferOutput<typeof agentConfigurationSchema>

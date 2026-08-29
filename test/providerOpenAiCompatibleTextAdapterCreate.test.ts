@@ -304,6 +304,167 @@ test("provider HTTP failures are canonical, classified, and redacted for both pr
   }
 })
 
+test("overlapping provider streams retain their own terminal failure codes", async () => {
+  for (const provider of ["cliproxyapi", "codex-lb"] as const) {
+    let fetchCalls = 0
+    let releaseFirstBody!: () => void
+    let releaseSecondBody!: () => void
+    const firstBodyGate = new Promise<void>((resolve) => {
+      releaseFirstBody = resolve
+    })
+    const secondBodyGate = new Promise<void>((resolve) => {
+      releaseSecondBody = resolve
+    })
+    const adapter = providerOpenAiCompatibleTextAdapterCreate({
+      baseUrl: "https://provider.test/v1",
+      fetch: async () => {
+        fetchCalls += 1
+        const body =
+          fetchCalls === 1
+            ? JSON.stringify({ error: { code: "context_length_exceeded", message: "Invalid request." } })
+            : JSON.stringify({ error: { code: "rate_limit_exceeded", message: "Too many requests." } })
+        const bodyGate = fetchCalls === 1 ? firstBodyGate : secondBodyGate
+        const response = new Response(
+          new ReadableStream<Uint8Array>({
+            async start(controller) {
+              await bodyGate
+              controller.enqueue(new TextEncoder().encode(body))
+              controller.close()
+            },
+          }),
+          { status: fetchCalls === 1 ? 400 : 429 },
+        )
+        return response
+      },
+      model: "provider-model",
+      provider,
+      resolvedBearerSecret: secretValue,
+    })
+
+    const firstChunks: StreamChunk[] = []
+    const secondChunks: StreamChunk[] = []
+    const firstChunksPromise = (async () => {
+      for await (const chunk of adapter.chatStream(streamInput(new AbortController().signal))) firstChunks.push(chunk)
+    })()
+    while (fetchCalls < 1) await Promise.resolve()
+    const secondChunksPromise = (async () => {
+      for await (const chunk of adapter.chatStream(streamInput(new AbortController().signal))) secondChunks.push(chunk)
+    })()
+    while (fetchCalls < 2) await Promise.resolve()
+
+    releaseFirstBody()
+    releaseSecondBody()
+    await Promise.all([firstChunksPromise, secondChunksPromise])
+
+    expect(firstChunks.at(-1)).toMatchObject({ code: "provider_context_overflow", type: EventType.RUN_ERROR })
+    expect(secondChunks.at(-1)).toMatchObject({ code: "provider_rate_limited", type: EventType.RUN_ERROR })
+  }
+})
+
+test("provider HTTP structured error envelopes classify context overflow from known fields", async () => {
+  for (const provider of ["cliproxyapi", "codex-lb"] as const) {
+    for (const error of [
+      {
+        code: "context_length_exceeded",
+        message: "Invalid request.",
+        param: "messages",
+        type: "invalid_request_error",
+      },
+      {
+        code: "invalid_request_error",
+        message: "The maximum context length is 32768 tokens.",
+        param: "messages",
+        type: "invalid_request_error",
+      },
+      {
+        code: "invalid_request_error",
+        message: "The input is too long for the model context window.",
+        param: "input",
+        type: "invalid_request_error",
+      },
+    ]) {
+      const adapter = providerOpenAiCompatibleTextAdapterCreate({
+        baseUrl: "https://provider.test/v1",
+        fetch: async () => new Response(JSON.stringify({ error }), { status: 400 }),
+        model: "provider-model",
+        provider,
+        resolvedBearerSecret: secretValue,
+      })
+      const chunks: StreamChunk[] = []
+      for await (const chunk of adapter.chatStream(streamInput(new AbortController().signal))) chunks.push(chunk)
+
+      expect(chunks.find((chunk) => chunk.type === EventType.RUN_ERROR)).toMatchObject({
+        code: "provider_context_overflow",
+        type: EventType.RUN_ERROR,
+      })
+    }
+  }
+})
+
+test("provider structured error fields avoid false-positive context overflow classification", async () => {
+  for (const provider of ["cliproxyapi", "codex-lb"] as const) {
+    const adapter = providerOpenAiCompatibleTextAdapterCreate({
+      baseUrl: "https://provider.test/v1",
+      fetch: async () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              code: "invalid_request_error",
+              message: "The context window feature is not available for this model.",
+              param: "messages",
+              type: "invalid_request_error",
+            },
+            metadata: "maximum context length exceeded",
+          }),
+          { status: 400 },
+        ),
+      model: "provider-model",
+      provider,
+      resolvedBearerSecret: secretValue,
+    })
+    const chunks: StreamChunk[] = []
+    for await (const chunk of adapter.chatStream(streamInput(new AbortController().signal))) chunks.push(chunk)
+
+    expect(chunks.find((chunk) => chunk.type === EventType.RUN_ERROR)).toMatchObject({
+      code: "provider_failed",
+      type: EventType.RUN_ERROR,
+    })
+  }
+})
+
+test("normalized streamed provider errors classify structured context overflow", async () => {
+  for (const provider of ["cliproxyapi", "codex-lb"] as const) {
+    const adapter = providerOpenAiCompatibleTextAdapterCreate({
+      baseUrl: "https://provider.test/v1",
+      fetch: async () =>
+        sseResponse([
+          {
+            response: {
+              error: {
+                code: "context_length_exceeded",
+                message: "Request exceeds the model context window.",
+                param: "input",
+                type: "invalid_request_error",
+              },
+            },
+            type: "response.failed",
+          },
+        ]),
+      model: "provider-model",
+      provider,
+      resolvedBearerSecret: secretValue,
+      transport: "openai/responses",
+    })
+    const chunks: StreamChunk[] = []
+    for await (const chunk of adapter.chatStream(streamInput(new AbortController().signal))) chunks.push(chunk)
+
+    expect(chunks.find((chunk) => chunk.type === EventType.RUN_ERROR)).toMatchObject({
+      code: "provider_context_overflow",
+      type: EventType.RUN_ERROR,
+    })
+  }
+})
+
 test("provider aborts are canonical and redacted for both providers", async () => {
   for (const provider of ["cliproxyapi", "codex-lb"] as const) {
     const controller = new AbortController()

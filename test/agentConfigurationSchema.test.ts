@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test"
 import * as v from "valibot"
 import { agentConfigurationSchema } from "../src/agents/schema/agentConfigurationSchema.js"
+import { compactionConfigurationDefaults } from "../src/compaction/compactionConfigurationDefaults.js"
 import { cliProxyApiSettingsParse } from "../src/providers/runtime/cliProxyApiSettingsParse.js"
 import { secretReferenceResolve } from "../src/providers/runtime/secretReferenceResolve.js"
 import { toolNameSchema } from "../src/tools/schema/toolNameSchema.js"
@@ -41,10 +42,10 @@ test("agent configuration accepts strict deterministic and CLIProxyAPI variants"
 })
 
 test("tool names and agent tool defaults are strict", () => {
-  for (const name of ["bash", "webfetch", "skill", "delegate_task"]) {
+  for (const name of ["bash", "webfetch", "skill", "delegate_task", "read", "write", "edit"]) {
     expect(v.safeParse(toolNameSchema, name).success).toBe(true)
   }
-  for (const name of ["glob", "grep", "websearch", "edit", "write"]) {
+  for (const name of ["glob", "grep", "websearch"]) {
     expect(v.safeParse(toolNameSchema, name).success).toBe(false)
   }
 
@@ -69,6 +70,41 @@ test("tool names and agent tool defaults are strict", () => {
       tools: { bash: "yes" },
     }).success,
   ).toBe(false)
+})
+
+test("agent configuration compaction settings have conservative defaults and bounded validation", () => {
+  const parsed = v.safeParse(agentConfigurationSchema, {
+    compaction: {},
+    model: "deterministic-test",
+    provider: "deterministic",
+  })
+  expect(parsed.success).toBe(true)
+  if (parsed.success) {
+    expect(parsed.output.compaction).toEqual(compactionConfigurationDefaults)
+  }
+
+  for (const compaction of [
+    { maxOverflowRetries: -1 },
+    { maxOverflowRetries: 4 },
+    { maxOverflowRetries: 1.5 },
+    { maxSummaryTokens: 0 },
+    { maxSummaryTokens: Number.MAX_SAFE_INTEGER + 1 },
+    { pressureThreshold: 0 },
+    { pressureThreshold: 1.1 },
+    { pressureThreshold: Number.NaN },
+    { pressureThreshold: Number.POSITIVE_INFINITY },
+    { recentTokenBudget: -1 },
+    { reserveOutputTokens: 0 },
+    { maxSummaryTokens: 3_000, reserveOutputTokens: 2_000 },
+  ]) {
+    expect(
+      v.safeParse(agentConfigurationSchema, {
+        compaction,
+        model: "deterministic-test",
+        provider: "deterministic",
+      }).success,
+    ).toBe(false)
+  }
 })
 
 test("agent configuration rejects literal credentials, unknown providers, bad URLs, and limits", () => {

@@ -19,12 +19,15 @@ const expectedTables = [
   "mutation_idempotency",
   "note",
   "project",
+  "project_folder",
   "project_registry_session_path_backfill",
   "run",
   "run_delegation",
   "server",
+  "session_compaction",
   "session",
   "session_execution_selection_default",
+  "session_view",
   "skill_selection_default",
 ] as const
 
@@ -130,4 +133,22 @@ test("SQLite table configurations preserve foreign keys, checks, and indexes", (
   )
   expect(runConfig.checks.map((checkConstraint) => checkConstraint.name)).toContain("run_cancellation_fields_allowed")
   expect(journalConfig.indexes.map((index) => index.config.name)).toContain("journal_event_run_idx")
+})
+
+test("SQLite compaction records are versioned and have one active row per session", () => {
+  const compactionConfig = getTableConfig(databaseSchema.sessionCompactionTable)
+
+  expect(compactionConfig.indexes.map((index) => index.config.name)).toEqual([
+    "session_compaction_session_version_unique",
+    "session_compaction_session_running_unique",
+    "session_compaction_session_version_idx",
+  ])
+  expect(compactionConfig.checks.map((check) => check.name)).toEqual([
+    "session_compaction_schema_version_positive",
+    "session_compaction_version_positive",
+    "session_compaction_source_revision_positive",
+    "session_compaction_covered_sequence_non_negative",
+    "session_compaction_status_allowed",
+    "session_compaction_lifecycle_consistent",
+  ])
 })

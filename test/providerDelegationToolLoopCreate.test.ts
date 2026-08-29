@@ -4,6 +4,7 @@ import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
 import { type AnyTextAdapter, EventType, type ModelMessage, type StreamChunk } from "@tanstack/ai"
+import type { CompactionPolicy } from "../src/compaction/compactionPolicy.js"
 import { providerDelegationToolLoopCreate } from "../src/providers/runtime/providerDelegationToolLoopCreate.js"
 import { providerExecutionEventFromStreamChunk } from "../src/providers/runtime/providerExecutionEventFromStreamChunk.js"
 import { skillCatalogDiscover } from "../src/skills/actions/skillCatalogDiscover.js"
@@ -17,6 +18,12 @@ type ScriptedAdapter = {
   adapter: AnyTextAdapter
   calls: Array<Array<ModelMessage>>
   systemPrompts: Array<string | undefined>
+  toolCounts: number[]
+}
+
+type SummaryScriptedAdapter = {
+  adapter: AnyTextAdapter
+  calls: Array<Array<ModelMessage>>
   toolCounts: number[]
 }
 
@@ -42,6 +49,28 @@ function scriptedAdapterCreate(scripts: Array<Array<StreamChunk>>): ScriptedAdap
     structuredOutput: async () => ({ data: {}, rawText: "{}" }),
   } as unknown as AnyTextAdapter
   return { adapter, calls, systemPrompts, toolCounts }
+}
+
+function summaryScriptedAdapterCreate(scripts: Array<Array<StreamChunk>>): SummaryScriptedAdapter {
+  const calls: Array<Array<ModelMessage>> = []
+  const toolCounts: number[] = []
+  let scriptIndex = 0
+  const adapter = {
+    kind: "text" as const,
+    model: "summary-model",
+    name: "summary",
+    chatStream: (options: { messages: Array<ModelMessage>; tools?: unknown[] }) => {
+      calls.push(options.messages)
+      toolCounts.push(options.tools?.length ?? 0)
+      const script = scripts[scriptIndex] ?? []
+      scriptIndex += 1
+      return (async function* () {
+        for (const chunk of script) yield chunk
+      })()
+    },
+    structuredOutput: async () => ({ data: {}, rawText: "{}" }),
+  } as unknown as AnyTextAdapter
+  return { adapter, calls, toolCounts }
 }
 
 function delegatedToolScript(toolArguments: string): Array<StreamChunk> {
@@ -108,6 +137,18 @@ function webfetchToolScript(toolArguments: string): Array<StreamChunk> {
       type: EventType.RUN_FINISHED,
     },
   ] as Array<StreamChunk>
+}
+
+function innerCompactionPolicy(overrides: Partial<CompactionPolicy> = {}): CompactionPolicy {
+  return {
+    contextLimitTokens: 1_000,
+    maxSummaryChars: 1_000,
+    maxToolOutputChars: 100,
+    pressureThreshold: 0.01,
+    recentTokenBudget: 80,
+    reserveOutputTokens: 100,
+    ...overrides,
+  }
 }
 
 function delegatedToolScriptWithPreToolText(toolArguments: string): Array<StreamChunk> {
@@ -273,6 +314,38 @@ function terminalOnlyScript(): Array<StreamChunk> {
       threadId: "thread-delegation",
       timestamp: 6,
       type: EventType.RUN_FINISHED,
+    },
+  ] as Array<StreamChunk>
+}
+
+function providerContextOverflowScript(): Array<StreamChunk> {
+  return [
+    { runId: "run-delegation", threadId: "thread-delegation", timestamp: 1, type: EventType.RUN_STARTED },
+    {
+      code: "provider_context_overflow",
+      message: "The provider context window was exceeded.",
+      timestamp: 2,
+      type: EventType.RUN_ERROR,
+    },
+  ] as Array<StreamChunk>
+}
+
+function textBeforeProviderContextOverflowScript(): Array<StreamChunk> {
+  return [
+    { runId: "run-delegation", threadId: "thread-delegation", timestamp: 1, type: EventType.RUN_STARTED },
+    { messageId: "assistant-delegation", role: "assistant", timestamp: 2, type: EventType.TEXT_MESSAGE_START },
+    {
+      delta: "Partial response.",
+      messageId: "assistant-delegation",
+      timestamp: 3,
+      type: EventType.TEXT_MESSAGE_CONTENT,
+    },
+    { messageId: "assistant-delegation", timestamp: 4, type: EventType.TEXT_MESSAGE_END },
+    {
+      code: "provider_context_overflow",
+      message: "The provider context window was exceeded.",
+      timestamp: 5,
+      type: EventType.RUN_ERROR,
     },
   ] as Array<StreamChunk>
 }
@@ -1035,4 +1108,384 @@ test("advertises the active skill catalog and executes the snapshotted skill too
   } finally {
     await fs.rm(rootDirectory, { force: true, recursive: true })
   }
+})
+
+test("compacts once before the first round and carries the projection into the next round", async () => {
+  const provider = scriptedAdapterCreate([
+    delegatedToolScript('{"task":"inspect the project"}'),
+    finalTextScript("Finished after the tool result."),
+  ])
+  const summary = summaryScriptedAdapterCreate([finalTextScript("Structured pressure summary.")])
+  const messages: Array<ModelMessage> = Array.from({ length: 6 }, (_, index) => ({
+    content: `Old context ${index} ${"x".repeat(400)}`,
+    role: "user" as const,
+  }))
+
+  await collect(
+    providerDelegationToolLoopCreate({
+      adapter: provider.adapter,
+      compactionAdapter: summary.adapter,
+      compactionPolicy: innerCompactionPolicy(),
+      delegateTask: () => "tool result",
+    })({
+      messages,
+      runId: "run-delegation",
+      signal: new AbortController().signal,
+      threadId: "thread-delegation",
+    }),
+  )
+
+  expect(summary.calls).toHaveLength(1)
+  expect(summary.toolCounts).toEqual([0])
+  expect(summary.calls[0]?.[0]?.content).toContain("Transcript to summarize:")
+  expect(provider.calls).toHaveLength(2)
+  expect(provider.calls[0]?.[0]).toMatchObject({ content: "Structured pressure summary.", role: "system" })
+  expect(provider.calls[1]?.[0]).toMatchObject({ content: "Structured pressure summary.", role: "system" })
+  expect(provider.calls[1]?.some((message) => message.role === "assistant" && message.toolCalls?.length === 1)).toBe(
+    true,
+  )
+  expect(provider.calls[1]?.some((message) => message.role === "tool" && message.content === "tool result")).toBe(true)
+})
+
+test("keeps an assistant tool call and its matching result together at the compaction boundary", async () => {
+  const provider = scriptedAdapterCreate([terminalOnlyScript()])
+  const summary = summaryScriptedAdapterCreate([finalTextScript("Summary with the old tool unit.")])
+  const messages: Array<ModelMessage> = [
+    { content: "Old context 0", role: "user" },
+    { content: "Old context 1", role: "user" },
+    { content: "Old context 2", role: "user" },
+    {
+      content: "Running the old tool.",
+      role: "assistant",
+      toolCalls: [
+        {
+          function: { arguments: '{"task":"old task"}', name: "delegate_task" },
+          id: "call-old",
+          type: "function",
+        },
+      ],
+    },
+    { content: "old tool result", role: "tool", toolCallId: "call-old" },
+    { content: "Keep this recent request.", role: "user" },
+  ]
+
+  await collect(
+    providerDelegationToolLoopCreate({
+      adapter: provider.adapter,
+      compactionAdapter: summary.adapter,
+      compactionPolicy: innerCompactionPolicy({ recentTokenBudget: 70 }),
+    })({
+      messages,
+      runId: "run-delegation",
+      signal: new AbortController().signal,
+      threadId: "thread-delegation",
+    }),
+  )
+
+  const projected = provider.calls[0] ?? []
+  const assistantIndex = projected.findIndex(
+    (message) => message.role === "assistant" && message.toolCalls?.length === 1,
+  )
+  expect(assistantIndex).toBeGreaterThanOrEqual(0)
+  expect(projected[assistantIndex + 1]).toMatchObject({
+    content: "old tool result",
+    role: "tool",
+    toolCallId: "call-old",
+  })
+})
+
+test("keeps original messages when inner compaction has no eligible lifecycle", async () => {
+  const provider = scriptedAdapterCreate([terminalOnlyScript()])
+  const summary = summaryScriptedAdapterCreate([finalTextScript("Should not be requested.")])
+  const messages: Array<ModelMessage> = [
+    { content: "Earlier request.", role: "user" },
+    { content: "orphan result", role: "tool", toolCallId: "missing-call" },
+  ]
+
+  await collect(
+    providerDelegationToolLoopCreate({
+      adapter: provider.adapter,
+      compactionAdapter: summary.adapter,
+      compactionPolicy: innerCompactionPolicy(),
+    })({
+      messages,
+      runId: "run-delegation",
+      signal: new AbortController().signal,
+      threadId: "thread-delegation",
+    }),
+  )
+
+  expect(summary.calls).toHaveLength(0)
+  expect(provider.calls[0]).toEqual(messages)
+})
+
+test("keeps original messages for failed, empty, truncated, tool-emitting, and non-shrinking summaries", async () => {
+  const cases: Array<[string, Array<StreamChunk>]> = [
+    ["failed", [{ code: "summary_failed", message: "failed", timestamp: 1, type: EventType.RUN_ERROR }]],
+    [
+      "empty",
+      [
+        {
+          finishReason: "stop",
+          outcome: { type: "success" },
+          runId: "summary-run",
+          threadId: "summary-thread",
+          timestamp: 1,
+          type: EventType.RUN_FINISHED,
+        },
+      ],
+    ],
+    [
+      "truncated",
+      finalTextScript("truncated").map((chunk) =>
+        chunk.type === EventType.RUN_FINISHED ? { ...chunk, finishReason: "length" } : chunk,
+      ),
+    ],
+    ["tool-emitting", delegatedToolScript('{"task":"not allowed"}')],
+    ["non-shrinking", finalTextScript("y".repeat(5_000))],
+  ]
+
+  for (const [name, summaryScript] of cases) {
+    const provider = scriptedAdapterCreate([terminalOnlyScript()])
+    const summary = summaryScriptedAdapterCreate([summaryScript])
+    const messages: Array<ModelMessage> = Array.from({ length: 6 }, (_, index) => ({
+      content: `Old context ${index} ${"x".repeat(400)}`,
+      role: "user" as const,
+    }))
+
+    await collect(
+      providerDelegationToolLoopCreate({
+        adapter: provider.adapter,
+        compactionAdapter: summary.adapter,
+        compactionPolicy: innerCompactionPolicy({ maxSummaryChars: 6_000 }),
+      })({
+        messages,
+        runId: `run-${name}`,
+        signal: new AbortController().signal,
+        threadId: `thread-${name}`,
+      }),
+    )
+
+    expect(provider.calls[0], name).toEqual(messages)
+    expect(summary.calls, name).toHaveLength(1)
+  }
+})
+
+test("keeps original messages when auto compaction or context metadata is disabled or missing", async () => {
+  for (const mode of ["disabled", "missing-context"] as const) {
+    const provider = scriptedAdapterCreate([terminalOnlyScript()])
+    const summary = summaryScriptedAdapterCreate([finalTextScript("Should not be requested.")])
+    const messages: Array<ModelMessage> = Array.from({ length: 6 }, (_, index) => ({
+      content: `Old context ${index} ${"x".repeat(400)}`,
+      role: "user" as const,
+    }))
+
+    await collect(
+      providerDelegationToolLoopCreate({
+        adapter: provider.adapter,
+        compactionAdapter: summary.adapter,
+        ...(mode === "disabled" ? { compactionAuto: false, compactionPolicy: innerCompactionPolicy() } : {}),
+        ...(mode === "missing-context" ? { compactionPolicy: { pressureThreshold: 0.01 } } : {}),
+      })({
+        messages,
+        runId: `run-${mode}`,
+        signal: new AbortController().signal,
+        threadId: `thread-${mode}`,
+      }),
+    )
+
+    expect(summary.calls, mode).toHaveLength(0)
+    expect(provider.calls[0], mode).toEqual(messages)
+  }
+})
+
+test("keeps the default tool-loop request path unchanged when inner compaction is not configured", async () => {
+  const provider = scriptedAdapterCreate([terminalOnlyScript()])
+  const messages: Array<ModelMessage> = [{ content: "Small request.", role: "user" }]
+
+  await collect(
+    providerDelegationToolLoopCreate({ adapter: provider.adapter })({
+      messages,
+      runId: "run-delegation",
+      signal: new AbortController().signal,
+      threadId: "thread-delegation",
+    }),
+  )
+
+  expect(provider.calls).toHaveLength(1)
+  expect(provider.calls[0]).toEqual(messages)
+})
+
+test("recovers one inner overflow after a completed tool result without rerunning the callback", async () => {
+  const provider = scriptedAdapterCreate([
+    delegatedToolScript('{"task":"inspect the project"}'),
+    providerContextOverflowScript(),
+    finalTextScript("Recovered after inner compaction."),
+  ])
+  const summary = summaryScriptedAdapterCreate([finalTextScript("Inner overflow summary.")])
+  const messages: Array<ModelMessage> = Array.from({ length: 6 }, (_, index) => ({
+    content: `Old context ${index} ${"x".repeat(400)}`,
+    role: "user" as const,
+  }))
+  let callbackCount = 0
+
+  const chunks = await collect(
+    providerDelegationToolLoopCreate({
+      adapter: provider.adapter,
+      compaction: {
+        maxOverflowRetries: 1,
+        policy: innerCompactionPolicy({ contextLimitTokens: 100_000, pressureThreshold: 1 }),
+        summaryAdapter: summary.adapter,
+      },
+      delegateTask: () => {
+        callbackCount += 1
+        return "completed tool result"
+      },
+    })({
+      messages,
+      runId: "run-delegation",
+      signal: new AbortController().signal,
+      threadId: "thread-delegation",
+    }),
+  )
+
+  expect(callbackCount).toBe(1)
+  expect(summary.calls).toHaveLength(1)
+  expect(summary.toolCounts).toEqual([0])
+  expect(provider.calls).toHaveLength(3)
+  expect(
+    provider.calls[2]?.some((message) => message.role === "tool" && message.content === "completed tool result"),
+  ).toBe(true)
+  expect(chunks.filter((chunk) => chunk.type === EventType.RUN_ERROR)).toHaveLength(0)
+  expect(chunks.filter((chunk) => chunk.type === EventType.TEXT_MESSAGE_CONTENT).map((chunk) => chunk.delta)).toEqual([
+    "Recovered after inner compaction.",
+  ])
+})
+
+test("bounds repeated inner overflow recovery to the configured round retry count", async () => {
+  const provider = scriptedAdapterCreate([providerContextOverflowScript(), providerContextOverflowScript()])
+  const summary = summaryScriptedAdapterCreate([finalTextScript("Inner overflow summary.")])
+
+  const chunks = await collect(
+    providerDelegationToolLoopCreate({
+      adapter: provider.adapter,
+      compaction: {
+        maxOverflowRetries: 1,
+        policy: innerCompactionPolicy({ contextLimitTokens: 100_000, pressureThreshold: 1 }),
+        summaryAdapter: summary.adapter,
+      },
+    })({
+      messages: Array.from({ length: 6 }, (_, index) => ({
+        content: `Old context ${index} ${"x".repeat(400)}`,
+        role: "user" as const,
+      })),
+      runId: "run-delegation",
+      signal: new AbortController().signal,
+      threadId: "thread-delegation",
+    }),
+  )
+
+  expect(provider.calls).toHaveLength(2)
+  expect(summary.calls).toHaveLength(1)
+  expect(chunks.filter((chunk) => chunk.type === EventType.RUN_ERROR)).toHaveLength(1)
+  expect(chunks.find((chunk) => chunk.type === EventType.RUN_ERROR)).toMatchObject({
+    code: "provider_context_overflow",
+  })
+})
+
+test("preserves terminal overflow behavior when inner compaction makes no progress", async () => {
+  const provider = scriptedAdapterCreate([providerContextOverflowScript()])
+  const summary = summaryScriptedAdapterCreate([finalTextScript("x".repeat(5_000))])
+
+  const chunks = await collect(
+    providerDelegationToolLoopCreate({
+      adapter: provider.adapter,
+      compaction: {
+        maxOverflowRetries: 1,
+        policy: innerCompactionPolicy({ contextLimitTokens: 100_000, maxSummaryChars: 6_000, pressureThreshold: 1 }),
+        summaryAdapter: summary.adapter,
+      },
+    })({
+      messages: Array.from({ length: 6 }, (_, index) => ({
+        content: `Old context ${index} ${"x".repeat(400)}`,
+        role: "user" as const,
+      })),
+      runId: "run-delegation",
+      signal: new AbortController().signal,
+      threadId: "thread-delegation",
+    }),
+  )
+
+  expect(provider.calls).toHaveLength(1)
+  expect(summary.calls).toHaveLength(1)
+  expect(chunks.find((chunk) => chunk.type === EventType.RUN_ERROR)).toMatchObject({
+    code: "provider_context_overflow",
+  })
+})
+
+test("does not retry an inner overflow after the request emitted content", async () => {
+  const provider = scriptedAdapterCreate([textBeforeProviderContextOverflowScript()])
+  const summary = summaryScriptedAdapterCreate([finalTextScript("Should not be requested.")])
+
+  const chunks = await collect(
+    providerDelegationToolLoopCreate({
+      adapter: provider.adapter,
+      compaction: {
+        maxOverflowRetries: 1,
+        policy: innerCompactionPolicy({ contextLimitTokens: 100_000, pressureThreshold: 1 }),
+        summaryAdapter: summary.adapter,
+      },
+    })({
+      messages: Array.from({ length: 6 }, (_, index) => ({
+        content: `Old context ${index} ${"x".repeat(400)}`,
+        role: "user" as const,
+      })),
+      runId: "run-delegation",
+      signal: new AbortController().signal,
+      threadId: "thread-delegation",
+    }),
+  )
+
+  expect(provider.calls).toHaveLength(1)
+  expect(summary.calls).toHaveLength(0)
+  expect(chunks.filter((chunk) => chunk.type === EventType.TEXT_MESSAGE_CONTENT).map((chunk) => chunk.delta)).toEqual([
+    "Partial response.",
+  ])
+  expect(chunks.find((chunk) => chunk.type === EventType.RUN_ERROR)).toMatchObject({
+    code: "provider_context_overflow",
+  })
+})
+
+test("does not retry an inner overflow after abort", async () => {
+  const controller = new AbortController()
+  const provider = scriptedAdapterCreate([providerContextOverflowScript()])
+  const summary = summaryScriptedAdapterCreate([finalTextScript("Should not be requested.")])
+  const summaryAdapter = Object.create(summary.adapter) as AnyTextAdapter
+  summaryAdapter.chatStream = (input: Parameters<AnyTextAdapter["chatStream"]>[0]) => {
+    controller.abort()
+    return summary.adapter.chatStream(input)
+  }
+
+  const chunks = await collect(
+    providerDelegationToolLoopCreate({
+      adapter: provider.adapter,
+      compaction: {
+        maxOverflowRetries: 1,
+        policy: innerCompactionPolicy({ contextLimitTokens: 100_000, pressureThreshold: 1 }),
+        summaryAdapter: summaryAdapter,
+      },
+    })({
+      messages: Array.from({ length: 6 }, (_, index) => ({
+        content: `Old context ${index} ${"x".repeat(400)}`,
+        role: "user" as const,
+      })),
+      runId: "run-delegation",
+      signal: controller.signal,
+      threadId: "thread-delegation",
+    }),
+  )
+
+  expect(provider.calls).toHaveLength(1)
+  expect(summary.calls).toHaveLength(1)
+  expect(chunks.at(-1)).toMatchObject({ outcome: { type: "interrupt" }, type: EventType.RUN_FINISHED })
 })

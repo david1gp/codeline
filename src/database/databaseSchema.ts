@@ -1,5 +1,6 @@
 import { agentTable } from "../agents/db/agentTable.js"
 import { mutationIdempotencyTable } from "../api/db/mutationIdempotencyTable.js"
+import { sessionCompactionTable } from "../compaction/db/sessionCompactionTable.js"
 import { applicationUserTable } from "../identity/db/applicationUserTable.js"
 import { externalIdentityTable } from "../identity/db/externalIdentityTable.js"
 import { identitySessionTable } from "../identity/db/identitySessionTable.js"
@@ -38,6 +39,7 @@ export const databaseSchema = {
   runDelegationTable,
   runTable,
   serverTable,
+  sessionCompactionTable,
   sessionTable,
   sessionExecutionSelectionDefaultTable,
   skillSelectionDefaultTable,

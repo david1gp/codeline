@@ -8,6 +8,8 @@ import {
   toolDefinition,
 } from "@tanstack/ai"
 import * as v from "valibot"
+import type { CompactionPolicy } from "../../compaction/compactionPolicy.js"
+import { compactionPolicyResolve } from "../../compaction/compactionPolicyResolve.js"
 import { agentInstructionsContentRender } from "../../instructions/actions/agentInstructionsContentRender.js"
 import { agentInstructionsForPathResolve } from "../../instructions/actions/agentInstructionsForPathResolve.js"
 import { skillDescriptionCatalogRender } from "../../skills/actions/skillDescriptionCatalogRender.js"
@@ -16,16 +18,24 @@ import type { SkillDescriptionCatalog } from "../../skills/schema/skillDescripti
 import { skillDescriptionCatalogSchema } from "../../skills/schema/skillDescriptionCatalogSchema.js"
 import { type SkillSnapshot } from "../../skills/schema/skillSnapshotSchema.js"
 import { skillToolInputSchema } from "../../skills/schema/skillToolInputSchema.js"
+import { fileSystemLocalCreate } from "../../tools/filesystem/fileSystemLocalCreate.js"
 import { type BashToolCreateOptions, bashToolCreate } from "../../tools/runtime/bashToolCreate.js"
 import { type DelegateTaskToolExecute, delegateTaskToolCreate } from "../../tools/runtime/delegateTaskToolCreate.js"
+import { editToolCreate } from "../../tools/runtime/editToolCreate.js"
+import { readToolCreate } from "../../tools/runtime/readToolCreate.js"
 import type { ToolRegistry } from "../../tools/runtime/toolRegistry.js"
 import { toolRegistryCreate } from "../../tools/runtime/toolRegistryCreate.js"
 import { toolResultWorkingDirectoryResolve } from "../../tools/runtime/toolResultWorkingDirectoryResolve.js"
 import { type WebfetchToolCreateOptions, webfetchToolCreate } from "../../tools/runtime/webfetchToolCreate.js"
+import { writeToolCreate } from "../../tools/runtime/writeToolCreate.js"
 import { bashToolInputSchema } from "../../tools/schema/bashToolInputSchema.js"
 import { delegateTaskInputSchema } from "../../tools/schema/delegateTaskInputSchema.js"
+import { editToolInputSchema } from "../../tools/schema/editToolInputSchema.js"
+import { readToolInputSchema } from "../../tools/schema/readToolInputSchema.js"
 import { type ToolName, toolNameSchema } from "../../tools/schema/toolNameSchema.js"
 import { webfetchToolInputSchema } from "../../tools/schema/webfetchToolInputSchema.js"
+import { writeToolInputSchema } from "../../tools/schema/writeToolInputSchema.js"
+import { providerDelegationCompactionAdapterCreate } from "./providerDelegationCompactionAdapterCreate.js"
 import { providerExecutionEventFromStreamChunk } from "./providerExecutionEventFromStreamChunk.js"
 import type { ProviderInstructionContext } from "./providerInstructionContext.js"
 
@@ -36,6 +46,8 @@ const WEBFETCH_OUTPUT_LIMIT = 16_384
 const WEBFETCH_DEFAULT_TIMEOUT_MS = 30_000
 const WEBFETCH_MAX_TIMEOUT_MS = 120_000
 const SKILL_OUTPUT_LIMIT = 1_048_576
+const FILE_OUTPUT_LIMIT = 16_384
+const FILE_TIMEOUT_MS = 30_000
 
 const delegateTaskProviderInputSchema: SchemaInput = {
   "~standard": {
@@ -127,6 +139,76 @@ const webfetchToolProviderInputSchema: SchemaInput = {
   },
 }
 
+const readToolProviderInputSchema: SchemaInput = {
+  "~standard": {
+    jsonSchema: {
+      input: () => ({
+        additionalProperties: false,
+        properties: {
+          file_path: { maxLength: 4_096, minLength: 1, type: "string" },
+          limit: { maximum: 2_000, minimum: 1, type: "integer" },
+          offset: { maximum: Number.MAX_SAFE_INTEGER, minimum: 1, type: "integer" },
+        },
+        required: ["file_path"],
+        type: "object",
+      }),
+    },
+    validate: (input) => {
+      const parsed = v.safeParse(readToolInputSchema, input)
+      return parsed.success ? { value: parsed.output } : { issues: parsed.issues }
+    },
+    vendor: "codeline",
+    version: 1,
+  },
+}
+
+const writeToolProviderInputSchema: SchemaInput = {
+  "~standard": {
+    jsonSchema: {
+      input: () => ({
+        additionalProperties: false,
+        properties: {
+          content: { type: "string" },
+          file_path: { maxLength: 4_096, minLength: 1, type: "string" },
+          version: { maxLength: 512, minLength: 1, type: "string" },
+        },
+        required: ["content", "file_path"],
+        type: "object",
+      }),
+    },
+    validate: (input) => {
+      const parsed = v.safeParse(writeToolInputSchema, input)
+      return parsed.success ? { value: parsed.output } : { issues: parsed.issues }
+    },
+    vendor: "codeline",
+    version: 1,
+  },
+}
+
+const editToolProviderInputSchema: SchemaInput = {
+  "~standard": {
+    jsonSchema: {
+      input: () => ({
+        additionalProperties: false,
+        properties: {
+          file_path: { maxLength: 4_096, minLength: 1, type: "string" },
+          new_string: { type: "string" },
+          old_string: { minLength: 1, type: "string" },
+          replace_all: { type: "boolean" },
+        },
+        required: ["file_path", "new_string", "old_string"],
+        type: "object",
+      }),
+    },
+    validate: (input) => {
+      const parsed = v.safeParse(editToolInputSchema, input)
+      return parsed.success ? { value: parsed.output } : { issues: parsed.issues }
+    },
+    vendor: "codeline",
+    version: 1,
+  },
+}
+
 function providerDelegationStreamChunkJsonSafe(chunk: StreamChunk): StreamChunk {
   return Object.fromEntries(Object.entries(chunk).filter(([, value]) => value !== undefined)) as StreamChunk
 }
@@ -141,17 +223,38 @@ export type ProviderDelegationToolLoopInput = {
 export type ProviderDelegationToolLoopOptions = {
   adapter: AnyTextAdapter
   bash?: BashToolCreateOptions
+  compaction?: {
+    adapter?: AnyTextAdapter
+    auto?: boolean
+    maxOverflowRetries?: number
+    policy?: Partial<CompactionPolicy>
+    summaryAdapter?: AnyTextAdapter
+  }
+  compactionAdapter?: AnyTextAdapter
+  compactionAuto?: boolean
+  compactionMaxOverflowRetries?: number
+  compactionPolicy?: Partial<CompactionPolicy>
   delegateTask?: DelegateTaskToolExecute
   enabledTools?: readonly ToolName[]
   instructionContext?: ProviderInstructionContext
   skillDescriptionCatalog?: SkillDescriptionCatalog
   skillSnapshots?: readonly SkillSnapshot[]
   systemPrompt?: string
+  projectRoot?: string
   toolRegistry?: ToolRegistry
   webfetch?: WebfetchToolCreateOptions
 }
 
 export type ProviderDelegationToolLoop = (input: ProviderDelegationToolLoopInput) => AsyncIterable<StreamChunk>
+
+function providerDelegationCompactionPolicyResolve(
+  auto: boolean,
+  policy: Partial<CompactionPolicy> | undefined,
+): CompactionPolicy | undefined {
+  if (!auto || policy?.contextLimitTokens === undefined) return undefined
+  const resolved = compactionPolicyResolve(policy)
+  return resolved.success ? resolved.data : undefined
+}
 
 function providerDelegationToolRegistryResolve(options: ProviderDelegationToolLoopOptions): ToolRegistry {
   let registry = options.toolRegistry ?? toolRegistryCreate()
@@ -177,6 +280,24 @@ function providerDelegationToolRegistryResolve(options: ProviderDelegationToolLo
       ...webfetchToolCreate(options.webfetch ?? {}),
       enabled: enabledTools?.has("webfetch") === true,
     })
+  if (options.projectRoot !== undefined) {
+    const fileSystem = fileSystemLocalCreate({ cwd: options.projectRoot })
+    if (registry.get("read") === undefined)
+      registry.register({
+        ...readToolCreate({ fileSystem, projectRoot: options.projectRoot }),
+        enabled: enabledTools?.has("read") === true,
+      })
+    if (registry.get("write") === undefined)
+      registry.register({
+        ...writeToolCreate({ fileSystem, projectRoot: options.projectRoot }),
+        enabled: enabledTools?.has("write") === true,
+      })
+    if (registry.get("edit") === undefined)
+      registry.register({
+        ...editToolCreate({ fileSystem, projectRoot: options.projectRoot }),
+        enabled: enabledTools?.has("edit") === true,
+      })
+  }
   if (options.skillSnapshots !== undefined && registry.get("skill") !== undefined) {
     const snapshotRegistry = toolRegistryCreate()
     for (const name of toolNameSchema.options) {
@@ -388,12 +509,89 @@ function providerDelegationWebfetchToolCreate(registry: ToolRegistry, signal: Ab
   })
 }
 
+function providerDelegationReadToolCreate(registry: ToolRegistry, signal: AbortSignal) {
+  return toolDefinition({
+    description:
+      "Read bounded text from a project file using a relative, absolute, or ~ path. The result includes an opaque version for guarded writes.",
+    inputSchema: readToolProviderInputSchema,
+    name: "read",
+  }).server(async (rawInput, context) => {
+    const toolCallId = context?.toolCallId
+    if (toolCallId === undefined || toolCallId === "") throw new Error("The read tool call ID is required.")
+
+    const executionSignal = context?.abortSignal ?? signal
+    if (executionSignal.aborted) throw new Error("The file read was cancelled.")
+
+    const result = await registry.execute("read", rawInput, {
+      outputLimit: FILE_OUTPUT_LIMIT,
+      signal: executionSignal,
+      timeoutMs: FILE_TIMEOUT_MS,
+      toolCallId,
+    })
+    if (!result.success) throw new Error(result.errorMessage)
+    return result.data
+  })
+}
+
+function providerDelegationWriteToolCreate(registry: ToolRegistry, signal: AbortSignal) {
+  return toolDefinition({
+    description:
+      "Write exact text to a project file. Omit version only to create a missing file; replacing an existing file requires the version returned by read.",
+    inputSchema: writeToolProviderInputSchema,
+    name: "write",
+  }).server(async (rawInput, context) => {
+    const toolCallId = context?.toolCallId
+    if (toolCallId === undefined || toolCallId === "") throw new Error("The write tool call ID is required.")
+
+    const executionSignal = context?.abortSignal ?? signal
+    if (executionSignal.aborted) throw new Error("The file write was cancelled.")
+
+    const result = await registry.execute("write", rawInput, {
+      outputLimit: FILE_OUTPUT_LIMIT,
+      signal: executionSignal,
+      timeoutMs: FILE_TIMEOUT_MS,
+      toolCallId,
+    })
+    if (!result.success) throw new Error(result.errorMessage)
+    return result.data
+  })
+}
+
+function providerDelegationEditToolCreate(registry: ToolRegistry, signal: AbortSignal) {
+  return toolDefinition({
+    description:
+      "Apply one or more exact, unique, non-overlapping text replacements to a project file. Edits reject ambiguity and no-ops.",
+    inputSchema: editToolProviderInputSchema,
+    name: "edit",
+  }).server(async (rawInput, context) => {
+    const toolCallId = context?.toolCallId
+    if (toolCallId === undefined || toolCallId === "") throw new Error("The edit tool call ID is required.")
+
+    const executionSignal = context?.abortSignal ?? signal
+    if (executionSignal.aborted) throw new Error("The file edit was cancelled.")
+
+    const result = await registry.execute("edit", rawInput, {
+      outputLimit: FILE_OUTPUT_LIMIT,
+      signal: executionSignal,
+      timeoutMs: FILE_TIMEOUT_MS,
+      toolCallId,
+    })
+    if (!result.success) throw new Error(result.errorMessage)
+    return result.data
+  })
+}
+
 export function providerDelegationToolLoopCreate(
   options: ProviderDelegationToolLoopOptions,
 ): ProviderDelegationToolLoop {
   const toolRegistry = providerDelegationToolRegistryResolve(options)
   const enabledTools = options.enabledTools === undefined ? undefined : new Set(options.enabledTools)
   const declaredWorkingDirectoriesByRun: ProviderDelegationWorkingDirectories = new Map()
+  const compaction = options.compaction
+  const compactionPolicy = compaction?.policy ?? options.compactionPolicy
+  const summaryAdapter = compaction?.summaryAdapter ?? compaction?.adapter ?? options.compactionAdapter
+  const compactionAuto = compaction?.auto ?? options.compactionAuto ?? true
+  const maxOverflowRetries = compaction?.maxOverflowRetries ?? options.compactionMaxOverflowRetries
   const adapter = providerDelegationInstructionAdapterCreate({
     adapter: options.adapter,
     declaredWorkingDirectoriesByRun,
@@ -404,17 +602,44 @@ export function providerDelegationToolLoopCreate(
     ),
     systemPrompt: options.systemPrompt,
   })
-  return (input) =>
-    providerDelegationToolLoopGenerate(
+  return (input) => {
+    const resolvedPolicy = providerDelegationCompactionPolicyResolve(compactionAuto, compactionPolicy)
+    const compactionAdapter =
+      resolvedPolicy !== undefined && summaryAdapter !== undefined
+        ? providerDelegationCompactionAdapterCreate({
+            adapter: options.adapter,
+            maxOverflowRetries,
+            policy: resolvedPolicy,
+            summaryAdapter,
+          })
+        : options.adapter
+    const decoratedAdapter =
+      compactionAdapter === options.adapter
+        ? adapter
+        : providerDelegationInstructionAdapterCreate({
+            adapter: compactionAdapter,
+            declaredWorkingDirectoriesByRun,
+            instructionContext: options.instructionContext,
+            skillDescriptionCatalogContent: providerDelegationSkillDescriptionCatalogResolve(
+              options.skillSnapshots,
+              options.skillDescriptionCatalog,
+            ),
+            systemPrompt: options.systemPrompt,
+          })
+    return providerDelegationToolLoopGenerate(
       {
-        adapter,
+        adapter: decoratedAdapter,
         bashEnabled: enabledTools?.has("bash") === true,
+        editEnabled: enabledTools?.has("edit") === true,
+        readEnabled: enabledTools?.has("read") === true,
         webfetchEnabled: enabledTools?.has("webfetch") === true,
+        writeEnabled: enabledTools?.has("write") === true,
         declaredWorkingDirectoriesByRun,
         toolRegistry,
       },
       input,
     )
+  }
 }
 
 async function* providerDelegationToolLoopGenerate(
@@ -422,8 +647,11 @@ async function* providerDelegationToolLoopGenerate(
     adapter: AnyTextAdapter
     bashEnabled: boolean
     declaredWorkingDirectoriesByRun: ProviderDelegationWorkingDirectories
+    editEnabled: boolean
+    readEnabled: boolean
     toolRegistry: ToolRegistry
     webfetchEnabled: boolean
+    writeEnabled: boolean
   },
   input: ProviderDelegationToolLoopInput,
 ): AsyncGenerator<StreamChunk> {
@@ -437,10 +665,16 @@ async function* providerDelegationToolLoopGenerate(
   const delegateTask = providerDelegationToolCreate(options.toolRegistry, abortController.signal)
   const bash = providerDelegationBashToolCreate(options.toolRegistry, abortController.signal)
   const webfetch = providerDelegationWebfetchToolCreate(options.toolRegistry, abortController.signal)
+  const read = providerDelegationReadToolCreate(options.toolRegistry, abortController.signal)
+  const write = providerDelegationWriteToolCreate(options.toolRegistry, abortController.signal)
+  const edit = providerDelegationEditToolCreate(options.toolRegistry, abortController.signal)
   const skill = providerDelegationSkillToolCreate(options.toolRegistry, abortController.signal)
   const tools = [
     ...(options.bashEnabled && options.toolRegistry.get("bash")?.enabled === true ? [bash] : []),
     ...(options.webfetchEnabled && options.toolRegistry.get("webfetch")?.enabled === true ? [webfetch] : []),
+    ...(options.readEnabled && options.toolRegistry.get("read")?.enabled === true ? [read] : []),
+    ...(options.writeEnabled && options.toolRegistry.get("write")?.enabled === true ? [write] : []),
+    ...(options.editEnabled && options.toolRegistry.get("edit")?.enabled === true ? [edit] : []),
     ...(options.toolRegistry.get("skill")?.enabled === true ? [skill] : []),
     ...(options.toolRegistry.get("delegate_task")?.enabled === true ? [delegateTask] : []),
   ]

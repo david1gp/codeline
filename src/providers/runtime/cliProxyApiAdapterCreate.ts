@@ -24,6 +24,8 @@ export type CliProxyApiAdapterOptions = {
 }
 
 export type CliProxyApiAdapterInput = Parameters<typeof sessionChatAdapterCreate>[0] & {
+  compaction?: boolean
+  currentUserMessageIncluded?: boolean
   systemPrompt?: string
   tools?: Array<AnyTool>
 }
@@ -80,13 +82,25 @@ function cliProxyApiAdapterLoggerCreate(): InstanceType<typeof InternalLogger> {
 
 function cliProxyApiModelMessagesResolve(input: CliProxyApiAdapterInput): Array<ModelMessage> {
   const messages: Array<ModelMessage> = []
+  let preparedUserMessageAdded = false
   for (const message of input.history as Array<{
     content: unknown
+    id?: string
     role: string
+    sequence?: number
     toolCallId?: string
     toolCalls?: ModelMessage["toolCalls"]
   }>) {
-    if (message.role !== "user" && message.role !== "assistant" && message.role !== "tool") continue
+    if (message.role !== "system" && message.role !== "user" && message.role !== "assistant" && message.role !== "tool")
+      continue
+    if (
+      input.preparedUserMessage !== undefined &&
+      message.role === "user" &&
+      (message.id === input.preparedUserMessage.id || message.sequence === input.preparedUserMessage.sequence)
+    ) {
+      if (preparedUserMessageAdded) continue
+      preparedUserMessageAdded = true
+    }
     const content =
       typeof message.content === "string" || message.content === null || Array.isArray(message.content)
         ? message.content
@@ -100,9 +114,17 @@ function cliProxyApiModelMessagesResolve(input: CliProxyApiAdapterInput): Array<
   }
 
   const last = messages.at(-1)
-  if (last?.role !== "user" || last.content !== input.prompt) {
-    messages.push({ content: input.prompt, role: "user" })
-  }
+  const preparedUserMessagePresent = input.history.some(
+    (message) =>
+      input.preparedUserMessage !== undefined &&
+      message.role === "user" &&
+      (message.id === input.preparedUserMessage.id || message.sequence === input.preparedUserMessage.sequence),
+  )
+  const currentUserMessagePresent =
+    input.currentUserMessageIncluded === true ||
+    preparedUserMessagePresent ||
+    (last?.role === "user" && last.content === input.prompt)
+  if (!currentUserMessagePresent) messages.push({ content: input.prompt, role: "user" })
   return messages
 }
 

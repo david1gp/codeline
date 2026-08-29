@@ -1,26 +1,43 @@
 import { createResultError, type Result } from "@adaptive-ds/result"
 import { EventType, type StreamChunk } from "@tanstack/ai"
+import type { AgentConfiguration } from "../../agents/schema/agentConfigurationSchema.js"
+import type { CompactionMessage } from "../../compaction/compactionMessage.js"
 import type { DatabaseClient } from "../../database/databaseClient.js"
 import { databaseTransactionRun } from "../../database/databaseTransactionRun.js"
 import { messageAppend } from "../../message/actions/messageAppend.js"
-import type { messageTable } from "../../message/db/messageTable.js"
+import type { CliProxyApiAdapter } from "../../providers/runtime/cliProxyApiAdapterCreate.js"
+import type { providerRuntimeAdapterCreate } from "../../providers/runtime/providerRuntimeAdapterCreate.js"
 import { providerExecutionEventFromStreamChunk } from "../../providers/runtime/providerExecutionEventFromStreamChunk.js"
 import type { RunRetryExecutionEvidence } from "../../run/schema/runRetryExecutionEvidenceSchema.js"
 import { executionStreamEventNormalize } from "../../stream/actions/executionStreamEventNormalize.js"
-import { sessionChatAdapterCreate } from "./sessionChatAdapterCreate.js"
+import { sessionChatContextPrepare } from "./sessionChatContextPrepare.js"
 
 type SessionChatStreamCreateOptions = {
-  adapter: typeof sessionChatAdapterCreate
+  adapter: CliProxyApiAdapter
   attemptOrdinal?: number
+  compactionConfiguration?:
+    | NonNullable<AgentConfiguration["compaction"]>
+    | Partial<NonNullable<AgentConfiguration["compaction"]>>
+  compactionAdapter?: CliProxyApiAdapter
   cleanup?: () => void
   database: DatabaseClient
-  history: Array<typeof messageTable.$inferSelect>
+  environment?: Readonly<Record<string, string | undefined>>
+  fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+  history: Array<CompactionMessage>
+  contextLimitTokens?: number
+  organizationId?: string
+  preparedUserMessage?: { id: string; sequence: number }
   prompt: string
   requestId: string
   runId: string
   sessionId: string
   signal: AbortSignal
+  sourceRevision?: number
+  systemPrompt?: unknown
+  tools?: unknown
   userId: string
+  runtimeConfiguration?: AgentConfiguration
+  runtimeAdapterCreate?: typeof providerRuntimeAdapterCreate
   providerOutput?: {
     append: (input: unknown) => Promise<Result<void>>
     flush: () => Promise<Result<void>>
@@ -32,6 +49,7 @@ type SessionChatStreamCreateOptions = {
     messageId?: string | null
     status: "succeeded" | "failed" | "aborted"
   }) => Promise<void>
+  onContextPrepared?: (history: Array<CompactionMessage>, sourceRevision?: number) => void
 }
 
 export function sessionChatStreamCreate(options: SessionChatStreamCreateOptions): AsyncIterable<StreamChunk> {
@@ -70,6 +88,8 @@ function sessionChatFailureCreate(chunk: StreamChunk, fallbackCode: string, fall
 }
 
 async function* sessionChatStreamGenerate(options: SessionChatStreamCreateOptions): AsyncGenerator<StreamChunk> {
+  let history = options.history
+  let sourceRevision = options.sourceRevision
   let assistantText = ""
   let executionEvidence: RunRetryExecutionEvidence = "none"
   let terminalPersisted = false
@@ -93,9 +113,47 @@ async function* sessionChatStreamGenerate(options: SessionChatStreamCreateOption
   }
 
   try {
+    if (options.organizationId !== undefined && options.compactionConfiguration !== undefined) {
+      const preparedContext = await sessionChatContextPrepare({
+        compactionAdapter: options.compactionAdapter,
+        compactionConfiguration: options.compactionConfiguration,
+        contextLimitTokens: options.contextLimitTokens,
+        database: options.database,
+        environment: options.environment,
+        ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+        history,
+        organizationId: options.organizationId,
+        preparedUserMessage: options.preparedUserMessage,
+        prompt: options.prompt,
+        runtimeConfiguration: options.runtimeConfiguration,
+        runtimeAdapterCreate: options.runtimeAdapterCreate,
+        sessionId: options.sessionId,
+        signal: options.signal,
+        sourceRevision,
+        systemPrompt: options.systemPrompt,
+        tools: options.tools,
+        userId: options.userId,
+      })
+      if (!preparedContext.success) {
+        const errorChunk = sessionChatRunErrorCreate(preparedContext.errorMessage, "compaction_failed")
+        await eventPersist(errorChunk)
+        terminalPersisted = true
+        await terminalNotify({
+          failure: sessionChatFailureCreate(errorChunk, "compaction_failed", preparedContext.errorMessage),
+          status: "failed",
+        })
+        yield errorChunk
+        return
+      }
+      history = preparedContext.data.history
+      sourceRevision = preparedContext.data.sourceRevision ?? sourceRevision
+      options.onContextPrepared?.(history, sourceRevision)
+    }
+
     try {
       for await (const chunk of options.adapter({
-        history: options.history,
+        history,
+        preparedUserMessage: options.preparedUserMessage,
         prompt: options.prompt,
         runId: options.runId,
         sessionId: options.sessionId,

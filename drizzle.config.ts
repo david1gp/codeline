@@ -4,6 +4,7 @@ import { databaseUrl } from "./src/database/databaseUrl.js"
 export default defineConfig({
   dialect: "sqlite",
   schema: [
+    "./src/compaction/db/*Table.ts",
     "./src/api/db/*Table.ts",
     "./src/identity/db/*Table.ts",
     "./src/servers/db/*Table.ts",
