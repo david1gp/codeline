@@ -60,7 +60,10 @@ function completedText(
   ] as StreamChunk[]
 }
 
-async function sessionCreate(sessionId: string, messages: readonly { content: string; role: "assistant" | "user" }[]) {
+async function sessionCreate(
+  sessionId: string,
+  messages: readonly { content: string; metadata?: unknown; role: "assistant" | "user" }[],
+) {
   await database.insert(sessionTable).values({
     clientRequestId: `${sessionId}-request`,
     id: sessionId,
@@ -75,6 +78,7 @@ async function sessionCreate(sessionId: string, messages: readonly { content: st
       clientRequestId: `${sessionId}-message-${index + 1}`,
       content: message.content,
       id: `${sessionId}-message-${index + 1}`,
+      ...(message.metadata === undefined ? {} : { metadata: message.metadata }),
       role: message.role,
       sequence: index + 1,
       sessionId,
@@ -542,4 +546,40 @@ test("persists successful provider usage for the next session context request", 
     success: true,
     data: { history: [{ role: "user" }, { reportedUsage: { inputTokens: 1_000 }, role: "assistant" }] },
   })
+})
+
+test("uses persisted provider usage before estimating the current trailing prompt", async () => {
+  const sessionId = "session-chat-context-reported-pressure"
+  await sessionCreate(sessionId, [
+    { content: "old request", role: "user" },
+    {
+      content: "old response",
+      metadata: { __codeline_reported_usage: { inputTokens: 6_000, totalTokens: 6_020 } },
+      role: "assistant",
+    },
+    { content: "current prompt", role: "user" },
+  ])
+  const reconstructed = await sessionCompactionContextReconstruct(
+    database,
+    fixture.userId,
+    fixture.organizationId,
+    sessionId,
+  )
+  expect(reconstructed.success).toBe(true)
+  if (!reconstructed.success) return
+
+  let summaryCalls = 0
+  const result = await sessionChatContextPrepare({
+    ...contextOptions(sessionId, reconstructed.data.history, "current prompt"),
+    compactionAdapter: ((input: CliProxyApiAdapterInput) => {
+      summaryCalls += input.compaction === true ? 1 : 0
+      return (async function* () {
+        yield* completedText("summary")
+      })()
+    }) as CliProxyApiAdapter,
+    contextLimitTokens: 10_000,
+  })
+
+  expect(result).toMatchObject({ success: true, data: { advanced: true } })
+  expect(summaryCalls).toBe(1)
 })
