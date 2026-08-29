@@ -6,11 +6,13 @@ mock.module("solid-js", () => solidRuntime)
 
 const { notesPageStateCreate } = await import("../src/note/ui/notesPageStateCreate.js")
 
+const projectId = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1f40"
 const note = {
   content: "Heading\nDetails",
   createdAt: 100,
   id: "note-1",
-  projectPath: "/workspace/codeline",
+  projectId,
+  projectPath: projectId,
   revision: 1,
   sortOrder: 0,
   updatedAt: 100,
@@ -30,13 +32,16 @@ test("notes page state loads typed notes, project labels, and refreshes after re
           noteListCalls += 1
           return Response.json([{ ...note, content: noteListCalls === 1 ? note.content : "Updated" }])
         }
-        return Response.json({ projects: [{ id: "/workspace/codeline", label: "Codeline" }], truncated: false })
+        return Response.json({
+          projects: [{ available: true, id: projectId, label: "Codeline" }],
+          truncated: false,
+        })
       },
     }),
   }))
 
   await tick()
-  expect(root.state.groups()).toEqual([{ label: "Codeline", notes: [note], projectPath: "/workspace/codeline" }])
+  expect(root.state.groups()).toEqual([{ label: "Codeline", notes: [note], projectId, projectPath: projectId }])
   expect(root.state.isLoading()).toBe(false)
   expect(root.state.isEmpty()).toBe(false)
   expect(noteListCalls).toBe(1)

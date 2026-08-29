@@ -5,6 +5,7 @@ export function sessionSearchResultAdapt(session: SessionShell): SessionSidebarS
   return {
     id: session.id,
     parentSessionId: session.parentSessionId,
+    projectId: session.projectId,
     projectPath: session.projectPath,
     title: session.title,
     updatedAt: session.updatedAt,

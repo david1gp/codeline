@@ -16,7 +16,12 @@ export async function sessionShellSnapshot(
   const snapshot = await sessionRepositoryShellSnapshot(database, userId, organizationId, sessionId, dependencies)
   if (!snapshot.success) return snapshot
 
-  const response = sessionDetailResponseCreate(snapshot.data)
+  const { projectId, ...snapshotSource } = snapshot.data
+  const response = sessionDetailResponseCreate({
+    ...snapshotSource,
+    ...(projectId === null ? {} : { projectId }),
+    userId,
+  })
   if (!response.success) return createResultError("sessionShellSnapshot", response.errorMessage)
   return response
 }

@@ -1,12 +1,11 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import { and, eq } from "drizzle-orm"
-import * as v from "valibot"
 import { mutationIdempotencyTable } from "../../api/db/mutationIdempotencyTable.js"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { uuidv7 } from "../../uuid/uuidv7.js"
-import { noteApiRecordSchema } from "../api/noteApiRecordSchema.js"
 import type { NoteCreateRequest } from "../schema/noteCreateRequestSchema.js"
 import { noteApiRecordCreate } from "./noteApiRecordCreate.js"
+import { noteApiRecordReplayCreate } from "./noteApiRecordReplayCreate.js"
 import { noteOrganizationAuthorize } from "./noteOrganizationAuthorize.js"
 import { noteRepositoryIdempotencyConflictCreate } from "./noteRepositoryIdempotencyConflictCreate.js"
 import type { NoteRepositoryMutationResult } from "./noteRepositoryMutationResult.js"
@@ -15,11 +14,12 @@ import { noteRowsOrder } from "./noteRowsOrder.js"
 import { noteTable } from "./noteTable.js"
 
 const noteCreateOperation = "note.create"
+type NoteRepositoryCreateInput = Omit<NoteCreateRequest, "projectId"> & { projectPath: string | null }
 
 export async function noteRepositoryCreate(
   database: DatabaseExecutor,
   userId: string,
-  input: NoteCreateRequest & { organizationId?: string; requestHash?: string },
+  input: NoteRepositoryCreateInput & { organizationId?: string; requestHash?: string },
 ): Promise<Result<NoteRepositoryMutationResult>> {
   const op = "noteRepositoryCreate"
   const authorized = await noteOrganizationAuthorize(database, userId, input.organizationId)
@@ -62,7 +62,7 @@ export async function noteRepositoryCreate(
       .returning()
     if (created === undefined) return createResultError(op, "The note could not be created.")
 
-    const response = noteApiRecordCreate(created)
+    const response = await noteApiRecordCreate(database, created)
     if (!response.success) return createResultError(op, response.errorMessage)
     const stored = await noteCreateIdempotencyStore(database, userId, input, response.data)
     if (!stored.success) return createResultError(op, stored.errorMessage)
@@ -104,13 +104,13 @@ async function noteCreateIdempotencyLoad(
   if (idempotent === undefined) return createResult(undefined)
   if (idempotent.requestHash !== input.requestHash) return noteRepositoryIdempotencyConflictCreate(op)
 
-  const response = v.safeParse(noteApiRecordSchema, idempotent.responseBody)
-  if (!response.success) return createResultError(op, "The stored idempotency response is invalid.")
+  const response = await noteApiRecordReplayCreate(database, userId, idempotent.responseBody)
+  if (!response.success) return createResultError(op, response.errorMessage)
   return createResult({
     affectedNotes: [],
     created: false,
     replayed: true,
-    responseBody: response.output,
+    responseBody: response.data,
   })
 }
 

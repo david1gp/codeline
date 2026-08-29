@@ -1,3 +1,4 @@
+import type { ProjectRegistryState } from "../project/ui/projectRegistryStateCreate.js"
 import type { ActiveProjectState } from "./activeProjectStateCreate.js"
 import type { ConnectionStatusView } from "./connectionStatusView.js"
 import type { EventFeedConnectionView } from "./eventFeedConnectionView.js"
@@ -15,6 +16,7 @@ export type AppShellView = {
   healthDisconnectedSince: () => number | undefined
   healthLabel: () => string
   healthStatus: () => string
+  projectRegistry?: ProjectRegistryState
   pwa: PwaStatusView
   theme: ThemeSwitcherView
   events: EventFeedConnectionView

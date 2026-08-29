@@ -11,6 +11,7 @@ import { Button } from "#ui/interactive/button/Button.jsx"
 import { ButtonIconOnly } from "#ui/interactive/button/ButtonIconOnly.jsx"
 import { buttonVariant } from "#ui/interactive/button/buttonCva.js"
 import { Icon } from "#ui/static/icon/Icon.jsx"
+import type { ProjectRegistryState } from "../project/ui/projectRegistryStateCreate.js"
 import { ProjectAvatar } from "../project/ui/ProjectAvatar.js"
 import type { ActiveProjectState } from "./activeProjectStateCreate.js"
 import { NewProjectDialog } from "./NewProjectDialog.js"
@@ -124,7 +125,8 @@ export function SessionList(props: {
   activeProject: ActiveProjectState
   idPrefix?: string
   onSessionSelect?: () => void
-  sessionCreateInProject?: (projectPath: string) => void
+  projectRegistry?: ProjectRegistryState
+  sessionCreateInProject?: (projectPath: string, projectId?: string) => void
   state: SessionListState
 }) {
   const prefix = () => props.idPrefix ?? "session"
@@ -180,7 +182,11 @@ export function SessionList(props: {
 
       <Show when={props.state.sidebar.activeTab() === "projects"}>
         <div class="shrink-0 border-line border-b p-2">
-          <NewProjectDialog activeProject={props.activeProject} idPrefix={`${prefix()}-new-project`} />
+          <NewProjectDialog
+            activeProject={props.activeProject}
+            idPrefix={`${prefix()}-new-project`}
+            projectRegistry={props.projectRegistry ?? props.state.projectRegistry}
+          />
         </div>
       </Show>
 
@@ -224,42 +230,61 @@ export function SessionList(props: {
                       <ProjectAvatar name={project.projectLabel} />
                       <span
                         class="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
-                        title={project.projectPath}
+                        classList={{ "text-faint": project.available === false }}
+                        title={project.projectPath || project.projectLabel}
                       >
                         {project.projectLabel}
+                        {project.available === false ? " (unavailable)" : ""}
                       </span>
                       <SessionSidebarMenu
                         ariaLabel={`Project actions for ${project.projectLabel}`}
-                        onRename={() => props.state.actions.projectRenameOpen(project.projectPath)}
-                        onDelete={() => props.state.actions.projectDeleteOpen(project.projectPath)}
+                        deleteLabel={project.projectId !== undefined ? "Remove" : "Delete"}
+                        onRename={() => props.state.actions.projectRenameOpen(project)}
+                        onDelete={() =>
+                          project.projectId !== undefined
+                            ? props.state.actions.projectRemoveOpen(project)
+                            : props.state.actions.projectDeleteOpen(project)
+                        }
                       />
                       <ButtonIconOnly
-                        class="size-6 shrink-0 rounded-md text-faint hover:bg-transparent hover:text-faint"
+                        class="size-6 shrink-0 rounded-md text-faint hover:bg-transparent hover:text-faint disabled:opacity-40"
+                        disabled={project.available === false}
                         icon={mdiPlus}
                         iconClass="size-3.5 fill-current text-faint dark:fill-current"
-                        title={`New session in ${project.projectLabel}`}
-                        aria-label={`New session in ${project.projectLabel}`}
+                        title={
+                          project.available === false
+                            ? `${project.projectLabel} is unavailable`
+                            : `New session in ${project.projectLabel}`
+                        }
+                        aria-label={
+                          project.available === false
+                            ? `${project.projectLabel} is unavailable`
+                            : `New session in ${project.projectLabel}`
+                        }
                         variant={buttonVariant.ghost}
                         onClick={(event) => {
                           event.preventDefault()
                           event.stopPropagation()
-                          props.sessionCreateInProject?.(project.projectPath)
+                          if (project.available === false) return
+                          props.sessionCreateInProject?.(project.projectPath, project.projectId)
                         }}
                       />
                     </summary>
-                    <div class="ml-3 border-line-subtle border-l">
-                      <SessionRows
-                        hideProjectLabel
-                        rows={project.sessions}
-                        isSelected={props.state.isSelected}
-                        onSessionDelete={props.state.actions.sessionDeleteOpen}
-                        onSessionDeleteImmediate={(sessionId) =>
-                          void props.state.actions.sessionDeleteImmediate(sessionId)
-                        }
-                        onSessionRename={props.state.actions.sessionRenameOpen}
-                        selectSession={selectSession}
-                      />
-                    </div>
+                    <Show when={project.sessions.length > 0}>
+                      <div class="ml-3 border-line-subtle border-l">
+                        <SessionRows
+                          hideProjectLabel
+                          rows={project.sessions}
+                          isSelected={props.state.isSelected}
+                          onSessionDelete={props.state.actions.sessionDeleteOpen}
+                          onSessionDeleteImmediate={(sessionId) =>
+                            void props.state.actions.sessionDeleteImmediate(sessionId)
+                          }
+                          onSessionRename={props.state.actions.sessionRenameOpen}
+                          selectSession={selectSession}
+                        />
+                      </div>
+                    </Show>
                   </details>
                 )}
               </For>

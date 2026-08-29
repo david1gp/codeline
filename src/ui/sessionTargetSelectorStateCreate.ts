@@ -53,6 +53,7 @@ type SessionTargetCreateContext = {
 type SessionTargetSelectorStateOptions = {
   /** Scopes the shared revision/ETag cache to the signed-in application user. */
   accountId?: Accessor<string | null>
+  activeProjectId?: Accessor<string | null>
   activeProjectPath?: Accessor<string | null>
   clientRequestIdCreate?: () => string
   fetch?: SessionTargetSelectorFetch
@@ -154,6 +155,7 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
   const fetchImplementation = options.fetch ?? globalThis.fetch
   const clientRequestIdCreate = options.clientRequestIdCreate ?? (() => crypto.randomUUID())
   const storage = sessionTargetSelectionStorageResolve(options.storage)
+  const activeProjectId = options.activeProjectId ?? (() => null)
   const activeProjectPath = options.activeProjectPath ?? (() => "~")
   const savedSelections = sessionTargetSelectionRead(storage)
   const servers = signalObjectCreate<SessionTargetServer[]>([])
@@ -437,19 +439,19 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
   // Two different commands must never replay one another's idempotent create response.
   const sessionCreateKeyResolve = (
     target: { agentId: string; serverId: string },
-    projectPath: string,
+    project: { projectId: string | null; projectPath?: string | null },
     command?: SessionTargetCommandInvocation,
   ) =>
-    `${target.serverId}/${target.agentId}/${projectPath}/${pendingResourceSelectionKey()}/${pendingCreateContextKey()}/${
+    `${target.serverId}/${target.agentId}/${project.projectId ?? ""}/${project.projectPath ?? ""}/${pendingResourceSelectionKey()}/${pendingCreateContextKey()}/${
       command === undefined ? "" : JSON.stringify(command)
     }`
 
   const pendingCreateRequestIdResolve = (
     target: { agentId: string; serverId: string },
-    projectPath: string,
+    project: { projectId: string | null; projectPath?: string | null },
     command?: SessionTargetCommandInvocation,
   ) => {
-    const key = sessionCreateKeyResolve(target, projectPath, command)
+    const key = sessionCreateKeyResolve(target, project, command)
     if (pendingCreateKey !== key || pendingCreateRequestId === null) {
       pendingCreateKey = key
       pendingCreateRequestId = clientRequestIdCreate()
@@ -710,22 +712,25 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
   const sessionCreateStart = (
     projectPathOverride?: string,
     command?: SessionTargetCommandInvocation,
+    projectIdOverride?: string,
   ): Promise<string | null> => {
     const target = pendingTarget()
-    const projectPath = projectPathOverride ?? activeProjectPath()
+    const projectId = projectIdOverride ?? activeProjectId()
+    const projectPath = projectId === null ? (projectPathOverride ?? activeProjectPath()) : undefined
     if (target === null || isDisposed) return Promise.resolve(null)
-    if (projectPath === null) {
+    if (projectId === null && (projectPath === null || projectPath === undefined)) {
       sessionCreateErrorMessage.set("Select a project before creating a conversation.")
       sessionCreateStatus.set("error")
       return Promise.resolve(null)
     }
 
-    const key = sessionCreateKeyResolve(target, projectPath, command)
+    const project = { projectId, projectPath }
+    const key = sessionCreateKeyResolve(target, project, command)
     const generation = sessionCreateGeneration
     const existing = sessionCreateInFlight
     if (existing?.key === key && existing.generation === generation) return existing.promise
 
-    const clientRequestId = pendingCreateRequestIdResolve(target, projectPath, command)
+    const clientRequestId = pendingCreateRequestIdResolve(target, project, command)
     const requiresNewSessionRoute =
       options.isNewSessionRoute !== undefined && (options.isNewSessionRoute() || options.sessionNew !== undefined)
     sessionCreateStatus.set("creating")
@@ -740,7 +745,10 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
         options.selectedSessionId() === null &&
         currentTarget?.agentId === target.agentId &&
         currentTarget.serverId === target.serverId &&
-        (projectPathOverride ?? activeProjectPath()) === projectPath &&
+        (projectIdOverride ?? activeProjectId()) === projectId &&
+        ((projectIdOverride ?? activeProjectId()) === null
+          ? (projectPathOverride ?? activeProjectPath()) === projectPath
+          : projectPath === undefined) &&
         (!requiresNewSessionRoute || options.isNewSessionRoute?.() === true)
       )
     }
@@ -764,7 +772,8 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
               : { instructionOverrides: createContext.instructionOverrides }),
             ...(skillSelection === undefined ? {} : { skillSelection }),
             primaryAgentId: target.agentId,
-            projectPath,
+            ...(projectId === null ? {} : { projectId }),
+            ...(projectPath === null || projectPath === undefined ? {} : { projectPath }),
             serverId: target.serverId,
             title: "New session",
           }),
@@ -837,7 +846,9 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
     agentStatus: agentStatus.get,
     dataStatus,
     canCreateSession: () =>
-      pendingTarget() !== null && activeProjectPath() !== null && sessionCreateStatus.get() !== "creating",
+      pendingTarget() !== null &&
+      (activeProjectId() !== null || activeProjectPath() !== null) &&
+      sessionCreateStatus.get() !== "creating",
     configurationReadiness,
     isCreatingSession: () => sessionCreateStatus.get() === "creating",
     pendingTarget,

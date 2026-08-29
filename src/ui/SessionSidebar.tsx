@@ -1,7 +1,9 @@
 import { Show } from "solid-js"
+import type { ProjectRegistryState } from "../project/ui/projectRegistryStateCreate.js"
 import type { ActiveProjectState } from "./activeProjectStateCreate.js"
 import { NewSessionDialog } from "./NewSessionDialog.js"
 import { SessionList } from "./SessionList.js"
+import type { SessionProjectIdOverride } from "./sessionProjectIdOverride.js"
 import type { SessionProjectPathOverride } from "./sessionProjectPathOverride.js"
 import type { SessionListState } from "./sessionListStateCreate.js"
 import type { SessionTargetSelectorState } from "./sessionTargetSelectorStateCreate.js"
@@ -12,7 +14,9 @@ export function SessionSidebar(props: {
   headingId?: string
   idPrefix?: string
   initialFocus?: (element: HTMLElement) => void
+  projectIdOverride?: SessionProjectIdOverride
   projectPathOverride: SessionProjectPathOverride
+  projectRegistry?: ProjectRegistryState
   sessionList: SessionListState
   sessionTarget: SessionTargetSelectorState
 }) {
@@ -38,8 +42,10 @@ export function SessionSidebar(props: {
         <NewSessionDialog
           activeProject={props.activeProject}
           idPrefix={props.idPrefix ?? "desktop-session"}
+          projectIdOverride={props.projectIdOverride}
           projectPathOverride={props.projectPathOverride}
-          projects={props.sessionList.sidebar.projectGroups}
+          projectRegistry={props.projectRegistry}
+          projects={props.projectRegistry ? props.projectRegistry.projects : props.sessionList.sidebar.projectGroups}
           sessionTarget={props.sessionTarget}
         />
         <Show when={props.sessionTarget.sessionCreateStatus() === "error"}>
@@ -52,9 +58,12 @@ export function SessionSidebar(props: {
       <SessionList
         activeProject={props.activeProject}
         idPrefix={props.idPrefix}
+        projectRegistry={props.projectRegistry}
         state={props.sessionList}
         onSessionSelect={props.close}
-        sessionCreateInProject={(projectPath) => void props.sessionTarget.sessionCreateStart(projectPath)}
+        sessionCreateInProject={(projectPath, projectId) =>
+          void props.sessionTarget.sessionCreateStart(projectPath, undefined, projectId)
+        }
       />
     </div>
   )

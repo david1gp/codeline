@@ -7,6 +7,7 @@ import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.j
 import { apiRepresentationEtagCreate } from "../../api/representation/apiRepresentationEtagCreate.js"
 import { apiRepresentationHeadersCreate } from "../../api/representation/apiRepresentationHeadersCreate.js"
 import type { DatabaseClient } from "../../database/databaseClient.js"
+import { projectDiscoveryApiProjectQuerySchema } from "../../project/api/projectDiscoveryApiProjectQuerySchema.js"
 import { projectApiProjectQuerySchema } from "../../project/api/projectApiProjectQuerySchema.js"
 import { projectResolve } from "../../project/projectResolve.js"
 import type { SkillCatalogDiscoverOptions } from "../actions/skillCatalogDiscover.js"
@@ -22,6 +23,7 @@ import { skillSelectionDefaultUpsert } from "../actions/skillSelectionDefaultUps
 import { skillSelectionInspectionResponseCreate } from "../actions/skillSelectionInspectionResponseCreate.js"
 import { skillSelectionPreSessionResolve } from "../actions/skillSelectionPreSessionResolve.js"
 import { skillSelectionDefaultRequestSchema } from "../schema/skillSelectionDefaultRequestSchema.js"
+import { skillDiscoverySelectionInspectionQuerySchema } from "./skillDiscoverySelectionInspectionQuerySchema.js"
 import { skillSelectionDefaultQuerySchema } from "./skillSelectionDefaultQuerySchema.js"
 import { skillSelectionDefaultResponseCreate } from "./skillSelectionDefaultResponseCreate.js"
 import { skillSelectionInspectionQuerySchema } from "./skillSelectionInspectionQuerySchema.js"
@@ -31,6 +33,7 @@ type ApiContext = Context<AppEnvironment>
 type ApiSkillRoutesOptions = {
   database?: DatabaseClient
   globalSkillsPath?: string
+  projectRegistryDatabase?: DatabaseClient
   rootDirs?: readonly string[]
   skillCatalogDiscover?: typeof skillCatalogDiscover
   skillPresetCatalogLoad?: typeof skillPresetCatalogLoad
@@ -70,10 +73,22 @@ function requestUserId(context: ApiContext): string | undefined {
   return typeof userId === "string" && userId.length > 0 ? userId : undefined
 }
 
-async function projectResolveFromQuery(context: ApiContext, rootDirs: readonly string[]) {
-  const parsed = apiRequestParse("skillProjectQueryParse", projectApiProjectQuerySchema, context.req.query())
+async function projectResolveFromQuery(
+  context: ApiContext,
+  rootDirs: readonly string[],
+  projectRegistryDatabase?: DatabaseClient,
+) {
+  const parsed = apiRequestParse(
+    "skillProjectQueryParse",
+    projectRegistryDatabase === undefined ? projectDiscoveryApiProjectQuerySchema : projectApiProjectQuerySchema,
+    context.req.query(),
+  )
   if (!parsed.success) return { parsed: undefined, project: undefined }
-  const project = await projectResolve(rootDirs, parsed.data.project)
+  const project = await projectResolve(rootDirs, parsed.data.project, {
+    ...(projectRegistryDatabase === undefined
+      ? {}
+      : { database: projectRegistryDatabase, userId: context.var.requestIdentity.userId }),
+  })
   return { parsed, project: project.success ? project.data : undefined }
 }
 
@@ -84,7 +99,7 @@ function defaultEtag(projectPath: string, revision: number): string {
 export function apiSkillRoutesAdd(api: Hono<AppEnvironment>, options: ApiSkillRoutesOptions = {}): void {
   api.get("/project/skills/catalog", async (context) => {
     if (requestUserId(context) === undefined) return unauthorized(context)
-    const resolved = await projectResolveFromQuery(context, options.rootDirs ?? [])
+    const resolved = await projectResolveFromQuery(context, options.rootDirs ?? [], options.projectRegistryDatabase)
     if (resolved.parsed === undefined) return badRequest(context, "The project selection is invalid.")
     if (resolved.project === undefined) return notFound(context)
     const discover = (options.skillCatalogDiscover ?? skillCatalogDiscover) as (
@@ -106,7 +121,7 @@ export function apiSkillRoutesAdd(api: Hono<AppEnvironment>, options: ApiSkillRo
 
   api.get("/project/skills/presets", async (context) => {
     if (requestUserId(context) === undefined) return unauthorized(context)
-    const resolved = await projectResolveFromQuery(context, options.rootDirs ?? [])
+    const resolved = await projectResolveFromQuery(context, options.rootDirs ?? [], options.projectRegistryDatabase)
     if (resolved.parsed === undefined) return badRequest(context, "The project selection is invalid.")
     if (resolved.project === undefined) return notFound(context)
     const load = (options.skillPresetCatalogLoad ?? skillPresetCatalogLoad) as (
@@ -128,11 +143,15 @@ export function apiSkillRoutesAdd(api: Hono<AppEnvironment>, options: ApiSkillRo
     if (userId === undefined) return unauthorized(context)
     const parsed = apiRequestParse(
       "skillSelectionInspectionQueryParse",
-      skillSelectionInspectionQuerySchema,
+      options.projectRegistryDatabase === undefined
+        ? skillDiscoverySelectionInspectionQuerySchema
+        : skillSelectionInspectionQuerySchema,
       context.req.query(),
     )
     if (!parsed.success) return badRequest(context, "The project selection is invalid.")
-    const project = await projectResolve(options.rootDirs ?? [], parsed.data.project)
+    const project = await projectResolve(options.rootDirs ?? [], parsed.data.project, {
+      ...(options.projectRegistryDatabase === undefined ? {} : { database: options.projectRegistryDatabase, userId }),
+    })
     if (!project.success) return notFound(context)
     if (options.database === undefined) return internalServerError(context)
     const discover = (options.skillCatalogDiscover ?? skillCatalogDiscover) as (

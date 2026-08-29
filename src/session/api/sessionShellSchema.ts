@@ -1,6 +1,7 @@
 import * as v from "valibot"
 import { apiPublicIdSchema } from "../../api/schema/apiPublicIdSchema.js"
 import { apiRevisionSchema } from "../../api/schema/apiRevisionSchema.js"
+import { projectIdSchema } from "../../project/projectIdSchema.js"
 import { sessionAgentPromptSchema } from "../schema/sessionAgentPromptSchema.js"
 import { sessionExecutionSelectionSchema } from "../schema/sessionExecutionSelectionSchema.js"
 import { sessionExecutionResourceSummarySchema } from "./sessionExecutionResourceSummarySchema.js"
@@ -18,6 +19,7 @@ export const sessionShellSchema = v.strictObject({
   parentSessionId: v.nullable(apiPublicIdSchema),
   pinned: v.boolean(),
   primaryAgentId: apiPublicIdSchema,
+  projectId: v.optional(projectIdSchema),
   projectPath: v.pipe(v.string(), v.maxLength(4_096)),
   revision: apiRevisionSchema,
   serverId: apiPublicIdSchema,

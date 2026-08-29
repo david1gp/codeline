@@ -3,6 +3,8 @@ import { Hono } from "hono"
 import { apiRequestParse } from "../../api/apiRequestParse.js"
 import type { AppEnvironment } from "../../api/appEnvironment.js"
 import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.js"
+import type { DatabaseClient } from "../../database/databaseClient.js"
+import { projectDiscoveryApiProjectQuerySchema } from "../../project/api/projectDiscoveryApiProjectQuerySchema.js"
 import { projectApiProjectQuerySchema } from "../../project/api/projectApiProjectQuerySchema.js"
 import { projectResolve } from "../../project/projectResolve.js"
 import { agentInstructionInspectionResponseCreate } from "../actions/agentInstructionInspectionResponseCreate.js"
@@ -13,6 +15,7 @@ type ApiContext = Context<AppEnvironment>
 type ApiAgentInstructionRoutesOptions = {
   agentInstructionsDiscover?: typeof agentInstructionsDiscover
   globalAgentsPath?: string
+  projectRegistryDatabase?: DatabaseClient
   rootDirs?: readonly string[]
 }
 
@@ -57,12 +60,18 @@ export function apiAgentInstructionRoutesAdd(
     if (!requestAuthorized(context)) return unauthorized(context)
     const parsed = apiRequestParse(
       "agentInstructionProjectQueryParse",
-      projectApiProjectQuerySchema,
+      options.projectRegistryDatabase === undefined
+        ? projectDiscoveryApiProjectQuerySchema
+        : projectApiProjectQuerySchema,
       context.req.query(),
     )
     if (!parsed.success) return badRequest(context)
 
-    const project = await projectResolve(options.rootDirs ?? [], parsed.data.project)
+    const project = await projectResolve(options.rootDirs ?? [], parsed.data.project, {
+      ...(options.projectRegistryDatabase === undefined
+        ? {}
+        : { database: options.projectRegistryDatabase, userId: context.var.requestIdentity.userId }),
+    })
     if (!project.success) return notFound(context)
 
     const discovered = await (options.agentInstructionsDiscover ?? agentInstructionsDiscover)({

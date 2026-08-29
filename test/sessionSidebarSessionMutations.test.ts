@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test"
+import { sessionSidebarActionsStateCreate } from "../src/ui/sessionSidebarActionsStateCreate.js"
 import { sessionSidebarSessionDelete } from "../src/ui/sessionSidebarSessionDelete.js"
 import { sessionSidebarSessionRename } from "../src/ui/sessionSidebarSessionRename.js"
 
@@ -120,4 +121,122 @@ test("sidebar delete reports connection failures as retryable", async () => {
   expect(result.success ? "" : result.errorMessage).toBe(
     "The session could not be deleted. Check your connection and try again.",
   )
+})
+
+test("sidebar actions project rename sends PATCH to registry when projectId is present", async () => {
+  const requests: RecordedRequest[] = []
+  const projectId = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1f50"
+  let refreshed = false
+
+  const actions = sessionSidebarActionsStateCreate({
+    fetcher: fetcherCreate(requests, () =>
+      Response.json({
+        project: { available: true, id: projectId, label: "Renamed Project" },
+      }),
+    ),
+    onProjectRenamed: () => {
+      refreshed = true
+    },
+    sessionIdsForProject: () => [],
+    sessionTitle: () => undefined,
+    sessionTitlesForProject: () => [],
+  })
+
+  actions.projectRenameOpen({ projectId, projectLabel: "Initial Label", projectPath: "/workspace/project" })
+  actions.draftChange("Renamed Project")
+  await actions.projectRenameSubmit()
+
+  expect(requests).toEqual([
+    {
+      ifMatch: null,
+      method: "PATCH",
+      url: `/api/project/registry/${projectId}`,
+    },
+  ])
+  expect(refreshed).toBe(true)
+  expect(actions.dialog().kind).toBe("closed")
+})
+
+test("sidebar actions project remove sends DELETE to registry without deleting sessions", async () => {
+  const requests: RecordedRequest[] = []
+  const projectId = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1f51"
+  let removedProjectId: string | undefined
+
+  const actions = sessionSidebarActionsStateCreate({
+    fetcher: async (input, init) => {
+      const method = init?.method ?? "GET"
+      requests.push({ ifMatch: null, method, url: String(input) })
+      return new Response(null, { status: 204 })
+    },
+    onProjectRemoved: (id) => {
+      removedProjectId = id
+    },
+    sessionIdsForProject: () => ["session-1", "session-2"],
+    sessionTitle: () => undefined,
+    sessionTitlesForProject: () => ["Session 1", "Session 2"],
+  })
+
+  actions.projectRemoveOpen({ projectId, projectLabel: "To Remove", projectPath: "/workspace/project" })
+  expect(actions.dialog().kind).toBe("projectRemove")
+
+  await actions.projectRemoveSubmit()
+
+  expect(requests).toEqual([
+    {
+      ifMatch: null,
+      method: "DELETE",
+      url: `/api/project/registry/${projectId}`,
+    },
+  ])
+  expect(removedProjectId).toBe(projectId)
+  expect(actions.dialog().kind).toBe("closed")
+})
+
+test("sidebar actions project delete for unregistered historical project deletes each session", async () => {
+  const deletedSessionIds: string[] = []
+  const notifiedDeletedIds: string[] = []
+
+  const actions = sessionSidebarActionsStateCreate({
+    onSessionDeleted: (sessionId) => {
+      notifiedDeletedIds.push(sessionId)
+    },
+    sessionDelete: async (sessionId) => {
+      deletedSessionIds.push(sessionId)
+      return { data: true, success: true }
+    },
+    sessionIdsForProject: (projectPath) => (projectPath === "/workspace/historical" ? ["session-a", "session-b"] : []),
+    sessionTitle: () => undefined,
+    sessionTitlesForProject: (projectPath) =>
+      projectPath === "/workspace/historical" ? ["Session A", "Session B"] : [],
+  })
+
+  actions.projectDeleteOpen({ projectLabel: "historical", projectPath: "/workspace/historical" })
+  expect(actions.dialog()).toEqual({ kind: "projectDelete", projectPath: "/workspace/historical" })
+
+  await actions.projectDeleteSubmit()
+
+  expect(deletedSessionIds).toEqual(["session-a", "session-b"])
+  expect(notifiedDeletedIds).toEqual(["session-a", "session-b"])
+  expect(actions.dialog().kind).toBe("closed")
+})
+
+test("sidebar actions project remove is a no-op if projectId is undefined", async () => {
+  let removeCalled = false
+  const actions = sessionSidebarActionsStateCreate({
+    projectRemove: async () => {
+      removeCalled = true
+      return { data: undefined, success: true }
+    },
+    sessionIdsForProject: () => [],
+    sessionTitle: () => undefined,
+    sessionTitlesForProject: () => [],
+  })
+
+  actions.projectRemoveOpen({ projectLabel: "historical", projectPath: "/workspace/historical" })
+  expect(actions.dialog().kind).toBe("projectRemove")
+
+  await actions.projectRemoveSubmit()
+
+  expect(removeCalled).toBe(false)
+  expect(actions.dialog().kind).toBe("closed")
 })

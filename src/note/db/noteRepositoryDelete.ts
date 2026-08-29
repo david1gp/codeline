@@ -1,12 +1,11 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import { and, eq } from "drizzle-orm"
-import * as v from "valibot"
 import { mutationIdempotencyTable } from "../../api/db/mutationIdempotencyTable.js"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { uuidv7 } from "../../uuid/uuidv7.js"
-import { noteApiRecordSchema } from "../api/noteApiRecordSchema.js"
 import { noteRepresentationEtagCreate } from "../api/noteRepresentationEtagCreate.js"
 import { noteApiRecordCreate } from "./noteApiRecordCreate.js"
+import { noteApiRecordReplayCreate } from "./noteApiRecordReplayCreate.js"
 import { noteOrganizationAuthorize } from "./noteOrganizationAuthorize.js"
 import { notePreconditionConflictCreate } from "./notePreconditionConflictCreate.js"
 import { noteProjectPathNormalize } from "./noteProjectPathNormalize.js"
@@ -66,7 +65,7 @@ export async function noteRepositoryDelete(
       .returning()
     if (deleted === undefined) return createResultError(op, "The note could not be found.")
 
-    const response = noteApiRecordCreate({ ...deleted, revision: deleted.revision + 1 })
+    const response = await noteApiRecordCreate(database, { ...deleted, revision: deleted.revision + 1 })
     if (!response.success) return createResultError(op, response.errorMessage)
     const stored = await noteDeleteIdempotencyStore(database, userId, noteId, options, response.data)
     if (!stored.success) return createResultError(op, stored.errorMessage)
@@ -108,9 +107,9 @@ async function noteDeleteIdempotencyLoad(
   if (idempotent === undefined) return createResult(undefined)
   if (idempotent.resourceId !== noteId || idempotent.requestHash !== options.requestHash)
     return noteRepositoryIdempotencyConflictCreate(op)
-  const response = v.safeParse(noteApiRecordSchema, idempotent.responseBody)
-  if (!response.success) return createResultError(op, "The stored idempotency response is invalid.")
-  return createResult({ affectedNotes: [], deleted: true, replayed: true, responseBody: response.output })
+  const response = await noteApiRecordReplayCreate(database, userId, idempotent.responseBody)
+  if (!response.success) return createResultError(op, response.errorMessage)
+  return createResult({ affectedNotes: [], deleted: true, replayed: true, responseBody: response.data })
 }
 
 async function noteDeleteIdempotencyStore(

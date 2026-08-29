@@ -3,6 +3,8 @@ import { Hono } from "hono"
 import { apiRequestParse } from "../../api/apiRequestParse.js"
 import type { AppEnvironment } from "../../api/appEnvironment.js"
 import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.js"
+import type { DatabaseClient } from "../../database/databaseClient.js"
+import { projectDiscoveryApiProjectQuerySchema } from "../../project/api/projectDiscoveryApiProjectQuerySchema.js"
 import { projectApiProjectQuerySchema } from "../../project/api/projectApiProjectQuerySchema.js"
 import { projectResolve } from "../../project/projectResolve.js"
 import { type CommandCatalogDiscoverOptions, commandCatalogDiscover } from "../actions/commandCatalogDiscover.js"
@@ -13,6 +15,7 @@ type ApiContext = Context<AppEnvironment>
 type ApiCommandRoutesOptions = {
   commandCatalogDiscover?: typeof commandCatalogDiscover
   globalCommandsPath?: string
+  projectRegistryDatabase?: DatabaseClient
   rootDirs?: readonly string[]
 }
 
@@ -52,9 +55,19 @@ function requestAuthorized(context: ApiContext): boolean {
 export function apiCommandRoutesAdd(api: Hono<AppEnvironment>, options: ApiCommandRoutesOptions = {}): void {
   api.get("/project/commands/catalog", async (context) => {
     if (!requestAuthorized(context)) return unauthorized(context)
-    const parsed = apiRequestParse("commandProjectQueryParse", projectApiProjectQuerySchema, context.req.query())
+    const parsed = apiRequestParse(
+      "commandProjectQueryParse",
+      options.projectRegistryDatabase === undefined
+        ? projectDiscoveryApiProjectQuerySchema
+        : projectApiProjectQuerySchema,
+      context.req.query(),
+    )
     if (!parsed.success) return badRequest(context)
-    const project = await projectResolve(options.rootDirs ?? [], parsed.data.project)
+    const project = await projectResolve(options.rootDirs ?? [], parsed.data.project, {
+      ...(options.projectRegistryDatabase === undefined
+        ? {}
+        : { database: options.projectRegistryDatabase, userId: context.var.requestIdentity.userId }),
+    })
     if (!project.success) return notFound(context)
     const discover = (options.commandCatalogDiscover ?? commandCatalogDiscover) as (
       options: CommandCatalogDiscoverOptions,

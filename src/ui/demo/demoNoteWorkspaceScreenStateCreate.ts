@@ -13,7 +13,7 @@ export function demoNoteWorkspaceScreenStateCreate(variant: () => DemoSessionScr
   const detail = demoNoteScreenStateCreate(variant)
   const notes = () => (variant() === "empty" ? [] : demoNotesFixture)
   const groups = () => noteGroupsDerive(notes(), demoNoteProjectsFixture)
-  const projectNotes = () => groups().find((group) => group.projectPath === demoActiveNote.projectPath)?.notes ?? []
+  const projectNotes = () => groups().find((group) => group.projectId === demoActiveNote.projectId)?.notes ?? []
   const bounds = () => noteMoveBoundsResolve(projectNotes(), demoActiveNote.id)
   const revalidate = () => {
     detail.revalidate()
@@ -25,7 +25,7 @@ export function demoNoteWorkspaceScreenStateCreate(variant: () => DemoSessionScr
     revalidate,
     sidebar: {
       activeNoteId: () => demoActiveNote.id,
-      activeProjectPath: () => demoActiveNote.projectPath,
+      activeProjectId: () => demoActiveNote.projectId,
       canMoveDown: () => bounds().canMoveDown,
       canMoveUp: () => bounds().canMoveUp,
       dataStatus: () => (variant() === "loading" ? ("reconciling" as const) : ("ready" as const)),

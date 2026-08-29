@@ -2,6 +2,8 @@ import { mdiFolderPlusOutline } from "@adaptive-ds/mdi/mdiFolderPlusOutline.js"
 import { type JSX } from "solid-js"
 import { buttonVariant } from "#ui/interactive/button/buttonCva.js"
 import { CorvuDialog } from "#ui/interactive/dialog/CorvuDialog.jsx"
+import type { ProjectRegistryApiProject } from "../project/api/projectRegistryApiProjectSchema.js"
+import type { ProjectRegistryState } from "../project/ui/projectRegistryStateCreate.js"
 import type { ActiveProjectState } from "./activeProjectStateCreate.js"
 import { NewProjectForm } from "./NewProjectForm.js"
 import { newProjectDialogStateCreate } from "./newProjectDialogStateCreate.js"
@@ -11,15 +13,17 @@ export function NewProjectDialog(props: {
   buttonClass?: string
   buttonChildren?: JSX.Element
   idPrefix: string
-  onProjectConfirmed?: (projectPath: string) => void
+  onProjectConfirmed?: (projectPath: string, project?: ProjectRegistryApiProject) => void
   onOpenChange?: (open: boolean) => void
   open?: () => boolean
+  projectRegistry?: ProjectRegistryState
 }) {
   const state = newProjectDialogStateCreate({
     activeProject: props.activeProject,
     idPrefix: props.idPrefix,
     onProjectConfirmed: props.onProjectConfirmed,
     open: props.open,
+    projectRegistry: props.projectRegistry,
   })
 
   return (

@@ -7,7 +7,7 @@ type ProjectListFetchDependencies = {
   signal?: AbortSignal
 }
 
-/** Typed read of the discovered project selections. Paths are never exposed by this contract. */
+/** Typed read of discovered project selections. Paths are never exposed by this contract. */
 export function projectListFetch(
   dependencies: ProjectListFetchDependencies = {},
 ): Promise<Result<ProjectApiListResponse>> {

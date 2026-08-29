@@ -6,6 +6,7 @@ import type { DatabaseClient } from "../../database/databaseClient.js"
 import { metadataSearchPatternCreate } from "../../database/metadataSearchPatternCreate.js"
 import { applicationUserTable } from "../../identity/db/applicationUserTable.js"
 import { journalSequenceCounterTable } from "../../journal/db/journalSequenceCounterTable.js"
+import { projectTable } from "../../project/db/projectTable.js"
 import { serverTable } from "../../servers/db/serverTable.js"
 import { type SessionListCursor, sessionListCursorSchema } from "../api/sessionListCursorSchema.js"
 import { sessionListRequestSchema } from "../api/sessionListRequestSchema.js"
@@ -21,6 +22,7 @@ type SessionListRequestInput = v.InferInput<typeof sessionListRequestSchema>
 
 type SessionListSnapshotRow = {
   agent: typeof agentTable.$inferSelect
+  projectId: string | null
   server: typeof serverTable.$inferSelect
   session: typeof sessionTable.$inferSelect
 }
@@ -54,10 +56,14 @@ function sessionListHighestSequence(nextSequence: number | undefined): Result<nu
 function sessionListRepresentationRevision(rows: SessionListSnapshotRow[], asOfSequence: number): number {
   const representation = [
     String(asOfSequence),
-    ...rows.map(({ session }) =>
-      [session.id, session.revision, session.updatedAt.toISOString(), session.archivedAt?.toISOString() ?? ""].join(
-        "\u0000",
-      ),
+    ...rows.map(({ projectId, session }) =>
+      [
+        session.id,
+        session.revision,
+        session.updatedAt.toISOString(),
+        session.archivedAt?.toISOString() ?? "",
+        projectId ?? "",
+      ].join("\u0000"),
     ),
   ].join("\u0001")
   let hash = 2_166_136_261
@@ -138,10 +144,14 @@ export async function sessionRepositoryListSnapshot(
         }
 
         const rows = await transaction
-          .select({ agent: agentTable, server: serverTable, session: sessionTable })
+          .select({ agent: agentTable, projectId: projectTable.id, server: serverTable, session: sessionTable })
           .from(sessionTable)
           .innerJoin(serverTable, eq(sessionTable.serverId, serverTable.id))
           .innerJoin(agentTable, eq(sessionTable.primaryAgentId, agentTable.id))
+          .leftJoin(
+            projectTable,
+            and(eq(projectTable.userId, sessionTable.userId), eq(projectTable.path, sessionTable.projectPath)),
+          )
           .where(and(...conditions))
           .orderBy(desc(sessionTable.updatedAt), desc(sessionTable.id))
           .limit(parsedOptions.output.limit + 1)

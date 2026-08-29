@@ -1,6 +1,7 @@
 import { createSignalObject } from "@adaptive-ds/solid-ui/utils/createSignalObject"
 import { useNavigate } from "@solidjs/router"
 import { createEffect, onCleanup, useContext } from "solid-js"
+import type { ProjectRegistryState } from "../../project/ui/projectRegistryStateCreate.js"
 import { applicationAccountContext } from "../../ui/applicationAccountContext.js"
 import { appShellContext } from "../../ui/appShellContext.js"
 import { eventFeedCoordinatorContext } from "../../ui/eventFeedCoordinatorContext.js"
@@ -26,6 +27,7 @@ type NotePageStateOptions = {
   fetcher?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
   isOnline?: () => boolean
   noteId: string | (() => string)
+  projectRegistry?: ProjectRegistryState
 }
 
 export function notePageStateCreate(options: NotePageStateOptions): NoteScreenView {
@@ -53,7 +55,12 @@ export function notePageStateCreate(options: NotePageStateOptions): NoteScreenVi
   })
   const content = createSignalObject<string | null>(null)
   const projectId = createSignalObject<string | null>(null)
-  const projectList = noteProjectListStateCreate({ apiBase, fetcher })
+  const projectList = noteProjectListStateCreate({
+    apiBase,
+    fetcher,
+    ...(options.accountId === undefined ? {} : { accountId: options.accountId }),
+    ...(options.projectRegistry === undefined ? {} : { projectRegistry: options.projectRegistry }),
+  })
   const status = createSignalObject<"idle" | "saving" | "error">("idle")
   const isDeleteConfirmOpen = createSignalObject(false)
   const revalidate = () => {
@@ -67,7 +74,7 @@ export function notePageStateCreate(options: NotePageStateOptions): NoteScreenVi
     const loaded = noteQuery.data()
     if (loaded === undefined || content.get() !== null) return
     content.set(loaded.content)
-    projectId.set(loaded.projectPath)
+    projectId.set(loaded.projectId)
   })
 
   const noteSave = async () => {
@@ -80,7 +87,7 @@ export function notePageStateCreate(options: NotePageStateOptions): NoteScreenVi
       {
         content: editedContent,
         id: current.id,
-        projectPath: projectId.get(),
+        projectId: projectId.get(),
         updatedAt: Date.now(),
       },
       { etag: noteEtag(current), fetch: fetcher },
@@ -90,7 +97,7 @@ export function notePageStateCreate(options: NotePageStateOptions): NoteScreenVi
       return
     }
     content.set(result.data.content)
-    projectId.set(result.data.projectPath)
+    projectId.set(result.data.projectId)
     status.set("idle")
     // The mutation response carries the authoritative revision; invalidating the
     // shared entry stops a stale conditional 304 from resurrecting the old note.
@@ -139,7 +146,7 @@ export function notePageStateCreate(options: NotePageStateOptions): NoteScreenVi
       return (
         current !== undefined &&
         content.get() !== null &&
-        (content.get() !== current.content || projectId.get() !== current.projectPath)
+        (content.get() !== current.content || projectId.get() !== current.projectId)
       )
     },
     isLoading: () => noteQuery.isLoading() && noteQuery.data() === undefined,
@@ -147,7 +154,7 @@ export function notePageStateCreate(options: NotePageStateOptions): NoteScreenVi
     isSaving: () => status.get() === "saving",
     lineCount: () => noteLineCount(content.get() ?? ""),
     projectId: () => projectId.get() ?? "",
-    projects: () => noteProjectChoicesResolve(projectList.projects(), projectId.get()),
+    projects: () => noteProjectChoicesResolve(projectList.projects(), projectId.get(), noteQuery.data()?.projectPath),
     projectIdUpdate: (event) => {
       projectId.set(event.currentTarget.value === "" ? null : event.currentTarget.value)
       if (status.get() === "error") status.set("idle")

@@ -14,3 +14,16 @@ test("SessionList wires the load-more view boundary to sidebar pagination state"
   expect(loadMoreSource).toContain("onClick={props.state.sidebar.loadMore}")
   expect(loadMoreSource).toContain('{props.state.sidebar.isLoadingMore() ? "Loading..." : "Load more"}')
 })
+
+test("SessionList configures Delete action for historical projects and Remove for registered projects", async () => {
+  const source = await Bun.file(new URL("../src/ui/SessionList.tsx", import.meta.url)).text()
+
+  expect(source).toContain('deleteLabel={project.projectId !== undefined ? "Remove" : "Delete"}')
+  expect(source).toContain(
+    "onDelete={() =>\n" +
+      "                          project.projectId !== undefined\n" +
+      "                            ? props.state.actions.projectRemoveOpen(project)\n" +
+      "                            : props.state.actions.projectDeleteOpen(project)\n" +
+      "                        }",
+  )
+})

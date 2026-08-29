@@ -12,6 +12,7 @@ const note = {
   content: "Heading\nDetails",
   createdAt: 100,
   id: "note-1",
+  projectId: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1f80",
   projectPath: "/workspace/codeline",
   revision: 1,
   sortOrder: 0,
@@ -35,7 +36,7 @@ test("the note list retains its cached representation across a conditional 304 r
   const requests: Array<string | null> = []
   const fetcher: NoteFetch = async (input, init) => {
     if (!String(input).startsWith("/api/notes"))
-      return Response.json({ projects: [{ id: "/workspace/codeline", label: "Codeline" }], truncated: false })
+      return Response.json({ projects: [{ available: true, id: note.projectId, label: "Codeline" }], truncated: false })
     const ifNoneMatch = new Headers(init?.headers).get("If-None-Match")
     requests.push(ifNoneMatch)
     if (ifNoneMatch === '"notes-1"') return new Response(null, { status: 304, headers: { ETag: '"notes-1"' } })

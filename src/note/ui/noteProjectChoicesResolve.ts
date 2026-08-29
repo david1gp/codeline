@@ -1,10 +1,20 @@
-import type { ProjectApiListResponse } from "../../project/api/projectApiListResponseSchema.js"
+import type { ProjectRegistryApiProject } from "../../project/api/projectRegistryApiProjectSchema.js"
 import { noteProjectLabelResolve } from "./noteProjectLabelResolve.js"
 
 export function noteProjectChoicesResolve(
-  projects: ProjectApiListResponse["projects"],
+  projects: readonly ProjectRegistryApiProject[],
   currentProjectId: string | null,
-): ProjectApiListResponse["projects"] {
-  if (currentProjectId === null || projects.some((project) => project.id === currentProjectId)) return projects
-  return [{ id: currentProjectId, label: noteProjectLabelResolve(projects, currentProjectId) }, ...projects]
+  currentProjectPath?: string | null,
+): readonly ProjectRegistryApiProject[] {
+  const available = projects.filter((project) => project.available)
+  if (currentProjectId === null || available.some((project) => project.id === currentProjectId)) {
+    return available
+  }
+  const currentProject = projects.find((project) => project.id === currentProjectId)
+  const choice: ProjectRegistryApiProject = currentProject ?? {
+    available: false,
+    id: currentProjectId,
+    label: noteProjectLabelResolve(projects, currentProjectId, currentProjectPath),
+  }
+  return [choice, ...available]
 }

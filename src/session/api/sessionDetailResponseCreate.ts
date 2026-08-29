@@ -8,11 +8,17 @@ import { sessionShellCreate } from "./sessionShellCreate.js"
 export function sessionDetailResponseCreate(input: {
   agent: { id: string }
   asOfCursor?: string
+  projectId?: string
   server: { id: string }
   session: Parameters<typeof sessionShellCreate>[0]
+  userId: string
 }): Result<SessionDetailResponse> {
   const op = "sessionDetailResponseCreate"
-  const session = sessionShellCreate(input.session)
+  const session = sessionShellCreate({
+    ...input.session,
+    projectId: input.projectId,
+    userId: input.userId,
+  })
   if (!session.success) return session
 
   const response = v.safeParse(sessionDetailResponseSchema, {

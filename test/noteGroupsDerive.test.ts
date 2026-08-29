@@ -1,31 +1,106 @@
 import { expect, test } from "bun:test"
 import { noteGroupsDerive } from "../src/note/ui/noteGroupsDerive.js"
 
-test("note groups use discovered labels without changing group or note ordering", () => {
+test("note groups use registered labels without changing group or note ordering", () => {
   const notes = [
-    { id: "unassigned", content: "unassigned", projectPath: null, sortOrder: 0, updatedAt: 1 },
-    { id: "legacy", content: "legacy", projectPath: "packages/legacy", sortOrder: 0, updatedAt: 2 },
-    { id: "opaque", content: "opaque", projectPath: "opaque-project-id", sortOrder: 1, updatedAt: 3 },
-    { id: "opaque-first", content: "first", projectPath: "opaque-project-id", sortOrder: 0, updatedAt: 4 },
+    { id: "unassigned", content: "unassigned", projectId: null, projectPath: null, sortOrder: 0, updatedAt: 1 },
+    {
+      id: "legacy",
+      content: "legacy",
+      projectId: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc7",
+      projectPath: "packages/legacy",
+      sortOrder: 0,
+      updatedAt: 2,
+    },
+    {
+      id: "opaque",
+      content: "opaque",
+      projectId: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb8",
+      projectPath: "/workspace/codeline",
+      sortOrder: 1,
+      updatedAt: 3,
+    },
+    {
+      id: "opaque-first",
+      content: "first",
+      projectId: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb8",
+      projectPath: "/workspace/codeline",
+      sortOrder: 0,
+      updatedAt: 4,
+    },
+    {
+      id: "unavailable",
+      content: "unavailable",
+      projectId: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb9",
+      projectPath: "/workspace/unavailable",
+      sortOrder: 0,
+      updatedAt: 5,
+    },
   ]
 
-  const [unassignedNote, legacyNote, opaqueNote, firstNote] = notes
+  const [unassignedNote, legacyNote, opaqueNote, firstNote, unavailableNote] = notes
 
-  expect(noteGroupsDerive(notes, [{ id: "opaque-project-id", label: "Codeline" }])).toEqual([
+  expect(
+    noteGroupsDerive(notes, [
+      { available: true, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb8", label: "Codeline" },
+      { available: false, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb9", label: "Unavailable Project" },
+    ]),
+  ).toEqual([
     {
       label: "Codeline",
-      projectPath: "opaque-project-id",
+      projectId: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb8",
+      projectPath: "/workspace/codeline",
       notes: [firstNote!, opaqueNote!],
     },
     {
+      label: "Unavailable Project",
+      projectId: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb9",
+      projectPath: "/workspace/unavailable",
+      notes: [unavailableNote!],
+    },
+    {
       label: "packages/legacy",
+      projectId: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc7",
       projectPath: "packages/legacy",
       notes: [legacyNote!],
     },
     {
       label: "Unassigned",
+      projectId: null,
       projectPath: null,
       notes: [unassignedNote!],
     },
+  ])
+})
+
+test("note groups keep duplicate project labels separate by opaque project ID", () => {
+  const firstProjectId = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fba"
+  const secondProjectId = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fbb"
+  const firstNote = {
+    content: "first",
+    id: "first",
+    projectId: firstProjectId,
+    projectPath: "/workspace/first",
+    updatedAt: 1,
+  }
+  const secondNote = {
+    content: "second",
+    id: "second",
+    projectId: secondProjectId,
+    projectPath: "/workspace/second",
+    updatedAt: 1,
+  }
+
+  expect(
+    noteGroupsDerive(
+      [firstNote, secondNote],
+      [
+        { available: true, id: firstProjectId, label: "Shared label" },
+        { available: true, id: secondProjectId, label: "Shared label" },
+      ],
+    ),
+  ).toEqual([
+    { label: "Shared label", projectId: firstProjectId, projectPath: "/workspace/first", notes: [firstNote] },
+    { label: "Shared label", projectId: secondProjectId, projectPath: "/workspace/second", notes: [secondNote] },
   ])
 })

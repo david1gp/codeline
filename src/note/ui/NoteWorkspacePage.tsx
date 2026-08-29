@@ -52,10 +52,10 @@ export function NoteWorkspacePage(props: { state: NoteWorkspaceScreenView }) {
                 <span
                   class="flex items-center gap-1 px-2 py-1.5 font-mono text-xs font-semibold tracking-[0.08em] uppercase"
                   classList={{
-                    "text-accent": group.projectPath === state.activeProjectPath(),
-                    "text-faint": group.projectPath !== state.activeProjectPath(),
+                    "text-accent": group.projectId === state.activeProjectId(),
+                    "text-faint": group.projectId !== state.activeProjectId(),
                   }}
-                  aria-current={group.projectPath === state.activeProjectPath() ? "true" : undefined}
+                  aria-current={group.projectId === state.activeProjectId() ? "true" : undefined}
                 >
                   <ProjectAvatar name={group.label} />
                   {group.label}

@@ -1,5 +1,5 @@
 export const demoProjectsFixture = [
-  { id: "demo-project-codeline", label: "codeline" },
-  { id: "demo-project-solid-ui", label: "solid-ui" },
-  { id: "demo-project-result", label: "result" },
+  { available: true, id: "demo-project-codeline", label: "codeline" },
+  { available: true, id: "demo-project-solid-ui", label: "solid-ui" },
+  { available: true, id: "demo-project-result", label: "result" },
 ] as const

@@ -1,5 +1,6 @@
 import { onCleanup, useContext } from "solid-js"
 import { markdownHtmlRender } from "../../markdown/markdownHtmlRender.js"
+import type { ProjectRegistryState } from "../../project/ui/projectRegistryStateCreate.js"
 import { eventFeedCoordinatorContext } from "../../ui/eventFeedCoordinatorContext.js"
 import { httpQueryDataStatusResolve } from "../../ui/httpQueryDataStatusResolve.js"
 import { noteRepresentationEtagCreate } from "../api/noteRepresentationEtagCreate.js"
@@ -16,6 +17,7 @@ type NoteWorkspacePageStateOptions = {
   fetcher?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
   isOnline?: () => boolean
   noteId: () => string
+  projectRegistry?: ProjectRegistryState
 }
 
 export function noteWorkspacePageStateCreate(options: NoteWorkspacePageStateOptions): NoteWorkspaceSidebarView {
@@ -27,7 +29,12 @@ export function noteWorkspacePageStateCreate(options: NoteWorkspacePageStateOpti
     ...(options.isOnline === undefined ? {} : { isOnline: options.isOnline }),
   })
   const notesQuery = noteList.query
-  const projectList = noteProjectListStateCreate({ apiBase: options.apiBase, fetcher })
+  const projectList = noteProjectListStateCreate({
+    apiBase: options.apiBase,
+    fetcher,
+    ...(options.accountId === undefined ? {} : { accountId: options.accountId }),
+    ...(options.projectRegistry === undefined ? {} : { projectRegistry: options.projectRegistry }),
+  })
   const notes = noteList.notes
   const groups = () => noteGroupsDerive(notes(), projectList.projects())
   const revalidate = () => {
@@ -37,8 +44,8 @@ export function noteWorkspacePageStateCreate(options: NoteWorkspacePageStateOpti
   const unregisterEventFeed = eventFeed?.registerNoteList(revalidate)
   if (unregisterEventFeed !== undefined) onCleanup(unregisterEventFeed)
   const activeNote = () => notes().find((note) => note.id === options.noteId())
-  const activeProjectPath = () => activeNote()?.projectPath ?? null
-  const projectNotes = () => groups().find((group) => group.projectPath === activeProjectPath())?.notes ?? []
+  const activeProjectId = () => activeNote()?.projectId ?? null
+  const projectNotes = () => groups().find((group) => group.projectId === activeProjectId())?.notes ?? []
   const bounds = () => noteMoveBoundsResolve(projectNotes(), options.noteId())
   const noteMove = async (direction: "up" | "down") => {
     const current = activeNote()
@@ -46,7 +53,7 @@ export function noteWorkspacePageStateCreate(options: NoteWorkspacePageStateOpti
     if (direction === "up" ? !bounds().canMoveUp : !bounds().canMoveDown) return
     const result = await noteReorderRequest(
       current.id,
-      { direction, id: current.id, projectPath: activeProjectPath() },
+      { direction, id: current.id, projectId: activeProjectId() },
       { etag: noteRepresentationEtagCreate(current.id, current.revision), fetch: fetcher },
     )
     if (result.success) notesQuery.refresh()
@@ -54,7 +61,7 @@ export function noteWorkspacePageStateCreate(options: NoteWorkspacePageStateOpti
 
   return {
     activeNoteId: options.noteId,
-    activeProjectPath,
+    activeProjectId,
     canMoveDown: () => bounds().canMoveDown,
     canMoveUp: () => bounds().canMoveUp,
     dataStatus: () => httpQueryDataStatusResolve({ isOnline: noteList.isOnline(), queries: [notesQuery] }),

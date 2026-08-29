@@ -12,6 +12,7 @@ export default defineConfig({
     "./src/skills/db/*Table.ts",
     "./src/message/db/*Table.ts",
     "./src/note/db/*Table.ts",
+    "./src/project/db/*Table.ts",
     "./src/run/db/*Table.ts",
     "./src/journal/db/*Table.ts",
   ],

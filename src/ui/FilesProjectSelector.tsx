@@ -28,7 +28,7 @@ export function FilesProjectSelector(props: { compact?: boolean; state: FilesScr
             Project files
           </h1>
           <Show when={!props.compact}>
-            <p class="m-0 mt-1 text-[11px] text-[var(--muted-foreground)]">Choose a discovered project to browse.</p>
+            <p class="m-0 mt-1 text-[11px] text-[var(--muted-foreground)]">Choose a registered project to browse.</p>
           </Show>
           <Show when={state.truncated()}>
             <p class="m-0 mt-2 text-xs text-danger" role="status">
@@ -52,7 +52,7 @@ export function FilesProjectSelector(props: { compact?: boolean; state: FilesScr
           </Match>
           <Match when={state.projects().length === 0}>
             <p class="m-0 text-xs text-[var(--muted-foreground)]" role="status">
-              No projects were discovered.
+              No registered projects available.
             </p>
           </Match>
           <Match when={true}>

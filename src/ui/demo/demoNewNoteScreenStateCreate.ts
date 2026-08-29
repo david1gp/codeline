@@ -2,6 +2,7 @@ import { createSignalObject } from "@adaptive-ds/solid-ui/utils/createSignalObje
 import type { NewNoteScreenView } from "../../note/ui/newNoteScreenView.js"
 import { noteContentFieldStateCreate } from "../../note/ui/noteContentFieldStateCreate.js"
 import { noteTitleStateCreate } from "../../note/ui/noteTitleStateCreate.js"
+import { demoNoteProjectsFixture } from "./demoNoteProjectsFixture.js"
 import { demoNoteViewModeStateCreate } from "./demoNoteViewModeStateCreate.js"
 import type { DemoSessionScreenVariant } from "./demoSessionScreenVariant.js"
 
@@ -20,6 +21,9 @@ export function demoNewNoteScreenStateCreate(variant: () => DemoSessionScreenVar
     contentUpdate: (event) => content.set(event.currentTarget.value),
     hasError: () => variant() === "error",
     isSaving: () => variant() === "loading",
+    projectId: () => "",
+    projectIdUpdate: () => {},
+    projects: () => demoNoteProjectsFixture,
     submit: (event) => event.preventDefault(),
     title: titleState.title,
   }

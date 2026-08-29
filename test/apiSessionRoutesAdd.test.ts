@@ -277,6 +277,7 @@ test.skipIf(!databaseAvailable)(
       created: true,
       session: { pinned: true, projectPath: "~", title: "HTTP session" },
     })
+    expect(createdBody.session.projectId).toBeUndefined()
     const sessionId = createdBody.session.id as string
 
     const repeated = await app.request("http://codeline.test/api/sessions", {

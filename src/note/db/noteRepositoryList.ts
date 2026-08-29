@@ -20,7 +20,7 @@ export async function noteRepositoryList(
     const rows = await database.select().from(noteTable).where(eq(noteTable.userId, userId))
     const notes = []
     for (const row of noteRowsOrder(rows)) {
-      const note = noteApiRecordCreate(row)
+      const note = await noteApiRecordCreate(database, row)
       if (!note.success) return createResultError(op, note.errorMessage)
       notes.push(note.data)
     }

@@ -5,9 +5,9 @@ import { agentToolDefaultsListFetch } from "../agents/client/agentToolDefaultsLi
 import type { AgentInstructionInspectionResponse } from "../instructions/api/agentInstructionInspectionResponseSchema.js"
 import { agentInstructionInspectionFetch } from "../instructions/client/agentInstructionInspectionFetch.js"
 import type { ProjectApiIdentityResponse } from "../project/api/projectApiIdentityResponseSchema.js"
-import type { ProjectApiListResponse } from "../project/api/projectApiListResponseSchema.js"
+import type { ProjectRegistryApiListResponse } from "../project/api/projectRegistryApiListResponseSchema.js"
 import { projectIdentityFetch } from "../project/client/projectIdentityFetch.js"
-import { projectListFetch } from "../project/client/projectListFetch.js"
+import { projectRegistryListFetch } from "../project/client/projectRegistryListFetch.js"
 import type { SessionDetailResponse } from "../session/api/sessionDetailResponseSchema.js"
 import type { SessionExecutionSelection } from "../session/schema/sessionExecutionSelectionSchema.js"
 import { sessionDetailFetch } from "../session/ui/sessionDetailFetch.js"
@@ -29,7 +29,9 @@ type SessionResourceSelectorFetch = (input: RequestInfo | URL, init?: RequestIni
 type SessionResourceSelectorStateOptions = {
   fetch?: SessionResourceSelectorFetch
   isOnline?: Accessor<boolean>
-  /** Project the pending session will run in; resolved to a project id for inspection reads. */
+  /** Authenticated registry project ID for the pending session, when one is selected. */
+  projectId?: Accessor<string | null>
+  /** Legacy project reference used only when no registry project ID is available. */
   projectPath: Accessor<string | null>
   selectedAgentId: Accessor<string | null>
   selectedServerId: Accessor<string | null>
@@ -59,16 +61,17 @@ export function sessionResourceSelectorStateCreate(
 
   const selectedProjectIdState = signalObjectCreate<string | null>(null)
 
-  const projectListQuery = httpQueryStateCreate<ProjectApiListResponse>({
+  const projectListQuery = httpQueryStateCreate<ProjectRegistryApiListResponse>({
     enabled: () => !isExistingSession(),
-    key: () => "/api/project/list",
-    load: async (_key, signal) => projectListFetch({ ...request, signal }),
+    key: () => "/api/project/registry",
+    load: async (_key, signal) => projectRegistryListFetch({ ...request, signal }),
   })
 
   // The inspection routes are project-id scoped. The server owns the reference-to-id
   // mapping, because display labels are disambiguated and are not stable identifiers.
   const projectQuery = httpQueryStateCreate<ProjectApiIdentityResponse>({
     key: () => {
+      if (options.projectId?.() !== undefined && options.projectId?.() !== null) return undefined
       const projectPath = options.projectPath()
       return projectPath === null ? undefined : `/api/project/identity?path=${encodeURIComponent(projectPath)}`
     },
@@ -76,18 +79,29 @@ export function sessionResourceSelectorStateCreate(
       projectIdentityFetch(untrack(() => options.projectPath()) ?? "", { ...request, signal }),
   })
 
-  const projectId = () => selectedProjectIdState.get() ?? projectQuery.data()?.id ?? null
+  const projectId = () => {
+    const selected = selectedProjectIdState.get()
+    if (selected !== null) {
+      const match = projects().find((p) => p.id === selected)
+      if (match !== undefined) return match.id
+      return null
+    }
+    const registeredProjectId = options.projectId?.() ?? null
+    if (registeredProjectId !== null) return registeredProjectId
+    return projectQuery.data()?.id ?? null
+  }
   const selectedProjectId = () => projectId()
 
   const projects = () => {
-    const list = projectListQuery.data()?.projects ?? []
+    const list = (projectListQuery.data()?.projects ?? []).filter((project) => project.available !== false)
     const identity = projectQuery.data()
     if (identity === undefined || list.some(({ id }) => id === identity.id)) return list
-    return [{ id: identity.id, label: identity.label }, ...list]
+    return [{ available: true, id: identity.id, label: identity.label }, ...list]
   }
 
   const projectSelect = (id: string) => {
     if (isExistingSession()) return
+    if (id !== "" && !projects().some((project) => project.id === id)) return
     selectedProjectIdState.set(id === "" ? null : id)
   }
 

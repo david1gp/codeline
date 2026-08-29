@@ -1,3 +1,4 @@
+import { For } from "solid-js"
 import { NoteBackLink } from "./NoteBackLink.js"
 import { NoteContentField } from "./NoteContentField.js"
 import { NoteViewModeSwitcher } from "./NoteViewModeSwitcher.js"
@@ -30,6 +31,20 @@ export function NewNotePage(props: { state: NewNoteScreenView }) {
             viewMode={state.viewMode}
             autofocus
           />
+          <div class="mt-4 grid gap-2">
+            <label class="text-xs font-semibold tracking-[0.06em] text-faint uppercase" for="new-note-project">
+              Project
+            </label>
+            <select
+              class="w-full appearance-none rounded-lg border border-line bg-surface-raised px-3 py-2.5 text-sm text-strong"
+              id="new-note-project"
+              value={state.projectId()}
+              onChange={state.projectIdUpdate}
+            >
+              <option value="">Unassigned</option>
+              <For each={state.projects()}>{(project) => <option value={project.id}>{project.label}</option>}</For>
+            </select>
+          </div>
           <div class="mt-4 flex items-center justify-between gap-4">
             <p class="m-0 text-sm text-danger" role="alert">
               {state.hasError() ? "Couldn't save the note. Try again." : ""}

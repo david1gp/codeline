@@ -3,7 +3,12 @@ import { Button } from "#ui/interactive/button/Button.jsx"
 import { buttonVariant } from "#ui/interactive/button/buttonCva.js"
 import { CorvuPopoverIcon } from "#ui/interactive/popover/CorvuPopoverIcon.jsx"
 
-export function SessionSidebarMenu(props: { ariaLabel: string; onDelete: () => void; onRename: () => void }) {
+export function SessionSidebarMenu(props: {
+  ariaLabel: string
+  deleteLabel?: string
+  onDelete: () => void
+  onRename: () => void
+}) {
   return (
     <CorvuPopoverIcon
       class="size-6 shrink-0 rounded-md text-faint hover:bg-surface-hover hover:text-strong"
@@ -26,7 +31,7 @@ export function SessionSidebarMenu(props: { ariaLabel: string; onDelete: () => v
         variant={buttonVariant.ghost}
         onClick={props.onDelete}
       >
-        Delete
+        {props.deleteLabel ?? "Delete"}
       </Button>
     </CorvuPopoverIcon>
   )

@@ -1,3 +1,4 @@
+import { projectRegistryStateCreate } from "../project/ui/projectRegistryStateCreate.js"
 import { activeProjectStateCreate } from "./activeProjectStateCreate.js"
 import { appConnectionDetailsResolve } from "./appConnectionDetailsResolve.js"
 import type { AppShellView } from "./appShellView.js"
@@ -7,12 +8,21 @@ import { eventFeedConnectionIndicatorStateCreate } from "./eventFeedConnectionIn
 import { pwaStatusIndicatorStateCreate } from "./pwa/pwaStatusIndicatorStateCreate.js"
 import { themeSwitcherStateCreate } from "./themeSwitcherStateCreate.js"
 
-export function appShellStateCreate(): AppShellView & {
+type AppShellStateOptions = {
+  accountId?: () => string | null
+  fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+}
+
+export function appShellStateCreate(options: AppShellStateOptions = {}): AppShellView & {
   events: ReturnType<typeof eventFeedConnectionIndicatorStateCreate>
 } {
   const app = appStateCreate()
   const pwa = pwaStatusIndicatorStateCreate()
   const events = eventFeedConnectionIndicatorStateCreate()
+  const projectRegistry = projectRegistryStateCreate({
+    accountId: options.accountId,
+    fetch: options.fetch,
+  })
 
   return {
     ...app,
@@ -28,6 +38,7 @@ export function appShellStateCreate(): AppShellView & {
         }),
     }),
     events,
+    projectRegistry,
     pwa,
     theme: themeSwitcherStateCreate(),
   }

@@ -119,7 +119,7 @@ test.skipIf(!databaseAvailable)(
     const loaded = await sessionLoad(database, userId, userId, sessionId)
     expect(loaded.success).toBe(true)
     if (!loaded.success) return
-    const representation = sessionDetailResponseCreate(loaded.data)
+    const representation = sessionDetailResponseCreate({ ...loaded.data, userId })
     expect(representation.success).toBe(true)
     if (!representation.success) return
     const initialEtag = representation.data.etag
@@ -128,7 +128,7 @@ test.skipIf(!databaseAvailable)(
     const relabeled = await sessionLoad(database, userId, userId, sessionId)
     expect(relabeled.success).toBe(true)
     if (!relabeled.success) return
-    const relabeledRepresentation = sessionDetailResponseCreate(relabeled.data)
+    const relabeledRepresentation = sessionDetailResponseCreate({ ...relabeled.data, userId })
     expect(relabeledRepresentation).toMatchObject({
       success: true,
       data: { etag: initialEtag, agent: { id: agentId }, server: { id: serverId } },
@@ -213,7 +213,7 @@ test.skipIf(!databaseAvailable)(
     const current = await sessionLoad(database, userId, userId, sessionId)
     expect(current.success).toBe(true)
     if (!current.success) return
-    const currentRepresentation = sessionDetailResponseCreate(current.data)
+    const currentRepresentation = sessionDetailResponseCreate({ ...current.data, userId })
     expect(currentRepresentation.success).toBe(true)
     if (!currentRepresentation.success) return
     const deleted = await sessionDelete(database, userId, sessionId, {
@@ -246,7 +246,7 @@ test.skipIf(!databaseAvailable)(
     const loaded = await sessionLoad(database, userId, userId, sessionId)
     expect(loaded.success).toBe(true)
     if (!loaded.success) return
-    const initial = sessionDetailResponseCreate(loaded.data)
+    const initial = sessionDetailResponseCreate({ ...loaded.data, userId })
     expect(initial.success).toBe(true)
     if (!initial.success) return
 
@@ -338,6 +338,7 @@ test.skipIf(!databaseAvailable)(
       agent: { id: agentId },
       server: { id: serverId },
       session: created.data.session,
+      userId,
     })
     expect(initial.success).toBe(true)
     if (!initial.success) return
@@ -575,6 +576,7 @@ test.skipIf(!databaseAvailable)(
       agent: { id: agentId },
       server: { id: serverId },
       session: childParent.data.session,
+      userId,
     })
     expect(parentEtag.success).toBe(true)
     if (!parentEtag.success) return
@@ -615,7 +617,7 @@ test.skipIf(!databaseAvailable)("journals an authorized session mutation after c
   const loaded = await sessionLoad(database, userId, userId, sessionId)
   expect(loaded.success).toBe(true)
   if (!loaded.success) return
-  const representation = sessionDetailResponseCreate(loaded.data)
+  const representation = sessionDetailResponseCreate({ ...loaded.data, userId })
   expect(representation.success).toBe(true)
   if (!representation.success) return
 

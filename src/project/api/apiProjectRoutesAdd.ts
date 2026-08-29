@@ -1,3 +1,4 @@
+import * as path from "node:path"
 import { Readable } from "node:stream"
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import type { Context } from "hono"
@@ -6,10 +7,18 @@ import * as v from "valibot"
 import { apiRequestParse } from "../../api/apiRequestParse.js"
 import type { AppEnvironment } from "../../api/appEnvironment.js"
 import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.js"
+import type { DatabaseClient } from "../../database/databaseClient.js"
+import { projectRegistryRepositoryDelete } from "../db/projectRegistryRepositoryDelete.js"
+import { projectRegistryRepositoryList } from "../db/projectRegistryRepositoryList.js"
+import { projectRegistryRepositoryResolve } from "../db/projectRegistryRepositoryResolve.js"
+import { projectRegistryRepositoryResolvePath } from "../db/projectRegistryRepositoryResolvePath.js"
+import { projectRegistryRepositoryUpdate } from "../db/projectRegistryRepositoryUpdate.js"
+import { projectRegistryRepositoryUpsert } from "../db/projectRegistryRepositoryUpsert.js"
 import { projectDirectoryConfirm } from "../projectDirectoryConfirm.js"
 import { projectDirectoryList } from "../projectDirectoryList.js"
 import { projectDirectorySuggestionsRead } from "../projectDirectorySuggestionsRead.js"
 import { type ProjectDiscoveryEntriesReadResult, projectDiscoveryEntriesRead } from "../projectDiscoveryEntriesRead.js"
+import { projectDiscoveryLimits } from "../projectDiscoveryLimits.js"
 import { projectDiscoveryList } from "../projectDiscoveryList.js"
 import { projectDownloadPrepare } from "../projectDownloadPrepare.js"
 import { projectGitBranchDelete } from "../projectGitBranchDelete.js"
@@ -24,6 +33,8 @@ import type { ProjectLimits } from "../projectLimitsSchema.js"
 import { projectMetadataRead } from "../projectMetadataRead.js"
 import { projectPreviewPrepare } from "../projectPreviewPrepare.js"
 import { projectPreviewRead } from "../projectPreviewRead.js"
+import { projectRegistryOpenCodeImport } from "../projectRegistryOpenCodeImport.js"
+import { projectRegistryPathCanonicalize } from "../projectRegistryPathCanonicalize.js"
 import { projectResolve } from "../projectResolve.js"
 import { projectTextRead } from "../projectTextRead.js"
 import { projectApiDirectoryConfirmRequestSchema } from "./projectApiDirectoryConfirmRequestSchema.js"
@@ -37,14 +48,29 @@ import type { ProjectApiListResponse } from "./projectApiListResponseSchema.js"
 import type { ProjectApiMetadataResponse } from "./projectApiMetadataResponseSchema.js"
 import { projectApiPathQuerySchema } from "./projectApiPathQuerySchema.js"
 import type { ProjectApiPreviewResponse } from "./projectApiPreviewResponseSchema.js"
+import { projectDiscoveryApiProjectQuerySchema } from "./projectDiscoveryApiProjectQuerySchema.js"
 import { projectApiProjectQuerySchema } from "./projectApiProjectQuerySchema.js"
 import type { ProjectApiTextResponse } from "./projectApiTextResponseSchema.js"
+import {
+  type ProjectRegistryApiListResponse,
+  projectRegistryApiListResponseSchema,
+} from "./projectRegistryApiListResponseSchema.js"
+import type { ProjectRegistryApiProjectResponse } from "./projectRegistryApiProjectResponseSchema.js"
+import type { ProjectRegistryApiProject } from "./projectRegistryApiProjectSchema.js"
+import {
+  type ProjectRegistryOpenCodeImportResponse,
+  projectRegistryOpenCodeImportResponseSchema,
+} from "./projectRegistryOpenCodeImportResponseSchema.js"
+import { projectRegistryRegisterRequestSchema } from "./projectRegistryRegisterRequestSchema.js"
+import { projectRegistryRenameRequestSchema } from "./projectRegistryRenameRequestSchema.js"
 
 type ApiContext = Context<AppEnvironment>
 
 type ApiProjectRoutesOptions = {
+  database?: DatabaseClient
   discoveryEntriesRead?: typeof projectDiscoveryEntriesRead
   limits?: ProjectLimits
+  openCodeDatabasePath?: string
   rootDirs?: readonly string[]
 }
 
@@ -65,6 +91,87 @@ function errorResponse(context: ApiContext, errorMessage: string) {
   return context.json(response, response.error.code === "internal_server_error" ? 500 : notFound ? 404 : 400)
 }
 
+function unauthorized(context: ApiContext) {
+  const response = {
+    error: { code: "unauthorized", message: "Authentication is required." },
+  } satisfies ApiErrorResponse
+  context.header("Cache-Control", "no-store")
+  return context.json(response, 401)
+}
+
+function requestUserId(context: ApiContext): string | undefined {
+  const userId = context.get("requestIdentity")?.userId
+  return typeof userId === "string" && userId.length > 0 ? userId : undefined
+}
+
+function registryRequestUserId(context: ApiContext, options: ApiProjectRoutesOptions): string | undefined {
+  if (options.database === undefined) return undefined
+  return requestUserId(context)
+}
+
+function registryUnavailable(context: ApiContext) {
+  const response = {
+    error: { code: "not_found", message: "The requested project was not found." },
+  } satisfies ApiErrorResponse
+  return context.json(response, 404)
+}
+
+function registryInternalServerError(context: ApiContext) {
+  const response = {
+    error: { code: "internal_server_error", message: "The project registry request could not be completed." },
+  } satisfies ApiErrorResponse
+  return context.json(response, 500)
+}
+
+function registryBadRequest(context: ApiContext, message = "The project registry request is invalid.") {
+  const response = { error: { code: "bad_request", message } } satisfies ApiErrorResponse
+  return context.json(response, 400)
+}
+
+function projectRegistryLabelCreate(displayName: string | null, projectPath: string): string {
+  const value = displayName?.trim() || projectPath.split(/[\\/]/).at(-1) || projectPath
+  return [...value].slice(0, projectDiscoveryLimits.maximumLabelLength).join("")
+}
+
+async function projectRegistryApiProjectCreate(
+  project: { displayName: string | null; id: string; path: string },
+  rootDirs: readonly string[],
+): Promise<ProjectRegistryApiProject> {
+  const available = (await projectRegistryPathCanonicalize(project.path, rootDirs)).success
+  return {
+    available,
+    id: project.id,
+    label: projectRegistryLabelCreate(project.displayName, project.path),
+  }
+}
+
+function projectRegistryProjectResponseCreate(project: ProjectRegistryApiProject): ProjectRegistryApiProjectResponse {
+  return { project }
+}
+
+async function projectRegistryIdentityResolve(
+  options: ApiProjectRoutesOptions,
+  userId: string,
+  projectPath: string,
+): Promise<Result<{ id: string; label: string }>> {
+  const op = "projectRegistryIdentityResolve"
+  if (projectPath === "~" || !path.isAbsolute(projectPath)) {
+    return createResultError(op, "The project reference is invalid.")
+  }
+
+  const canonical = await projectRegistryPathCanonicalize(projectPath, options.rootDirs ?? [])
+  if (!canonical.success) return createResultError(op, "The requested project was not found.")
+
+  if (options.database === undefined) return createResultError(op, "The requested project was not found.")
+  const project = await projectRegistryRepositoryResolvePath(options.database, userId, canonical.data)
+  if (!project.success || project.data === undefined)
+    return createResultError(op, "The requested project was not found.")
+
+  const publicProject = await projectRegistryApiProjectCreate(project.data, options.rootDirs ?? [])
+  if (!publicProject.available) return createResultError(op, "The requested project was not found.")
+  return createResult({ id: publicProject.id, label: publicProject.label })
+}
+
 type DiscoveryRead = () => Promise<Result<ProjectDiscoveryEntriesReadResult>>
 
 function queryParse(context: ApiContext) {
@@ -78,19 +185,30 @@ function queryParse(context: ApiContext) {
 }
 
 async function projectRootResolve(
+  context: ApiContext,
   options: ApiProjectRoutesOptions,
   projectId: unknown,
   discoveryRead: DiscoveryRead,
 ): Promise<Result<string>> {
   const op = "projectRootResolve"
-  const parsed = v.safeParse(projectApiProjectQuerySchema, { project: projectId })
+  const projectQuerySchema =
+    options.database === undefined ? projectDiscoveryApiProjectQuerySchema : projectApiProjectQuerySchema
+  const parsed = v.safeParse(projectQuerySchema, { project: projectId })
   if (!parsed.success) return createResultError(op, "The project selection is invalid.")
 
-  const discovered = await discoveryRead()
-  if (!discovered.success) {
-    return createResultError(op, "The requested project was not found.")
+  if (options.database !== undefined) {
+    const userId = requestUserId(context)
+    if (userId === undefined) return createResultError(op, "Authentication is required.")
+    const resolved = await projectResolve(options.rootDirs ?? [], parsed.output.project, {
+      database: options.database,
+      userId,
+    })
+    if (!resolved.success) return createResultError(op, "The requested project was not found.")
+    return createResult(resolved.data.rootDir)
   }
 
+  const discovered = await discoveryRead()
+  if (!discovered.success) return createResultError(op, "The requested project was not found.")
   const resolved = await projectResolve(options.rootDirs ?? [], parsed.output.project, { discovered: discovered.data })
   if (!resolved.success) return createResultError(op, "The requested project was not found.")
   return createResult(resolved.data.rootDir)
@@ -101,11 +219,15 @@ async function projectGitRootResolve(
   options: ApiProjectRoutesOptions,
   discoveryRead: DiscoveryRead,
 ): Promise<Result<string>> {
-  const parsed = apiRequestParse("projectApiProjectQueryParse", projectApiProjectQuerySchema, context.req.query())
+  const parsed = apiRequestParse(
+    "projectApiProjectQueryParse",
+    options.database === undefined ? projectDiscoveryApiProjectQuerySchema : projectApiProjectQuerySchema,
+    context.req.query(),
+  )
   if (!parsed.success) {
     return createResultError("projectRootResolve", "The project selection is invalid.")
   }
-  return projectRootResolve(options, parsed.data.project, discoveryRead)
+  return projectRootResolve(context, options, parsed.data.project, discoveryRead)
 }
 
 function projectRootErrorResponse(context: ApiContext, errorMessage: string) {
@@ -172,6 +294,13 @@ function previewContentUrl(context: ApiContext, relativePath: string, projectId?
 }
 
 export function apiProjectRoutesAdd(api: Hono<AppEnvironment>, options: ApiProjectRoutesOptions): void {
+  if (options.database !== undefined) {
+    api.use("/project/*", async (context, next) => {
+      if (requestUserId(context) === undefined) return unauthorized(context)
+      return next()
+    })
+  }
+
   let cachedDiscovery: Result<ProjectDiscoveryEntriesReadResult> | undefined
   let discoveryPromise: Promise<Result<ProjectDiscoveryEntriesReadResult>> | undefined
   const discoveryEntriesRead = options.discoveryEntriesRead ?? projectDiscoveryEntriesRead
@@ -191,7 +320,136 @@ export function apiProjectRoutesAdd(api: Hono<AppEnvironment>, options: ApiProje
     return discoveryRead()
   }
 
+  const registryList = async (context: ApiContext) => {
+    if (options.database === undefined) return registryInternalServerError(context)
+    const userId = registryRequestUserId(context, options)
+    if (userId === undefined) return unauthorized(context)
+
+    const result = await projectRegistryRepositoryList(options.database, userId)
+    if (!result.success) return registryInternalServerError(context)
+    const projects = await Promise.all(
+      result.data.map((project) => projectRegistryApiProjectCreate(project, options.rootDirs ?? [])),
+    )
+    const response = { projects, truncated: false } satisfies ProjectRegistryApiListResponse
+    if (!v.safeParse(projectRegistryApiListResponseSchema, response).success)
+      return registryInternalServerError(context)
+    return context.json(response)
+  }
+
+  const registryRegister = async (context: ApiContext) => {
+    if (options.database === undefined) return registryInternalServerError(context)
+    const userId = registryRequestUserId(context, options)
+    if (userId === undefined) return unauthorized(context)
+
+    const body = await context.req.json<unknown>().catch(() => undefined)
+    const parsed = apiRequestParse("projectRegistryRegisterRequestParse", projectRegistryRegisterRequestSchema, body)
+    if (!parsed.success) return registryBadRequest(context, "The project registration request is invalid.")
+
+    const canonical = await projectRegistryPathCanonicalize(parsed.data.path, options.rootDirs ?? [])
+    if (!canonical.success) return registryBadRequest(context, "The project path is invalid.")
+    const result = await projectRegistryRepositoryUpsert(options.database, userId, {
+      displayName: parsed.data.displayName,
+      path: canonical.data,
+    })
+    if (!result.success) return registryInternalServerError(context)
+
+    const project = await projectRegistryApiProjectCreate(result.data, options.rootDirs ?? [])
+    return context.json(projectRegistryProjectResponseCreate(project))
+  }
+
+  const registryResolve = async (context: ApiContext, projectId: string) => {
+    if (options.database === undefined) return registryInternalServerError(context)
+    const userId = registryRequestUserId(context, options)
+    if (userId === undefined) return unauthorized(context)
+    const parsed = apiRequestParse("projectRegistryProjectQueryParse", projectApiProjectQuerySchema, {
+      project: projectId,
+    })
+    if (!parsed.success) return registryBadRequest(context, "The project selection is invalid.")
+
+    const result = await projectRegistryRepositoryResolve(options.database, userId, parsed.data.project)
+    if (!result.success) return registryUnavailable(context)
+    const project = await projectRegistryApiProjectCreate(result.data, options.rootDirs ?? [])
+    return context.json(projectRegistryProjectResponseCreate(project))
+  }
+
+  const registryResolveQuery = async (context: ApiContext) => {
+    const parsed = apiRequestParse(
+      "projectRegistryProjectQueryParse",
+      projectApiProjectQuerySchema,
+      context.req.query(),
+    )
+    if (!parsed.success) return registryBadRequest(context, "The project selection is invalid.")
+    return registryResolve(context, parsed.data.project)
+  }
+
+  const registryOpenCodeImport = async (context: ApiContext) => {
+    if (options.database === undefined) return registryInternalServerError(context)
+    const userId = registryRequestUserId(context, options)
+    if (userId === undefined) return unauthorized(context)
+    if (options.openCodeDatabasePath === undefined) return registryInternalServerError(context)
+
+    const result = await projectRegistryOpenCodeImport(
+      options.database,
+      userId,
+      options.openCodeDatabasePath,
+      options.rootDirs ?? [],
+    )
+    if (!result.success) return registryInternalServerError(context)
+    const response = result.data satisfies ProjectRegistryOpenCodeImportResponse
+    if (!v.safeParse(projectRegistryOpenCodeImportResponseSchema, response).success)
+      return registryInternalServerError(context)
+    return context.json(response)
+  }
+
+  const registryRename = async (context: ApiContext, projectId: string) => {
+    if (options.database === undefined) return registryInternalServerError(context)
+    const userId = registryRequestUserId(context, options)
+    if (userId === undefined) return unauthorized(context)
+    const id = apiRequestParse("projectRegistryProjectQueryParse", projectApiProjectQuerySchema, { project: projectId })
+    if (!id.success) return registryBadRequest(context, "The project selection is invalid.")
+
+    const body = await context.req.json<unknown>().catch(() => undefined)
+    const parsed = apiRequestParse("projectRegistryRenameRequestParse", projectRegistryRenameRequestSchema, body)
+    if (!parsed.success) return registryBadRequest(context, "The project rename request is invalid.")
+    const result = await projectRegistryRepositoryUpdate(options.database, userId, id.data.project, parsed.data)
+    if (!result.success) return registryUnavailable(context)
+
+    const project = await projectRegistryApiProjectCreate(result.data, options.rootDirs ?? [])
+    return context.json(projectRegistryProjectResponseCreate(project))
+  }
+
+  const registryRemove = async (context: ApiContext, projectId: string) => {
+    if (options.database === undefined) return registryInternalServerError(context)
+    const userId = registryRequestUserId(context, options)
+    if (userId === undefined) return unauthorized(context)
+    const id = apiRequestParse("projectRegistryProjectQueryParse", projectApiProjectQuerySchema, { project: projectId })
+    if (!id.success) return registryBadRequest(context, "The project selection is invalid.")
+
+    const result = await projectRegistryRepositoryDelete(options.database, userId, id.data.project)
+    if (!result.success) return registryUnavailable(context)
+    return new Response(null, { status: 204 })
+  }
+
+  api.get("/project/registry", registryList)
+  api.get("/project/registry/list", registryList)
+  api.post("/project/registry", registryRegister)
+  api.post("/project/registry/register", registryRegister)
+  api.get("/project/registry/resolve", registryResolveQuery)
+  api.post("/project/registry/import", registryOpenCodeImport)
+  api.patch("/project/registry/rename/:projectId", (context) => registryRename(context, context.req.param("projectId")))
+  api.delete("/project/registry/remove/:projectId", (context) =>
+    registryRemove(context, context.req.param("projectId")),
+  )
+  api.get("/project/registry/:projectId", (context) => registryResolve(context, context.req.param("projectId")))
+  api.patch("/project/registry/:projectId", (context) => registryRename(context, context.req.param("projectId")))
+  api.delete("/project/registry/:projectId", (context) => registryRemove(context, context.req.param("projectId")))
+  api.get("/project/resolve", registryResolveQuery)
+  api.post("/project/register", registryRegister)
+  api.patch("/project/rename/:projectId", (context) => registryRename(context, context.req.param("projectId")))
+  api.delete("/project/remove/:projectId", (context) => registryRemove(context, context.req.param("projectId")))
+
   api.get("/project/list", async (context) => {
+    if (options.database !== undefined) return registryList(context)
     const discovered = await discoveryRefresh()
     if (!discovered.success) {
       const response = {
@@ -219,6 +477,15 @@ export function apiProjectRoutesAdd(api: Hono<AppEnvironment>, options: ApiProje
         error: { code: "bad_request", message: "The project reference is invalid." },
       } satisfies ApiErrorResponse
       return context.json(response, 400)
+    }
+
+    if (options.database !== undefined) {
+      const userId = requestUserId(context)
+      if (userId === undefined) return unauthorized(context)
+      const result = await projectRegistryIdentityResolve(options, userId, parsed.data.path)
+      if (!result.success) return projectRootErrorResponse(context, result.errorMessage)
+      const response = result.data satisfies ProjectApiIdentityResponse
+      return context.json(response)
     }
 
     const discovered = await discoveryRead()
@@ -301,7 +568,7 @@ export function apiProjectRoutesAdd(api: Hono<AppEnvironment>, options: ApiProje
       return context.json(response, 400)
     }
 
-    const root = await projectRootResolve(options, query.projectId, discoveryRead)
+    const root = await projectRootResolve(context, options, query.projectId, discoveryRead)
     if (!root.success) return projectRootErrorResponse(context, root.errorMessage)
     const result = await projectDirectoryList(root.data, query.parsed.data.path, options.limits)
     if (!result.success) return errorResponse(context, result.errorMessage)
@@ -372,7 +639,7 @@ export function apiProjectRoutesAdd(api: Hono<AppEnvironment>, options: ApiProje
       return context.json(response, 400)
     }
 
-    const root = await projectRootResolve(options, query.projectId, discoveryRead)
+    const root = await projectRootResolve(context, options, query.projectId, discoveryRead)
     if (!root.success) return projectRootErrorResponse(context, root.errorMessage)
     const result = await projectMetadataRead(root.data, query.parsed.data.path)
     if (!result.success) return errorResponse(context, result.errorMessage)
@@ -394,7 +661,7 @@ export function apiProjectRoutesAdd(api: Hono<AppEnvironment>, options: ApiProje
       return context.json(response, 400)
     }
 
-    const root = await projectRootResolve(options, query.projectId, discoveryRead)
+    const root = await projectRootResolve(context, options, query.projectId, discoveryRead)
     if (!root.success) return projectRootErrorResponse(context, root.errorMessage)
     const result = await projectTextRead(root.data, query.parsed.data.path, options.limits)
     if (!result.success) return errorResponse(context, result.errorMessage)
@@ -412,7 +679,7 @@ export function apiProjectRoutesAdd(api: Hono<AppEnvironment>, options: ApiProje
       return context.json(response, 400)
     }
 
-    const root = await projectRootResolve(options, query.projectId, discoveryRead)
+    const root = await projectRootResolve(context, options, query.projectId, discoveryRead)
     if (!root.success) return projectRootErrorResponse(context, root.errorMessage)
     const result = await projectPreviewRead(root.data, query.parsed.data.path, options.limits)
     if (!result.success) return errorResponse(context, result.errorMessage)
@@ -433,7 +700,7 @@ export function apiProjectRoutesAdd(api: Hono<AppEnvironment>, options: ApiProje
       return context.json(response, 400)
     }
 
-    const root = await projectRootResolve(options, query.projectId, discoveryRead)
+    const root = await projectRootResolve(context, options, query.projectId, discoveryRead)
     if (!root.success) return projectRootErrorResponse(context, root.errorMessage)
     const result = await projectPreviewPrepare(root.data, query.parsed.data.path, options.limits)
     if (!result.success) return errorResponse(context, result.errorMessage)
@@ -459,7 +726,7 @@ export function apiProjectRoutesAdd(api: Hono<AppEnvironment>, options: ApiProje
       return context.json(response, 400)
     }
 
-    const root = await projectRootResolve(options, query.projectId, discoveryRead)
+    const root = await projectRootResolve(context, options, query.projectId, discoveryRead)
     if (!root.success) return projectRootErrorResponse(context, root.errorMessage)
     const result = await projectDownloadPrepare(root.data, query.parsed.data.path, options.limits)
     if (!result.success) return errorResponse(context, result.errorMessage)

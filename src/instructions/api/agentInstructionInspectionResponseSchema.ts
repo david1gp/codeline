@@ -1,4 +1,6 @@
 import * as v from "valibot"
+import { projectDiscoveryIdSchema } from "../../project/projectDiscoveryIdSchema.js"
+import { projectIdSchema } from "../../project/projectIdSchema.js"
 
 const agentInstructionInspectionCanonicalPathSchema = v.pipe(
   v.string(),
@@ -70,7 +72,7 @@ const agentInstructionInspectionDiagnosticSchema = v.strictObject({
 
 export const agentInstructionInspectionResponseSchema = v.strictObject({
   diagnostics: v.array(agentInstructionInspectionDiagnosticSchema),
-  projectId: v.pipe(v.string(), v.regex(/^[a-f0-9]{64}$/)),
+  projectId: v.union([projectIdSchema, projectDiscoveryIdSchema]),
   snapshots: v.array(agentInstructionInspectionSnapshotSchema),
   version: v.literal(1),
 })

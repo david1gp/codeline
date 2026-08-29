@@ -74,6 +74,7 @@ export type AppCreateOptions = {
   oidcSessionCredentialCreate?: () => string
   oidcSessionIdCreate?: () => string
   oidcReturnToPathIsKnown?: typeof appKnownRouteResolve
+  openCodeDatabasePath?: string
   projectLimits?: ProjectLimits
   projectRootDirs?: readonly string[]
   globalAgentsPath?: string
@@ -234,6 +235,7 @@ export function appCreate(options: AppCreateOptions = {}): App {
     streamSseScheduler: options.streamSseScheduler,
     metricsCollector: options.metricsCollector,
     clientLogJournalWrite: options.clientLogJournalWrite,
+    openCodeDatabasePath: options.openCodeDatabasePath,
   })
 
   const uiShellPath = options.uiShellPath ?? "./dist/ui/index.html"

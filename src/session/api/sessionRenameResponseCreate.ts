@@ -5,11 +5,15 @@ import { type SessionRenameResponse, sessionRenameResponseSchema } from "./sessi
 
 export function sessionRenameResponseCreate(
   session: typeof import("../db/sessionTable.js").sessionTable.$inferSelect,
+  userId: string,
+  projectId?: string,
 ): Result<SessionRenameResponse> {
   const response = sessionDetailResponseCreate({
     agent: { id: session.primaryAgentId },
+    projectId,
     server: { id: session.serverId },
     session,
+    userId,
   })
   if (!response.success) return response
   const parsed = v.safeParse(sessionRenameResponseSchema, response.data)

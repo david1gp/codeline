@@ -1,4 +1,5 @@
 import { onCleanup, useContext } from "solid-js"
+import type { ProjectRegistryState } from "../../project/ui/projectRegistryStateCreate.js"
 import { eventFeedCoordinatorContext } from "../../ui/eventFeedCoordinatorContext.js"
 import { httpQueryDataStatusResolve } from "../../ui/httpQueryDataStatusResolve.js"
 import { noteGroupsDerive } from "./noteGroupsDerive.js"
@@ -11,6 +12,7 @@ type NotesPageStateOptions = {
   apiBase?: string
   fetcher?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
   isOnline?: () => boolean
+  projectRegistry?: ProjectRegistryState
 }
 
 export function notesPageStateCreate(options: NotesPageStateOptions = {}): NotesScreenView {
@@ -22,7 +24,12 @@ export function notesPageStateCreate(options: NotesPageStateOptions = {}): Notes
     ...(options.isOnline === undefined ? {} : { isOnline: options.isOnline }),
   })
   const notesQuery = noteList.query
-  const projectList = noteProjectListStateCreate({ apiBase: options.apiBase, fetcher })
+  const projectList = noteProjectListStateCreate({
+    apiBase: options.apiBase,
+    fetcher,
+    ...(options.accountId === undefined ? {} : { accountId: options.accountId }),
+    ...(options.projectRegistry === undefined ? {} : { projectRegistry: options.projectRegistry }),
+  })
   const revalidate = () => {
     notesQuery.refresh()
     projectList.revalidate()

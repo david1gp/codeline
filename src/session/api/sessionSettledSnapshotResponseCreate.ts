@@ -15,12 +15,18 @@ export function sessionSettledSnapshotResponseCreate(input: {
   asOfSequence?: ApiSequence
   etag: string
   messages: SessionSettledSnapshotMessage[]
+  projectId?: string
   revision: number
   schemaVersion: string
   session: Parameters<typeof sessionShellCreate>[0]
+  userId: string
 }): Result<SessionSettledSnapshotResponse> {
   const op = "sessionSettledSnapshotResponseCreate"
-  const session = sessionShellCreate(input.session)
+  const session = sessionShellCreate({
+    ...input.session,
+    projectId: input.projectId,
+    userId: input.userId,
+  })
   if (!session.success) return session
 
   const messages = []

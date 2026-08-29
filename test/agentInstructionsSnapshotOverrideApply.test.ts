@@ -48,6 +48,26 @@ test("session creation schema preserves omitted and explicitly empty prompts", (
   if (explicitEmpty.success) expect(explicitEmpty.output.agentPrompt).toBe("")
 })
 
+test("session creation schema accepts persisted project identifiers", () => {
+  const valid = v.safeParse(sessionCreateRequestSchema, {
+    clientRequestId: "request-project",
+    primaryAgentId: "agent",
+    projectId: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1f41",
+    serverId: "server",
+    title: "Session",
+  })
+  const invalid = v.safeParse(sessionCreateRequestSchema, {
+    clientRequestId: "request-project-invalid",
+    primaryAgentId: "agent",
+    projectId: "project-path",
+    serverId: "server",
+    title: "Session",
+  })
+
+  expect(valid.success).toBe(true)
+  expect(invalid.success).toBe(false)
+})
+
 test("session creation schema accepts a prompt and sparse instruction overrides", () => {
   const parsed = v.safeParse(sessionCreateRequestSchema, {
     agentPrompt: "Use the captured prompt.",

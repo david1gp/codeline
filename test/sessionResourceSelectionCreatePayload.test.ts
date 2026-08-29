@@ -62,6 +62,7 @@ const skillSelection = {
 }
 
 function stateCreate(options: {
+  activeProjectId?: string | null
   bodies: Array<Record<string, unknown>>
   pendingAgentPrompt?: () => string | undefined
   pendingExecutionSelection?: () => typeof executionSelection | undefined
@@ -72,6 +73,7 @@ function stateCreate(options: {
   const dispose = createRoot((rootDispose) => {
     state = sessionTargetSelectorStateCreate({
       accountId: () => `example-account-${Math.random()}`,
+      activeProjectId: () => options.activeProjectId ?? null,
       activeProjectPath: () => "/workspace/codeline",
       fetch: async (input, init) => {
         const url = String(input)
@@ -140,6 +142,21 @@ test("the resolved resource selection is sent with the create request and matche
     serverId: "example-server",
     skillSelection,
   })
+  expect(v.safeParse(sessionCreateRequestSchema, bodies[0]).success).toBe(true)
+  created.dispose()
+})
+
+test("a registered project selection sends only its persisted project id", async () => {
+  const bodies: Array<Record<string, unknown>> = []
+  const projectId = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1f70"
+  const created = stateCreate({ activeProjectId: projectId, bodies })
+  await effectsSettle()
+
+  await created.state.sessionCreateStart()
+
+  expect(bodies).toHaveLength(1)
+  expect(bodies[0]).toMatchObject({ projectId })
+  expect(bodies[0]).not.toHaveProperty("projectPath")
   expect(v.safeParse(sessionCreateRequestSchema, bodies[0]).success).toBe(true)
   created.dispose()
 })

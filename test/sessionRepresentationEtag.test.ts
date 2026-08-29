@@ -16,6 +16,7 @@ const session = {
   title: "ETag session",
   updatedAt: "2026-08-22T12:00:00.000Z",
 }
+const userId = "session-etag-user"
 
 test("session bodies containing authenticated cursors have stable, cursor-specific strong ETags", () => {
   const first = sessionDetailResponseCreate({
@@ -23,18 +24,21 @@ test("session bodies containing authenticated cursors have stable, cursor-specif
     asOfCursor: "cursor-a",
     server: { id: session.serverId },
     session,
+    userId,
   })
   const repeated = sessionDetailResponseCreate({
     agent: { id: session.primaryAgentId },
     asOfCursor: "cursor-a",
     server: { id: session.serverId },
     session,
+    userId,
   })
   const changedCursor = sessionDetailResponseCreate({
     agent: { id: session.primaryAgentId },
     asOfCursor: "cursor-b",
     server: { id: session.serverId },
     session,
+    userId,
   })
 
   expect(first).toEqual(repeated)
@@ -51,6 +55,7 @@ test("session list ETags include the opaque asOf cursor representation", () => {
     representationIdentity: "session-list:user-a:organization-a:{}",
     revision: 4,
     rows: [{ session }],
+    userId,
   })
   const changedCursor = sessionListSnapshotResponseCreate({
     asOfCursor: "cursor-b",
@@ -58,6 +63,7 @@ test("session list ETags include the opaque asOf cursor representation", () => {
     representationIdentity: "session-list:user-a:organization-a:{}",
     revision: 4,
     rows: [{ session }],
+    userId,
   })
 
   expect(first.success).toBe(true)

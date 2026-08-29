@@ -1,45 +1,40 @@
-import { createEffect, createSignal, onCleanup } from "solid-js/dist/solid.js"
-import * as v from "valibot"
-import type { ProjectApiListResponse } from "../../project/api/projectApiListResponseSchema.js"
-import { projectApiListResponseSchema } from "../../project/api/projectApiListResponseSchema.js"
+import { useContext } from "solid-js"
+import type { ProjectRegistryApiProject } from "../../project/api/projectRegistryApiProjectSchema.js"
+import { type ProjectRegistryState, projectRegistryStateCreate } from "../../project/ui/projectRegistryStateCreate.js"
+import { applicationAccountContext } from "../../ui/applicationAccountContext.js"
+import { appShellContext } from "../../ui/appShellContext.js"
 
 type NoteProjectListStateOptions = {
+  accountId?: () => string | null
   apiBase?: string
   fetcher?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
-}
-
-function createSignalObject<T>(value: T) {
-  const [get, set] = createSignal(value)
-  return { get, set }
+  projectRegistry?: ProjectRegistryState
 }
 
 export function noteProjectListStateCreate(options: NoteProjectListStateOptions = {}) {
-  const apiBase = options.apiBase ?? "/api/project"
-  const fetcher = options.fetcher ?? fetch
-  const projects = createSignalObject<ProjectApiListResponse["projects"]>([])
-  const [refreshVersion, setRefreshVersion] = createSignal(0)
-  let controller: AbortController | undefined
+  const appShell = useContext(appShellContext)
+  const account = useContext(applicationAccountContext)
+  const registry =
+    options.projectRegistry ??
+    appShell?.projectRegistry ??
+    projectRegistryStateCreate({
+      accountId: options.accountId ?? (() => account?.userId() ?? null),
+      fetch: options.fetcher,
+    })
 
-  createEffect(() => {
-    refreshVersion()
-    controller?.abort()
-    const active = new AbortController()
-    controller = active
-    void fetcher(`${apiBase}/list`, { signal: active.signal })
-      .then(async (response) => {
-        if (!response.ok) return
-        const parsed = v.safeParse(projectApiListResponseSchema, await response.json())
-        if (!parsed.success || active.signal.aborted) return
-        projects.set(parsed.output.projects)
-      })
-      .catch((_error: unknown) => {
-        if (!active.signal.aborted) return
-      })
-  })
+  const projects = (): readonly ProjectRegistryApiProject[] => registry.projects()
+  const availableProjects = (): readonly ProjectRegistryApiProject[] => registry.availableProjects()
 
-  const revalidate = () => setRefreshVersion((version) => version + 1)
+  const revalidate = () => {
+    registry.refresh()
+  }
 
-  onCleanup(() => controller?.abort())
-
-  return { projects: projects.get, refresh: revalidate, revalidate }
+  return {
+    availableProjects,
+    projects,
+    refresh: revalidate,
+    revalidate,
+  }
 }
+
+export type NoteProjectListState = ReturnType<typeof noteProjectListStateCreate>

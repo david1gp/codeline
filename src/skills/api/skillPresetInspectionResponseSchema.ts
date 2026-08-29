@@ -1,4 +1,6 @@
 import * as v from "valibot"
+import { projectDiscoveryIdSchema } from "../../project/projectDiscoveryIdSchema.js"
+import { projectIdSchema } from "../../project/projectIdSchema.js"
 import { skillPresetSchema } from "../schema/skillPresetSchema.js"
 
 export const skillPresetInspectionResponseSchema = v.strictObject({
@@ -13,7 +15,7 @@ export const skillPresetInspectionResponseSchema = v.strictObject({
   ),
   digest: v.pipe(v.string(), v.regex(/^sha256-[a-f0-9]{64}$/)),
   presets: v.array(skillPresetSchema),
-  projectId: v.pipe(v.string(), v.regex(/^[a-f0-9]{64}$/)),
+  projectId: v.union([projectIdSchema, projectDiscoveryIdSchema]),
   version: v.literal(1),
 })
 

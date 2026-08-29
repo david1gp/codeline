@@ -146,6 +146,9 @@ test("browserDiagnosticsCollectorCreate intercepts failed fetch requests without
     if (url.includes("/api/crash")) {
       throw new Error("Network connection dropped")
     }
+    if (url.includes("/api/not-modified")) {
+      return new Response(null, { status: 304 })
+    }
     return new Response("ok", { status: 200 })
   }
 
@@ -176,6 +179,11 @@ test("browserDiagnosticsCollectorCreate intercepts failed fetch requests without
   // Successful request -> not captured
   const res1 = await mockWindow.fetch("https://codeline.test/api/health")
   expect(res1.status).toBe(200)
+  expect(collector.pendingCount()).toBe(0)
+
+  // A conditional response is successful for the typed cache clients -> not captured
+  const res304 = await mockWindow.fetch("https://codeline.test/api/not-modified")
+  expect(res304.status).toBe(304)
   expect(collector.pendingCount()).toBe(0)
 
   // 404 request -> captured

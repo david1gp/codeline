@@ -13,7 +13,7 @@ const demoNote = demoNotesFixture[0]
 
 export function demoNoteScreenStateCreate(variant: () => DemoSessionScreenVariant): NoteScreenView {
   const content = createSignalObject<string>(demoNote.content)
-  const projectId = createSignalObject<string | null>(demoNote.projectPath)
+  const projectId = createSignalObject<string | null>(demoNote.projectId)
   const isDeleteConfirmOpen = createSignalObject(false)
   const viewModeState = demoNoteViewModeStateCreate(variant)
   const contentField = noteContentFieldStateCreate({ content: content.get, viewMode: viewModeState.viewMode })
@@ -32,14 +32,14 @@ export function demoNoteScreenStateCreate(variant: () => DemoSessionScreenVarian
     hasError: () => variant() === "error",
     hasNote,
     isDeleteConfirmOpen: isDeleteConfirmOpen.get,
-    isDirty: () => content.get() !== demoNote.content || projectId.get() !== demoNote.projectPath,
+    isDirty: () => content.get() !== demoNote.content || projectId.get() !== demoNote.projectId,
     isLoading: () => variant() === "loading",
     isNotFound: () => variant() === "empty",
     isSaving: () => variant() === "streaming",
     lineCount: () => noteLineCount(content.get()),
     projectId: () => projectId.get() ?? "",
     projectIdUpdate: (event) => projectId.set(event.currentTarget.value === "" ? null : event.currentTarget.value),
-    projects: () => noteProjectChoicesResolve(demoNoteProjectsFixture, projectId.get()),
+    projects: () => noteProjectChoicesResolve(demoNoteProjectsFixture, projectId.get(), demoNote.projectPath),
     refresh: () => {},
     revalidate: () => {},
     submit: (event) => event.preventDefault(),

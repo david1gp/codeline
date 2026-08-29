@@ -1,9 +1,13 @@
-import { expect, test } from "bun:test"
+import { expect, mock, test } from "bun:test"
+import * as solidRuntime from "solid-js/dist/solid.js"
 import { createRoot, createSignal } from "solid-js/dist/solid.js"
-import { activeProjectStateCreate } from "../src/ui/activeProjectStateCreate.js"
-import { newSessionDialogStateCreate } from "../src/ui/newSessionDialogStateCreate.js"
+
+mock.module("solid-js", () => solidRuntime)
+
+const { activeProjectStateCreate } = await import("../src/ui/activeProjectStateCreate.js")
+const { newSessionDialogStateCreate } = await import("../src/ui/newSessionDialogStateCreate.js")
 import type { SessionTargetSelectorState } from "../src/ui/sessionTargetSelectorStateCreate.js"
-import { signalObjectCreate } from "../src/ui/signalObjectCreate.js"
+const { signalObjectCreate } = await import("../src/ui/signalObjectCreate.js")
 
 test("confirming an existing project hands off without creating a session", () => {
   const createdProjectPaths: string[] = []
@@ -167,4 +171,201 @@ test("the selected project handoff does not change the active project", () => {
   expect(createdProjectPaths).toEqual([])
   expect(activeProject.project().path).toBe("/workspace/active")
   expect(projectPathOverride.get()).toBe("/workspace/other")
+})
+
+test("New Session lists registered projects with 0 sessions and sets projectIdOverride", () => {
+  const activeProject = activeProjectStateCreate({
+    id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc1",
+    label: "Active",
+    path: "/workspace/active",
+  })
+  const projectPathOverride = signalObjectCreate<string | null>(null)
+  const projectIdOverride = signalObjectCreate<string | null>(null)
+  const newSessionStarts: number[] = []
+
+  const registeredProjects = [
+    { available: true, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc1", label: "Active" },
+    { available: true, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc2", label: "Zero Session Project" },
+    { available: false, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc3", label: "Unavailable Project" },
+  ]
+
+  const mockRegistry = {
+    availableProjects: () => registeredProjects.filter((p) => p.available),
+    errorMessage: () => undefined,
+    isEmpty: () => false,
+    isError: () => false,
+    isLoading: () => false,
+    openCodeImport: async () => ({ success: true as const, data: { importedCount: 0 } }),
+    projectFind: (id: string) => registeredProjects.find((p) => p.id === id),
+    projectOpenCodeImport: async () => ({ success: true as const, data: { importedCount: 0 } }),
+    projectRegister: async () => ({ success: true as const, data: { project: registeredProjects[0]! } }),
+    projectRemove: async () => ({ success: true as const, data: undefined }),
+    projectRename: async () => ({ success: true as const, data: { project: registeredProjects[0]! } }),
+    projects: () => registeredProjects,
+    refresh: () => undefined,
+    retry: () => undefined,
+    status: () => "ready" as const,
+  }
+
+  const state = newSessionDialogStateCreate({
+    activeProject,
+    projectIdOverride,
+    projectPathOverride,
+    projectRegistry: mockRegistry,
+    sessionTarget: {
+      canCreateSession: () => true,
+      isCreatingSession: () => false,
+      sessionCreateErrorMessage: () => undefined,
+      selectedSessionId: () => null,
+      sessionCreateStart: async () => "session-id",
+      sessionCreateStatus: () => "idle" as const,
+      sessionNew: () => newSessionStarts.push(1),
+    } as unknown as SessionTargetSelectorState,
+  })
+
+  state.openChange(true)
+  expect(state.projects()).toHaveLength(2)
+  expect(state.selectedProjectId()).toBe("0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc1")
+
+  // Selecting available project with 0 sessions
+  state.projectChange("0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc2")
+  expect(state.selectedProjectId()).toBe("0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc2")
+  expect(projectIdOverride.get()).toBe("0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc2")
+  expect(projectPathOverride.get()).toBeNull()
+  expect(state.canCreateSession()).toBe(true)
+
+  // Selecting unavailable project is prevented / cannot create session
+  state.projectChange("0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc3")
+  expect(state.selectedProjectId()).toBe("0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc2")
+
+  // Confirming selection hands off with projectIdOverride
+  state.formSubmit({ preventDefault: () => undefined } as SubmitEvent)
+  expect(projectIdOverride.get()).toBe("0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc2")
+  expect(projectPathOverride.get()).toBeNull()
+  expect(newSessionStarts).toHaveLength(1)
+  expect(state.open()).toBe(false)
+})
+
+test("New Session when active project is unavailable selects first available project and allows creation", () => {
+  const activeProject = activeProjectStateCreate({
+    id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc4",
+    label: "Unavailable",
+    path: "/workspace/unavailable",
+  })
+  const projectPathOverride = signalObjectCreate<string | null>(null)
+  const projectIdOverride = signalObjectCreate<string | null>(null)
+  const newSessionStarts: number[] = []
+
+  const registeredProjects = [
+    { available: false, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc4", label: "Unavailable Project" },
+    { available: true, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc5", label: "Available Project" },
+  ]
+
+  const mockRegistry = {
+    availableProjects: () => registeredProjects.filter((p) => p.available),
+    errorMessage: () => undefined,
+    isEmpty: () => false,
+    isError: () => false,
+    isLoading: () => false,
+    openCodeImport: async () => ({ success: true as const, data: { importedCount: 0 } }),
+    projectFind: (id: string) => registeredProjects.find((p) => p.id === id),
+    projectOpenCodeImport: async () => ({ success: true as const, data: { importedCount: 0 } }),
+    projectRegister: async () => ({ success: true as const, data: { project: registeredProjects[1]! } }),
+    projectRemove: async () => ({ success: true as const, data: undefined }),
+    projectRename: async () => ({ success: true as const, data: { project: registeredProjects[1]! } }),
+    projects: () => registeredProjects,
+    refresh: () => undefined,
+    retry: () => undefined,
+    status: () => "ready" as const,
+  }
+
+  const state = newSessionDialogStateCreate({
+    activeProject,
+    projectIdOverride,
+    projectPathOverride,
+    projectRegistry: mockRegistry,
+    sessionTarget: {
+      canCreateSession: () => true,
+      isCreatingSession: () => false,
+      sessionCreateErrorMessage: () => undefined,
+      selectedSessionId: () => null,
+      sessionCreateStart: async () => "session-id",
+      sessionCreateStatus: () => "idle" as const,
+      sessionNew: () => newSessionStarts.push(1),
+    } as unknown as SessionTargetSelectorState,
+  })
+
+  state.openChange(true)
+  expect(state.projects()).toHaveLength(1)
+  expect(state.selectedProjectId()).toBe("0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc5")
+  expect(projectIdOverride.get()).toBe("0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc5")
+  expect(state.canCreateSession()).toBe(true)
+})
+
+test("New Session with empty registry defaults to new project option", () => {
+  const activeProject = activeProjectStateCreate()
+  const projectPathOverride = signalObjectCreate<string | null>(null)
+  const projectIdOverride = signalObjectCreate<string | null>(null)
+
+  const mockRegistry = {
+    availableProjects: () => [],
+    errorMessage: () => undefined,
+    isEmpty: () => true,
+    isError: () => false,
+    isLoading: () => false,
+    openCodeImport: async () => ({ success: true as const, data: { importedCount: 0 } }),
+    projectFind: () => undefined,
+    projectOpenCodeImport: async () => ({ success: true as const, data: { importedCount: 0 } }),
+    projectRegister: async () => ({
+      success: true as const,
+      data: {
+        project: { available: true, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc6", label: "Brand New" },
+      },
+    }),
+    projectRemove: async () => ({ success: true as const, data: undefined }),
+    projectRename: async () => ({
+      success: true as const,
+      data: {
+        project: { available: true, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc6", label: "Brand New" },
+      },
+    }),
+    projects: () => [],
+    refresh: () => undefined,
+    retry: () => undefined,
+    status: () => "empty" as const,
+  }
+
+  const state = newSessionDialogStateCreate({
+    activeProject,
+    projectIdOverride,
+    projectPathOverride,
+    projectRegistry: mockRegistry,
+    sessionTarget: {
+      canCreateSession: () => true,
+      isCreatingSession: () => false,
+      sessionCreateErrorMessage: () => undefined,
+      selectedSessionId: () => null,
+      sessionCreateStart: async () => "session-id",
+      sessionCreateStatus: () => "idle" as const,
+    } as unknown as SessionTargetSelectorState,
+  })
+
+  state.openChange(true)
+  expect(state.projects()).toHaveLength(0)
+  expect(state.selectedProjectId()).toBe(state.newProjectOptionValue)
+  expect(state.primaryActionLabel()).toBe("New Project")
+
+  // Submitting opens new project form
+  state.formSubmit({ preventDefault: () => undefined } as SubmitEvent)
+  expect(state.newProjectOpen()).toBe(true)
+
+  // Confirming new project registers and sets projectIdOverride
+  state.projectConfirmed("/workspace/brand-new", {
+    available: true,
+    id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc6",
+    label: "Brand New",
+  })
+  expect(state.newProjectOpen()).toBe(false)
+  expect(projectIdOverride.get()).toBe("0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc6")
+  expect(projectPathOverride.get()).toBeNull()
 })

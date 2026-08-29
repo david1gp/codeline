@@ -170,6 +170,21 @@ function runtimeConfigurationInputNormalize(input: unknown): Result<unknown> {
   if (!isRecord(input)) return createResult(input)
 
   const normalizedInput = { ...input }
+  const openCodeDatabasePath = input.OPENCODE_DB_PATH
+  if (
+    input.openCodeDatabasePath !== undefined &&
+    openCodeDatabasePath !== undefined &&
+    input.openCodeDatabasePath !== openCodeDatabasePath
+  ) {
+    return createResultError(
+      op,
+      "Runtime configuration is invalid. Conflicting values for openCodeDatabasePath and OPENCODE_DB_PATH.",
+    )
+  }
+  if (input.openCodeDatabasePath === undefined && openCodeDatabasePath !== undefined)
+    normalizedInput.openCodeDatabasePath = openCodeDatabasePath
+  delete normalizedInput.OPENCODE_DB_PATH
+
   const sessionsSidebarPageSize = input.SESSIONS_SIDEBAR_PAGE_SIZE
   if (sessionsSidebarPageSize !== undefined) {
     const normalizedPageSize =

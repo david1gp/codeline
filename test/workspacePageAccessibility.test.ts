@@ -26,17 +26,22 @@ test("desktop and mobile session sidebars share the selected project override", 
   expect(sidebar).toContain("projectPathOverride={props.projectPathOverride}")
 })
 
-test("the pending project path scopes both creation inspection and command context", async () => {
+test("the pending project identity scopes resource inspection and session creation", async () => {
   const source = await Bun.file(new URL("../src/ui/workspaceScreenStateCreate.ts", import.meta.url)).text()
 
   expect(source).toContain(
-    "const pendingSessionProjectPath = () => projectPathOverride.get() ?? activeProject.project().path",
+    "const pendingSessionProjectId = () => projectIdOverride.get() ?? activeProject.project().id ?? null",
   )
   expect(source).toContain(
-    "const pendingSessionInspectionProjectPath = () => discoveredProjectPathResolve(pendingSessionProjectPath())",
+    "pendingSessionProjectId() === null ? (projectPathOverride.get() ?? activeProject.project().path) : null",
   )
+  expect(source).toContain("projectId: pendingSessionProjectId")
   expect(source).toContain(
     "projectPath: () => (navigation.selectedSessionId() === null ? pendingSessionInspectionProjectPath() : null)",
+  )
+  expect(source).toContain("activeProjectId: pendingSessionProjectId")
+  expect(source).toContain(
+    "projectId: () => (navigation.selectedSessionId() === null ? pendingSessionProjectId() : null)",
   )
   expect(source).toContain("activeProjectPath: pendingSessionProjectPath")
   expect(source).toContain("? pendingSessionInspectionProjectPath()")

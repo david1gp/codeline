@@ -3,6 +3,7 @@ import { and, eq, sql } from "drizzle-orm"
 import * as v from "valibot"
 import { mutationIdempotencyTable } from "../../api/db/mutationIdempotencyTable.js"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
+import { projectRegistryProjectIdResolve } from "../../project/projectRegistryProjectIdResolve.js"
 import { serverTable } from "../../servers/db/serverTable.js"
 import { uuidv7 } from "../../uuid/uuidv7.js"
 import { sessionRenameResponseCreate } from "../api/sessionRenameResponseCreate.js"
@@ -73,7 +74,11 @@ export async function sessionRepositoryRename(
           return idempotencyConflict(op)
         const response = v.safeParse(sessionRenameResponseSchema, idempotent.responseBody)
         if (!response.success) return createResultError(op, "The stored idempotency response is invalid.")
-        return createResult({ ...lockedSession, replayed: true, responseBody: response.output })
+        const projectId = await projectRegistryProjectIdResolve(database, userId, lockedSession.projectPath)
+        if (!projectId.success) return createResultError(op, projectId.errorMessage)
+        const currentResponse = await sessionRenameResponseCreate(lockedSession, userId, projectId.data)
+        if (!currentResponse.success) return currentResponse
+        return createResult({ ...lockedSession, replayed: true, responseBody: currentResponse.data })
       }
     }
 
@@ -92,7 +97,9 @@ export async function sessionRepositoryRename(
       .returning()
     if (updated === undefined) return createResultError(op, "The session could not be renamed.")
 
-    const response = await sessionRenameResponseCreate(updated)
+    const projectId = await projectRegistryProjectIdResolve(database, userId, updated.projectPath)
+    if (!projectId.success) return createResultError(op, projectId.errorMessage)
+    const response = await sessionRenameResponseCreate(updated, userId, projectId.data)
     if (!response.success) return response
 
     if (options?.idempotencyKey !== undefined && options.requestHash !== undefined) {

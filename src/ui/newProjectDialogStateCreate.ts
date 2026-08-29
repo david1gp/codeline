@@ -1,9 +1,12 @@
-import { createEffect, onCleanup } from "solid-js/dist/solid.js"
+import { createEffect, onCleanup, useContext } from "solid-js"
 import * as v from "valibot"
 import { apiErrorResponseSchema } from "../api/errors/apiErrorResponseSchema.js"
-import { projectApiDirectoryConfirmRequestSchema } from "../project/api/projectApiDirectoryConfirmRequestSchema.js"
-import { projectApiDirectoryConfirmResponseSchema } from "../project/api/projectApiDirectoryConfirmResponseSchema.js"
 import { projectApiDirectorySuggestionsResponseSchema } from "../project/api/projectApiDirectorySuggestionsResponseSchema.js"
+import { projectRegistryApiProjectResponseSchema } from "../project/api/projectRegistryApiProjectResponseSchema.js"
+import type { ProjectRegistryApiProject } from "../project/api/projectRegistryApiProjectSchema.js"
+import { projectRegistryRegisterRequestSchema } from "../project/api/projectRegistryRegisterRequestSchema.js"
+import type { ProjectRegistryState } from "../project/ui/projectRegistryStateCreate.js"
+import { appShellContext } from "./appShellContext.js"
 import type { ActiveProjectState } from "./activeProjectStateCreate.js"
 import { signalObjectCreate } from "./signalObjectCreate.js"
 
@@ -12,8 +15,9 @@ type NewProjectDialogStateOptions = {
   debounceMs?: number
   fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
   idPrefix?: string
-  onProjectConfirmed?: (projectPath: string) => void
+  onProjectConfirmed?: (projectPath: string, project?: ProjectRegistryApiProject) => void
   open?: () => boolean
+  projectRegistry?: ProjectRegistryState
 }
 
 function projectApiErrorMessageResolve(body: unknown, fallback: string): string {
@@ -22,6 +26,8 @@ function projectApiErrorMessageResolve(body: unknown, fallback: string): string 
 }
 
 export function newProjectDialogStateCreate(options: NewProjectDialogStateOptions) {
+  const appShell = useContext(appShellContext)
+  const projectRegistry = options.projectRegistry ?? appShell?.projectRegistry
   const fetchImplementation = options.fetch ?? globalThis.fetch
   const debounceMs = options.debounceMs ?? 200
   const open = signalObjectCreate(false)
@@ -110,7 +116,7 @@ export function newProjectDialogStateCreate(options: NewProjectDialogStateOption
 
   const projectConfirm = async () => {
     if (confirmStatus.get() === "confirming" || disposed) return false
-    const request = v.safeParse(projectApiDirectoryConfirmRequestSchema, { path: path.get() })
+    const request = v.safeParse(projectRegistryRegisterRequestSchema, { path: path.get() })
     if (!request.success) {
       errorMessage.set("Enter a project folder path.")
       confirmStatus.set("error")
@@ -123,7 +129,7 @@ export function newProjectDialogStateCreate(options: NewProjectDialogStateOption
     confirmStatus.set("confirming")
     errorMessage.set(null)
     try {
-      const response = await fetchImplementation("/api/project/confirm", {
+      const response = await fetchImplementation("/api/project/registry", {
         body: JSON.stringify(request.output),
         headers: { "content-type": "application/json" },
         method: "POST",
@@ -131,15 +137,20 @@ export function newProjectDialogStateCreate(options: NewProjectDialogStateOption
       })
       const body: unknown = await response.json()
       if (disposed || controller.signal.aborted) return false
-      const parsed = v.safeParse(projectApiDirectoryConfirmResponseSchema, body)
+      const parsed = v.safeParse(projectRegistryApiProjectResponseSchema, body)
       if (!response.ok || !parsed.success) {
         errorMessage.set(projectApiErrorMessageResolve(body, "Choose an existing project folder."))
         confirmStatus.set("error")
         return false
       }
-      options.activeProject.projectActivate(parsed.output.project)
-      path.set(parsed.output.project.path)
-      options.onProjectConfirmed?.(parsed.output.project.path)
+      options.activeProject.projectActivate({
+        id: parsed.output.project.id,
+        label: parsed.output.project.label,
+        path: path.get(),
+      })
+      path.set(path.get())
+      projectRegistry?.refresh()
+      options.onProjectConfirmed?.(path.get(), parsed.output.project)
       confirmStatus.set("idle")
       openChange(false)
       return true

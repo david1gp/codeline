@@ -71,6 +71,7 @@ type ApiRoutesAddOptions = {
   configuration?: RuntimeConfiguration
   configurationStore?: ConfigurationStore
   database?: DatabaseClient
+  openCodeDatabasePath?: string
   projectLimits?: ProjectLimits
   projectRootDirs?: readonly string[]
   globalAgentsPath?: string
@@ -233,22 +234,31 @@ export function apiRoutesAdd(
     apiNoteRoutesAdd(api, {
       database: options.database,
       journalPostCommitPublish: options.journalPostCommitPublish,
+      projectRootDirs: options.projectRootDirs ?? [],
     })
   }
-  apiProjectRoutesAdd(api, { limits: options.projectLimits, rootDirs: options.projectRootDirs ?? [] })
+  apiProjectRoutesAdd(api, {
+    database: options.database,
+    limits: options.projectLimits,
+    openCodeDatabasePath: options.openCodeDatabasePath ?? options.configuration?.openCodeDatabasePath,
+    rootDirs: options.projectRootDirs ?? [],
+  })
   apiCommandRoutesAdd(api, {
     commandCatalogDiscover: options.commandCatalogDiscover,
     globalCommandsPath: options.globalCommandsPath,
+    projectRegistryDatabase: options.database,
     rootDirs: options.projectRootDirs ?? [],
   })
   apiAgentInstructionRoutesAdd(api, {
     agentInstructionsDiscover: options.agentInstructionsDiscover,
     globalAgentsPath: options.globalAgentsPath,
+    projectRegistryDatabase: options.database,
     rootDirs: options.projectRootDirs ?? [],
   })
   apiSkillRoutesAdd(api, {
     database: options.database,
     globalSkillsPath: options.globalSkillsPath,
+    projectRegistryDatabase: options.database,
     rootDirs: options.projectRootDirs ?? [],
     skillCatalogDiscover: options.skillCatalogDiscover,
     skillPresetCatalogLoad: options.skillPresetCatalogLoad,

@@ -1,4 +1,6 @@
 import * as v from "valibot"
+import { projectDiscoveryIdSchema } from "../../project/projectDiscoveryIdSchema.js"
+import { projectIdSchema } from "../../project/projectIdSchema.js"
 import { skillInspectionSnapshotSchema } from "./skillInspectionSnapshotSchema.js"
 
 const skillCatalogInspectionPathSchema = v.pipe(
@@ -45,7 +47,7 @@ export const skillCatalogInspectionResponseSchema = v.strictObject({
   diagnostics: v.array(skillCatalogInspectionDiagnosticSchema),
   digest: v.pipe(v.string(), v.regex(/^sha256-[a-f0-9]{64}$/)),
   groups: v.array(skillCatalogInspectionGroupSchema),
-  projectId: v.pipe(v.string(), v.regex(/^[a-f0-9]{64}$/)),
+  projectId: v.union([projectIdSchema, projectDiscoveryIdSchema]),
   roots: v.array(skillCatalogInspectionRootSchema),
   skills: v.array(skillInspectionSnapshotSchema),
   version: v.literal(1),

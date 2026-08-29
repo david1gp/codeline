@@ -23,7 +23,7 @@ export async function noteRepositoryLoad(
       .where(and(eq(noteTable.id, noteId), eq(noteTable.userId, userId)))
       .limit(1)
     if (row === undefined) return createResult(undefined)
-    return noteApiRecordCreate(row)
+    return await noteApiRecordCreate(database, row)
   } catch (_error) {
     return createResultError(op, "The note could not be loaded.")
   }

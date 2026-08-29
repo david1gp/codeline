@@ -8,6 +8,7 @@ export type NotesScreenNote = {
 export type NotesScreenGroup = {
   label: string
   notes: readonly NotesScreenNote[]
+  projectId: string | null
   projectPath: string | null
 }
 

@@ -4,7 +4,7 @@ import type { NotesScreenGroup } from "./notesScreenView.js"
 
 export type NoteWorkspaceSidebarView = {
   activeNoteId: () => string
-  activeProjectPath: () => string | null
+  activeProjectId: () => string | null
   canMoveDown: () => boolean
   canMoveUp: () => boolean
   /** Retained-data lifecycle of the note list backing this sidebar. */

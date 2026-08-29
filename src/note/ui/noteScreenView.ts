@@ -1,4 +1,4 @@
-import type { ProjectApiListResponse } from "../../project/api/projectApiListResponseSchema.js"
+import type { ProjectRegistryApiProject } from "../../project/api/projectRegistryApiProjectSchema.js"
 import type { HttpQueryDataStatus } from "../../ui/httpQueryDataStatusResolve.js"
 import type { noteContentFieldStateCreate } from "./noteContentFieldStateCreate.js"
 import type { NoteViewMode } from "./noteViewModeSchema.js"
@@ -26,7 +26,7 @@ export type NoteScreenView = {
   lineCount: () => number
   projectId: () => string
   projectIdUpdate: (event: Event & { currentTarget: HTMLSelectElement }) => void
-  projects: () => ProjectApiListResponse["projects"]
+  projects: () => readonly ProjectRegistryApiProject[]
   submit: (event: SubmitEvent) => void
   title: () => string
   refresh: () => void

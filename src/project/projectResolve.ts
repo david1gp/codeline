@@ -1,13 +1,21 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
+import * as v from "valibot"
+import type { DatabaseExecutor } from "../database/databaseClient.js"
 import { projectDirectoryCanonicalPathResolve } from "./projectDirectoryCanonicalPathResolve.js"
+import { projectDiscoveryIdSchema } from "./projectDiscoveryIdSchema.js"
+import { projectIdSchema } from "./projectIdSchema.js"
+import { projectRegistryPathCanonicalize } from "./projectRegistryPathCanonicalize.js"
 import {
   type ProjectDiscoveryEntriesReadOptions,
   type ProjectDiscoveryEntriesReadResult,
   projectDiscoveryEntriesRead,
 } from "./projectDiscoveryEntriesRead.js"
+import { projectRegistryRepositoryResolve } from "./db/projectRegistryRepositoryResolve.js"
 
 export type ProjectResolveOptions = ProjectDiscoveryEntriesReadOptions & {
+  database?: DatabaseExecutor
   discovered?: ProjectDiscoveryEntriesReadResult
+  userId?: string
 }
 
 export type ProjectResolved = {
@@ -21,11 +29,28 @@ export async function projectResolve(
   options: ProjectResolveOptions = {},
 ): Promise<Result<ProjectResolved>> {
   const op = "projectResolve"
-  if (typeof projectId !== "string" || !/^[a-f0-9]{64}$/.test(projectId)) {
+  const projectIdParsed = v.safeParse(
+    options.database !== undefined || options.userId !== undefined ? projectIdSchema : projectDiscoveryIdSchema,
+    projectId,
+  )
+  if (!projectIdParsed.success) {
     return createResultError(op, "The project identifier is invalid.")
   }
 
-  const { discovered: cached, ...readOptions } = options
+  if (options.database !== undefined || options.userId !== undefined) {
+    if (options.database === undefined || options.userId === undefined || options.userId.length === 0) {
+      return createResultError(op, "The project could not be found.")
+    }
+
+    const registered = await projectRegistryRepositoryResolve(options.database, options.userId, projectId)
+    if (!registered.success) return createResultError(op, "The project could not be found.")
+
+    const canonical = await projectRegistryPathCanonicalize(registered.data.path, rootDirs)
+    if (!canonical.success) return createResultError(op, "The project could not be found.")
+    return createResult({ id: registered.data.id, rootDir: canonical.data })
+  }
+
+  const { database: _database, userId: _userId, discovered: cached, ...readOptions } = options
   const discovered =
     cached === undefined
       ? await projectDiscoveryEntriesRead(rootDirs, readOptions)

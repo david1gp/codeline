@@ -1,4 +1,5 @@
 import { onCleanup, useContext } from "solid-js"
+import { projectRegistryStateCreate } from "../project/ui/projectRegistryStateCreate.js"
 import { providerModelSelectorStateCreate } from "../providers/ui/providerModelSelectorStateCreate.js"
 import { activeProjectStateCreate } from "./activeProjectStateCreate.js"
 import { applicationAccountContext } from "./applicationAccountContext.js"
@@ -11,6 +12,7 @@ import { selectedSessionStateCreate } from "./selectedSessionStateCreate.js"
 import { sessionDrawerContext } from "./sessionDrawerContext.js"
 import { sessionListStateCreate } from "./sessionListStateCreate.js"
 import { type SessionNavigationState, sessionNavigationStateCreate } from "./sessionNavigationStateCreate.js"
+import type { SessionProjectIdOverride } from "./sessionProjectIdOverride.js"
 import { sessionResourceSelectorStateCreate } from "./sessionResourceSelectorStateCreate.js"
 import type { SessionProjectPathOverride } from "./sessionProjectPathOverride.js"
 import type { SessionSidebarRouteState } from "./sessionSidebarRouteStateCreate.js"
@@ -29,22 +31,36 @@ export function workspaceScreenStateCreate(
   options: WorkspaceScreenStateOptions = {},
 ): WorkspaceScreenView {
   const shell = useContext(applicationShellContext) ?? applicationShellStateCreate()
-  const activeProject = useContext(appShellContext)?.activeProject ?? activeProjectStateCreate()
+  const appShell = useContext(appShellContext)
+  const activeProject = appShell?.activeProject ?? activeProjectStateCreate()
   const drawer = useContext(sessionDrawerContext) ?? workspacePageStateCreate()
   const account = useContext(applicationAccountContext)
-  const pwa = useContext(appShellContext)?.pwa
+  const pwa = appShell?.pwa
+  const projectRegistry =
+    appShell?.projectRegistry ??
+    projectRegistryStateCreate({
+      accountId: () => account?.userId() ?? null,
+      fetch: options.fetcher,
+    })
   // `~` is a valid session reference, but it is not necessarily a project in the
-  // configured discovery roots. Project-scoped reads must wait for a confirmed path.
+  // configured discovery roots. Path-based project reads must wait for a confirmed path.
   const discoveredProjectPathResolve = (path: string | null) => (path === "~" ? null : path)
   const projectPathOverrideState = signalObjectCreate<string | null>(null)
   const projectPathOverride: SessionProjectPathOverride = {
     get: projectPathOverrideState.get,
     set: (value) => projectPathOverrideState.set(value),
   }
+  const projectIdOverrideState = signalObjectCreate<string | null>(null)
+  const projectIdOverride: SessionProjectIdOverride = {
+    get: projectIdOverrideState.get,
+    set: (value) => projectIdOverrideState.set(value),
+  }
   // The dialog owns the pending project choice through this shared signal. Every
   // pre-session consumer must derive from it so inspection/context reads and the
   // create request cannot silently use different projects.
-  const pendingSessionProjectPath = () => projectPathOverride.get() ?? activeProject.project().path
+  const pendingSessionProjectId = () => projectIdOverride.get() ?? activeProject.project().id ?? null
+  const pendingSessionProjectPath = () =>
+    pendingSessionProjectId() === null ? (projectPathOverride.get() ?? activeProject.project().path) : null
   const pendingSessionInspectionProjectPath = () => discoveredProjectPathResolve(pendingSessionProjectPath())
   // The target selector consumes the pending resource selection, and the resource
   // selector consumes the selected target. Both sides read through accessors, so the
@@ -52,6 +68,7 @@ export function workspaceScreenStateCreate(
   let sessionTargetSelector: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
   const sessionResourceSelector = sessionResourceSelectorStateCreate({
     isOnline: () => pwa?.status() !== "offline",
+    projectId: pendingSessionProjectId,
     projectPath: () => (navigation.selectedSessionId() === null ? pendingSessionInspectionProjectPath() : null),
     selectedAgentId: () => sessionTargetSelector?.selectedAgentId() ?? null,
     selectedServerId: () => sessionTargetSelector?.selectedServerId() ?? null,
@@ -59,6 +76,7 @@ export function workspaceScreenStateCreate(
   })
   sessionTargetSelector = sessionTargetSelectorStateCreate({
     accountId: () => account?.userId() ?? null,
+    activeProjectId: pendingSessionProjectId,
     activeProjectPath: pendingSessionProjectPath,
     isOnline: () => pwa?.status() !== "offline",
     isNewSessionRoute: navigation.isNewSessionRoute,
@@ -84,6 +102,7 @@ export function workspaceScreenStateCreate(
     ...(options.fetcher === undefined ? {} : { fetch: options.fetcher }),
     isBashEnabled: () => sessionResourceSelector.agentTools().some((entry) => entry.isPrimary && entry.bash),
     isOnline: () => pwa?.status() !== "offline",
+    projectId: () => (navigation.selectedSessionId() === null ? pendingSessionProjectId() : null),
     projectPath: () =>
       navigation.selectedSessionId() === null
         ? pendingSessionInspectionProjectPath()
@@ -113,13 +132,15 @@ export function workspaceScreenStateCreate(
   return {
     activeProject,
     drawer,
-    files: filesScreenViewCreate(),
-    shell,
-    providerModelSelector,
+    files: filesScreenViewCreate({ fetcher: options.fetcher, projectRegistry }),
+    projectIdOverride,
     projectPathOverride,
+    projectRegistry,
+    providerModelSelector,
     selectedSession: selectedSessionState,
     sessionList: sessionListStateCreate(() => navigation, sidebarRoute, { fetcher: options.fetcher }),
     sessionResourceSelector,
     sessionTargetSelector,
+    shell,
   }
 }

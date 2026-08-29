@@ -13,6 +13,7 @@ import { organizationTable } from "../src/identity/db/organizationTable.js"
 import { journalCursorCodecCreate } from "../src/journal/actions/journalCursorCodecCreate.js"
 import { journalEventTable } from "../src/journal/db/journalEventTable.js"
 import { noteTable } from "../src/note/db/noteTable.js"
+import { projectRegistryRepositoryUpsert } from "../src/project/db/projectRegistryRepositoryUpsert.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
 import { appSseTestDependenciesCreate } from "./appSseTestDependenciesCreate.js"
 import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
@@ -28,6 +29,13 @@ const fixture = {
 const published: Array<typeof journalEventTable.$inferSelect> = []
 let publicationObservedCommittedState = true
 let userId: string | undefined
+let projectId: string | undefined
+const projectPath = process.cwd()
+
+function registeredProjectId(): string {
+  if (projectId === undefined) throw new Error("The note API test project is missing.")
+  return projectId
+}
 
 const journalCursorCodec = journalCursorCodecCreate({ randomBytes, secret: `note-api-${uuidv7()}` })
 if (!journalCursorCodec.success) throw new Error(journalCursorCodec.errorMessage)
@@ -45,6 +53,7 @@ const app = appCreate({
   configuration,
   database,
   journalCursorCodec: journalCursorCodec.data,
+  projectRootDirs: [projectPath],
   journalPostCommitPublish: async (events) => {
     for (const event of events) {
       const persisted = await database
@@ -79,6 +88,9 @@ beforeAll(async () => {
     updatedAt: new Date(),
     userId,
   })
+  const registered = await projectRegistryRepositoryUpsert(database, userId, { path: projectPath })
+  if (!registered.success) throw new Error(registered.errorMessage)
+  projectId = registered.data.id
 })
 
 afterAll(async () => {
@@ -105,7 +117,7 @@ test.skipIf(!databaseAvailable)(
       content: "first",
       createdAt: 1_000,
       id: firstId,
-      projectPath: "project",
+      projectId: registeredProjectId(),
       updatedAt: 1_000,
     }
     const firstCreated = await app.request("http://codeline.test/api/notes", {
@@ -116,7 +128,14 @@ test.skipIf(!databaseAvailable)(
     expect(firstCreated.status).toBe(201)
     expect(firstCreated.headers.get("ETag")).toBeString()
     const first = await firstCreated.json()
-    expect(first).toMatchObject({ content: firstInput.content, id: firstId, revision: 1, sortOrder: 0 })
+    expect(first).toMatchObject({
+      content: firstInput.content,
+      id: firstId,
+      projectId: registeredProjectId(),
+      projectPath,
+      revision: 1,
+      sortOrder: 0,
+    })
     expect(firstCreated.headers.get("Idempotency-Replayed")).toBe("false")
     expect(published).toHaveLength(1)
 
@@ -161,7 +180,7 @@ test.skipIf(!databaseAvailable)(
     const updated = await app.request(`http://codeline.test/api/notes/${firstId}`, {
       body: JSON.stringify({
         content: "updated",
-        projectPath: "project",
+        projectId: registeredProjectId(),
         updatedAt: 3_000,
       }),
       headers: { ...jsonHeaders, "Idempotency-Key": "note-api-update-first", "If-Match": firstEtag ?? "" },
@@ -172,7 +191,7 @@ test.skipIf(!databaseAvailable)(
     expect(published).toHaveLength(3)
 
     const stale = await app.request(`http://codeline.test/api/notes/${firstId}`, {
-      body: JSON.stringify({ content: "stale", projectPath: "project", updatedAt: 4_000 }),
+      body: JSON.stringify({ content: "stale", projectId: registeredProjectId(), updatedAt: 4_000 }),
       headers: { ...jsonHeaders, "If-Match": firstEtag ?? "" },
       method: "PATCH",
     })
@@ -185,7 +204,7 @@ test.skipIf(!databaseAvailable)(
     expect(secondDetail.status).toBe(200)
     expect(secondEtag).toBeString()
     const reordered = await app.request(`http://codeline.test/api/notes/${secondId}/reorder`, {
-      body: JSON.stringify({ direction: "up", projectPath: "project" }),
+      body: JSON.stringify({ direction: "up", projectId: registeredProjectId() }),
       headers: { ...jsonHeaders, "If-Match": secondEtag ?? "" },
       method: "POST",
     })

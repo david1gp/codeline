@@ -339,7 +339,7 @@ export function browserDiagnosticsCollectorCreate(
       throw error
     }
 
-    if (!response.ok && !isSending) {
+    if (!response.ok && response.status !== 304 && !isSending) {
       record({
         data: { method, status: response.status, statusText: response.statusText },
         level: "error",

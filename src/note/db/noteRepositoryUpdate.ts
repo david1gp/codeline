@@ -1,13 +1,12 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import { and, eq, sql } from "drizzle-orm"
-import * as v from "valibot"
 import { mutationIdempotencyTable } from "../../api/db/mutationIdempotencyTable.js"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { uuidv7 } from "../../uuid/uuidv7.js"
-import { noteApiRecordSchema } from "../api/noteApiRecordSchema.js"
 import { noteRepresentationEtagCreate } from "../api/noteRepresentationEtagCreate.js"
 import type { NoteUpdateRequest } from "../schema/noteUpdateRequestSchema.js"
 import { noteApiRecordCreate } from "./noteApiRecordCreate.js"
+import { noteApiRecordReplayCreate } from "./noteApiRecordReplayCreate.js"
 import { noteOrganizationAuthorize } from "./noteOrganizationAuthorize.js"
 import { notePreconditionConflictCreate } from "./notePreconditionConflictCreate.js"
 import { noteProjectPathNormalize } from "./noteProjectPathNormalize.js"
@@ -18,12 +17,13 @@ import { noteRowsOrder } from "./noteRowsOrder.js"
 import { noteTable } from "./noteTable.js"
 
 const noteUpdateOperation = "note.update"
+type NoteRepositoryUpdateInput = Omit<NoteUpdateRequest, "projectId"> & { projectPath: string | null }
 
 export async function noteRepositoryUpdate(
   database: DatabaseExecutor,
   userId: string,
   noteId: string,
-  input: NoteUpdateRequest & {
+  input: NoteRepositoryUpdateInput & {
     expectedEtag?: string
     organizationId?: string
     requestHash?: string
@@ -119,7 +119,7 @@ async function noteUpdateComplete(
   updated: typeof noteTable.$inferSelect,
   replayed: boolean,
 ): Promise<Result<NoteRepositoryMutationResult>> {
-  const response = noteApiRecordCreate(updated)
+  const response = await noteApiRecordCreate(database, updated)
   if (!response.success) return createResultError("noteRepositoryUpdate", response.errorMessage)
   const stored = await noteUpdateIdempotencyStore(database, userId, noteId, input, response.data)
   if (!stored.success) return createResultError("noteRepositoryUpdate", stored.errorMessage)
@@ -149,9 +149,9 @@ async function noteUpdateIdempotencyLoad(
   if (idempotent === undefined) return createResult(undefined)
   if (idempotent.resourceId !== noteId || idempotent.requestHash !== input.requestHash)
     return noteRepositoryIdempotencyConflictCreate(op)
-  const response = v.safeParse(noteApiRecordSchema, idempotent.responseBody)
-  if (!response.success) return createResultError(op, "The stored idempotency response is invalid.")
-  return createResult({ affectedNotes: [], replayed: true, responseBody: response.output })
+  const response = await noteApiRecordReplayCreate(database, userId, idempotent.responseBody)
+  if (!response.success) return createResultError(op, response.errorMessage)
+  return createResult({ affectedNotes: [], replayed: true, responseBody: response.data })
 }
 
 async function noteUpdateIdempotencyStore(

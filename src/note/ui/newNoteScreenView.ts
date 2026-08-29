@@ -1,3 +1,4 @@
+import type { ProjectRegistryApiProject } from "../../project/api/projectRegistryApiProjectSchema.js"
 import type { noteContentFieldStateCreate } from "./noteContentFieldStateCreate.js"
 import type { NoteViewMode } from "./noteViewModeSchema.js"
 
@@ -11,6 +12,9 @@ export type NewNoteScreenView = {
   contentField: ReturnType<typeof noteContentFieldStateCreate>
   hasError: () => boolean
   isSaving: () => boolean
+  projectId: () => string
+  projectIdUpdate: (event: Event & { currentTarget: HTMLSelectElement }) => void
+  projects: () => readonly ProjectRegistryApiProject[]
   submit: (event: SubmitEvent) => void
   title: () => string
   viewMode: () => NoteViewMode

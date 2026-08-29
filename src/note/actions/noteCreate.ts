@@ -9,6 +9,7 @@ import type { NoteRepositoryMutationResult } from "../db/noteRepositoryMutationR
 import { noteCreateRequestSchema } from "../schema/noteCreateRequestSchema.js"
 import { noteJournalMutationRun } from "./noteJournalMutationRun.js"
 import { noteJournalResourceIdsRead } from "./noteJournalResourceIdsRead.js"
+import { noteProjectPathResolve } from "./noteProjectPathResolve.js"
 
 type NoteCreateActionOptions = {
   journal?: {
@@ -16,21 +17,28 @@ type NoteCreateActionOptions = {
     resolveRecipients: JournalEventRecipientResolver
   }
   organizationId?: string
+  projectRootDirs?: readonly string[]
   requestHash?: string
 }
 
-export function noteCreate(
+export async function noteCreate(
   database: DatabaseClient,
   userId: string,
   input: unknown,
   options: NoteCreateActionOptions = {},
 ): Promise<Result<NoteRepositoryMutationResult>> {
   const parsed = v.safeParse(noteCreateRequestSchema, input)
-  if (!parsed.success) return Promise.resolve(createResultError("noteCreate", "The note creation input is invalid."))
+  if (!parsed.success) return createResultError("noteCreate", "The note creation input is invalid.")
+  const projectPath = await noteProjectPathResolve(database, userId, parsed.output.projectId, {
+    projectRootDirs: options.projectRootDirs,
+  })
+  if (!projectPath.success) return createResultError("noteCreate", projectPath.errorMessage)
+  const { projectId: _projectId, ...request } = parsed.output
   const mutation = (transaction: Parameters<typeof noteRepositoryCreate>[0]) =>
     noteRepositoryCreate(transaction, userId, {
-      ...parsed.output,
+      ...request,
       organizationId: options.organizationId,
+      projectPath: projectPath.data,
       requestHash: options.requestHash,
     })
   if (options.journal !== undefined)

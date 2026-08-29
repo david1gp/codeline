@@ -4,6 +4,7 @@ import { applicationShellStateCreate } from "../applicationShellStateCreate.js"
 import { workspacePageStateCreate } from "../workspacePageStateCreate.js"
 import type { WorkspaceScreenView } from "../workspaceScreenView.js"
 import { demoFilesScreenStateCreate } from "./demoFilesScreenStateCreate.js"
+import { demoProjectRegistryStateCreate } from "./demoProjectRegistryStateCreate.js"
 import { demoProviderModelSelectorStateCreate } from "./demoProviderModelSelectorStateCreate.js"
 import { demoSelectedSessionStateCreate } from "./demoSelectedSessionStateCreate.js"
 import { demoSessionListStateCreate } from "./demoSessionListStateCreate.js"
@@ -22,6 +23,7 @@ export function demoWorkspaceScreenStateCreate(variant: () => DemoSessionScreenV
     files: demoFilesScreenStateCreate(variant),
     providerModelSelector: demoProviderModelSelectorStateCreate(variant),
     projectPathOverride,
+    projectRegistry: demoProjectRegistryStateCreate(),
     shell,
     selectedSession: demoSelectedSessionStateCreate({
       rightPanelClose: shell.rightPanelClose,

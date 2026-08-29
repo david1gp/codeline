@@ -232,3 +232,45 @@ test("session list rejects invalid rename titles before issuing a request", asyn
   expect(root.state.actions.errorMessage()).toBe("Enter a session title.")
   root.rootDispose()
 })
+
+test("session list projects tab merges registered projects with 0 sessions", async () => {
+  const projectId = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fab"
+  const registeredProjects = [{ available: true, id: projectId, label: "Empty Registered Project" }]
+  const mockRegistry = {
+    availableProjects: () => registeredProjects,
+    errorMessage: () => undefined,
+    isEmpty: () => false,
+    isError: () => false,
+    isLoading: () => false,
+    openCodeImport: async () => ({ success: true as const, data: { importedCount: 0 } }),
+    projectFind: (id: string) => registeredProjects.find((p) => p.id === id),
+    projectOpenCodeImport: async () => ({ success: true as const, data: { importedCount: 0 } }),
+    projectRegister: async () => ({ success: true as const, data: { project: registeredProjects[0]! } }),
+    projectRemove: async () => ({ success: true as const, data: undefined }),
+    projectRename: async () => ({ success: true as const, data: { project: registeredProjects[0]! } }),
+    projects: () => registeredProjects,
+    refresh: () => {},
+    retry: () => {},
+    status: () => "ready" as const,
+  }
+
+  const root = createRoot((rootDispose) => ({
+    rootDispose,
+    state: sessionListStateCreate(() => navigation, undefined, {
+      fetcher: async () => pageResponse([session("session-1", "2026-08-23T00:00:00.000Z")], null),
+      projectRegistry: mockRegistry,
+    }),
+  }))
+
+  await flush()
+  root.state.sidebar.selectTab("projects")
+  expect(root.state.isEmpty()).toBe(false)
+  const groups = root.state.sidebar.projectGroups()
+  expect(groups.length).toBe(2)
+  expect(groups[0]?.projectLabel).toBe("Home")
+  expect(groups[0]?.sessions).toHaveLength(1)
+  expect(groups[1]?.projectLabel).toBe("Empty Registered Project")
+  expect(groups[1]?.sessions).toHaveLength(0)
+  expect(groups[1]?.projectId).toBe(projectId)
+  root.rootDispose()
+})

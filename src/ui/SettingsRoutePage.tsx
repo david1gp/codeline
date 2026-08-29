@@ -1,5 +1,6 @@
 import { For, Show } from "solid-js"
 import { Icon } from "#ui/static/icon/Icon.jsx"
+import { ProjectRegistryImportActions } from "../project/ui/ProjectRegistryImportActions.js"
 import { ConnectionStatusDetails } from "./ConnectionStatusDetails.js"
 import { PwaStatusActions } from "./pwa/PwaStatusActions.js"
 import { settingsRoutePageStateCreate } from "./settingsRoutePageStateCreate.js"
@@ -57,6 +58,19 @@ export function SettingsRoutePage() {
             </section>
           )}
         </Show>
+
+        <section
+          class="grid gap-3 rounded-lg border border-line bg-surface-raised p-5"
+          aria-labelledby="projects-settings-title"
+        >
+          <div>
+            <h2 id="projects-settings-title" class="font-medium text-foreground text-lg">
+              Projects
+            </h2>
+            <p class="mt-1 text-faint text-sm">Import existing OpenCode projects into your registry.</p>
+          </div>
+          <ProjectRegistryImportActions projectRegistry={state.projectRegistry} />
+        </section>
 
         <section
           class="grid gap-3 rounded-lg border border-line bg-surface-raised p-5"

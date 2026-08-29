@@ -53,6 +53,7 @@ export function demoSessionListStateCreate(options: DemoSessionListStateOptions)
     isLoading: () => options.variant() === "loading",
     isSelected: (sessionId: string) => options.selectedSessionId.get() === sessionId,
     query: query.get,
+    projectRegistry: undefined,
     refresh: () => {},
     revalidate: () => {},
     retry: () => query.set(""),

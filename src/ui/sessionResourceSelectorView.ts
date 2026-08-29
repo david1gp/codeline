@@ -27,6 +27,7 @@ export type SessionResourceSelectorInstructionSnapshot =
   | SessionExecutionResourceSummary["instructionSources"][number]
 
 export type SessionResourceSelectorProject = {
+  available?: boolean
   id: string
   label: string
 }

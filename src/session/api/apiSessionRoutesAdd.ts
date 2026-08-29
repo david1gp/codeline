@@ -40,6 +40,7 @@ import { providerRuntimeAdapterCreate } from "../../providers/runtime/providerRu
 import { providerRuntimeAdapterResolve } from "../../providers/runtime/providerRuntimeAdapterResolve.js"
 import type { CodelineExecution } from "../../providers/schema/codelineExecutionSchema.js"
 import type { ProviderCatalog } from "../../providers/schema/providerCatalogSchema.js"
+import { projectRegistryProjectIdResolve } from "../../project/projectRegistryProjectIdResolve.js"
 import { runActiveRegistryCreate } from "../../run/actions/runActiveRegistryCreate.js"
 import { runCancellationCoordinatorCreate } from "../../run/actions/runCancellationCoordinatorCreate.js"
 import { runChildCreate } from "../../run/actions/runChildCreate.js"
@@ -235,7 +236,8 @@ function sessionCreateRequestHashInputCreate(input: v.InferOutput<typeof session
     executionSelection: input.executionSelection,
     skillSelection: input.skillSelection,
     primaryAgentId: input.primaryAgentId,
-    projectPath: input.projectPath,
+    projectId: input.projectId,
+    ...(input.projectId === undefined ? { projectPath: input.projectPath } : {}),
     serverId: input.serverId,
     title: input.title,
     ...(input.agentPrompt === undefined ? {} : { agentPrompt: input.agentPrompt }),
@@ -435,6 +437,10 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     const body = await context.req.json<unknown>().catch(() => undefined)
     const parsed = apiRequestParse("sessionCreateRequestParse", sessionCreateRequestSchema, body)
     if (!parsed.success) return badRequest(context, "The session request is invalid.")
+    // Home has no registry entry, but an explicit project path must never bypass
+    // registry authorization. Internal action callers retain the path-based branch.
+    if (parsed.data.projectId === undefined && parsed.data.projectPath !== undefined && parsed.data.projectPath !== "~")
+      return badRequest(context, "A registered project is required to create a session.")
 
     const requestHash = apiIdempotencyRequestHashCreate(sessionCreateRequestHashInputCreate(parsed.data))
     const result = await sessionCreate(options.database, userId, parsed.data, {
@@ -484,7 +490,14 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     context.header("Idempotency-Replayed", result.data.replayed ? "true" : "false")
     if (result.data.responseBody !== undefined)
       return context.json(result.data.responseBody, result.data.created && !result.data.replayed ? 201 : 200)
-    const response = sessionCreateMutationResponseCreate({ created: result.data.created, session: result.data.session })
+    const projectId = await projectRegistryProjectIdResolve(options.database, userId, result.data.session.projectPath)
+    if (!projectId.success) return internalServerError(context)
+    const response = sessionCreateMutationResponseCreate({
+      created: result.data.created,
+      projectId: projectId.data,
+      session: result.data.session,
+      userId,
+    })
     if (!response.success) return internalServerError(context)
     return context.json(response.data, result.data.created && !result.data.replayed ? 201 : 200)
   })

@@ -11,6 +11,8 @@ import { journalReplayBoundaryTable } from "../journal/db/journalReplayBoundaryT
 import { journalSequenceCounterTable } from "../journal/db/journalSequenceCounterTable.js"
 import { messageTable } from "../message/db/messageTable.js"
 import { noteTable } from "../note/db/noteTable.js"
+import { projectTable } from "../project/db/projectTable.js"
+import { projectRegistrySessionPathBackfillTable } from "../project/db/projectRegistrySessionPathBackfillTable.js"
 import { attemptTable } from "../run/db/attemptTable.js"
 import { runDelegationTable } from "../run/db/runDelegationTable.js"
 import { runTable } from "../run/db/runTable.js"
@@ -31,6 +33,8 @@ export const databaseSchema = {
   messageTable,
   mutationIdempotencyTable,
   noteTable,
+  projectTable,
+  projectRegistrySessionPathBackfillTable,
   runDelegationTable,
   runTable,
   serverTable,

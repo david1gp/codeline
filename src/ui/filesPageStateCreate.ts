@@ -1,14 +1,18 @@
-import { createSignal, onCleanup } from "solid-js/dist/solid.js"
+import { createSignal, useContext } from "solid-js"
 import * as v from "valibot"
-import type { ProjectApiListResponse } from "../project/api/projectApiListResponseSchema.js"
-import { projectApiListResponseSchema } from "../project/api/projectApiListResponseSchema.js"
 import { projectApiProjectQuerySchema } from "../project/api/projectApiProjectQuerySchema.js"
+import type { ProjectRegistryApiProject } from "../project/api/projectRegistryApiProjectSchema.js"
+import { type ProjectRegistryState, projectRegistryStateCreate } from "../project/ui/projectRegistryStateCreate.js"
+import { appShellContext } from "./appShellContext.js"
+import { applicationAccountContext } from "./applicationAccountContext.js"
 
 const filesSelectedProjectStorageKey = "codeline.explorer.selectedProjectId"
 
 type FilesPageStateOptions = {
+  accountId?: () => string | null
   apiBase?: string
   fetcher?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+  projectRegistry?: ProjectRegistryState
   storage?: Pick<Storage, "getItem" | "setItem">
 }
 
@@ -48,62 +52,52 @@ function filesSelectedProjectIdWrite(storage: FilesPageStateOptions["storage"], 
 }
 
 export function filesPageStateCreate(options: FilesPageStateOptions = {}) {
-  const apiBase = options.apiBase ?? "/api/project"
-  const fetcher = options.fetcher ?? fetch
+  const appShell = useContext(appShellContext)
+  const account = useContext(applicationAccountContext)
+  const registry =
+    options.projectRegistry ??
+    appShell?.projectRegistry ??
+    projectRegistryStateCreate({
+      accountId: options.accountId ?? (() => account?.userId() ?? null),
+      fetch: options.fetcher,
+    })
+
   const storage = filesSelectedProjectStorageResolve(options.storage)
   const persistedProjectId = filesSelectedProjectIdRead(storage)
-  const projects = createSignalObject<ProjectApiListResponse["projects"]>([])
-  const selectedProjectId = createSignalObject<string | null>(null)
-  const status = createSignalObject<"error" | "loading" | "ready">("loading")
-  const truncated = createSignalObject(false)
-  let controller: AbortController | undefined
-  let requestVersion = 0
+  const selectedProjectId = createSignalObject<string | null>(persistedProjectId)
 
-  const load = async () => {
-    const version = requestVersion + 1
-    requestVersion = version
-    controller?.abort()
-    const requestController = new AbortController()
-    controller = requestController
-    status.set("loading")
+  const availableProjects = (): readonly ProjectRegistryApiProject[] => registry.availableProjects()
 
-    try {
-      const response = await fetcher(`${apiBase}/list`, { signal: requestController.signal })
-      if (!response.ok) throw new Error("The project list request failed.")
-      const parsed = v.safeParse(projectApiListResponseSchema, await response.json())
-      if (!parsed.success) throw new Error("The project list response is invalid.")
-      if (requestController.signal.aborted || version !== requestVersion) return
-
-      projects.set(parsed.output.projects)
-      const previousProjectId = selectedProjectId.get() ?? persistedProjectId
-      const selectedProject =
-        parsed.output.projects.find((project) => project.id === previousProjectId) ?? parsed.output.projects[0] ?? null
-      selectedProjectId.set(selectedProject?.id ?? null)
-      if (selectedProject !== null) filesSelectedProjectIdWrite(storage, selectedProject.id)
-      truncated.set(parsed.output.truncated)
-      status.set("ready")
-    } catch (_error: unknown) {
-      if (requestController.signal.aborted || version !== requestVersion) return
-      projects.set([])
-      selectedProjectId.set(null)
-      truncated.set(false)
-      status.set("error")
+  const selectedProject = (): ProjectRegistryApiProject | null => {
+    const available = availableProjects()
+    if (available.length === 0) return null
+    const currentId = selectedProjectId.get()
+    if (currentId !== null) {
+      const match = available.find((project) => project.id === currentId)
+      if (match !== undefined) return match
     }
+    return available[0] ?? null
   }
 
-  void load()
-  onCleanup(() => controller?.abort())
+  const status = (): "error" | "loading" | "ready" => {
+    if (registry.isError()) return "error"
+    if (registry.isLoading() && registry.projects().length === 0) return "loading"
+    return "ready"
+  }
 
   return {
-    projects: projects.get,
-    truncated: truncated.get,
+    projects: availableProjects,
+    truncated: () => false,
     projectSelect: (projectId: string) => {
-      if (!projects.get().some((project) => project.id === projectId)) return
+      const match = availableProjects().find((project) => project.id === projectId)
+      if (match === undefined) return
       selectedProjectId.set(projectId)
       filesSelectedProjectIdWrite(storage, projectId)
     },
-    retry: () => void load(),
-    selectedProject: () => projects.get().find((project) => project.id === selectedProjectId.get()) ?? null,
-    status: status.get,
+    retry: () => {
+      registry.retry()
+    },
+    selectedProject,
+    status,
   }
 }

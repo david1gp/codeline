@@ -337,15 +337,18 @@ test("the session shell exposes the sanitized resources alongside the immutable 
     parentSessionId: null,
     pinned: false,
     primaryAgentId: "example-agent-primary",
+    projectId: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1f30",
     projectPath: projectRoot,
     revision: 1,
     serverId: "example-server",
     title: "Example session",
+    userId: "example-user",
     updatedAt: "2026-08-26T10:00:00.000Z",
   })
 
   expect(shell.success).toBe(true)
   if (!shell.success) return
+  expect(shell.data.projectId).toBe("0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1f30")
   expect(shell.data.executionResources?.presetName).toBe("focused")
   expect(shell.data.executionResources?.skills.map(({ name }) => name)).toEqual(["agent-browser", "code-style"])
   expect(shell.data.executionResources?.instructionSources[0]?.canonicalPath).toBe(`${globalRoot}/AGENTS.md`)

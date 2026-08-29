@@ -1,8 +1,10 @@
 import * as v from "valibot"
 import { projectDiscoveryLimits } from "../projectDiscoveryLimits.js"
+import { projectDiscoveryIdSchema } from "../projectDiscoveryIdSchema.js"
+import { projectIdSchema } from "../projectIdSchema.js"
 
 export const projectApiIdentityResponseSchema = v.strictObject({
-  id: v.pipe(v.string(), v.regex(/^[a-f0-9]{64}$/)),
+  id: v.union([projectIdSchema, projectDiscoveryIdSchema]),
   label: v.pipe(v.string(), v.maxLength(projectDiscoveryLimits.maximumLabelLength)),
 })
 

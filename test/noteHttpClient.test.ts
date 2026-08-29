@@ -10,6 +10,7 @@ const note = {
   content: "Heading\nDetails",
   createdAt: 100,
   id: "note-1",
+  projectId: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1f80",
   projectPath: "/workspace/codeline",
   revision: 2,
   sortOrder: 0,
@@ -30,16 +31,23 @@ test("note typed clients preserve routes, validation, and conditional mutations"
   expect(
     (
       await noteCreateRequest(
-        { content: "New", createdAt: 100, id: "note-2", projectPath: null, updatedAt: 100 },
+        { content: "New", createdAt: 100, id: "note-2", projectId: null, updatedAt: 100 },
         { fetch: fetcher },
       )
     ).success,
   ).toBe(true)
+  expect(await requests[2]?.json()).toEqual({
+    content: "New",
+    createdAt: 100,
+    id: "note-2",
+    projectId: null,
+    updatedAt: 100,
+  })
   expect(
     (
       await noteUpdateRequest(
         "note/1",
-        { content: "Updated", id: "note/1", projectPath: null, updatedAt: 300 },
+        { content: "Updated", id: "note/1", projectId: null, updatedAt: 300 },
         { etag: '"note-etag"', fetch: fetcher },
       )
     ).success,
@@ -49,7 +57,7 @@ test("note typed clients preserve routes, validation, and conditional mutations"
     (
       await noteReorderRequest(
         "note/1",
-        { direction: "down", id: "note/1", projectPath: null },
+        { direction: "down", id: "note/1", projectId: null },
         { etag: '"note-etag"', fetch: fetcher },
       )
     ).success,
@@ -66,7 +74,7 @@ test("note typed clients preserve routes, validation, and conditional mutations"
   expect(requests[0]?.cache).toBe("no-store")
   expect(requests[1]?.cache).toBe("no-store")
   expect(requests[3]?.headers.get("If-Match")).toBe('"note-etag"')
-  expect(await requests[5]?.json()).toEqual({ direction: "down", id: "note/1", projectPath: null })
+  expect(await requests[5]?.json()).toEqual({ direction: "down", id: "note/1", projectId: null })
 })
 
 test("note detail treats an HTTP not-found as the existing detail empty state", async () => {

@@ -7,7 +7,7 @@ test("the existing-project dialog action hands off to the no-session workspace",
   expect(dialog).toContain("state.formSubmit")
   expect(dialog).not.toContain("sessionCreateStart")
   expect(state).toContain("const projectSelectionConfirm = () =>")
-  expect(state).toContain("options.projectPathOverride.set(projectPath)")
+  expect(state).toContain("options.projectPathOverride.set(null)")
   expect(state).toContain("open.set(false)")
   expect(state).toContain("options.sessionTarget.sessionNew?.()")
   expect(state).not.toContain("options.sessionTarget.sessionCreateStart")

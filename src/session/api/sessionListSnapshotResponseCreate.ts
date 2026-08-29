@@ -6,6 +6,7 @@ import { sessionListSnapshotSchemaVersion } from "./sessionListSnapshotSchemaVer
 import { sessionShellCreate } from "./sessionShellCreate.js"
 
 type SessionListSnapshotRow = {
+  projectId?: string | null
   session: Parameters<typeof sessionShellCreate>[0]
 }
 type CurrentSessionListSnapshotResponse = v.InferOutput<typeof sessionListSnapshotResponseV3Schema>
@@ -16,11 +17,16 @@ export function sessionListSnapshotResponseCreate(input: {
   representationIdentity: string
   revision: number
   rows: SessionListSnapshotRow[]
+  userId: string
 }): Result<CurrentSessionListSnapshotResponse> {
   const op = "sessionListSnapshotResponseCreate"
   const sessions = []
   for (const row of input.rows) {
-    const session = sessionShellCreate(row.session)
+    const session = sessionShellCreate({
+      ...row.session,
+      projectId: row.projectId ?? undefined,
+      userId: input.userId,
+    })
     if (!session.success) return createResultError(op, session.errorMessage)
     sessions.push(session.data)
   }

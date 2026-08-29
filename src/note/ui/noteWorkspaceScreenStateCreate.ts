@@ -1,3 +1,4 @@
+import type { ProjectRegistryState } from "../../project/ui/projectRegistryStateCreate.js"
 import { notePageStateCreate } from "./notePageStateCreate.js"
 import { noteWorkspacePageStateCreate } from "./noteWorkspacePageStateCreate.js"
 import type { NoteWorkspaceScreenView } from "./noteWorkspaceScreenView.js"
@@ -8,6 +9,7 @@ type NoteWorkspaceScreenStateOptions = {
   fetcher?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
   isOnline?: () => boolean
   noteId: () => string
+  projectRegistry?: ProjectRegistryState
 }
 
 export function noteWorkspaceScreenStateCreate(options: NoteWorkspaceScreenStateOptions): NoteWorkspaceScreenView {
@@ -16,6 +18,7 @@ export function noteWorkspaceScreenStateCreate(options: NoteWorkspaceScreenState
   const shared = {
     ...(options.accountId === undefined ? {} : { accountId: options.accountId }),
     ...(options.isOnline === undefined ? {} : { isOnline: options.isOnline }),
+    ...(options.projectRegistry === undefined ? {} : { projectRegistry: options.projectRegistry }),
   }
   const detail = notePageStateCreate({
     apiBase: options.apiBase,

@@ -8,6 +8,7 @@ function session(input: Partial<Parameters<typeof sessionSidebarDerive>[0][numbe
   return {
     id: input.id,
     parentSessionId: null,
+    projectId: input.projectId,
     projectPath: input.projectPath ?? "~",
     title: input.title ?? input.id,
     updatedAt: input.updatedAt ?? now,
@@ -75,6 +76,7 @@ test("sidebar adapts search results without losing row metadata", () => {
         metadata: {},
         parentSessionId: null,
         pinned: false,
+        projectId: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fbc",
         primaryAgentId: "agent-1",
         projectPath: "/workspace/codeline",
         revision: 1,
@@ -88,8 +90,75 @@ test("sidebar adapts search results without losing row metadata", () => {
 
   expect(derived.search[0]).toMatchObject({
     projectLabel: "codeline",
-    session: { id: "search-result", projectPath: "/workspace/codeline", pinned: false },
+    session: {
+      id: "search-result",
+      pinned: false,
+      projectId: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fbc",
+      projectPath: "/workspace/codeline",
+    },
     updatedAtRelative: "1h",
+  })
+})
+
+test("sidebar merges registered projects with zero sessions alongside historical session projects", () => {
+  const regId1 = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fbd"
+  const regId2 = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fbe"
+  const derived = sessionSidebarDerive(
+    [
+      session({ id: "s-1", projectId: regId1, projectPath: "/workspace/codeline", updatedAt: now }),
+      session({ id: "s-2", projectPath: "/workspace/historical", updatedAt: now - 30_000 }),
+    ],
+    [],
+    now,
+    {},
+    [
+      { available: true, id: regId1, label: "codeline" },
+      { available: false, id: regId2, label: "empty-registered" },
+    ],
+  )
+
+  expect(derived.projects).toHaveLength(3)
+  expect(
+    derived.projects.map((p) => ({ available: p.available, label: p.projectLabel, sessionCount: p.sessions.length })),
+  ).toEqual([
+    { available: true, label: "codeline", sessionCount: 1 },
+    { available: false, label: "empty-registered", sessionCount: 0 },
+    { available: true, label: "historical", sessionCount: 1 },
+  ])
+  expect(derived.projects[0]?.projectId).toBe(regId1)
+  expect(derived.projects[1]?.projectId).toBe(regId2)
+  expect(derived.projects[2]?.projectId).toBeUndefined()
+})
+
+test("sidebar keeps duplicate registered labels and unmatched historical sessions separate", () => {
+  const firstProjectId = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fbf"
+  const secondProjectId = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc0"
+  const derived = sessionSidebarDerive(
+    [
+      session({ id: "first", projectId: firstProjectId, projectPath: "/workspace/first", updatedAt: now }),
+      session({ id: "second", projectId: secondProjectId, projectPath: "/other/first", updatedAt: now - 1_000 }),
+      session({ id: "historical", projectPath: "/legacy/first", updatedAt: now - 2_000 }),
+    ],
+    [],
+    now,
+    { "/legacy/first": "first" },
+    [
+      { available: true, id: firstProjectId, label: "first" },
+      { available: true, id: secondProjectId, label: "first" },
+    ],
+  )
+
+  expect(
+    derived.projects.find((project) => project.projectId === firstProjectId)?.sessions.map((row) => row.session.id),
+  ).toEqual(["first"])
+  expect(
+    derived.projects.find((project) => project.projectId === secondProjectId)?.sessions.map((row) => row.session.id),
+  ).toEqual(["second"])
+  const historical = derived.projects.find((project) => project.projectPath === "/legacy/first")
+  expect(historical?.projectId).toBeUndefined()
+  expect(historical).toMatchObject({
+    projectLabel: "first",
+    sessions: [{ session: { id: "historical" } }],
   })
 })
 

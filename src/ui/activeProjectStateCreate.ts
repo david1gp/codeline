@@ -1,11 +1,13 @@
 import { signalObjectCreate } from "./signalObjectCreate.js"
 
 type ActiveProject = {
+  id?: string | null
   label: string
   path: string
 }
 
 const activeProjectDefault: ActiveProject = {
+  id: null,
   label: "Home",
   path: "~",
 }

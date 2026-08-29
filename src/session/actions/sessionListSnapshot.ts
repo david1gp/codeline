@@ -17,6 +17,7 @@ export async function sessionListSnapshot(
   const response = sessionListSnapshotResponseCreate({
     ...snapshot.data,
     representationIdentity: `session-list:${userId}:${organizationId}:${JSON.stringify(options)}`,
+    userId,
   })
   if (!response.success) return createResultError("sessionListSnapshot", response.errorMessage)
   return response

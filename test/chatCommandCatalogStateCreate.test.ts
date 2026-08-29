@@ -8,7 +8,7 @@ mock.module("solid-js", () => solidRuntime)
 const { chatCommandCatalogStateCreate } = await import("../src/ui/chatCommandCatalogStateCreate.js")
 
 const digest = `sha256-${createHash("sha256").update("catalog").digest("hex")}`
-const projectId = "a".repeat(64)
+const projectId = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fa8"
 
 const catalogBody = {
   collisions: [],
@@ -47,8 +47,10 @@ function stateCreate(options: {
   isBashEnabled?: boolean
   isEnabled?: boolean
   isOnline?: boolean
+  projectId?: string | null
   projectPath?: string | null
 }) {
+  const [projectId] = createSignal(options.projectId ?? null)
   const [projectPath] = createSignal(options.projectPath === undefined ? "/tmp/project" : options.projectPath)
   let state: ReturnType<typeof chatCommandCatalogStateCreate> | undefined
   const dispose = createRoot((rootDispose) => {
@@ -57,6 +59,7 @@ function stateCreate(options: {
       isBashEnabled: () => options.isBashEnabled ?? false,
       isEnabled: () => options.isEnabled ?? true,
       isOnline: () => options.isOnline ?? true,
+      projectId,
       projectPath,
     })
     return rootDispose
@@ -86,6 +89,26 @@ test("resolves the project identity then reads the project-scoped command catalo
   // The browser never scans command paths itself.
   expect(requested.every((url) => !url.includes(".agents/commands"))).toBe(true)
 
+  dispose()
+})
+
+test("a registered project id reads the command catalog without an identity path lookup", async () => {
+  const requested: string[] = []
+  const { dispose, state } = stateCreate({
+    fetch: async (input) => {
+      const url = typeof input === "string" ? input : input.toString()
+      requested.push(url)
+      return jsonResponse(catalogBody)
+    },
+    projectId,
+    projectPath: null,
+  })
+
+  await settle()
+
+  expect(state.status()).toBe("ready")
+  expect(requested.some((url) => url.includes("/api/project/identity"))).toBe(false)
+  expect(requested.some((url) => url.includes(`/api/project/commands/catalog`) && url.includes(projectId))).toBe(true)
   dispose()
 })
 

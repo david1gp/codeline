@@ -12,6 +12,7 @@ const noteCreate = (id: string, content: string, revision: number) => ({
   content,
   createdAt: 100,
   id,
+  projectId: null,
   projectPath: null,
   revision,
   sortOrder: 0,
@@ -188,5 +189,45 @@ test("saving a note invalidates the shared cache entry so a stale 304 cannot res
   expect(root.state.isSaving()).toBe(false)
   expect(root.state.content()).toBe("Saved body")
   expect(httpQueryCacheCreate("detail-save").get("detail-save /api/notes/note-4")?.revision).toBe(2)
+  root.dispose()
+})
+
+test("note detail preserves existing unavailable project assignment in choices and allows reassignment", async () => {
+  const availableProject = {
+    available: true,
+    id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc0",
+    label: "Available Project",
+  }
+  const unavailableProject = {
+    available: false,
+    id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc1",
+    label: "Unavailable Project",
+  }
+  const noteWithUnavailable = {
+    ...noteCreate("note-5", "Note with project", 1),
+    projectId: unavailableProject.id,
+    projectPath: unavailableProject.id,
+  }
+
+  const fetcher: NoteFetch = async (input) => {
+    const url = String(input)
+    if (url === "/api/project/registry") {
+      return Response.json({ projects: [availableProject, unavailableProject], truncated: false })
+    }
+    return Response.json(noteWithUnavailable, { headers: { ETag: '"note-5-1"' } })
+  }
+
+  const root = createRoot((dispose) => ({
+    dispose,
+    state: notePageStateCreate({ accountId: () => "detail-proj", fetcher, isOnline: () => true, noteId: "note-5" }),
+  }))
+
+  await tick()
+  expect(root.state.projectId()).toBe(unavailableProject.id)
+  expect(root.state.projects()).toEqual([unavailableProject, availableProject])
+
+  root.state.projectIdUpdate({ currentTarget: { value: availableProject.id } } as never)
+  expect(root.state.projectId()).toBe(availableProject.id)
+  expect(root.state.isDirty()).toBe(true)
   root.dispose()
 })

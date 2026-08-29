@@ -1,23 +1,26 @@
+import type { ProjectRegistryApiProject } from "../project/api/projectRegistryApiProjectSchema.js"
 import type { SessionShell } from "../session/api/sessionShellSchema.js"
 import { sessionSearchResultAdapt } from "./sessionSearchResultAdapt.js"
 import { sessionSidebarProjectLabelResolve } from "./sessionSidebarProjectLabelResolve.js"
 import type { SessionSidebarSession } from "./sessionSidebarSession.js"
 import { sessionUpdatedAtFormat } from "./sessionUpdatedAtFormat.js"
 
-type SessionSidebarRow = {
+export type SessionSidebarRow = {
   projectLabel: string
   session: SessionSidebarSession
   updatedAtRelative: string
   updatedAtTitle: string
 }
 
-type SessionSidebarProjectGroup = {
+export type SessionSidebarProjectGroup = {
+  available?: boolean
+  projectId?: string
   projectLabel: string
   projectPath: string
   sessions: readonly SessionSidebarRow[]
 }
 
-type SessionSidebarTabs = {
+export type SessionSidebarTabs = {
   projects: readonly SessionSidebarProjectGroup[]
   recent: readonly SessionSidebarRow[]
   search: readonly SessionSidebarRow[]
@@ -55,42 +58,71 @@ export function sessionSidebarDerive(
   searchResults: readonly SessionShell[],
   now: number = Date.now(),
   projectLabels: Record<string, string> = {},
+  registeredProjects: readonly ProjectRegistryApiProject[] = [],
 ): SessionSidebarTabs {
   const recent = [...activeSessions]
     .sort(sessionSidebarSessionCompare)
     .map((session) => sessionSidebarRowCreate(session, now, projectLabels))
   const pinned = recent.filter((row) => row.session.pinned)
-  const projects = new Map<string, SessionSidebarRow[]>()
 
-  for (const row of recent) {
-    const group = projects.get(row.session.projectPath)
-    if (group === undefined) projects.set(row.session.projectPath, [row])
-    else group.push(row)
+  const matchedSessionIds = new Set<string>()
+  const groups: SessionSidebarProjectGroup[] = []
+
+  for (const reg of registeredProjects) {
+    const matchingSessions: SessionSidebarRow[] = []
+
+    for (const row of recent) {
+      if (matchedSessionIds.has(row.session.id)) continue
+      if (row.session.projectId !== reg.id) continue
+      matchingSessions.push(row)
+      matchedSessionIds.add(row.session.id)
+    }
+
+    groups.push({
+      available: reg.available,
+      projectId: reg.id,
+      projectLabel: reg.label,
+      projectPath: matchingSessions[0]?.session.projectPath ?? "",
+      sessions: matchingSessions,
+    })
   }
 
+  const remainingByPath = new Map<string, SessionSidebarRow[]>()
+  for (const row of recent) {
+    if (matchedSessionIds.has(row.session.id)) continue
+    const existing = remainingByPath.get(row.session.projectPath)
+    if (existing === undefined) remainingByPath.set(row.session.projectPath, [row])
+    else existing.push(row)
+  }
+
+  for (const [projectPath, sessions] of remainingByPath) {
+    groups.push({
+      available: true,
+      projectLabel: projectLabels[projectPath] ?? sessionSidebarProjectLabelResolve(projectPath),
+      projectPath,
+      sessions,
+    })
+  }
+
+  groups.sort((left, right) => {
+    const leftIsHome = left.projectPath === "~" || left.projectLabel === "Home"
+    const rightIsHome = right.projectPath === "~" || right.projectLabel === "Home"
+    if (leftIsHome !== rightIsHome) return leftIsHome ? -1 : 1
+    const leftLabel = left.projectLabel.toLocaleLowerCase()
+    const rightLabel = right.projectLabel.toLocaleLowerCase()
+    return (
+      leftLabel.localeCompare(rightLabel) ||
+      left.projectLabel.localeCompare(right.projectLabel) ||
+      left.projectPath.localeCompare(right.projectPath)
+    )
+  })
+
   return {
-    projects: [...projects]
-      .map(([projectPath, sessions]) => ({
-        projectLabel: projectLabels[projectPath] ?? sessionSidebarProjectLabelResolve(projectPath),
-        projectPath,
-        sessions,
-      }))
-      .sort((left, right) => {
-        const leftIsHome = left.projectPath === "~"
-        const rightIsHome = right.projectPath === "~"
-        if (leftIsHome !== rightIsHome) return leftIsHome ? -1 : 1
-        const leftLabel = left.projectLabel.toLocaleLowerCase()
-        const rightLabel = right.projectLabel.toLocaleLowerCase()
-        return (
-          leftLabel.localeCompare(rightLabel) ||
-          left.projectLabel.localeCompare(right.projectLabel) ||
-          left.projectPath.localeCompare(right.projectPath)
-        )
-      }),
+    pinned,
+    projects: groups,
     recent,
     search: searchResults.map((result) =>
       sessionSidebarRowCreate(sessionSearchResultAdapt(result), now, projectLabels),
     ),
-    pinned,
   }
 }

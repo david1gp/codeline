@@ -3,12 +3,14 @@ import { createSignalObject } from "@adaptive-ds/solid-ui/utils/createSignalObje
 import { type Accessor, createEffect, onCleanup, useContext } from "solid-js"
 import * as v from "valibot"
 import { apiHttpClientCreate } from "../api/client/apiHttpClientCreate.js"
+import type { ProjectRegistryState } from "../project/ui/projectRegistryStateCreate.js"
 import type { SessionShell } from "../session/api/sessionShellSchema.js"
 import { sessionListPageLoad } from "../session/client/sessionListPageLoad.js"
 import { sessionRenameRequestSchema } from "../session/schema/sessionRenameRequestSchema.js"
 import { sessionDeleteRequest } from "../session/ui/sessionDeleteRequest.js"
 import { sessionEtagFetch } from "../session/ui/sessionEtagFetch.js"
 import { sessionRenameRequest } from "../session/ui/sessionRenameRequest.js"
+import { appShellContext } from "./appShellContext.js"
 import { applicationAccountContext } from "./applicationAccountContext.js"
 import { eventFeedCoordinatorContext } from "./eventFeedCoordinatorContext.js"
 import { sessionBranchTreeStateCreate } from "./sessionBranchTreeStateCreate.js"
@@ -24,6 +26,7 @@ const defaultSessionsSidebarPageSize = 25
 
 type SessionListStateOptions = {
   fetcher?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+  projectRegistry?: ProjectRegistryState
 }
 
 function sessionsSidebarPageSizeResolve() {
@@ -37,6 +40,8 @@ export function sessionListStateCreate(
   options: SessionListStateOptions = {},
 ) {
   const pageSize = sessionsSidebarPageSizeResolve()
+  const appShell = useContext(appShellContext)
+  const projectRegistry = options.projectRegistry ?? appShell?.projectRegistry
   const eventFeed = useContext(eventFeedCoordinatorContext)
   const account = useContext(applicationAccountContext)
   // A signed-out reader may only browse cached settled sessions; the
@@ -128,7 +133,14 @@ export function sessionListStateCreate(
   }
 
   const actions = sessionSidebarActionsStateCreate({
+    fetcher,
+    onProjectRemoved: () => projectRegistry?.refresh(),
+    onProjectRenamed: () => projectRegistry?.refresh(),
     onSessionDeleted: sessionDeletedHandle,
+    projectRemove: projectRegistry ? (projectId) => projectRegistry.projectRemove(projectId) : undefined,
+    projectRename: projectRegistry
+      ? (projectId, title) => projectRegistry.projectRename(projectId, { displayName: title })
+      : undefined,
     sessionDelete,
     sessionRename,
     sessionIdsForProject: (projectPath) =>
@@ -146,7 +158,8 @@ export function sessionListStateCreate(
     const overrides = Object.fromEntries(
       sessions().map((session) => [session.projectPath, actions.projectLabel(session.projectPath)]),
     )
-    return sessionSidebarDerive(sessionsWithWorking(), search.sessions(), Date.now(), overrides)
+    const registered = projectRegistry ? projectRegistry.projects() : []
+    return sessionSidebarDerive(sessionsWithWorking(), search.sessions(), Date.now(), overrides, registered)
   }
   const activeRows = () => {
     const tab = activeTab()
@@ -197,6 +210,7 @@ export function sessionListStateCreate(
       selectTab,
       tabs: sidebarTabs,
     },
+    projectRegistry,
     query: search.query,
     refresh: revalidate,
     revalidate,

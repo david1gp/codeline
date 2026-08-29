@@ -1,7 +1,11 @@
-import { expect, test } from "bun:test"
+import { expect, mock, test } from "bun:test"
+import * as solidRuntime from "solid-js/dist/solid.js"
 import { createRoot } from "solid-js/dist/solid.js"
-import { activeProjectStateCreate } from "../src/ui/activeProjectStateCreate.js"
-import { newProjectDialogStateCreate } from "../src/ui/newProjectDialogStateCreate.js"
+
+mock.module("solid-js", () => solidRuntime)
+
+const { activeProjectStateCreate } = await import("../src/ui/activeProjectStateCreate.js")
+const { newProjectDialogStateCreate } = await import("../src/ui/newProjectDialogStateCreate.js")
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
 
@@ -29,7 +33,13 @@ test("dialog loads clickable suggestions and activates only the server-confirmed
           if (String(input).startsWith("/api/project/suggestions")) {
             return Response.json({ suggestions: [{ label: "Codeline", path: "/workspace/codeline" }] })
           }
-          return Response.json({ project: { label: "Canonical Codeline", path: "/real/workspace/codeline" } })
+          return Response.json({
+            project: {
+              available: true,
+              id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1f60",
+              label: "Canonical Codeline",
+            },
+          })
         },
         onProjectConfirmed: (projectPath) => {
           confirmedProjectPath = projectPath
@@ -42,15 +52,19 @@ test("dialog loads clickable suggestions and activates only the server-confirmed
   await tick()
   expect(root.state.suggestions()).toEqual([{ label: "Codeline", path: "/workspace/codeline" }])
   root.state.suggestionSelect("/workspace/codeline")
-  expect(root.activeProject.project()).toEqual({ label: "Home", path: "~" })
+  expect(root.activeProject.project()).toEqual({ id: null, label: "Home", path: "~" })
 
   await root.state.projectConfirm()
   expect(requests.at(-1)).toEqual({
     body: JSON.stringify({ path: "/workspace/codeline" }),
-    url: "/api/project/confirm",
+    url: "/api/project/registry",
   })
-  expect(root.activeProject.project()).toEqual({ label: "Canonical Codeline", path: "/real/workspace/codeline" })
-  expect(confirmedProjectPath).toBe("/real/workspace/codeline")
+  expect(root.activeProject.project()).toEqual({
+    id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1f60",
+    label: "Canonical Codeline",
+    path: "/workspace/codeline",
+  })
+  expect(confirmedProjectPath).toBe("/workspace/codeline")
   expect(root.state.open()).toBe(false)
   root.dispose()
 })
@@ -77,7 +91,7 @@ test("dialog rejects failed confirmation without changing the active project", a
 
   root.state.pathChange("/outside")
   await root.state.projectConfirm()
-  expect(root.activeProject.project()).toEqual({ label: "Home", path: "~" })
+  expect(root.activeProject.project()).toEqual({ id: null, label: "Home", path: "~" })
   expect(root.state.errorMessage()).toBe("The project directory is invalid.")
   expect(root.state.confirmStatus()).toBe("error")
   root.dispose()

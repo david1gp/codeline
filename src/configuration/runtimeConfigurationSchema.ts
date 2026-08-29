@@ -12,6 +12,7 @@ export const runtimeConfigurationSchema = v.object({
     }),
   ),
   nodeEnv: v.picklist(["development", "test", "production"]),
+  openCodeDatabasePath: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(4096))),
   oidcProviders: v.optional(
     v.object({
       authworks: v.optional(oidcProviderConfigurationSchema),

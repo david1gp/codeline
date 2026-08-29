@@ -7,6 +7,7 @@ import { databaseReadTransactionRun } from "../../database/databaseReadTransacti
 import { applicationUserTable } from "../../identity/db/applicationUserTable.js"
 import { journalSequenceCounterTable } from "../../journal/db/journalSequenceCounterTable.js"
 import { messageTable } from "../../message/db/messageTable.js"
+import { projectTable } from "../../project/db/projectTable.js"
 import { runTable } from "../../run/db/runTable.js"
 import { serverTable } from "../../servers/db/serverTable.js"
 import { sessionSettledSnapshotRequestSchema } from "../api/sessionSettledSnapshotRequestSchema.js"
@@ -56,7 +57,7 @@ export async function sessionRepositorySettledSnapshot(
         )
 
       const [sessionRow] = await transaction
-        .select({ agent: agentTable, server: serverTable, session: sessionTable })
+        .select({ agent: agentTable, projectId: projectTable.id, server: serverTable, session: sessionTable })
         .from(sessionTable)
         .innerJoin(
           serverTable,
@@ -65,6 +66,10 @@ export async function sessionRepositorySettledSnapshot(
         .innerJoin(
           agentTable,
           and(eq(sessionTable.primaryAgentId, agentTable.id), eq(agentTable.serverId, sessionTable.serverId)),
+        )
+        .leftJoin(
+          projectTable,
+          and(eq(projectTable.userId, sessionTable.userId), eq(projectTable.path, sessionTable.projectPath)),
         )
         .where(and(eq(sessionTable.id, parsedRequest.output.sessionId), eq(sessionTable.userId, user.id)))
         .limit(1)
@@ -110,9 +115,11 @@ export async function sessionRepositorySettledSnapshot(
         asOfSequence: highestSequence.data,
         etag: dependencies.etagCreate(sessionRow.session.id, sessionRow.session.revision),
         messages,
+        ...(sessionRow.projectId === null ? {} : { projectId: sessionRow.projectId }),
         revision: sessionRow.session.revision,
         schemaVersion: dependencies.schemaVersion,
         session: sessionRow.session,
+        userId,
       })
     })
   } catch (_error) {

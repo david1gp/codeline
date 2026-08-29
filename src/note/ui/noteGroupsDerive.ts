@@ -1,9 +1,10 @@
-import type { ProjectApiListResponse } from "../../project/api/projectApiListResponseSchema.js"
+import type { ProjectRegistryApiProject } from "../../project/api/projectRegistryApiProjectSchema.js"
 import { noteProjectLabelResolve } from "./noteProjectLabelResolve.js"
 
 export type NoteGroupRow = {
   id: string
   content?: string
+  projectId: string | null
   projectPath?: string | null
   sortOrder?: number | null
   updatedAt: number
@@ -26,28 +27,29 @@ function noteRowsCompare(left: NoteGroupRow, right: NoteGroupRow): number {
   return left.id > right.id ? -1 : 1
 }
 
-function noteGroupsCompare(left: { projectPath: string | null }, right: { projectPath: string | null }): number {
-  if (left.projectPath === right.projectPath) return 0
-  if (left.projectPath === null) return 1
-  if (right.projectPath === null) return -1
-  return left.projectPath < right.projectPath ? -1 : 1
+function noteGroupsCompare(left: { projectId: string | null }, right: { projectId: string | null }): number {
+  if (left.projectId === right.projectId) return 0
+  if (left.projectId === null) return 1
+  if (right.projectId === null) return -1
+  return left.projectId < right.projectId ? -1 : 1
 }
 
 export function noteGroupsDerive<Note extends NoteGroupRow>(
   notes: readonly Note[],
-  projects: ProjectApiListResponse["projects"] = [],
+  projects: readonly ProjectRegistryApiProject[] = [],
 ) {
   const groups = new Map<string | null, Note[]>()
   for (const note of [...notes].sort(noteRowsCompare)) {
-    const projectPath = note.projectPath ?? null
-    const group = groups.get(projectPath) ?? []
+    const projectId = note.projectId
+    const group = groups.get(projectId) ?? []
     group.push(note)
-    groups.set(projectPath, group)
+    groups.set(projectId, group)
   }
   return [...groups]
-    .map(([projectPath, groupedNotes]) => ({
-      label: noteProjectLabelResolve(projects, projectPath),
-      projectPath,
+    .map(([projectId, groupedNotes]) => ({
+      label: noteProjectLabelResolve(projects, projectId, groupedNotes[0]?.projectPath),
+      projectId,
+      projectPath: groupedNotes[0]?.projectPath ?? null,
       notes: groupedNotes,
     }))
     .sort(noteGroupsCompare)

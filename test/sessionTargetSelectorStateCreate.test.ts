@@ -1349,3 +1349,36 @@ test("the data status reports reconciling while a first load is in flight and of
   expect(state?.dataStatus()).toBe("ready")
   dispose()
 })
+
+test("sessionCreateStart forwards only the registered projectId when one is provided", async () => {
+  const requests: Array<{ body?: string; url: string }> = []
+  let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
+  const projectId = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fac"
+  const dispose = createRoot((rootDispose) => {
+    state = sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(),
+      activeProjectId: () => projectId,
+      activeProjectPath: () => "/workspace/registered",
+      fetch: async (input, init) => {
+        const url = String(input)
+        if (url === "/api/sessions" && init?.method === "POST") {
+          requests.push({ body: init.body === undefined ? undefined : String(init.body), url })
+          return response({ created: true, session: { id: "created-session-123" } })
+        }
+        return fetchDefaultCreate([])(input, init)
+      },
+      selectedSessionId: () => null,
+      sessionSelect: () => undefined,
+    })
+    return rootDispose
+  })
+
+  await effectsSettle()
+  const createdId = await state?.sessionCreateStart()
+  expect(createdId).toBe("created-session-123")
+  expect(requests).toHaveLength(1)
+  const parsedBody = JSON.parse(requests[0]?.body ?? "{}")
+  expect(parsedBody.projectId).toBe(projectId)
+  expect(parsedBody).not.toHaveProperty("projectPath")
+  dispose()
+})

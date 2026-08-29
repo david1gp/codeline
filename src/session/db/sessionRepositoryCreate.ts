@@ -5,6 +5,7 @@ import { agentTable } from "../../agents/db/agentTable.js"
 import { mutationIdempotencyTable } from "../../api/db/mutationIdempotencyTable.js"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { agentInstructionsSnapshotResolve } from "../../instructions/actions/agentInstructionsSnapshotResolve.js"
+import { projectRegistryProjectIdResolve } from "../../project/projectRegistryProjectIdResolve.js"
 import { runExecutionManifestSelectionResolve } from "../../run/actions/runExecutionManifestSelectionResolve.js"
 import { runExecutionManifestSchema } from "../../run/schema/runExecutionManifestSchema.js"
 import { serverTable } from "../../servers/db/serverTable.js"
@@ -133,7 +134,14 @@ export async function sessionRepositoryCreate(
       .where(and(eq(sessionTable.userId, userId), eq(sessionTable.clientRequestId, input.clientRequestId)))
       .limit(1)
     if (existing !== undefined) {
-      const response = sessionCreateMutationResponseCreate({ created: false, session: existing.session })
+      const projectId = await projectRegistryProjectIdResolve(database, userId, existing.session.projectPath)
+      if (!projectId.success) return createResultError(op, projectId.errorMessage)
+      const response = sessionCreateMutationResponseCreate({
+        created: false,
+        projectId: projectId.data,
+        session: existing.session,
+        userId,
+      })
       if (!response.success) return response
       const stored = await sessionCreateIdempotencyStore(database, userId, input, existing.session.id, response.data)
       if (!stored.success) return stored
@@ -176,7 +184,14 @@ export async function sessionRepositoryCreate(
       .returning()
 
     if (created !== undefined) {
-      const response = sessionCreateMutationResponseCreate({ created: true, session: created })
+      const projectId = await projectRegistryProjectIdResolve(database, userId, created.projectPath)
+      if (!projectId.success) return createResultError(op, projectId.errorMessage)
+      const response = sessionCreateMutationResponseCreate({
+        created: true,
+        projectId: projectId.data,
+        session: created,
+        userId,
+      })
       if (!response.success) return response
       const stored = await sessionCreateIdempotencyStore(database, userId, input, created.id, response.data)
       if (!stored.success) return stored
@@ -193,7 +208,14 @@ export async function sessionRepositoryCreate(
       .where(and(eq(sessionTable.userId, userId), eq(sessionTable.clientRequestId, input.clientRequestId)))
       .limit(1)
     if (idempotent === undefined) return createResultError(op, "The session could not be created.")
-    const response = sessionCreateMutationResponseCreate({ created: false, session: idempotent.session })
+    const projectId = await projectRegistryProjectIdResolve(database, userId, idempotent.session.projectPath)
+    if (!projectId.success) return createResultError(op, projectId.errorMessage)
+    const response = sessionCreateMutationResponseCreate({
+      created: false,
+      projectId: projectId.data,
+      session: idempotent.session,
+      userId,
+    })
     if (!response.success) return response
     const stored = await sessionCreateIdempotencyStore(database, userId, input, idempotent.session.id, response.data)
     if (!stored.success) return stored
@@ -239,10 +261,19 @@ async function sessionCreateIdempotencyLoad(
     .where(and(eq(sessionTable.id, idempotent.resourceId), eq(sessionTable.userId, userId)))
     .limit(1)
   if (session === undefined) return createResultError(op, "The session could not be found.")
+  const projectId = await projectRegistryProjectIdResolve(database, userId, session.session.projectPath)
+  if (!projectId.success) return createResultError(op, projectId.errorMessage)
+  const currentResponse = sessionCreateMutationResponseCreate({
+    created: false,
+    projectId: projectId.data,
+    session: session.session,
+    userId,
+  })
+  if (!currentResponse.success) return currentResponse
   return createResult({
     created: false,
     replayed: true,
-    responseBody: { ...response.output, created: false },
+    responseBody: currentResponse.data,
     session: session.session,
   })
 }

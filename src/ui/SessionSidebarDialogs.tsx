@@ -11,7 +11,13 @@ export function SessionSidebarDialogs(props: { actions: SessionSidebarActionsSta
   const dialog = () => actions.dialog()
   const projectPath = () => {
     const current = dialog()
-    return current.kind === "projectRename" || current.kind === "projectDelete" ? current.projectPath : ""
+    return current.kind === "projectRename" || current.kind === "projectDelete" || current.kind === "projectRemove"
+      ? current.projectPath
+      : ""
+  }
+  const projectRemoveLabel = () => {
+    const current = dialog()
+    return current.kind === "projectRemove" ? current.projectLabel : ""
   }
   const sessionId = () => {
     const current = dialog()
@@ -33,7 +39,7 @@ export function SessionSidebarDialogs(props: { actions: SessionSidebarActionsSta
           class="grid gap-3"
           onSubmit={(event) => {
             event.preventDefault()
-            actions.projectRenameSubmit()
+            void actions.projectRenameSubmit()
           }}
         >
           <label class="text-sm font-medium" for="sidebar-project-rename">
@@ -42,6 +48,7 @@ export function SessionSidebarDialogs(props: { actions: SessionSidebarActionsSta
           <Input
             id="sidebar-project-rename"
             value={actions.draft()}
+            disabled={actions.isSaving()}
             onInput={(event) => actions.draftChange(event.currentTarget.value)}
           />
           <Show when={actions.errorMessage()}>
@@ -52,11 +59,48 @@ export function SessionSidebarDialogs(props: { actions: SessionSidebarActionsSta
             )}
           </Show>
           <div class="flex justify-end">
-            <Button type="submit" variant={buttonVariant.contrast}>
-              Save
+            <Button type="submit" variant={buttonVariant.contrast} disabled={actions.isSaving()}>
+              {actions.isSaving() ? "Saving..." : "Save"}
             </Button>
           </div>
         </form>
+      </CorvuDialog>
+
+      <CorvuDialog
+        title="Remove project"
+        description="Remove this project from your registered projects. Historical sessions will not be deleted."
+        buttonChildren={null}
+        class="hidden"
+        open={dialog().kind === "projectRemove"}
+        onOpenChange={(open) => {
+          if (!open) actions.dialogClose()
+        }}
+      >
+        <div class="grid gap-3">
+          <p class="m-0 text-sm text-strong">
+            Remove {projectRemoveLabel() || actions.projectLabel(projectPath())} from registered projects?
+          </p>
+          <p class="m-0 text-xs text-faint">Historical sessions and filesystem contents will not be deleted.</p>
+          <Show when={actions.errorMessage()}>
+            {(message) => (
+              <p class="m-0 text-xs text-danger" role="alert">
+                {message()}
+              </p>
+            )}
+          </Show>
+          <div class="flex justify-end gap-2">
+            <Button variant={buttonVariant.ghost} onClick={actions.dialogClose} disabled={actions.isSaving()}>
+              Cancel
+            </Button>
+            <Button
+              variant={buttonVariant.filledRed}
+              disabled={actions.isSaving()}
+              onClick={() => void actions.projectRemoveSubmit()}
+            >
+              {actions.isSaving() ? "Removing..." : "Remove"}
+            </Button>
+          </div>
+        </div>
       </CorvuDialog>
 
       <CorvuDialog

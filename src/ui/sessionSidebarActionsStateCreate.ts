@@ -1,4 +1,6 @@
 import type { Result } from "@adaptive-ds/result"
+import { projectRegistryRemoveRequest } from "../project/client/projectRegistryRemoveRequest.js"
+import { projectRegistryRenameRequest } from "../project/client/projectRegistryRenameRequest.js"
 import { sessionSidebarProjectLabelOverridesLoad } from "./sessionSidebarProjectLabelOverridesLoad.js"
 import { sessionSidebarProjectLabelOverridesSave } from "./sessionSidebarProjectLabelOverridesSave.js"
 import { sessionSidebarProjectLabelResolve } from "./sessionSidebarProjectLabelResolve.js"
@@ -6,16 +8,31 @@ import { sessionSidebarSessionDelete } from "./sessionSidebarSessionDelete.js"
 import { sessionSidebarSessionRename } from "./sessionSidebarSessionRename.js"
 import { signalObjectCreate } from "./signalObjectCreate.js"
 
+export type SessionSidebarProjectTarget = {
+  available?: boolean
+  id?: string
+  label?: string
+  path?: string
+  projectId?: string
+  projectLabel?: string
+  projectPath?: string
+}
+
 type SessionSidebarDialog =
   | { kind: "closed" }
-  | { kind: "projectRename"; projectPath: string }
+  | { kind: "projectRename"; projectId?: string; projectPath: string }
+  | { kind: "projectRemove"; projectId?: string; projectPath: string; projectLabel: string }
   | { kind: "projectDelete"; projectPath: string }
   | { kind: "sessionRename"; sessionId: string }
   | { kind: "sessionDelete"; sessionId: string }
 
 type SessionSidebarActionsOptions = {
   fetcher?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+  onProjectRemoved?: (projectId?: string) => void
+  onProjectRenamed?: (projectId?: string, displayName?: string) => void
   onSessionDeleted?: (sessionId: string) => void
+  projectRemove?: (projectId: string) => Promise<Result<undefined>>
+  projectRename?: (projectId: string, displayName: string) => Promise<Result<unknown>>
   sessionDelete?: (sessionId: string) => Promise<Result<true>>
   sessionRename?: (sessionId: string, title: string) => Promise<Result<string>>
   sessionTitle: (sessionId: string) => string | undefined
@@ -41,13 +58,31 @@ export function sessionSidebarActionsStateCreate(options: SessionSidebarActionsO
     errorMessage.set(null)
   }
 
-  const projectRenameOpen = (projectPath: string) => {
-    dialog.set({ kind: "projectRename", projectPath })
-    draft.set(projectLabel(projectPath))
+  const projectRenameOpen = (target: SessionSidebarProjectTarget | string) => {
+    const projectId = typeof target === "object" ? (target.projectId ?? target.id) : undefined
+    const projectPath = typeof target === "object" ? (target.projectPath ?? target.path ?? "") : target
+    const initialLabel =
+      typeof target === "object" && (target.projectLabel || target.label)
+        ? (target.projectLabel ?? target.label ?? "")
+        : projectLabel(projectPath)
+    dialog.set({ kind: "projectRename", projectId, projectPath })
+    draft.set(initialLabel)
     errorMessage.set(null)
   }
 
-  const projectDeleteOpen = (projectPath: string) => {
+  const projectRemoveOpen = (target: SessionSidebarProjectTarget | string) => {
+    const projectId = typeof target === "object" ? (target.projectId ?? target.id) : undefined
+    const projectPath = typeof target === "object" ? (target.projectPath ?? target.path ?? "") : target
+    const initialLabel =
+      typeof target === "object" && (target.projectLabel || target.label)
+        ? (target.projectLabel ?? target.label ?? "")
+        : projectLabel(projectPath)
+    dialog.set({ kind: "projectRemove", projectId, projectLabel: initialLabel, projectPath })
+    errorMessage.set(null)
+  }
+
+  const projectDeleteOpen = (target: SessionSidebarProjectTarget | string) => {
+    const projectPath = typeof target === "object" ? (target.projectPath ?? target.path ?? "") : target
     dialog.set({ kind: "projectDelete", projectPath })
     errorMessage.set(null)
   }
@@ -63,17 +98,71 @@ export function sessionSidebarActionsStateCreate(options: SessionSidebarActionsO
     errorMessage.set(null)
   }
 
-  const projectRenameSubmit = () => {
+  const projectRenameSubmit = async () => {
     const current = dialog.get()
-    if (current.kind !== "projectRename") return
+    if (current.kind !== "projectRename" || isSaving.get()) return
     const nextLabel = draft.get().trim()
     if (nextLabel.length === 0) {
       errorMessage.set("Enter a project name.")
       return
     }
+    isSaving.set(true)
+    errorMessage.set(null)
+
+    if (current.projectId !== undefined) {
+      const result =
+        options.projectRename === undefined
+          ? await projectRegistryRenameRequest(current.projectId, { displayName: nextLabel }, { fetch: fetcher })
+          : await options.projectRename(current.projectId, nextLabel)
+      isSaving.set(false)
+      if (!result.success) {
+        errorMessage.set(result.errorMessage)
+        return
+      }
+      if (current.projectPath.length > 0) {
+        const next = { ...labels.get(), [current.projectPath]: nextLabel }
+        labels.set(next)
+        sessionSidebarProjectLabelOverridesSave(next)
+      }
+      options.onProjectRenamed?.(current.projectId, nextLabel)
+      dialogClose()
+      return
+    }
+
     const next = { ...labels.get(), [current.projectPath]: nextLabel }
     labels.set(next)
     sessionSidebarProjectLabelOverridesSave(next)
+    isSaving.set(false)
+    options.onProjectRenamed?.(undefined, nextLabel)
+    dialogClose()
+  }
+
+  const projectRemoveSubmit = async () => {
+    const current = dialog.get()
+    if (current.kind !== "projectRemove" || isSaving.get()) return
+    if (current.projectId === undefined) {
+      dialogClose()
+      return
+    }
+    isSaving.set(true)
+    errorMessage.set(null)
+
+    const result =
+      options.projectRemove === undefined
+        ? await projectRegistryRemoveRequest(current.projectId, { fetch: fetcher })
+        : await options.projectRemove(current.projectId)
+    isSaving.set(false)
+    if (!result.success) {
+      errorMessage.set(result.errorMessage)
+      return
+    }
+    if (current.projectPath.length > 0) {
+      const next = { ...labels.get() }
+      delete next[current.projectPath]
+      labels.set(next)
+      sessionSidebarProjectLabelOverridesSave(next)
+    }
+    options.onProjectRemoved?.(current.projectId)
     dialogClose()
   }
 
@@ -159,6 +248,8 @@ export function sessionSidebarActionsStateCreate(options: SessionSidebarActionsO
     projectDeleteOpen,
     projectDeleteSubmit,
     projectLabel,
+    projectRemoveOpen,
+    projectRemoveSubmit,
     projectRenameOpen,
     projectRenameSubmit,
     sessionDeleteImmediate,

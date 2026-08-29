@@ -3,6 +3,7 @@ import { and, eq, isNull, sql } from "drizzle-orm"
 import * as v from "valibot"
 import { mutationIdempotencyTable } from "../../api/db/mutationIdempotencyTable.js"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
+import { projectRegistryProjectIdResolve } from "../../project/projectRegistryProjectIdResolve.js"
 import { serverTable } from "../../servers/db/serverTable.js"
 import { uuidv7 } from "../../uuid/uuidv7.js"
 import { sessionDetailResponseCreate } from "../api/sessionDetailResponseCreate.js"
@@ -73,7 +74,17 @@ export async function sessionRepositoryArchive(
           return idempotencyConflict(op)
         const response = v.safeParse(sessionDetailResponseSchema, idempotent.responseBody)
         if (!response.success) return createResultError(op, "The stored idempotency response is invalid.")
-        return createResult({ ...lockedSession, changed: false, replayed: true, responseBody: response.output })
+        const projectId = await projectRegistryProjectIdResolve(database, userId, lockedSession.projectPath)
+        if (!projectId.success) return createResultError(op, projectId.errorMessage)
+        const currentResponse = sessionDetailResponseCreate({
+          agent: { id: lockedSession.primaryAgentId },
+          projectId: projectId.data,
+          server: { id: lockedSession.serverId },
+          session: lockedSession,
+          userId,
+        })
+        if (!currentResponse.success) return currentResponse
+        return createResult({ ...lockedSession, changed: false, replayed: true, responseBody: currentResponse.data })
       }
     }
 
@@ -97,10 +108,14 @@ export async function sessionRepositoryArchive(
       changed = true
     }
 
+    const projectId = await projectRegistryProjectIdResolve(database, userId, session.projectPath)
+    if (!projectId.success) return createResultError(op, projectId.errorMessage)
     const response = sessionDetailResponseCreate({
       agent: { id: session.primaryAgentId },
+      projectId: projectId.data,
       server: { id: session.serverId },
       session,
+      userId,
     })
     if (!response.success) return response
 

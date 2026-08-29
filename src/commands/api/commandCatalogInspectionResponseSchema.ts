@@ -1,4 +1,6 @@
 import * as v from "valibot"
+import { projectDiscoveryIdSchema } from "../../project/projectDiscoveryIdSchema.js"
+import { projectIdSchema } from "../../project/projectIdSchema.js"
 import { commandDigestSchema } from "../schema/commandDigestSchema.js"
 import { commandInspectionSnapshotSchema } from "./commandInspectionSnapshotSchema.js"
 
@@ -40,7 +42,7 @@ export const commandCatalogInspectionResponseSchema = v.strictObject({
   commands: v.array(commandInspectionSnapshotSchema),
   diagnostics: v.array(commandInspectionDiagnosticSchema),
   digest: commandDigestSchema,
-  projectId: v.pipe(v.string(), v.regex(/^[a-f0-9]{64}$/)),
+  projectId: v.union([projectIdSchema, projectDiscoveryIdSchema]),
   roots: v.array(commandInspectionRootSchema),
   version: v.literal(1),
 })

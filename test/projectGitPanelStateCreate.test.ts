@@ -3,7 +3,7 @@ import { createRoot } from "solid-js/dist/solid.js"
 import { projectGitPanelStateCreate } from "../src/project/projectGitPanelStateCreate.js"
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
-const projectId = "a".repeat(64)
+const projectId = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fa9"
 
 test("project Git panel exposes status and blocks dirty branch switching", async () => {
   const calls: Array<{ body?: string; url: string }> = []

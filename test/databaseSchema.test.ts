@@ -18,6 +18,8 @@ const expectedTables = [
   "message",
   "mutation_idempotency",
   "note",
+  "project",
+  "project_registry_session_path_backfill",
   "run",
   "run_delegation",
   "server",

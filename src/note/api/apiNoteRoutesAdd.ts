@@ -98,6 +98,7 @@ export function apiNoteRoutesAdd(
   options: {
     database: DatabaseClient
     journalPostCommitPublish: ReturnType<typeof journalPostCommitPublishCreate>
+    projectRootDirs?: readonly string[]
   },
 ): void {
   if (options.database === undefined) throw new Error("The authenticated note database is required.")
@@ -154,7 +155,7 @@ export function apiNoteRoutesAdd(
             content: parsed.data.content,
             createdAt: parsed.data.createdAt,
             id: parsed.data.id,
-            projectPath: parsed.data.projectPath,
+            projectId: parsed.data.projectId,
             updatedAt: parsed.data.updatedAt,
           })
     const result = await noteCreate(
@@ -171,6 +172,7 @@ export function apiNoteRoutesAdd(
             pendingUserId: context.var.requestIdentity.userId,
           }),
         },
+        projectRootDirs: options.projectRootDirs,
       },
     )
     if (!result.success) {
@@ -204,7 +206,7 @@ export function apiNoteRoutesAdd(
         : apiIdempotencyRequestHashCreate({
             content: parsed.data.content,
             ifMatch: expectedEtag.data,
-            projectPath: parsed.data.projectPath,
+            projectId: parsed.data.projectId,
             updatedAt: parsed.data.updatedAt,
           })
     const result = await noteUpdate(
@@ -224,6 +226,7 @@ export function apiNoteRoutesAdd(
             pendingUserId: context.var.requestIdentity.userId,
           }),
         },
+        projectRootDirs: options.projectRootDirs,
       },
     )
     if (!result.success)
@@ -291,7 +294,7 @@ export function apiNoteRoutesAdd(
         : apiIdempotencyRequestHashCreate({
             direction: parsed.data.direction,
             ifMatch: expectedEtag.data,
-            projectPath: parsed.data.projectPath,
+            projectId: parsed.data.projectId,
           })
     const result = await noteReorder(
       options.database,
@@ -310,6 +313,7 @@ export function apiNoteRoutesAdd(
             pendingUserId: context.var.requestIdentity.userId,
           }),
         },
+        projectRootDirs: options.projectRootDirs,
       },
     )
     if (!result.success)

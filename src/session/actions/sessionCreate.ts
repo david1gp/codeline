@@ -1,6 +1,6 @@
 import * as os from "node:os"
 import * as path from "node:path"
-import { createResultError } from "@adaptive-ds/result"
+import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
 import { commandCatalogDiscover } from "../../commands/actions/commandCatalogDiscover.js"
 import { commandExecutionOverridesValidate } from "../../commands/actions/commandExecutionOverridesValidate.js"
@@ -16,6 +16,7 @@ import { agentInstructionsSnapshotResolve } from "../../instructions/actions/age
 import type { JournalEventRecipientResolver } from "../../journal/actions/journalEventRecipientResolver.js"
 import type { journalPostCommitPublishCreate } from "../../journal/actions/journalPostCommitPublishCreate.js"
 import { projectPathReferenceResolve } from "../../project/projectPathReferenceResolve.js"
+import { projectResolve } from "../../project/projectResolve.js"
 import type { ProviderCatalog } from "../../providers/schema/providerCatalogSchema.js"
 import { runExecutionManifestSelectionResolve } from "../../run/actions/runExecutionManifestSelectionResolve.js"
 import { skillCatalogDiscover } from "../../skills/actions/skillCatalogDiscover.js"
@@ -55,6 +56,7 @@ export async function sessionCreate(
     command?: { arguments?: string; name: string }
     instructionOverrides?: unknown
     metadata?: Record<string, unknown>
+    projectId?: string
     projectPath?: string
   },
   options: {
@@ -77,7 +79,17 @@ export async function sessionCreate(
     skillPresetCatalogLoad?: typeof skillPresetCatalogLoad
   },
 ): ReturnType<typeof sessionRepositoryCreate> {
-  const projectPath = await projectPathReferenceResolve(input.projectPath, options.projectRootDirs ?? [])
+  let projectPath: Result<string>
+  if (input.projectId === undefined) {
+    projectPath = await projectPathReferenceResolve(input.projectPath, options.projectRootDirs ?? [])
+  } else {
+    const project = await projectResolve(options.projectRootDirs ?? [], input.projectId, {
+      database,
+      userId,
+    })
+    if (!project.success) return createResultError("sessionCreate", project.errorMessage)
+    projectPath = createResult(project.data.rootDir)
+  }
   if (!projectPath.success) return createResultError("sessionCreate", projectPath.errorMessage)
 
   const instructionProjectRoot = projectPath.data === "~" ? path.resolve(os.homedir()) : projectPath.data
@@ -262,7 +274,12 @@ export async function sessionCreate(
   })
   if (!executionManifest.success) return createResultError("sessionCreate", executionManifest.errorMessage)
   const sessionId = uuidv7()
-  const { command: _command, instructionOverrides: _instructionOverrides, ...repositoryInput } = input
+  const {
+    command: _command,
+    instructionOverrides: _instructionOverrides,
+    projectId: _projectId,
+    ...repositoryInput
+  } = input
   const mutation = (transaction: Parameters<typeof sessionRepositoryCreate>[0]) =>
     sessionRepositoryCreate(transaction, userId, options.organizationId, {
       ...repositoryInput,

@@ -88,6 +88,7 @@ export async function serverStart(options: ServerStartOptions = {}): Promise<Ser
     options.configuration === undefined
       ? runtimeConfigurationParse({
           databaseUrl,
+          OPENCODE_DB_PATH: Bun.env.OPENCODE_DB_PATH,
           ...(Object.keys(developmentIdentity).length === 0 ? {} : { developmentIdentity }),
           nodeEnv: Bun.env.NODE_ENV ?? "development",
           AUTH_MODE: Bun.env.AUTH_MODE,

@@ -15,7 +15,10 @@ type SignedInApplicationStateOptions = {
 
 export function signedInApplicationStateCreate(options: SignedInApplicationStateOptions) {
   const fetcher = options.fetch ?? fetch
-  const state = appShellStateCreate()
+  const state = appShellStateCreate({
+    accountId: options.userId,
+    fetch: fetcher,
+  })
   const shell = applicationShellStateCreate()
   const auth = protectedShellStateCreate({
     displayName: options.displayName,

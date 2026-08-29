@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test"
 import type { Result } from "@adaptive-ds/result"
 import { eq, inArray } from "drizzle-orm"
+import { mutationIdempotencyTable } from "../src/api/db/mutationIdempotencyTable.js"
 import type { DatabaseExecutor } from "../src/database/databaseClient.js"
 import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
 import { databaseExecutorTransactionRun } from "../src/database/databaseExecutorTransactionRun.js"
@@ -15,6 +16,7 @@ import { noteRepositoryLoad } from "../src/note/db/noteRepositoryLoad.js"
 import { noteRepositoryReorder } from "../src/note/db/noteRepositoryReorder.js"
 import { noteRepositoryUpdate } from "../src/note/db/noteRepositoryUpdate.js"
 import { noteTable } from "../src/note/db/noteTable.js"
+import { projectRegistryRepositoryUpsert } from "../src/project/db/projectRegistryRepositoryUpsert.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
 import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
 
@@ -33,6 +35,8 @@ const noteIds = {
   betaFirst: `note-beta-first-${uuidv7()}`,
   otherUser: `note-other-user-${uuidv7()}`,
 }
+const registeredProjectPath = process.cwd()
+let registeredProjectId: string | undefined
 
 function noteValues(
   id: string,
@@ -88,6 +92,9 @@ beforeAll(async () => {
       userId: fixture.otherUserId,
     },
   ])
+  const project = await projectRegistryRepositoryUpsert(database, fixture.userId, { path: registeredProjectPath })
+  if (!project.success) throw new Error(project.errorMessage)
+  registeredProjectId = project.data.id
 })
 
 beforeEach(async () => {
@@ -212,3 +219,205 @@ test.skipIf(!databaseAvailable)(
     ])
   },
 )
+
+test.skipIf(!databaseAvailable)("replays legacy note mutation responses with the persisted project ID", async () => {
+  if (registeredProjectId === undefined) throw new Error("The note repository test project is missing.")
+
+  const createId = `note-legacy-create-${uuidv7()}`
+  const updateId = `note-legacy-update-${uuidv7()}`
+  const createKey = `note-legacy-create-key-${uuidv7()}`
+  const updateKey = `note-legacy-update-key-${uuidv7()}`
+  const createHash = `note-legacy-create-hash-${uuidv7()}`
+  const updateHash = `note-legacy-update-hash-${uuidv7()}`
+  const createTimestamp = 7_000
+  const updateTimestamp = 8_000
+  await database
+    .insert(noteTable)
+    .values([
+      noteValues(createId, fixture.userId, registeredProjectPath, 0, createTimestamp),
+      noteValues(updateId, fixture.userId, registeredProjectPath, 1, updateTimestamp),
+    ])
+
+  const legacyCreateResponse = {
+    content: createId,
+    createdAt: createTimestamp,
+    id: createId,
+    projectPath: registeredProjectPath,
+    revision: 1,
+    sortOrder: 0,
+    updatedAt: createTimestamp,
+    userId: fixture.userId,
+  }
+  const legacyUpdateResponse = {
+    content: "legacy updated",
+    createdAt: updateTimestamp,
+    id: updateId,
+    projectPath: registeredProjectPath,
+    revision: 2,
+    sortOrder: 1,
+    updatedAt: updateTimestamp + 1_000,
+    userId: fixture.userId,
+  }
+  await database.insert(mutationIdempotencyTable).values([
+    {
+      createdAt: new Date(),
+      id: uuidv7(),
+      idempotencyKey: createKey,
+      operation: "note.create",
+      requestHash: createHash,
+      resourceId: createId,
+      responseBody: legacyCreateResponse,
+      status: 201,
+      userId: fixture.userId,
+    },
+    {
+      createdAt: new Date(),
+      id: uuidv7(),
+      idempotencyKey: updateKey,
+      operation: "note.update",
+      requestHash: updateHash,
+      resourceId: updateId,
+      responseBody: legacyUpdateResponse,
+      status: 200,
+      userId: fixture.userId,
+    },
+  ])
+
+  const createReplay = await mutationRun((transaction) =>
+    noteRepositoryCreate(transaction, fixture.userId, {
+      content: createId,
+      createdAt: createTimestamp,
+      id: createId,
+      idempotencyKey: createKey,
+      organizationId: fixture.organizationId,
+      projectPath: registeredProjectPath,
+      requestHash: createHash,
+      updatedAt: createTimestamp,
+    }),
+  )
+  expect(createReplay).toMatchObject({
+    success: true,
+    data: {
+      affectedNotes: [],
+      created: false,
+      replayed: true,
+      responseBody: { ...legacyCreateResponse, projectId: registeredProjectId },
+    },
+  })
+
+  const updateReplay = await mutationRun((transaction) =>
+    noteRepositoryUpdate(transaction, fixture.userId, updateId, {
+      content: "legacy updated",
+      idempotencyKey: updateKey,
+      organizationId: fixture.organizationId,
+      projectPath: registeredProjectPath,
+      requestHash: updateHash,
+      updatedAt: updateTimestamp + 1_000,
+    }),
+  )
+  expect(updateReplay).toMatchObject({
+    success: true,
+    data: {
+      affectedNotes: [],
+      replayed: true,
+      responseBody: { ...legacyUpdateResponse, projectId: registeredProjectId },
+    },
+  })
+})
+
+test.skipIf(!databaseAvailable)("replays legacy delete responses with the persisted project ID", async () => {
+  if (registeredProjectId === undefined) throw new Error("The note repository test project is missing.")
+
+  const noteId = `note-legacy-delete-${uuidv7()}`
+  const idempotencyKey = `note-legacy-delete-key-${uuidv7()}`
+  const requestHash = `note-legacy-delete-hash-${uuidv7()}`
+  const timestamp = 9_000
+  const legacyResponse = {
+    content: noteId,
+    createdAt: timestamp,
+    id: noteId,
+    projectPath: registeredProjectPath,
+    revision: 2,
+    sortOrder: 0,
+    updatedAt: timestamp,
+    userId: fixture.userId,
+  }
+  await database.insert(mutationIdempotencyTable).values({
+    createdAt: new Date(),
+    id: uuidv7(),
+    idempotencyKey,
+    operation: "note.delete",
+    requestHash,
+    resourceId: noteId,
+    responseBody: legacyResponse,
+    status: 200,
+    userId: fixture.userId,
+  })
+
+  const replay = await mutationRun((transaction) =>
+    noteRepositoryDelete(transaction, fixture.userId, noteId, {
+      idempotencyKey,
+      organizationId: fixture.organizationId,
+      requestHash,
+    }),
+  )
+
+  expect(replay).toMatchObject({
+    success: true,
+    data: {
+      affectedNotes: [],
+      deleted: true,
+      replayed: true,
+      responseBody: { ...legacyResponse, projectId: registeredProjectId },
+    },
+  })
+})
+
+test.skipIf(!databaseAvailable)("replays legacy reorder responses with the persisted project ID", async () => {
+  if (registeredProjectId === undefined) throw new Error("The note repository test project is missing.")
+
+  const noteId = `note-legacy-reorder-${uuidv7()}`
+  const idempotencyKey = `note-legacy-reorder-key-${uuidv7()}`
+  const requestHash = `note-legacy-reorder-hash-${uuidv7()}`
+  const timestamp = 10_000
+  const legacyResponse = {
+    content: noteId,
+    createdAt: timestamp,
+    id: noteId,
+    projectPath: registeredProjectPath,
+    revision: 3,
+    sortOrder: 1,
+    updatedAt: timestamp,
+    userId: fixture.userId,
+  }
+  await database.insert(mutationIdempotencyTable).values({
+    createdAt: new Date(),
+    id: uuidv7(),
+    idempotencyKey,
+    operation: "note.reorder",
+    requestHash,
+    resourceId: noteId,
+    responseBody: legacyResponse,
+    status: 200,
+    userId: fixture.userId,
+  })
+
+  const replay = await mutationRun((transaction) =>
+    noteRepositoryReorder(transaction, fixture.userId, noteId, {
+      direction: "up",
+      idempotencyKey,
+      organizationId: fixture.organizationId,
+      projectPath: registeredProjectPath,
+      requestHash,
+    }),
+  )
+
+  expect(replay).toMatchObject({
+    success: true,
+    data: {
+      affectedNotes: [],
+      replayed: true,
+      responseBody: { ...legacyResponse, projectId: registeredProjectId },
+    },
+  })
+})

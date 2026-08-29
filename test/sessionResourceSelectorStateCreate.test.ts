@@ -7,7 +7,7 @@ mock.module("solid-js", () => solidRuntime)
 const { sessionResourceSelectorStateCreate } = await import("../src/ui/sessionResourceSelectorStateCreate.js")
 
 const digest = (seed: string) => `sha256-${seed.repeat(64).slice(0, 64)}`
-const projectId = "a".repeat(64)
+const projectId = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fa6"
 const globalInstructionPath = "/home/example/.agents/AGENTS.md"
 const projectInstructionPath = "/workspace/codeline/AGENTS.md"
 const globalInstructionContent = "global instruction content"
@@ -309,8 +309,8 @@ function fetchCreate(requests: string[], overrides: FetchOverrides = {}) {
     for (const [prefix, override] of Object.entries(overrides)) {
       if (url.startsWith(prefix)) return override()
     }
-    if (url.startsWith("/api/project/list")) {
-      return response({ projects: [{ id: projectId, label: "codeline" }], truncated: false })
+    if (url.startsWith("/api/project/registry")) {
+      return response({ projects: [{ available: true, id: projectId, label: "codeline" }], truncated: false })
     }
     if (url.startsWith("/api/project/identity")) return response({ id: projectId, label: "codeline" })
     if (url.startsWith("/api/project/skills/catalog")) return response(catalogResponse)
@@ -345,6 +345,7 @@ function fetchCreate(requests: string[], overrides: FetchOverrides = {}) {
 
 function stateCreate(options: {
   overrides?: FetchOverrides
+  projectId?: string | null
   projectPath?: string | null
   requests?: string[]
   serverId?: string | null
@@ -357,10 +358,12 @@ function stateCreate(options: {
   const [projectPath, projectPathSet] = createSignal(
     options.projectPath === undefined ? "/workspace/codeline" : options.projectPath,
   )
+  const [projectId] = createSignal(options.projectId ?? null)
   let state: ReturnType<typeof sessionResourceSelectorStateCreate> | undefined
   const dispose = createRoot((rootDispose) => {
     state = sessionResourceSelectorStateCreate({
       fetch: fetchCreate(options.requests ?? [], options.overrides ?? {}),
+      projectId,
       projectPath,
       selectedAgentId: () => "example-agent-primary",
       selectedServerId,
@@ -384,6 +387,20 @@ test("the pre-session workspace resolves the project id and loads the effective 
   expect(created.state.presetSource()).toBe("default")
   expect(created.state.activeSkills().map(({ name }) => name)).toEqual(["agent-browser", "code-style", "commits"])
   expect(created.state.instructionSnapshots().map(({ path }) => path)).toEqual(["global/AGENTS.md", "AGENTS.md"])
+  created.dispose()
+})
+
+test("a registered project id loads resources without resolving the id as a filesystem path", async () => {
+  const requests: string[] = []
+  const created = stateCreate({ projectId, projectPath: null, requests })
+  await effectsSettle()
+
+  expect(created.state.status()).toBe("ready")
+  expect(requests.some((url) => url.startsWith("/api/project/identity"))).toBe(false)
+  expect(requests.some((url) => url.includes(`/api/project/skills/catalog?project=${projectId}`))).toBe(true)
+  expect(requests.some((url) => url.includes(`/api/project/skills/presets?project=${projectId}`))).toBe(true)
+  expect(requests.some((url) => url.includes(`/api/project/skills/selection?project=${projectId}`))).toBe(true)
+  expect(requests.some((url) => url.includes(`/api/agent-instructions?project=${projectId}`))).toBe(true)
   created.dispose()
 })
 
@@ -663,13 +680,40 @@ test("a project selected after the initial idle render loads the effective selec
   const created = stateCreate({ projectPath: null })
   await effectsSettle()
   expect(created.state.status()).toBe("idle")
-  expect(created.state.projects()).toEqual([{ id: projectId, label: "codeline" }])
+  expect(created.state.projects()).toEqual([{ available: true, id: projectId, label: "codeline" }])
 
   created.projectPathSet("/workspace/codeline")
   await effectsSettle()
 
   expect(created.state.status()).toBe("ready")
   expect(created.state.presetName()).toBe("default")
+  created.dispose()
+})
+
+test("unavailable registered projects are excluded from project choices and cannot be selected", async () => {
+  const unavailableProjectId = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fa7"
+  const created = stateCreate({
+    overrides: {
+      "/api/project/registry": () =>
+        response({
+          projects: [
+            { available: true, id: projectId, label: "codeline" },
+            { available: false, id: unavailableProjectId, label: "missing" },
+          ],
+          truncated: false,
+        }),
+    },
+    projectPath: null,
+  })
+  await effectsSettle()
+
+  expect(created.state.projects()).toEqual([{ available: true, id: projectId, label: "codeline" }])
+
+  created.state.projectSelect(unavailableProjectId)
+  await effectsSettle()
+
+  expect(created.state.selectedProjectId()).toBeNull()
+  expect(created.state.status()).toBe("idle")
   created.dispose()
 })
 

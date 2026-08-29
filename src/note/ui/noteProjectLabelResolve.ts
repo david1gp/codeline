@@ -1,9 +1,10 @@
-import type { ProjectApiListResponse } from "../../project/api/projectApiListResponseSchema.js"
+import type { ProjectRegistryApiProject } from "../../project/api/projectRegistryApiProjectSchema.js"
 
 export function noteProjectLabelResolve(
-  projects: ProjectApiListResponse["projects"],
-  projectPath: string | null,
+  projects: readonly ProjectRegistryApiProject[],
+  projectId: string | null,
+  historicalProjectPath?: string | null,
 ): string {
-  if (projectPath === null) return "Unassigned"
-  return projects.find((project) => project.id === projectPath)?.label ?? projectPath
+  if (projectId === null) return "Unassigned"
+  return projects.find((project) => project.id === projectId)?.label ?? historicalProjectPath ?? projectId
 }

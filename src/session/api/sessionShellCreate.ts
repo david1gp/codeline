@@ -15,10 +15,12 @@ type SessionShellSource = {
   parentSessionId: string | null
   pinned: boolean
   primaryAgentId: string
+  projectId?: string
   projectPath: string
   revision: number
   serverId: string
   title: string
+  userId?: string
   updatedAt: Date | string
 }
 
@@ -35,7 +37,6 @@ export function sessionShellCreate(session: SessionShellSource): Result<SessionS
     projectPath: session.projectPath,
   })
   if (!executionResources.success) return createResultError(op, "The session execution resource summary is invalid.")
-
   const parsed = v.safeParse(sessionShellSchema, {
     archivedAt: archivedAt ?? null,
     agentPrompt: session.agentPrompt ?? null,
@@ -47,6 +48,7 @@ export function sessionShellCreate(session: SessionShellSource): Result<SessionS
     parentSessionId: session.parentSessionId,
     pinned: session.pinned,
     primaryAgentId: session.primaryAgentId,
+    ...(session.projectId === undefined ? {} : { projectId: session.projectId }),
     projectPath: session.projectPath,
     revision: session.revision,
     serverId: session.serverId,

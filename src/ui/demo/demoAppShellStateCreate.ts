@@ -3,6 +3,7 @@ import { appConnectionDetailsResolve } from "../appConnectionDetailsResolve.js"
 import type { AppShellView } from "../appShellView.js"
 import { connectionStatusIndicatorStateCreate } from "../connectionStatusIndicatorStateCreate.js"
 import type { EventFeedConnectionView } from "../eventFeedConnectionView.js"
+import { demoProjectRegistryStateCreate } from "./demoProjectRegistryStateCreate.js"
 import type { DemoSessionScreenVariant } from "./demoSessionScreenVariant.js"
 import { demoThemeSwitcherStateCreate } from "./demoThemeSwitcherStateCreate.js"
 
@@ -72,6 +73,7 @@ export function demoAppShellStateCreate(variant: () => DemoSessionScreenVariant)
     healthDisconnectedSince,
     healthLabel,
     healthStatus,
+    projectRegistry: demoProjectRegistryStateCreate(),
     pwa,
     theme: demoThemeSwitcherStateCreate(),
   }

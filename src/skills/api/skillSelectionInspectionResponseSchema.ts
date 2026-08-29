@@ -1,4 +1,6 @@
 import * as v from "valibot"
+import { projectDiscoveryIdSchema } from "../../project/projectDiscoveryIdSchema.js"
+import { projectIdSchema } from "../../project/projectIdSchema.js"
 import { skillDescriptionCatalogSchema } from "../schema/skillDescriptionCatalogSchema.js"
 import { skillPresetSchema } from "../schema/skillPresetSchema.js"
 import { skillSelectionOverrideSchema } from "../schema/skillSelectionOverrideSchema.js"
@@ -20,7 +22,7 @@ export const skillSelectionInspectionResponseSchema = v.strictObject({
   descriptionCatalog: skillDescriptionCatalogSchema,
   preset: skillPresetSchema,
   presetCatalogDigest: v.pipe(v.string(), v.regex(/^sha256-[a-f0-9]{64}$/)),
-  projectId: v.pipe(v.string(), v.regex(/^[a-f0-9]{64}$/)),
+  projectId: v.union([projectIdSchema, projectDiscoveryIdSchema]),
   selection: v.strictObject({
     activeSkills: v.array(skillInspectionSnapshotSchema),
     excludedSkillNames: skillSelectionInspectionNamesSchema,

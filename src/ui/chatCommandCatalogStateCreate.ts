@@ -13,6 +13,9 @@ type ChatCommandCatalogStateOptions = {
   isBashEnabled?: Accessor<boolean>
   isEnabled?: Accessor<boolean>
   isOnline?: Accessor<boolean>
+  /** Authenticated registry project ID for the pending session, when one is selected. */
+  projectId?: Accessor<string | null>
+  /** Legacy project reference used only when no registry project ID is available. */
   projectPath: Accessor<string | null>
 }
 
@@ -29,6 +32,7 @@ export function chatCommandCatalogStateCreate(options: ChatCommandCatalogStateOp
   const projectQuery = httpQueryStateCreate<ProjectApiIdentityResponse>({
     enabled: isEnabled,
     key: () => {
+      if ((options.projectId?.() ?? null) !== null) return undefined
       const projectPath = options.projectPath()
       return projectPath === null ? undefined : `/api/project/identity?path=${encodeURIComponent(projectPath)}`
     },
@@ -36,7 +40,7 @@ export function chatCommandCatalogStateCreate(options: ChatCommandCatalogStateOp
       projectIdentityFetch(untrack(() => options.projectPath()) ?? "", { ...request, signal }),
   })
 
-  const projectId = () => projectQuery.data()?.id ?? null
+  const projectId = () => options.projectId?.() ?? projectQuery.data()?.id ?? null
 
   const catalogQuery = httpQueryStateCreate<CommandCatalogInspectionResponse>({
     enabled: isEnabled,
@@ -60,7 +64,7 @@ export function chatCommandCatalogStateCreate(options: ChatCommandCatalogStateOp
       if (!isEnabled()) return "unavailable"
       // Without a project reference there is nothing to discover, so the composer
       // says so immediately instead of waiting on a read that never starts.
-      if (options.projectPath() === null) return "unavailable"
+      if ((options.projectId?.() ?? null) === null && options.projectPath() === null) return "unavailable"
       if (projectQuery.isError() || catalogQuery.isError()) return "error"
       if (catalogQuery.data() !== undefined) return "ready"
       if (projectId() === null && projectQuery.isComplete()) return "unavailable"

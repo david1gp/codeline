@@ -17,6 +17,7 @@ import { organizationMemberTable } from "../src/identity/db/organizationMemberTa
 import { organizationTable } from "../src/identity/db/organizationTable.js"
 import { journalCursorCodecCreate } from "../src/journal/actions/journalCursorCodecCreate.js"
 import { messageTable } from "../src/message/db/messageTable.js"
+import { projectRegistryRepositoryUpsert } from "../src/project/db/projectRegistryRepositoryUpsert.js"
 import { attemptTable } from "../src/run/db/attemptTable.js"
 import { runTable } from "../src/run/db/runTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
@@ -40,6 +41,7 @@ const rootDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "codeline-command-
 const projectRoot = path.join(rootDirectory, "project")
 const projectCommandsPath = path.join(projectRoot, ".agents", "commands")
 const globalCommandsPath = path.join(rootDirectory, "global", "commands")
+let projectId: string
 
 const configuration = {
   authMode: "development" as const,
@@ -100,6 +102,7 @@ async function sessionCreateRequest(
       clientRequestId: `command-exec-${uuidv7()}`,
       metadata: {},
       primaryAgentId: agentId,
+      projectId,
       projectPath: projectRoot,
       serverId,
       title: "Command execution session",
@@ -186,6 +189,10 @@ beforeAll(async () => {
       serverId,
     },
   ])
+
+  const registered = await projectRegistryRepositoryUpsert(database, userId, { path: projectRoot })
+  if (!registered.success) throw new Error(registered.errorMessage)
+  projectId = registered.data.id
 })
 
 afterAll(async () => {

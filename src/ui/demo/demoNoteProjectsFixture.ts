@@ -1,5 +1,6 @@
-import type { ProjectApiListResponse } from "../../project/api/projectApiListResponseSchema.js"
+import type { ProjectRegistryApiProject } from "../../project/api/projectRegistryApiProjectSchema.js"
+import { demoNoteProjectId } from "./demoNoteProjectId.js"
 
-export const demoNoteProjectsFixture: ProjectApiListResponse["projects"] = [
-  { id: "/workspace/codeline", label: "codeline" },
+export const demoNoteProjectsFixture: readonly ProjectRegistryApiProject[] = [
+  { available: true, id: demoNoteProjectId, label: "codeline" },
 ]
