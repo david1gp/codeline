@@ -2,6 +2,7 @@ import { expect, test } from "bun:test"
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
+import type { AgentToolDefaults } from "../src/agents/schema/agentToolDefaultsSchema.js"
 import { providerAgentCatalogLoad } from "../src/providers/catalog/providerAgentCatalogLoad.js"
 import { providerAgentCatalogRedact } from "../src/providers/catalog/providerAgentCatalogRedact.js"
 
@@ -62,7 +63,8 @@ test("parses explicit agent tool defaults and rejects unknown or invalid default
     }),
   )
   expect(enabled.success).toBe(true)
-  if (enabled.success) expect(enabled.data.agents[0]?.tools).toEqual({ bash: true, webfetch: true })
+  if (enabled.success)
+    expect(enabled.data.agents[0]?.tools).toEqual({ bash: true, webfetch: true } as unknown as AgentToolDefaults)
 
   for (const tools of ["bash: yes", "unknown: true"]) {
     const invalid = await providerAgentCatalogLoad(

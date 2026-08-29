@@ -8,6 +8,10 @@ permission:
     "*": deny
     explore: allow
     browser: allow
+tools:
+  read: true
+  write: true
+  edit: true
 ---
 
 Find ways to reduce complexity then solving problems. Keep things simple.

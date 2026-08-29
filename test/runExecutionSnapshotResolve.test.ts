@@ -266,8 +266,8 @@ test("run execution snapshot captures validated selection tools in its manifest"
   const resolved = runExecutionSnapshotResolve({ agentId: "agent-1", serverId: "server-1" }, store, {
     executionSelection: {
       tools: {
-        primary: { agentId: "agent-1", tools: { bash: true, webfetch: true } },
-        selectableSubagents: [{ agentId: "reviewer", tools: { bash: true } }],
+        primary: { agentId: "agent-1", tools: { bash: true, edit: true, read: true, webfetch: true, write: true } },
+        selectableSubagents: [{ agentId: "reviewer", tools: { bash: true, edit: true, read: true, write: true } }],
       },
       version: 1,
     },
@@ -276,11 +276,16 @@ test("run execution snapshot captures validated selection tools in its manifest"
   expect(resolved).toMatchObject({
     success: true,
     data: {
-      configuration: { tools: { bash: true, webfetch: true } },
+      configuration: { tools: { bash: true, edit: true, read: true, webfetch: true, write: true } },
       executionManifest: {
         tools: {
-          primary: { agentId: "agent-1", tools: ["bash", "webfetch", "skill", "delegate_task"] },
-          selectableSubagents: [{ agentId: "reviewer", tools: ["bash", "skill", "delegate_task"] }],
+          primary: {
+            agentId: "agent-1",
+            tools: ["bash", "webfetch", "read", "write", "edit", "skill", "delegate_task"],
+          },
+          selectableSubagents: [
+            { agentId: "reviewer", tools: ["bash", "read", "write", "edit", "skill", "delegate_task"] },
+          ],
         },
       },
     },

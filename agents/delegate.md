@@ -7,6 +7,10 @@ permission:
   list: deny
   webfetch: deny
   websearch: deny
+tools:
+  read: false
+  write: false
+  edit: false
 ---
 
 ## Rules

@@ -18,7 +18,6 @@ test("compiles every real catalog agent with inherited defaults and variant effo
     model: "gpt-5.6-luna",
     provider: "codex-lb",
     generation: { reasoningEffort: "medium" },
-    tools: { bash: false, webfetch: false },
   })
   expect(byId.get("sol-high")).toMatchObject({
     model: "gpt-5.6-sol",
@@ -32,6 +31,23 @@ test("compiles every real catalog agent with inherited defaults and variant effo
     generation: { reasoningEffort: "medium" },
     variant: "medium",
   })
+
+  const fileToolDefaults = {
+    browser: { edit: false, read: false, write: false },
+    build: { edit: true, read: true, write: true },
+    delegate: { edit: false, read: false, write: false },
+    explore: { edit: false, read: true, write: false },
+    "gemini-flash": { edit: true, read: true, write: true },
+    "luna-high": { edit: true, read: true, write: true },
+    "luna-xhigh": { edit: true, read: true, write: true },
+    opus: { edit: true, read: true, write: true },
+    "sol-high": { edit: true, read: true, write: true },
+    "sol-low": { edit: true, read: true, write: true },
+    "sol-medium": { edit: true, read: true, write: true },
+  } as const
+  for (const [agentId, tools] of Object.entries(fileToolDefaults)) {
+    expect(byId.get(agentId)?.tools).toMatchObject(tools)
+  }
 })
 
 test("keeps rich model metadata and secret references without runtime secret values", () => {

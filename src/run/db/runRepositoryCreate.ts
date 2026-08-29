@@ -7,6 +7,7 @@ import { sessionExecutionSelectionCanonicalize } from "../../session/actions/ses
 import { sessionTable } from "../../session/db/sessionTable.js"
 import { uuidv7 } from "../../uuid/uuidv7.js"
 import { runExecutionManifestSelectionResolve } from "../actions/runExecutionManifestSelectionResolve.js"
+import { runExecutionManifestToolDefaultsResolve } from "../actions/runExecutionManifestToolDefaultsResolve.js"
 import { runErrorCodes } from "../errors/runErrorCodes.js"
 import { runResultCreateError } from "../errors/runResultCreateError.js"
 import { runBudgetSchema } from "../schema/runBudgetSchema.js"
@@ -55,10 +56,7 @@ function runRepositoryExecutionManifestPolicyValidate(
         runErrorCodes.executionSnapshotInvalid,
       )
     const configurationTools = snapshot.configuration.tools
-    const manifestTools = {
-      bash: snapshot.executionManifest.tools.primary.tools.includes("bash"),
-      webfetch: snapshot.executionManifest.tools.primary.tools.includes("webfetch"),
-    }
+    const manifestTools = runExecutionManifestToolDefaultsResolve(snapshot.executionManifest.tools.primary.tools)
     if (jsonCanonicalize(configurationTools) !== jsonCanonicalize(manifestTools))
       return runResultCreateError(
         op,

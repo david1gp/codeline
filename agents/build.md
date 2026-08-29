@@ -3,6 +3,10 @@ description: Primary agent for direct software implementation.
 mode: primary
 permission:
   question: allow
+tools:
+  read: true
+  write: true
+  edit: true
 ---
 
 ## build

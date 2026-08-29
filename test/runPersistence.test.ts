@@ -22,6 +22,7 @@ import { runTable } from "../src/run/db/runTable.js"
 import { runErrorCodes } from "../src/run/errors/runErrorCodes.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
+import type { SessionExecutionSelection } from "../src/session/schema/sessionExecutionSelectionSchema.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
 import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
 
@@ -226,11 +227,14 @@ beforeAll(async () => {
     clientRequestId: uuidv7(),
     executionSelection: {
       tools: {
-        primary: { agentId: fixture.agentId, tools: { bash: true, webfetch: false } },
+        primary: {
+          agentId: fixture.agentId,
+          tools: { bash: true, edit: true, read: true, webfetch: false, write: true },
+        },
         selectableSubagents: [{ agentId: fixture.selectedSubagentId, tools: { bash: false, webfetch: true } }],
       },
       version: 1 as const,
-    },
+    } as unknown as SessionExecutionSelection,
     id: fixture.selectedSessionId,
     agentPrompt: "The parent session prompt.",
     instructionSnapshot: selectedInstructionSnapshot,
@@ -320,12 +324,16 @@ test.skipIf(!databaseAvailable)(
       tools: {
         primary: {
           agentId: fixture.agentId,
-          tools: ["bash", "skill", "delegate_task"] as Array<"bash" | "webfetch" | "skill" | "delegate_task">,
+          tools: ["bash", "read", "write", "edit", "skill", "delegate_task"] as Array<
+            "bash" | "webfetch" | "skill" | "delegate_task" | "read" | "write" | "edit"
+          >,
         },
         selectableSubagents: [
           {
             agentId: fixture.selectedSubagentId,
-            tools: ["webfetch", "skill", "delegate_task"] as Array<"bash" | "webfetch" | "skill" | "delegate_task">,
+            tools: ["webfetch", "skill", "delegate_task"] as Array<
+              "bash" | "webfetch" | "skill" | "delegate_task" | "read" | "write" | "edit"
+            >,
           },
         ],
       },
@@ -337,7 +345,10 @@ test.skipIf(!databaseAvailable)(
       snapshot: {
         ...input.snapshot,
         agentPrompt: "The parent session prompt.",
-        configuration: { ...input.snapshot.configuration, tools: { bash: true, webfetch: false } },
+        configuration: {
+          ...input.snapshot.configuration,
+          tools: { bash: true, edit: true, read: true, webfetch: false, write: true },
+        },
         executionManifest: selectionManifest,
       },
       streamId: `run-selected-${uuidv7()}`,
@@ -459,8 +470,8 @@ test.skipIf(!databaseAvailable)(
             ...explicitManifest.tools,
             primary: {
               ...explicitManifest.tools.primary,
-              tools: ["bash", "webfetch", "skill", "delegate_task"] as Array<
-                "bash" | "webfetch" | "skill" | "delegate_task"
+              tools: ["bash", "webfetch", "read", "write", "edit", "skill", "delegate_task"] as Array<
+                "bash" | "webfetch" | "skill" | "delegate_task" | "read" | "write" | "edit"
               >,
             },
           },

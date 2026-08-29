@@ -6,6 +6,10 @@ variant: high
 permission:
   task:
     "*": deny
+tools:
+  read: false
+  write: false
+  edit: false
 ---
 
 ## 1. Skill loading

@@ -28,7 +28,7 @@ const executionManifest = {
   skills: { snapshots: [], version: 1 },
   tools: {
     primary: { agentId: "agent-1", tools: ["skill", "delegate_task"] },
-    selectableSubagents: [{ agentId: "reviewer", tools: ["bash", "skill", "delegate_task"] }],
+    selectableSubagents: [{ agentId: "reviewer", tools: ["bash", "read", "write", "edit", "skill", "delegate_task"] }],
   },
   version: 1,
 }
@@ -68,7 +68,7 @@ test("legacy pre-manifest execution snapshots remain valid", () => {
 test("execution selection and manifests are versioned, strict, and resource-empty", () => {
   const selection = {
     tools: {
-      primary: { agentId: "agent-1", tools: { bash: true } },
+      primary: { agentId: "agent-1", tools: { bash: true, edit: true, read: true, write: true } },
       selectableSubagents: [{ agentId: "reviewer", tools: { webfetch: true } }],
     },
     version: 1,
@@ -76,7 +76,13 @@ test("execution selection and manifests are versioned, strict, and resource-empt
   const parsedSelection = v.safeParse(sessionExecutionSelectionSchema, selection)
   expect(parsedSelection.success).toBe(true)
   if (parsedSelection.success) {
-    expect(parsedSelection.output.tools.primary.tools).toEqual({ bash: true, webfetch: false })
+    expect(parsedSelection.output.tools.primary.tools).toEqual({
+      bash: true,
+      edit: true,
+      read: true,
+      webfetch: false,
+      write: true,
+    })
   }
 
   expect(v.safeParse(sessionExecutionSelectionSchema, { ...selection, version: 2 }).success).toBe(false)

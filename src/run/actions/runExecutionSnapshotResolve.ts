@@ -42,6 +42,9 @@ function runExecutionManifestDefaultToolsResolve(defaults: v.InferInput<typeof a
   return [
     ...(defaults.bash ? ["bash" as const] : []),
     ...(defaults.webfetch ? ["webfetch" as const] : []),
+    ...(defaults.read ? ["read" as const] : []),
+    ...(defaults.write ? ["write" as const] : []),
+    ...(defaults.edit ? ["edit" as const] : []),
     "skill",
     "delegate_task",
   ]

@@ -17,13 +17,16 @@ export type AgentToolDefaultsEntry = {
   /** Null for a primary agent; set for an agent that is only selectable as a subagent. */
   parentAgentId: string | null
   role: string
-  tools: { bash: boolean; webfetch: boolean }
+  tools: AgentToolDefaults
 }
 
-const agentToolDefaultsFallback: Required<AgentToolDefaults> = { bash: false, webfetch: false }
+const agentToolDefaultsFallback = {
+  bash: false,
+  webfetch: false,
+}
 
 /**
- * Per-agent `bash`/`webfetch` defaults for one server. The list route does not carry
+ * Per-agent tool defaults for one server. The list route does not carry
  * tool defaults, so each agent's detail representation is read and the unreadable ones
  * fall back to the disabled defaults the server itself applies.
  */
@@ -59,6 +62,9 @@ export async function agentToolDefaultsListFetch(
       tools: {
         bash: tools?.bash ?? agentToolDefaultsFallback.bash,
         webfetch: tools?.webfetch ?? agentToolDefaultsFallback.webfetch,
+        ...(tools?.read === undefined ? {} : { read: tools.read }),
+        ...(tools?.write === undefined ? {} : { write: tools.write }),
+        ...(tools?.edit === undefined ? {} : { edit: tools.edit }),
       },
     } satisfies AgentToolDefaultsEntry
   })

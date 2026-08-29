@@ -12,6 +12,10 @@ permission:
   read: allow
   task:
     "*": deny
+tools:
+  read: true
+  write: false
+  edit: false
 ---
 
 You are a file search specialist for exploring codebases.

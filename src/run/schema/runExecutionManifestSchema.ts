@@ -39,7 +39,7 @@ const runExecutionManifestAgentSchema = v.strictObject({
   agentId: runExecutionManifestAgentIdSchema,
   tools: v.pipe(
     v.array(toolNameSchema),
-    v.maxLength(4),
+    v.maxLength(7),
     v.check((tools) => new Set(tools).size === tools.length),
   ),
 })

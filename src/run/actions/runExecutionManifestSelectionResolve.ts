@@ -2,6 +2,7 @@ import { createResult, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
 import { commandSubtaskSelectionValidate } from "../../commands/actions/commandSubtaskSelectionValidate.js"
 import { commandExecutionManifestSchema } from "../../commands/schema/commandExecutionManifestSchema.js"
+import type { AgentToolDefaults } from "../../agents/schema/agentToolDefaultsSchema.js"
 import { agentInstructionsSnapshotResolve } from "../../instructions/actions/agentInstructionsSnapshotResolve.js"
 import type { AgentInstructionsResolvedSnapshot } from "../../instructions/schema/agentInstructionsResolvedSnapshotSchema.js"
 import type { ProviderCatalog } from "../../providers/schema/providerCatalogSchema.js"
@@ -13,8 +14,16 @@ import { runErrorCodes } from "../errors/runErrorCodes.js"
 import { runResultCreateError } from "../errors/runResultCreateError.js"
 import { type RunExecutionManifest, runExecutionManifestSchema } from "../schema/runExecutionManifestSchema.js"
 
-function runExecutionManifestSelectionToolsResolve(bash: boolean, webfetch: boolean): ToolName[] {
-  return [...(bash ? ["bash" as const] : []), ...(webfetch ? ["webfetch" as const] : []), "skill", "delegate_task"]
+function runExecutionManifestSelectionToolsResolve(tools: AgentToolDefaults): ToolName[] {
+  return [
+    ...(tools.bash ? ["bash" as const] : []),
+    ...(tools.webfetch ? ["webfetch" as const] : []),
+    ...(tools.read ? ["read" as const] : []),
+    ...(tools.write ? ["write" as const] : []),
+    ...(tools.edit ? ["edit" as const] : []),
+    "skill",
+    "delegate_task",
+  ]
 }
 
 function runExecutionManifestDeepFreeze<T>(value: T): T {
@@ -118,14 +127,11 @@ export function runExecutionManifestSelectionResolve(input: {
     tools: {
       primary: {
         agentId: parsed.output.tools.primary.agentId,
-        tools: runExecutionManifestSelectionToolsResolve(
-          parsed.output.tools.primary.tools.bash,
-          parsed.output.tools.primary.tools.webfetch,
-        ),
+        tools: runExecutionManifestSelectionToolsResolve(parsed.output.tools.primary.tools),
       },
       selectableSubagents: parsed.output.tools.selectableSubagents.map(({ agentId, tools }) => ({
         agentId,
-        tools: runExecutionManifestSelectionToolsResolve(tools.bash, tools.webfetch),
+        tools: runExecutionManifestSelectionToolsResolve(tools),
       })),
     },
     version: 1 as const,

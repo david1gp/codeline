@@ -76,7 +76,7 @@ const sessionExecutionResourceSummaryAgentToolsSchema = v.strictObject({
   agentId: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(200)),
   tools: v.pipe(
     v.array(toolNameSchema),
-    v.maxLength(4),
+    v.maxLength(7),
     v.check((tools) => new Set(tools).size === tools.length),
   ),
 })
