@@ -8,9 +8,37 @@ const { filesPageStateCreate } = await import("../src/ui/filesPageStateCreate.js
 const { filesScreenViewCreate } = await import("../src/ui/filesScreenViewCreate.js")
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
-const firstProject = { available: true, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fa0", label: "alpha" }
-const secondProject = { available: true, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fa1", label: "beta" }
-const unavailableProject = { available: false, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fa2", label: "gamma" }
+const firstProject = {
+  available: true,
+  id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fa0",
+  label: "alpha",
+  parentFolder: null,
+}
+const secondProject = {
+  available: true,
+  id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fa1",
+  label: "beta",
+  parentFolder: { id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb0", label: "Workspace" },
+}
+const thirdProject = {
+  available: true,
+  id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fa3",
+  label: "aardvark",
+  parentFolder: { id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb0", label: "Workspace" },
+}
+const unavailableProject = {
+  available: false,
+  id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fa2",
+  label: "gamma",
+  parentFolder: null,
+}
+const firstFilesProject = { id: firstProject.id, label: firstProject.label, parentFolder: firstProject.parentFolder }
+const secondFilesProject = {
+  id: secondProject.id,
+  label: secondProject.label,
+  parentFolder: secondProject.parentFolder,
+}
+const thirdFilesProject = { id: thirdProject.id, label: thirdProject.label, parentFolder: thirdProject.parentFolder }
 
 test("Files page loads registered projects and accepts only an available selection", async () => {
   const calls: string[] = []
@@ -20,7 +48,11 @@ test("Files page loads registered projects and accepts only an available selecti
       accountId: () => "user-1",
       fetcher: async (input) => {
         calls.push(String(input))
-        return Response.json({ projects: [firstProject, secondProject, unavailableProject], truncated: false })
+        return Response.json({
+          folders: [],
+          projects: [firstProject, secondProject, thirdProject, unavailableProject],
+          truncated: false,
+        })
       },
     }),
   }))
@@ -28,15 +60,23 @@ test("Files page loads registered projects and accepts only an available selecti
   await tick()
   expect(calls).toEqual(["/api/project/registry"])
   expect(root.state.status()).toBe("ready")
-  expect(root.state.projects()).toEqual([firstProject, secondProject])
-  expect(root.state.selectedProject()).toEqual(firstProject)
+  expect(root.state.projects()).toEqual([firstFilesProject, thirdFilesProject, secondFilesProject])
+  expect(root.state.selectedProject()).toEqual(firstFilesProject)
+
+  expect(root.state.projectSelectorOptions()).toEqual([
+    { label: "Uncategorized", type: "group" },
+    { type: "item", value: firstProject.id },
+    { label: "Workspace", type: "group" },
+    { type: "item", value: thirdProject.id },
+    { type: "item", value: secondProject.id },
+  ])
 
   root.state.projectSelect(secondProject.id)
-  expect(root.state.selectedProject()).toEqual(secondProject)
+  expect(root.state.selectedProject()).toEqual(secondFilesProject)
   root.state.projectSelect(unavailableProject.id)
-  expect(root.state.selectedProject()).toEqual(secondProject)
+  expect(root.state.selectedProject()).toEqual(secondFilesProject)
   root.state.projectSelect("unlisted")
-  expect(root.state.selectedProject()).toEqual(secondProject)
+  expect(root.state.selectedProject()).toEqual(secondFilesProject)
   root.dispose()
 })
 
@@ -49,7 +89,7 @@ test("Files page exposes empty, error, and retry states", async () => {
       fetcher: async () => {
         attempts += 1
         if (attempts === 1) return new Response(null, { status: 500 })
-        return Response.json({ projects: [], truncated: false })
+        return Response.json({ folders: [], projects: [], truncated: false })
       },
     }),
   }))
@@ -70,7 +110,7 @@ test("Files page handles unavailable registered projects as empty available stat
     dispose,
     state: filesPageStateCreate({
       accountId: () => "user-1",
-      fetcher: async () => Response.json({ projects: [unavailableProject], truncated: false }),
+      fetcher: async () => Response.json({ folders: [], projects: [unavailableProject], truncated: false }),
     }),
   }))
 
@@ -89,7 +129,7 @@ test("Files page does not expose an empty project list as a root", async () => {
       accountId: () => "user-1",
       fetcher: async (input) => {
         calls.push(String(input))
-        return Response.json({ projects: [], truncated: false })
+        return Response.json({ folders: [], projects: [], truncated: false })
       },
     }),
   }))
@@ -107,14 +147,14 @@ test("Files page restores and updates a validated selected project", async () =>
     getItem: (key: string) => values.get(key) ?? null,
     setItem: (key: string, value: string) => values.set(key, value),
   }
-  const fetcher = async () => Response.json({ projects: [firstProject, secondProject], truncated: false })
+  const fetcher = async () => Response.json({ folders: [], projects: [firstProject, secondProject], truncated: false })
   const firstRoot = createRoot((dispose) => ({
     dispose,
     state: filesPageStateCreate({ accountId: () => "user-1", fetcher, storage }),
   }))
 
   await tick()
-  expect(firstRoot.state.selectedProject()).toEqual(secondProject)
+  expect(firstRoot.state.selectedProject()).toEqual(secondFilesProject)
   firstRoot.state.projectSelect(firstProject.id)
   expect(values.get("codeline.explorer.selectedProjectId")).toBe(firstProject.id)
   firstRoot.dispose()
@@ -124,7 +164,7 @@ test("Files page restores and updates a validated selected project", async () =>
     state: filesPageStateCreate({ accountId: () => "user-1", fetcher, storage }),
   }))
   await tick()
-  expect(reloadedRoot.state.selectedProject()).toEqual(firstProject)
+  expect(reloadedRoot.state.selectedProject()).toEqual(firstFilesProject)
   reloadedRoot.dispose()
 })
 
@@ -138,7 +178,7 @@ test("Files screen scopes its browser to the selected project", async () => {
         const url = String(input)
         calls.push(url)
         if (url === "/api/project/registry")
-          return Response.json({ projects: [firstProject, secondProject], truncated: false })
+          return Response.json({ folders: [], projects: [firstProject, secondProject], truncated: false })
         return Response.json({ entries: [] })
       },
     }),

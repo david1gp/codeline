@@ -1,5 +1,6 @@
 import { createSignalObject } from "@adaptive-ds/solid-ui/utils/createSignalObject"
 import type { FilesScreenView } from "../filesScreenView.js"
+import { filesProjectSelectorOptionsDerive } from "../filesProjectSelectorOptionsDerive.js"
 import { demoProjectBrowserStateCreate } from "./demoProjectBrowserStateCreate.js"
 import { demoProjectsFixture } from "./demoProjectsFixture.js"
 import type { DemoSessionScreenVariant } from "./demoSessionScreenVariant.js"
@@ -13,6 +14,7 @@ export function demoFilesScreenStateCreate(variant: () => DemoSessionScreenVaria
 
   return {
     browser: () => (hasProjects() ? browser : null),
+    projectSelectorOptions: () => filesProjectSelectorOptionsDerive(projects()),
     projects,
     projectSelect: (projectId) => {
       if (projects().some((project) => project.id === projectId)) selectedProjectId.set(projectId)

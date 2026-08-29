@@ -13,10 +13,18 @@ import { signalObjectCreate } from "./signalObjectCreate.js"
 import type { UiDataLayerStatus } from "./uiDataLayerStatusSchema.js"
 
 const tabEventFeedOwnerRegistry = eventFeedOwnerRegistryCreate()
+const eventFeedRunLifecycleEventTypes = [
+  "run-started",
+  "run-completed",
+  "run-failed",
+  "run-cancelled",
+  "run-interrupted",
+] as const
 
 type EventFeedRefreshCallback = () => void | Promise<void>
 type EventFeedSelectedScope = string | (() => string | null | undefined)
 type EventFeedSelectedRegistrationInput = {
+  completion?: EventFeedRefreshCallback
   refresh: EventFeedRefreshCallback
   sessionId: EventFeedSelectedScope
 }
@@ -25,6 +33,7 @@ type EventFeedNoteRegistrationInput = {
   refresh: EventFeedRefreshCallback
 }
 type EventFeedSelectedRegistration = {
+  completion?: EventFeedRefreshCallback
   refresh: EventFeedRefreshCallback
   scope: EventFeedSelectedScope
 }
@@ -47,7 +56,7 @@ function eventFeedSelectedInputResolve(
   input: EventFeedSelectedScope | EventFeedSelectedRegistrationInput,
   refresh: EventFeedRefreshCallback | undefined,
 ): EventFeedSelectedRegistration {
-  if (typeof input === "object") return { refresh: input.refresh, scope: input.sessionId }
+  if (typeof input === "object") return { completion: input.completion, refresh: input.refresh, scope: input.sessionId }
   if (refresh === undefined) throw new Error("An event-feed refresh callback is required.")
   return { refresh, scope: input }
 }
@@ -103,6 +112,7 @@ export function eventFeedCoordinatorStateCreate(options: EventFeedCoordinatorOpt
   const selectedStream = new Set<EventFeedSelectedRegistration>()
   const noteList = new Set<EventFeedRefreshCallback>()
   const noteDetail = new Set<EventFeedSelectedRegistration>()
+  const runLifecycle = new Set<EventFeedRefreshCallback>()
   let resetRefreshPending = false
   let closed = false
   let onlineRecovery: Promise<Result<void>> | undefined
@@ -120,6 +130,11 @@ export function eventFeedCoordinatorStateCreate(options: EventFeedCoordinatorOpt
     sessionId: string,
   ): readonly EventFeedSelectedRegistration[] =>
     [...registrations].filter((registration) => eventFeedSelectedScopeResolve(registration.scope) === sessionId)
+
+  const selectedCompletionCallbacksForSession = (sessionId: string): readonly EventFeedRefreshCallback[] =>
+    selectedRegistrationsForSession(selectedSession, sessionId)
+      .map((registration) => registration.completion)
+      .filter((completion): completion is EventFeedRefreshCallback => completion !== undefined)
 
   const resourceRefreshCallbacksResolve = (resource: EventFeedStaleResource): readonly EventFeedRefreshCallback[] => {
     if (resource.resourceType === "session-list") return [...sessionList]
@@ -161,6 +176,7 @@ export function eventFeedCoordinatorStateCreate(options: EventFeedCoordinatorOpt
 
   const resetRefreshCallbacksResolve = (): readonly EventFeedRefreshCallback[] => [
     ...sessionList,
+    ...runLifecycle,
     ...selectedRegistrationsActive(selectedSession).map((registration) => registration.refresh),
     ...selectedRegistrationsActive(selectedMessages).map((registration) => registration.refresh),
     ...selectedRegistrationsActive(selectedDelegations).map((registration) => registration.refresh),
@@ -206,7 +222,15 @@ export function eventFeedCoordinatorStateCreate(options: EventFeedCoordinatorOpt
       // HTTP snapshot. The settled cache alone is not what the workspace renders, so the
       // session's registered HTTP queries must be refreshed or the finalized transcript
       // never appears and the in-flight turn is never superseded.
-      if (resetRefreshPending) return replaced
+      if (resetRefreshPending) {
+        const acknowledged = await eventFeedRefreshCallbacksRun(
+          "eventFeedCoordinatorSessionViewAcknowledge",
+          selectedCompletionCallbacksForSession(snapshot.session.id),
+        )
+        if (!acknowledged.success)
+          return createResultError("eventFeedCoordinatorSessionViewAcknowledge", acknowledged.errorMessage)
+        return replaced
+      }
       const refreshed = await eventFeedRefreshCallbacksRun(
         "eventFeedCoordinatorSessionSnapshotRefresh",
         resourceRefreshCallbacksResolve({
@@ -218,6 +242,12 @@ export function eventFeedCoordinatorStateCreate(options: EventFeedCoordinatorOpt
       )
       if (!refreshed.success)
         return createResultError("eventFeedCoordinatorSessionSnapshotRefresh", refreshed.errorMessage)
+      const acknowledged = await eventFeedRefreshCallbacksRun(
+        "eventFeedCoordinatorSessionViewAcknowledge",
+        selectedCompletionCallbacksForSession(snapshot.session.id),
+      )
+      if (!acknowledged.success)
+        return createResultError("eventFeedCoordinatorSessionViewAcknowledge", acknowledged.errorMessage)
       return replaced
     },
     shellListBootstrap: async (instruction) => {
@@ -247,6 +277,17 @@ export function eventFeedCoordinatorStateCreate(options: EventFeedCoordinatorOpt
     onEvent: (event) => {
       dataRevisionBump()
       options.onEvent?.(event)
+      if (
+        !eventFeedRunLifecycleEventTypes.includes(
+          event.data.eventType as (typeof eventFeedRunLifecycleEventTypes)[number],
+        )
+      )
+        return
+      void eventFeedRefreshCallbacksRun("eventFeedCoordinatorRunLifecycleRefresh", [...runLifecycle]).then(
+        (refreshed) => {
+          if (!refreshed.success) options.onError?.(refreshed)
+        },
+      )
     },
     onStateChange: stateChangeForward,
     ownershipRegistry: options.ownershipRegistry ?? tabEventFeedOwnerRegistry,
@@ -264,6 +305,7 @@ export function eventFeedCoordinatorStateCreate(options: EventFeedCoordinatorOpt
     selectedStream.clear()
     noteList.clear()
     noteDetail.clear()
+    runLifecycle.clear()
     feed.close()
   }
 
@@ -304,6 +346,14 @@ export function eventFeedCoordinatorStateCreate(options: EventFeedCoordinatorOpt
   }
   const unregisterSessionList = (refresh: EventFeedRefreshCallback): void => {
     sessionList.delete(refresh)
+  }
+  const registerRunLifecycle = (refresh: EventFeedRefreshCallback): (() => void) => {
+    if (closed) return () => undefined
+    runLifecycle.add(refresh)
+    return eventFeedRegistrationUnregister(runLifecycle, refresh)
+  }
+  const unregisterRunLifecycle = (refresh: EventFeedRefreshCallback): void => {
+    runLifecycle.delete(refresh)
   }
 
   const registerSelected = (
@@ -418,6 +468,7 @@ export function eventFeedCoordinatorStateCreate(options: EventFeedCoordinatorOpt
       eventFeed: feedApi,
       registerNoteDetail,
       registerNoteList,
+      registerRunLifecycle,
       registerSelectedDelegations,
       registerSelectedMessages,
       registerSelectedSession,
@@ -425,6 +476,7 @@ export function eventFeedCoordinatorStateCreate(options: EventFeedCoordinatorOpt
       registerSessionList,
       unregisterNoteDetail,
       unregisterNoteList,
+      unregisterRunLifecycle,
       unregisterSelectedDelegations,
       unregisterSelectedMessages,
       unregisterSelectedSession,
@@ -436,6 +488,7 @@ export function eventFeedCoordinatorStateCreate(options: EventFeedCoordinatorOpt
     eventFeed: typeof feedApi
     registerNoteDetail: typeof registerNoteDetail
     registerNoteList: typeof registerNoteList
+    registerRunLifecycle: typeof registerRunLifecycle
     registerSelectedDelegations: typeof registerSelectedDelegations
     registerSelectedMessages: typeof registerSelectedMessages
     registerSelectedSession: typeof registerSelectedSession
@@ -443,6 +496,7 @@ export function eventFeedCoordinatorStateCreate(options: EventFeedCoordinatorOpt
     registerSessionList: typeof registerSessionList
     unregisterNoteDetail: typeof unregisterNoteDetail
     unregisterNoteList: typeof unregisterNoteList
+    unregisterRunLifecycle: typeof unregisterRunLifecycle
     unregisterSelectedDelegations: typeof unregisterSelectedDelegations
     unregisterSelectedMessages: typeof unregisterSelectedMessages
     unregisterSelectedSession: typeof unregisterSelectedSession

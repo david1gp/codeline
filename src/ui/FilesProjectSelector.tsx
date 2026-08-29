@@ -1,5 +1,5 @@
 import { Match, Show, Switch } from "solid-js"
-import { SelectSingleNative } from "#ui/input/select/SelectSingleNative.jsx"
+import { SelectSingle } from "#ui/input/select/SelectSingle.jsx"
 import { Button } from "#ui/interactive/button/Button.jsx"
 import type { FilesScreenView } from "./filesScreenView.js"
 
@@ -61,14 +61,15 @@ export function FilesProjectSelector(props: { compact?: boolean; state: FilesScr
               for={props.compact ? "panel-project-selector" : "project-selector"}
             >
               <span>Project</span>
-              <SelectSingleNative
+              <SelectSingle
                 id={props.compact ? "panel-project-selector" : "project-selector"}
                 class="min-w-0 max-w-64 !rounded-md !border !border-line !bg-surface !px-2.5 !py-1.5 text-xs !text-foreground focus:!border-accent-border focus:!ring-accent-border"
                 valueSignal={projectValueSignal}
-                getOptions={() => state.projects().map((project) => project.id)}
+                getOptions={state.projectSelectorOptions}
                 valueText={(projectId) =>
                   state.projects().find((project) => project.id === projectId)?.label ?? projectId
                 }
+                buttonProps={{ size: "none", variant: "none" }}
               />
             </label>
           </Match>
