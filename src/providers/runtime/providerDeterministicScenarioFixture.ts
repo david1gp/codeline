@@ -12,6 +12,37 @@ type DeterministicScenario = {
 }
 
 export const providerDeterministicScenarioFixture = {
+  "compaction-summary": {
+    attempts: [
+      {
+        ordinal: 1,
+        steps: [
+          {
+            delayMs: 0,
+            event: {
+              eventType: "text_delta",
+              payload: {
+                delta:
+                  "## Goals\n- Preserve the actionable workspace context.\n\n## Constraints\n- No tools are required.\n\n## Decisions\n",
+              },
+            },
+          },
+          {
+            delayMs: 0,
+            event: {
+              eventType: "text_delta",
+              payload: {
+                delta:
+                  "- Keep the recent tail available for the next request.\n\n## Progress\n- Summary generation completed.\n\n## Errors\n- none known\n\n## Next step\n- Continue with the retained context.",
+              },
+            },
+          },
+          { delayMs: 0, event: { eventType: "terminal", payload: { status: "completed" } } },
+        ],
+      },
+    ],
+    maxAttempts: 1,
+  },
   streaming: {
     attempts: [
       {

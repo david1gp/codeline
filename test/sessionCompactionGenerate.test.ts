@@ -90,12 +90,45 @@ beforeAll(async () => {
     organizationId: fixture.organizationId,
   })
   await database.insert(agentTable).values({
-    configuration: { model: "test-model", provider: "deterministic" },
+    configuration: { model: "simulation-compaction-summary", provider: "deterministic" },
     id: fixture.agentId,
     name: "Compaction Generate Agent",
     role: "coding",
     serverId: fixture.serverId,
   })
+})
+
+test("uses the managed deterministic compaction scenario and persists a succeeded record", async () => {
+  const sessionId = "session-compaction-generate-deterministic"
+  await sessionCreate(sessionId, ["old goal", "recent context"])
+  const result = await sessionCompactionGenerate(database, fixture.userId, fixture.organizationId, sessionId, {
+    id: "compaction-generate-deterministic",
+    policy: { maxSummaryChars: 512, recentTokenBudget: 1 },
+  })
+
+  expect(result).toMatchObject({
+    success: true,
+    data: {
+      compaction: {
+        coveredSequence: 1,
+        status: "succeeded",
+        summary:
+          "## Goals\n- Preserve the actionable workspace context.\n\n## Constraints\n- No tools are required.\n\n## Decisions\n- Keep the recent tail available for the next request.\n\n## Progress\n- Summary generation completed.\n\n## Errors\n- none known\n\n## Next step\n- Continue with the retained context.",
+      },
+      summary:
+        "## Goals\n- Preserve the actionable workspace context.\n\n## Constraints\n- No tools are required.\n\n## Decisions\n- Keep the recent tail available for the next request.\n\n## Progress\n- Summary generation completed.\n\n## Errors\n- none known\n\n## Next step\n- Continue with the retained context.",
+    },
+  })
+  expect(await database.select().from(sessionCompactionTable)).toContainEqual(
+    expect.objectContaining({
+      completedAt: expect.any(Date),
+      coveredSequence: 1,
+      id: "compaction-generate-deterministic",
+      status: "succeeded",
+      summary:
+        "## Goals\n- Preserve the actionable workspace context.\n\n## Constraints\n- No tools are required.\n\n## Decisions\n- Keep the recent tail available for the next request.\n\n## Progress\n- Summary generation completed.\n\n## Errors\n- none known\n\n## Next step\n- Continue with the retained context.",
+    }),
+  )
 })
 
 afterAll(async () => {

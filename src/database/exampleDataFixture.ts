@@ -232,6 +232,7 @@ export const exampleDataFixture = {
         model: scenario.model,
         provider: "deterministic" as const,
         tools: { bash: false, webfetch: false },
+        ...("agentConfiguration" in scenario ? scenario.agentConfiguration : {}),
       },
       sortOrder: index + 2,
       createdAt: `2026-08-12T08:${String(20 + index).padStart(2, "0")}:00.000Z`,

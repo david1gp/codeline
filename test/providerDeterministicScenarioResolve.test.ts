@@ -96,6 +96,21 @@ test("deterministic scenario resolution covers runtime stability cases", () => {
   }
 })
 
+test("the deterministic compaction scenario is bounded, tool-free, and successful", async () => {
+  const chunks = await collect(adapter("simulation-compaction-summary")(input(new AbortController().signal)))
+  const text = chunks
+    .filter((chunk) => chunk.type === EventType.TEXT_MESSAGE_CONTENT)
+    .map((chunk) => (chunk.type === EventType.TEXT_MESSAGE_CONTENT ? chunk.delta : ""))
+    .join("")
+  const terminal = chunks.find((chunk) => chunk.type === EventType.RUN_FINISHED)
+
+  expect(text).toContain("## Goals")
+  expect(text).toContain("## Decisions")
+  expect(text.length).toBeLessThanOrEqual(512)
+  expect(chunks.some((chunk) => chunk.type.startsWith("TOOL_CALL_"))).toBe(false)
+  expect(terminal).toMatchObject({ finishReason: "stop", outcome: { type: "success" }, type: EventType.RUN_FINISHED })
+})
+
 test("deterministic scenarios preserve chunk order and select the requested retry attempt", async () => {
   const streaming = await collect(adapter("simulation-streaming")(input(new AbortController().signal)))
   expect(streaming.map((chunk) => chunk.type)).toEqual([

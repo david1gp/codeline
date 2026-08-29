@@ -1,4 +1,23 @@
 export const simulationScenarioSessionMetadata = {
+  "compaction-summary": {
+    href: "/simulate/compaction-summary",
+    label: "Compaction summary",
+    model: "simulation-compaction-summary",
+    agentId: "example-agent-simulation-compaction-summary",
+    sessionId: "example-session-simulation-compaction-summary",
+    agentConfiguration: {
+      compaction: {
+        auto: true,
+        enabled: true,
+        maxOverflowRetries: 1,
+        maxSummaryTokens: 128,
+        pressureThreshold: 0.8,
+        recentTokenBudget: 4_096,
+        reserveOutputTokens: 512,
+      },
+      generation: { maxTokens: 128 },
+    },
+  },
   streaming: {
     href: "/simulate/streaming",
     label: "Streaming",
