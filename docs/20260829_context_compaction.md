@@ -29,7 +29,7 @@ Add reliable automatic and manual LLM context compaction to Codeline, preserving
 - [x] 5. Integrate automatic pressure handling, bounded overflow retry, configuration, and manual command.
 - [x] 6. Verify focused tests, full checks, managed preview behavior, and browser flow.
 - [x] 7. Review TypeScript and documentation changes and resolve findings.
-- [ ] 8. Create conventional commits, push, and deploy.
+- [x] 8. Create conventional commits, push, and deploy.
 
 ## Paths
 
@@ -64,3 +64,4 @@ Add reliable automatic and manual LLM context compaction to Codeline, preserving
 - Delegated TanStack tool loops now pressure-check every provider round using lifecycle-safe in-memory projections and bounded pre-content overflow recovery without re-executing tools.
 - Provider-reported usage is normalized, persisted, rejected when stale/invalid, and combined with estimates for trailing context.
 - Deterministic managed compaction fixtures, transient `/compact` cleanup, repository boundary validation, concurrent adapter isolation, and durable manual-run failure recovery are covered by focused tests.
+- All release gates and deterministic browser coverage pass; the pushed `main` build is deployed and ready on the managed combined preview service.
