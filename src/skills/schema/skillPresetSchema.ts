@@ -10,6 +10,7 @@ const skillPresetNameSchema = v.pipe(
 )
 
 const skillPresetDescriptionSchema = v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(2_000))
+const skillPresetDisplayNameSchema = v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(200))
 
 const skillPresetSkillNameSchema = v.pipe(
   v.string(),
@@ -46,7 +47,9 @@ const skillPresetFolderPathsSchema = v.pipe(
 
 export const skillPresetSchema = v.strictObject({
   description: v.optional(skillPresetDescriptionSchema),
+  displayName: v.optional(skillPresetDisplayNameSchema),
   excludeSkills: v.optional(skillPresetSkillNamesSchema, []),
+  immutable: v.optional(v.literal(true)),
   includeFolders: v.optional(skillPresetFolderPathsSchema, []),
   includeSkills: v.optional(skillPresetSkillNamesSchema, []),
   name: skillPresetNameSchema,

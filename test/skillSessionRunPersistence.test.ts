@@ -240,3 +240,40 @@ test("persists user/project defaults and carries an immutable active skill snaps
 
   await skillSelectionDefaultDelete(database, userId, projectRoot, { projectRootDirs: [rootDirectory] })
 })
+
+test("defaults new sessions to All and keeps its resolved skill snapshot stable", async () => {
+  const created = await sessionCreate(
+    database,
+    userId,
+    {
+      clientRequestId: `skill-session-all-${uuidv7()}`,
+      metadata: {},
+      primaryAgentId: agentId,
+      projectPath: projectRoot,
+      serverId,
+      title: "All skill snapshot session",
+    },
+    { globalSkillsPath, organizationId, projectRootDirs: [rootDirectory] },
+  )
+  expect(created).toMatchObject({ success: true, data: { created: true } })
+  if (!created.success) return
+
+  expect(created.data.session.skillSelection).toMatchObject({
+    activeSkills: [{ name: "alpha" }, { name: "beta" }, { name: "global" }],
+    excludedSkillNames: [],
+    presetName: "all",
+  })
+  const originalManifest = structuredClone(created.data.session.executionManifest)
+
+  await fs.mkdir(path.join(projectRoot, ".agents", "skills", "team", "late"), { recursive: true })
+  await fs.writeFile(
+    path.join(projectRoot, ".agents", "skills", "team", "late", "SKILL.md"),
+    ["---", "name: late", "description: Late project skill", "---", "Added after session creation."].join("\n"),
+    "utf8",
+  )
+  const unchanged = await sessionLoad(database, userId, organizationId, created.data.session.id)
+  expect(unchanged).toMatchObject({ success: true })
+  if (!unchanged.success) return
+  expect(unchanged.data.session.skillSelection).toEqual(created.data.session.skillSelection)
+  expect(unchanged.data.session.executionManifest).toEqual(originalManifest)
+})

@@ -20,6 +20,7 @@ import { sessionExecutionSelectionDefaultRepositoryDelete } from "../src/session
 import { sessionExecutionSelectionDefaultRepositoryLoad } from "../src/session/db/sessionExecutionSelectionDefaultRepositoryLoad.js"
 import { sessionExecutionSelectionDefaultRepositoryUpsert } from "../src/session/db/sessionExecutionSelectionDefaultRepositoryUpsert.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
+import type { SessionExecutionSelection } from "../src/session/schema/sessionExecutionSelectionSchema.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
 
 const rootPath = await mkdtemp(path.join(os.tmpdir(), "codeline-selection-default."))
@@ -43,7 +44,7 @@ const defaultSelection = {
     selectableSubagents: [],
   },
   version: 1 as const,
-}
+} as unknown as SessionExecutionSelection
 
 beforeAll(async () => {
   await database.insert(applicationUserTable).values([

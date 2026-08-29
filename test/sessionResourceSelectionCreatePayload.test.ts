@@ -7,6 +7,7 @@ mock.module("solid-js", () => solidRuntime)
 
 const { sessionTargetSelectorStateCreate } = await import("../src/ui/sessionTargetSelectorStateCreate.js")
 const { sessionCreateRequestSchema } = await import("../src/session/schema/sessionCreateRequestSchema.js")
+import type { SessionExecutionSelection } from "../src/session/schema/sessionExecutionSelectionSchema.js"
 
 const representation = <T extends object>(body: T, revision = 1) => ({
   ...body,
@@ -54,7 +55,7 @@ const executionSelection = {
     selectableSubagents: [{ agentId: "example-agent-explore", tools: { bash: false, webfetch: true } }],
   },
   version: 1 as const,
-}
+} as unknown as SessionExecutionSelection
 
 const skillSelection = {
   override: { disabledSkills: ["commits"], enabledSkills: ["agent-browser"] },

@@ -54,6 +54,16 @@ beforeAll(async () => {
     ].join("\n"),
     "utf8",
   )
+  await fs.writeFile(
+    path.join(presetDirectory, "all.yaml"),
+    ["version: 1", "name: all", "description: A replacement All preset"].join("\n"),
+    "utf8",
+  )
+  await fs.writeFile(
+    path.join(presetDirectory, "claimed.yaml"),
+    ["version: 1", "name: claimed", "immutable: true"].join("\n"),
+    "utf8",
+  )
   await fs.writeFile(path.join(presetDirectory, "invalid.yaml"), "name: invalid\nversion: [1\n", "utf8")
   await fs.writeFile(path.join(presetDirectory, "ignored.md"), "not a preset", "utf8")
 })
@@ -71,6 +81,16 @@ test("loads YAML presets and resolves recursive groups with exclusion precedence
 
   expect(presets.data.presets).toEqual([
     {
+      description: "All discovered skills.",
+      displayName: "All",
+      excludeSkills: [],
+      immutable: true,
+      includeFolders: [],
+      includeSkills: [],
+      name: "all",
+      version: 1,
+    },
+    {
       description: "Focused project skills",
       excludeSkills: ["beta", "missing-excluded-skill"],
       includeFolders: ["team", "missing-folder"],
@@ -80,15 +100,33 @@ test("loads YAML presets and resolves recursive groups with exclusion precedence
     },
   ])
   expect(presets.data.diagnostics).toMatchObject([
+    { code: "reserved-name", relativePath: ".agents/skill-presets/all.yaml" },
+    { code: "invalid-preset", relativePath: ".agents/skill-presets/claimed.yaml" },
     { code: "invalid-yaml", relativePath: ".agents/skill-presets/invalid.yaml" },
   ])
   const defaultPreset = skillPresetResolve({ catalog: presets.data })
-  expect(defaultPreset).toMatchObject({ success: true, data: { name: "default" } })
+  expect(defaultPreset).toMatchObject({ success: true, data: { displayName: "All", name: "all", immutable: true } })
+
+  const allSelection = skillSelectionResolve({
+    catalog: catalog.data,
+    override: { disabledSkills: ["beta"], enabledSkills: ["beta", "missing-skill"] },
+    preset: defaultPreset.success ? defaultPreset.data : undefined,
+  })
+  expect(allSelection).toMatchObject({
+    success: true,
+    data: {
+      activeSkills: [{ name: "alpha" }, { name: "global-skill" }, { name: "team-guide" }],
+      excludedSkillNames: ["beta"],
+      missingSkillNames: ["missing-skill"],
+      presetName: "all",
+      userOverride: { disabledSkills: ["beta"], enabledSkills: ["beta", "missing-skill"] },
+    },
+  })
 
   const selection = skillSelectionResolve({
     catalog: catalog.data,
     override: { disabledSkills: ["team-guide"], enabledSkills: ["beta"] },
-    preset: presets.data.presets[0],
+    preset: presets.data.presets.find(({ name }) => name === "focused"),
   })
   expect(selection).toMatchObject({
     success: true,
@@ -119,6 +157,18 @@ test("request-time skill overrides take precedence over the persisted user prefe
   expect(catalog.success).toBe(true)
   expect(presets.success).toBe(true)
   if (!catalog.success || !presets.success) return
+
+  const defaulted = skillSelectionPreSessionResolve({
+    catalog: catalog.data,
+    presetCatalog: presets.data,
+  })
+  expect(defaulted).toMatchObject({
+    success: true,
+    data: {
+      activeSkills: [{ name: "alpha" }, { name: "beta" }, { name: "global-skill" }, { name: "team-guide" }],
+      presetName: "all",
+    },
+  })
 
   const persisted = skillSelectionPreSessionResolve({
     catalog: catalog.data,

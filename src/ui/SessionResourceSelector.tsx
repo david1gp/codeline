@@ -76,17 +76,28 @@ export function SessionResourceSelector(props: { idPrefix?: string; state: Sessi
                 class="!rounded-md !border !border-line !bg-surface !px-2.5 !py-1.5 text-xs !text-foreground"
                 valueSignal={presetValueSignal}
                 getOptions={() => props.state.presets().map((preset) => preset.name)}
-                valueText={(name) => props.state.presets().find((preset) => preset.name === name)?.description ?? name}
+                valueText={(name) =>
+                  props.state.presets().find((preset) => preset.name === name)?.displayName ??
+                  props.state.presets().find((preset) => preset.name === name)?.description ??
+                  name
+                }
               />
               <span class="text-[11px] font-normal">
-                {props.state.presetSource() === "override"
-                  ? "Overridden for this session only."
-                  : "Your saved default for this project."}
+                {props.state.presetName() === "all"
+                  ? "All discovered skills are included."
+                  : props.state.presetSource() === "override"
+                    ? "Overridden for this session only."
+                    : "Your saved default for this project."}
               </span>
             </label>
 
             <div class="grid gap-2">
-              <p class="m-0 text-xs font-semibold text-faint">Skill folders</p>
+              <div class="flex items-baseline justify-between gap-2">
+                <p class="m-0 text-xs font-semibold text-faint">Skill folders</p>
+                <Show when={props.state.presetName() === "all"}>
+                  <span class="text-[11px] text-faint">All discovered skills are included.</span>
+                </Show>
+              </div>
               <Show
                 when={props.state.folders().length > 0}
                 fallback={<p class="m-0 text-xs text-faint">No skill folders were discovered.</p>}
@@ -98,13 +109,14 @@ export function SessionResourceSelector(props: { idPrefix?: string; state: Sessi
                         <Checkbox
                           id={`${prefix()}-folder-${folder.path}`}
                           class="text-xs text-strong"
-                          checked={folder.selection === "all"}
+                          checked={folder.selection === "all" || props.state.presetName() === "all"}
+                          disabled={props.state.presetName() === "all"}
                           onChange={(checked) => props.state.folderToggle(folder.path, checked)}
                         >
                           <span class="font-medium">{folder.label}</span>
                           <span class="ml-2 text-faint">
                             {folder.descendantSkillNames.length} skills
-                            {folder.selection === "partial" ? " · partial" : ""}
+                            {folder.selection === "partial" && props.state.presetName() !== "all" ? " · partial" : ""}
                           </span>
                         </Checkbox>
                         <Show when={folder.skills.length > 0}>
@@ -115,12 +127,12 @@ export function SessionResourceSelector(props: { idPrefix?: string; state: Sessi
                                   <Checkbox
                                     id={`${prefix()}-skill-${skill.name}`}
                                     class="text-xs text-faint"
-                                    checked={skill.isActive}
-                                    disabled={skill.isExcluded}
+                                    checked={skill.isActive || props.state.presetName() === "all"}
+                                    disabled={props.state.presetName() === "all" || skill.isExcluded}
                                     onChange={(checked) => props.state.skillToggle(skill.name, checked)}
                                   >
                                     <span class="text-strong">{skill.name}</span>
-                                    <Show when={skill.isExcluded}>
+                                    <Show when={props.state.presetName() !== "all" && skill.isExcluded}>
                                       <span class="ml-2">excluded by preset</span>
                                     </Show>
                                   </Checkbox>
@@ -210,6 +222,30 @@ function SessionResourceToolToggles(props: { idPrefix: string; state: SessionRes
                     onChange={(checked) => props.state.toolToggle(agent.agentId, "webfetch", checked)}
                   >
                     webfetch
+                  </Checkbox>
+                  <Checkbox
+                    id={`${props.idPrefix}-${agent.agentId}-read`}
+                    class="text-xs text-faint"
+                    checked={agent.read ?? false}
+                    onChange={(checked) => props.state.toolToggle(agent.agentId, "read", checked)}
+                  >
+                    read
+                  </Checkbox>
+                  <Checkbox
+                    id={`${props.idPrefix}-${agent.agentId}-write`}
+                    class="text-xs text-faint"
+                    checked={agent.write ?? false}
+                    onChange={(checked) => props.state.toolToggle(agent.agentId, "write", checked)}
+                  >
+                    write
+                  </Checkbox>
+                  <Checkbox
+                    id={`${props.idPrefix}-${agent.agentId}-edit`}
+                    class="text-xs text-faint"
+                    checked={agent.edit ?? false}
+                    onChange={(checked) => props.state.toolToggle(agent.agentId, "edit", checked)}
+                  >
+                    edit
                   </Checkbox>
                 </div>
               </li>

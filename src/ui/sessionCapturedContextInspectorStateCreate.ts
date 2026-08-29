@@ -92,7 +92,13 @@ export function sessionCapturedContextInspectorStateCreate(
       .map((agent) => ({
         agentId: agent.agentId,
         isPrimary: agent.isPrimary,
-        toolNames: [...(agent.bash ? ["bash"] : []), ...(agent.webfetch ? ["webfetch"] : [])],
+        toolNames: [
+          ...(agent.bash ? ["bash"] : []),
+          ...(agent.webfetch ? ["webfetch"] : []),
+          ...(agent.read ? ["read"] : []),
+          ...(agent.write ? ["write"] : []),
+          ...(agent.edit ? ["edit"] : []),
+        ],
       }))
 
   return {

@@ -9,7 +9,7 @@ export const skillPresetCatalogSchema = v.pipe(
   v.strictObject({
     diagnostics: v.pipe(v.array(skillPresetDiagnosticSchema), v.maxLength(skillDiscoveryLimits.maximumDiagnostics)),
     digest: skillPresetCatalogDigestSchema,
-    presets: v.pipe(v.array(skillPresetSchema), v.maxLength(skillDiscoveryLimits.maximumBundles)),
+    presets: v.pipe(v.array(skillPresetSchema), v.maxLength(skillDiscoveryLimits.maximumBundles + 1)),
     version: v.literal(1),
   }),
   v.check(({ presets }) => new Set(presets.map(({ name }) => name)).size === presets.length),

@@ -83,6 +83,7 @@ function stateCreate(overrides: Record<string, unknown> = {}) {
       existingExecutionResources: () => capturedResources,
       instructionSnapshots: () => capturedResources.instructionSources,
       isMutable: () => false,
+      presetName: () => capturedResources.presetName,
       ...overrides,
     }
     return sessionCapturedContextInspectorStateCreate(() => resources as never)

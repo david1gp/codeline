@@ -28,13 +28,19 @@ test("defaults reflect the current configuration", () => {
 
   // The demo default activates both code skills and no browser skill.
   expect(controls.project.get()).toBe("demo-project-codeline")
-  expect(controls.projectOptions()).toEqual(["demo-project-codeline", "demo-project-docs"])
+  expect(controls.projectOptions()).toEqual([
+    { label: "Uncategorized", type: "group" },
+    { type: "item", value: "demo-project-codeline" },
+    { type: "item", value: "demo-project-docs" },
+  ])
   expect(controls.projectOptionText("demo-project-codeline")).toBe("codeline")
   expect(controls.skills.options()).toEqual(["agent-browser", "code-style", "commits"])
   expect(controls.skills.valueSignal.get()).toEqual(["code-style", "commits"])
   expect(controls.skillGroups.options()).toEqual([".agents/skills/code", "global/skills/browser"])
   expect(controls.skillGroups.valueSignal.get()).toEqual([".agents/skills/code"])
-  expect(controls.preset.get()).toBe("default")
+  expect(controls.preset.get()).toBe("all")
+  expect(controls.isAllPreset()).toBe(true)
+  expect(controls.presetOptionText("all")).toBe("All")
 })
 
 test("selecting a project updates the selected project and unselected state presents a placeholder", () => {
@@ -45,35 +51,65 @@ test("selecting a project updates the selected project and unselected state pres
 
   controls.project.set("")
   expect(controls.project.get()).toBe("")
-  expect(controls.projectOptions()).toEqual(["", "demo-project-codeline", "demo-project-docs"])
+  expect(controls.projectOptions()).toEqual([
+    { label: "Uncategorized", type: "group" },
+    { type: "item", value: "demo-project-codeline" },
+    { type: "item", value: "demo-project-docs" },
+  ])
   expect(controls.projectOptionText("")).toBe("Select a project…")
 })
 
-test("tool options pair every agent with its bash and webfetch defaults", () => {
+test("tool options pair every agent with the current tool catalog defaults", () => {
   const { controls } = controlsCreate()
 
   expect(controls.tools.options()).toEqual([
     "demo-primary::bash",
     "demo-primary::webfetch",
+    "demo-primary::read",
+    "demo-primary::write",
+    "demo-primary::edit",
     "demo-subagent::bash",
     "demo-subagent::webfetch",
+    "demo-subagent::read",
+    "demo-subagent::write",
+    "demo-subagent::edit",
   ])
-  expect(controls.tools.valueSignal.get()).toEqual(["demo-primary::bash", "demo-subagent::webfetch"])
+  expect(controls.tools.valueSignal.get()).toEqual([
+    "demo-primary::bash",
+    "demo-primary::read",
+    "demo-primary::write",
+    "demo-primary::edit",
+    "demo-subagent::webfetch",
+    "demo-subagent::read",
+  ])
   expect(controls.tools.optionText("demo-subagent::webfetch")).toBe("Explore · webfetch")
 })
 
-test("selecting values toggles only the entries that actually changed", () => {
+test("when All preset is active, skill and group toggles are ignored", () => {
   const { controls, resources } = controlsCreate()
 
+  expect(controls.isAllPreset()).toBe(true)
+  controls.skills.valueSignal.set(["code-style"])
+  expect(resources.activeSkills().map(({ name }) => name)).toEqual(["code-style", "commits"])
+
+  controls.skillGroups.valueSignal.set([])
+  expect(controls.skillGroups.valueSignal.get()).toEqual([".agents/skills/code"])
+})
+
+test("selecting values toggles only the entries that actually changed when not in All preset", () => {
+  const { controls, resources } = controlsCreate()
+
+  controls.preset.set("custom")
   controls.skills.valueSignal.set(["code-style", "agent-browser"])
 
   expect(controls.skills.valueSignal.get()).toEqual(["agent-browser", "code-style"])
   expect(resources.activeSkills().map(({ name }) => name)).toEqual(["code-style", "agent-browser"])
 })
 
-test("a group selection recurses into every descendant skill", () => {
+test("a group selection recurses into every descendant skill when not in All preset", () => {
   const { controls } = controlsCreate()
 
+  controls.preset.set("custom")
   controls.skillGroups.valueSignal.set([".agents/skills/code", "global/skills/browser"])
 
   expect(controls.skills.valueSignal.get()).toEqual(["agent-browser", "code-style", "commits"])

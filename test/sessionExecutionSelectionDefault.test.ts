@@ -3,6 +3,7 @@ import * as v from "valibot"
 import { sessionExecutionSelectionAgentDefaultsResolve } from "../src/session/actions/sessionExecutionSelectionAgentDefaultsResolve.js"
 import { sessionExecutionSelectionResolve } from "../src/session/actions/sessionExecutionSelectionResolve.js"
 import { sessionExecutionSelectionDefaultSchema } from "../src/session/schema/sessionExecutionSelectionDefaultSchema.js"
+import type { SessionExecutionSelection } from "../src/session/schema/sessionExecutionSelectionSchema.js"
 
 const primaryAgentId = "primary-agent"
 const savedSelection = {
@@ -11,14 +12,14 @@ const savedSelection = {
     selectableSubagents: [{ agentId: "reviewer", tools: { bash: false, webfetch: true } }],
   },
   version: 1 as const,
-}
+} as unknown as SessionExecutionSelection
 const explicitSelection = {
   tools: {
     primary: { agentId: primaryAgentId, tools: { bash: false, webfetch: true } },
     selectableSubagents: [],
   },
   version: 1 as const,
-}
+} as unknown as SessionExecutionSelection
 
 test("execution selection defaults are strict and limited to bash/webfetch", () => {
   expect(
@@ -52,7 +53,7 @@ test("execution selection resolution uses explicit, saved, agent, then false pre
       selectableSubagents: [],
     },
     version: 1 as const,
-  }
+  } as unknown as SessionExecutionSelection
 
   expect(
     sessionExecutionSelectionResolve({
@@ -78,7 +79,7 @@ test("execution selection resolution uses explicit, saved, agent, then false pre
         selectableSubagents: [],
       },
       version: 1,
-    },
+    } as unknown as SessionExecutionSelection,
   })
 })
 

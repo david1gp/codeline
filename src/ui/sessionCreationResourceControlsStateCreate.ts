@@ -1,4 +1,6 @@
+import type { SelectSingleEntry } from "#ui/input/select/SelectSingleEntry.js"
 import type { SignalObject } from "#ui/utils/createSignalObject.js"
+import { sessionProjectSelectorOptionsDerive } from "./sessionProjectSelectorOptionsDerive.js"
 import type { SessionResourceSelectorView } from "./sessionResourceSelectorView.js"
 
 export type SessionCreationResourceControl = {
@@ -10,9 +12,12 @@ export type SessionCreationResourceControl = {
 }
 
 export type SessionCreationResourceControls = {
+  isAllPreset: () => boolean
   preset: SignalObject<string>
+  presetOptions: () => string[]
+  presetOptionText: (presetName: string) => string
   project: SignalObject<string>
-  projectOptions: () => string[]
+  projectOptions: () => SelectSingleEntry[]
   projectOptionText: (projectId: string) => string
   skillGroups: SessionCreationResourceControl
   skills: SessionCreationResourceControl
@@ -20,6 +25,7 @@ export type SessionCreationResourceControls = {
 }
 
 const toolValueSeparator = "::"
+const sessionCreationResourceTools = ["bash", "webfetch", "read", "write", "edit"] as const
 
 function sessionCreationResourceControlToggle(
   options: readonly string[],
@@ -44,6 +50,8 @@ function sessionCreationResourceControlToggle(
 export function sessionCreationResourceControlsStateCreate(
   resources: () => SessionResourceSelectorView,
 ): SessionCreationResourceControls {
+  const isAllPreset = () => resources().presetName() === "all"
+
   const groupNodes = () =>
     resources()
       .folders()
@@ -56,9 +64,21 @@ export function sessionCreationResourceControlsStateCreate(
 
   const skillNodes = () => {
     const seen = new Map<string, { isActive: boolean; name: string }>()
+    const activeNames = new Set(
+      resources()
+        .activeSkills()
+        .map(({ name }) => name),
+    )
+    for (const bundle of resources().skillBundles()) {
+      if (seen.has(bundle.name)) continue
+      seen.set(bundle.name, {
+        isActive: activeNames.has(bundle.name),
+        name: bundle.name,
+      })
+    }
     for (const folder of resources().folders()) {
       for (const skill of folder.skills) {
-        if (skill.isExcluded || seen.has(skill.name)) continue
+        if (seen.has(skill.name)) continue
         seen.set(skill.name, { isActive: skill.isActive, name: skill.name })
       }
     }
@@ -74,13 +94,22 @@ export function sessionCreationResourceControlsStateCreate(
     resources()
       .agentTools()
       .flatMap((agent) =>
-        (["bash", "webfetch"] as const).map((tool) => ({
-          agentId: agent.agentId,
-          isEnabled: tool === "bash" ? agent.bash : agent.webfetch,
-          label: `${agent.name} · ${tool}`,
-          tool,
-          value: `${agent.agentId}${toolValueSeparator}${tool}`,
-        })),
+        sessionCreationResourceTools
+          .filter(
+            (tool) =>
+              tool === "bash" ||
+              tool === "webfetch" ||
+              agent.read !== undefined ||
+              agent.write !== undefined ||
+              agent.edit !== undefined,
+          )
+          .map((tool) => ({
+            agentId: agent.agentId,
+            isEnabled: agent[tool] ?? false,
+            label: `${agent.name} · ${tool}`,
+            tool,
+            value: `${agent.agentId}${toolValueSeparator}${tool}`,
+          })),
       )
   const toolOptions = () => toolNodes().map((entry) => entry.value)
   const toolSelected = () =>
@@ -88,17 +117,7 @@ export function sessionCreationResourceControlsStateCreate(
       .filter((entry) => entry.isEnabled)
       .map((entry) => entry.value)
 
-  const projectOptions = () =>
-    resources().selectedProjectId() === null
-      ? [
-          "",
-          ...resources()
-            .projects()
-            .map((project) => project.id),
-        ]
-      : resources()
-          .projects()
-          .map((project) => project.id)
+  const projectOptions = () => sessionProjectSelectorOptionsDerive(resources().projects())
 
   const projectOptionText = (projectId: string) => {
     if (projectId === "") return "Select a project…"
@@ -109,11 +128,26 @@ export function sessionCreationResourceControlsStateCreate(
     )
   }
 
+  const presetOptions = () =>
+    resources()
+      .presets()
+      .map((preset) => preset.name)
+
+  const presetOptionText = (name: string) => {
+    const preset = resources()
+      .presets()
+      .find((candidate) => candidate.name === name)
+    return preset?.displayName ?? preset?.description ?? name
+  }
+
   return {
+    isAllPreset,
     preset: {
       get: () => resources().presetName() ?? "",
       set: (name: string) => resources().presetSelect(name),
     },
+    presetOptions,
+    presetOptionText,
     project: {
       get: () => resources().selectedProjectId() ?? "",
       set: (projectId: string) => resources().projectSelect(projectId),
@@ -129,8 +163,10 @@ export function sessionCreationResourceControlsStateCreate(
       },
       valueSignal: {
         get: () => [...groupSelected()],
-        set: (next: string[]) =>
-          sessionCreationResourceControlToggle(groupOptions(), groupSelected(), next, resources().folderToggle),
+        set: (next: string[]) => {
+          if (isAllPreset()) return
+          sessionCreationResourceControlToggle(groupOptions(), groupSelected(), next, resources().folderToggle)
+        },
       },
     },
     skills: {
@@ -138,8 +174,10 @@ export function sessionCreationResourceControlsStateCreate(
       optionText: (value: string) => value,
       valueSignal: {
         get: () => [...skillSelected()],
-        set: (next: string[]) =>
-          sessionCreationResourceControlToggle(skillOptions(), skillSelected(), next, resources().skillToggle),
+        set: (next: string[]) => {
+          if (isAllPreset()) return
+          sessionCreationResourceControlToggle(skillOptions(), skillSelected(), next, resources().skillToggle)
+        },
       },
     },
     tools: {

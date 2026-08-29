@@ -9,6 +9,9 @@ import type { SessionResourceSkillTreeFolderNode } from "./sessionResourceSkillT
 export type SessionResourceSelectorAgentTools = {
   agentId: string
   bash: boolean
+  read?: boolean
+  write?: boolean
+  edit?: boolean
   isPrimary: boolean
   name: string
   role: string
@@ -30,6 +33,7 @@ export type SessionResourceSelectorProject = {
   available?: boolean
   id: string
   label: string
+  parentFolder?: { id: string; label: string } | null
 }
 
 /**
@@ -88,5 +92,5 @@ export type SessionResourceSelectorView = {
   skillBundles: () => SkillCatalogInspectionResponse["bundles"]
   skillToggle: (name: string, enabled: boolean) => void
   status: () => "error" | "idle" | "loading" | "offline" | "ready"
-  toolToggle: (agentId: string, tool: "bash" | "webfetch", enabled: boolean) => void
+  toolToggle: (agentId: string, tool: "bash" | "webfetch" | "read" | "write" | "edit", enabled: boolean) => void
 }

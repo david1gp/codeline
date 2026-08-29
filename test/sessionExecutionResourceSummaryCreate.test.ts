@@ -2,9 +2,11 @@ import { expect, test } from "bun:test"
 import { createHash } from "node:crypto"
 import * as path from "node:path"
 import * as v from "valibot"
+import type { AgentToolDefaults } from "../src/agents/schema/agentToolDefaultsSchema.js"
 import { sessionExecutionResourceSummaryCreate } from "../src/session/api/sessionExecutionResourceSummaryCreate.js"
 import { sessionExecutionResourceSummarySchema } from "../src/session/api/sessionExecutionResourceSummarySchema.js"
 import { sessionShellCreate } from "../src/session/api/sessionShellCreate.js"
+import type { SessionExecutionSelection } from "../src/session/schema/sessionExecutionSelectionSchema.js"
 
 const projectRoot = "/workspace/codeline"
 const globalRoot = "/home/example/.agents"
@@ -140,7 +142,7 @@ const manifestCreate = (overrides: Record<string, unknown> = {}) => ({
     version: 1 as const,
   },
   tools: {
-    primary: { agentId: "example-agent-primary", tools: ["bash"] },
+    primary: { agentId: "example-agent-primary", tools: ["bash", "read", "write", "edit"] },
     selectableSubagents: [{ agentId: "example-agent-explore", tools: ["webfetch", "skill"] }],
   },
   version: 1 as const,
@@ -158,7 +160,7 @@ test("the sanitized summary validates against its contract and keeps the capture
   expect(v.safeParse(sessionExecutionResourceSummarySchema, summary.data).success).toBe(true)
   expect(summary.data?.presetName).toBe("focused")
   expect(summary.data?.tools).toEqual({
-    primary: { agentId: "example-agent-primary", tools: ["bash"] },
+    primary: { agentId: "example-agent-primary", tools: ["bash", "read", "write", "edit"] },
     selectableSubagents: [{ agentId: "example-agent-explore", tools: ["webfetch", "skill"] }],
   })
   expect(summary.data?.descriptionCatalog).toMatchObject({
@@ -331,7 +333,7 @@ test("the session shell exposes the sanitized resources alongside the immutable 
         selectableSubagents: [{ agentId: "example-agent-explore", tools: { bash: false, webfetch: true } }],
       },
       version: 1,
-    },
+    } as unknown as SessionExecutionSelection,
     id: "example-session",
     metadata: {},
     parentSessionId: null,
@@ -353,7 +355,10 @@ test("the session shell exposes the sanitized resources alongside the immutable 
   expect(shell.data.executionResources?.skills.map(({ name }) => name)).toEqual(["agent-browser", "code-style"])
   expect(shell.data.executionResources?.instructionSources[0]?.canonicalPath).toBe(`${globalRoot}/AGENTS.md`)
   expect(shell.data.executionResources?.instructionSources[1]?.content).toBe("root instructions")
-  expect(shell.data.executionSelection?.tools.primary.tools).toEqual({ bash: true, webfetch: false })
+  expect(shell.data.executionSelection?.tools.primary.tools).toEqual({
+    bash: true,
+    webfetch: false,
+  } as unknown as AgentToolDefaults)
   expect(JSON.stringify(shell.data.executionResources)).toContain(`${projectRoot}/AGENTS.md`)
 })
 

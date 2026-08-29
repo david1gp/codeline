@@ -13,6 +13,7 @@ import type { SkillPresetDiagnostic } from "../schema/skillPresetDiagnosticSchem
 import type { SkillPreset } from "../schema/skillPresetSchema.js"
 import { skillPresetSchema } from "../schema/skillPresetSchema.js"
 import { skillDiscoveryLimits } from "../skillDiscoveryLimits.js"
+import { skillPresetAll } from "../skillPresetAll.js"
 
 const skillPresetDirectoryRelativePath = ".agents/skill-presets"
 
@@ -235,10 +236,11 @@ function skillPresetYamlParse(source: string): Result<unknown> {
 
 function skillPresetCatalogEmptyCreate(): SkillPresetCatalog {
   const diagnostics: SkillPresetDiagnostic[] = []
+  const presets = [structuredClone(skillPresetAll)]
   const catalog = {
     diagnostics,
-    digest: skillPresetCatalogDigestCreate([], diagnostics),
-    presets: [],
+    digest: skillPresetCatalogDigestCreate(presets, diagnostics),
+    presets,
     version: 1 as const,
   }
   return skillPresetCatalogDeepFreeze(structuredClone(catalog))
@@ -300,7 +302,7 @@ export async function skillPresetCatalogLoad(
     )
   }
 
-  const presets: SkillPreset[] = []
+  const presets: SkillPreset[] = [structuredClone(skillPresetAll)]
   const filesToRead = presetFiles.slice(0, limits.data.maxPresets)
   for (const fileName of filesToRead) {
     const relativePath = `${skillPresetDirectoryRelativePath}/${fileName}`
@@ -327,7 +329,9 @@ export async function skillPresetCatalogLoad(
       continue
     }
     const parsedPreset = v.safeParse(skillPresetSchema, parsedYaml.data)
-    if (!parsedPreset.success) {
+    const hasUserImmutable =
+      typeof parsedYaml.data === "object" && parsedYaml.data !== null && Object.hasOwn(parsedYaml.data, "immutable")
+    if (!parsedPreset.success || hasUserImmutable) {
       diagnosticLimitReached =
         skillPresetDiagnosticAdd(
           diagnostics,
@@ -349,6 +353,20 @@ export async function skillPresetCatalogLoad(
           skillPresetDiagnosticCreate(
             "name-mismatch",
             "The skill preset name must match its filename.",
+            presetDirectory,
+            relativePath,
+          ),
+          limits.data.maxDiagnostics,
+        ) || diagnosticLimitReached
+      continue
+    }
+    if (parsedPreset.output.name === skillPresetAll.name) {
+      diagnosticLimitReached =
+        skillPresetDiagnosticAdd(
+          diagnostics,
+          skillPresetDiagnosticCreate(
+            "reserved-name",
+            "The built-in All skill preset cannot be redefined.",
             presetDirectory,
             relativePath,
           ),

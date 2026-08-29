@@ -17,6 +17,7 @@ import type { SkillSelectionInspectionResponse } from "../skills/api/skillSelect
 import { skillCatalogInspectionFetch } from "../skills/client/skillCatalogInspectionFetch.js"
 import { skillPresetInspectionFetch } from "../skills/client/skillPresetInspectionFetch.js"
 import { skillSelectionInspectionFetch } from "../skills/client/skillSelectionInspectionFetch.js"
+import { skillPresetAll } from "../skills/skillPresetAll.js"
 import { httpQueryStateCreate } from "./httpQueryStateCreate.js"
 import type { SessionResourceSelectorAgentTools, SessionResourceSelectorView } from "./sessionResourceSelectorView.js"
 import { sessionResourceSkillCatalogEstimate } from "./sessionResourceSkillCatalogEstimate.js"
@@ -51,7 +52,9 @@ export function sessionResourceSelectorStateCreate(
   const presetOverride = signalObjectCreate<string | null>(null)
   const skillEnabledDelta = signalObjectCreate<readonly string[]>([])
   const skillDisabledDelta = signalObjectCreate<readonly string[]>([])
-  const toolOverrides = signalObjectCreate<Readonly<Record<string, { bash?: boolean; webfetch?: boolean }>>>({})
+  const toolOverrides = signalObjectCreate<
+    Readonly<Record<string, { bash?: boolean; webfetch?: boolean; read?: boolean; write?: boolean; edit?: boolean }>>
+  >({})
   const agentPromptValue = signalObjectCreate<string | undefined>(undefined)
   const instructionBaseline = signalObjectCreate<Readonly<Record<string, string>>>({})
   const instructionContents = signalObjectCreate<Readonly<Record<string, string>>>({})
@@ -195,10 +198,11 @@ export function sessionResourceSelectorStateCreate(
   })
 
   const selectionResponse = () => selectionQuery.data()
-  const presetName = () => presetOverride.get() ?? selectionResponse()?.selection.presetName ?? null
+  const presets = () => presetQuery.data()?.presets ?? [skillPresetAll]
+  const presetName = () => presetOverride.get() ?? selectionResponse()?.selection.presetName ?? "all"
   const activePreset = () => {
     const name = presetName()
-    return presetQuery.data()?.presets.find((preset) => preset.name === name) ?? null
+    return presets().find((preset) => preset.name === name) ?? null
   }
 
   const derivedSelection = () => {
@@ -234,6 +238,7 @@ export function sessionResourceSelectorStateCreate(
     })
 
   const skillToggle = (name: string, enabled: boolean) => {
+    if (isExistingSession() || presetName() === "all") return
     const enabledNames = new Set(skillEnabledDelta.get())
     const disabledNames = new Set(skillDisabledDelta.get())
     if (enabled) {
@@ -248,6 +253,7 @@ export function sessionResourceSelectorStateCreate(
   }
 
   const folderToggle = (folderPath: string, enabled: boolean) => {
+    if (isExistingSession() || presetName() === "all") return
     const folder = folders().find((candidate) => candidate.path === folderPath)
     if (folder === undefined) return
     const enabledNames = new Set(skillEnabledDelta.get())
@@ -279,6 +285,15 @@ export function sessionResourceSelectorStateCreate(
         return {
           agentId: entry.agentId,
           bash: override.bash ?? entry.tools.bash,
+          ...(override.read === undefined && entry.tools.read === undefined
+            ? {}
+            : { read: override.read ?? entry.tools.read ?? false }),
+          ...(override.write === undefined && entry.tools.write === undefined
+            ? {}
+            : { write: override.write ?? entry.tools.write ?? false }),
+          ...(override.edit === undefined && entry.tools.edit === undefined
+            ? {}
+            : { edit: override.edit ?? entry.tools.edit ?? false }),
           isPrimary: entry.agentId === primaryAgentId,
           name: entry.name,
           role: entry.role,
@@ -351,7 +366,7 @@ export function sessionResourceSelectorStateCreate(
   const agentPromptCharacterCount = () => (agentPromptResolve() ?? "").length
   const instructionCharacterCount = () => instructionRenderedContent().length
 
-  const toolToggle = (agentId: string, tool: "bash" | "webfetch", enabled: boolean) => {
+  const toolToggle = (agentId: string, tool: "bash" | "webfetch" | "read" | "write" | "edit", enabled: boolean) => {
     const current = toolOverrides.get()
     toolOverrides.set({ ...current, [agentId]: { ...(current[agentId] ?? {}), [tool]: enabled } })
   }
@@ -364,10 +379,28 @@ export function sessionResourceSelectorStateCreate(
     if (primary === undefined) return undefined
     return {
       tools: {
-        primary: { agentId: primary.agentId, tools: { bash: primary.bash, webfetch: primary.webfetch } },
+        primary: {
+          agentId: primary.agentId,
+          tools: {
+            bash: primary.bash,
+            webfetch: primary.webfetch,
+            ...(primary.read === undefined ? {} : { read: primary.read }),
+            ...(primary.write === undefined ? {} : { write: primary.write }),
+            ...(primary.edit === undefined ? {} : { edit: primary.edit }),
+          },
+        },
         selectableSubagents: entries
           .filter((entry) => entry.agentId !== primaryAgentId)
-          .map((entry) => ({ agentId: entry.agentId, tools: { bash: entry.bash, webfetch: entry.webfetch } })),
+          .map((entry) => ({
+            agentId: entry.agentId,
+            tools: {
+              bash: entry.bash,
+              webfetch: entry.webfetch,
+              ...(entry.read === undefined ? {} : { read: entry.read }),
+              ...(entry.write === undefined ? {} : { write: entry.write }),
+              ...(entry.edit === undefined ? {} : { edit: entry.edit }),
+            },
+          })),
       },
       version: 1,
     }
@@ -432,6 +465,13 @@ export function sessionResourceSelectorStateCreate(
     const entryCreate = (entry: { agentId: string; tools: readonly string[] }, isPrimary: boolean) => ({
       agentId: entry.agentId,
       bash: entry.tools.includes("bash"),
+      ...(entry.tools.some((tool) => tool === "read" || tool === "write" || tool === "edit")
+        ? {
+            read: entry.tools.includes("read"),
+            write: entry.tools.includes("write"),
+            edit: entry.tools.includes("edit"),
+          }
+        : {}),
       isPrimary,
       name: entry.agentId,
       role: isPrimary ? "primary" : "subagent",
@@ -488,10 +528,10 @@ export function sessionResourceSelectorStateCreate(
     presetName: () => (isExistingSession() ? (existingExecutionResources()?.presetName ?? null) : presetName()),
     presetDiagnostics: () => presetQuery.data()?.diagnostics ?? [],
     presetSelect: (name: string) => {
-      if (!(presetQuery.data()?.presets ?? []).some((preset) => preset.name === name)) return
+      if (!presets().some((preset) => preset.name === name)) return
       presetOverride.set(name)
     },
-    presets: () => presetQuery.data()?.presets ?? [],
+    presets,
     presetSource: () => (presetOverride.get() === null ? "default" : "override"),
     projects,
     projectSelect,

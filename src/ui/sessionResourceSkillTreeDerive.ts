@@ -50,12 +50,16 @@ function sessionResourceSkillTreeFolderMatches(folderPath: string, bundlePath: s
 }
 
 function sessionResourceSkillTreeLabelCreate(folderPath: string): string {
+  if (folderPath === ".") return "root"
   const segments = folderPath.split("/").filter((segment) => segment.length > 0)
   return segments.at(-1) ?? folderPath
 }
 
 function sessionResourceSkillTreeDepthCreate(folderPath: string, rootPaths: readonly string[]): number {
-  const root = rootPaths.find((candidate) => sessionResourceSkillTreeFolderMatches(candidate, folderPath))
+  if (folderPath === ".") return 0
+  const root = rootPaths.find(
+    (candidate) => candidate !== "." && sessionResourceSkillTreeFolderMatches(candidate, folderPath),
+  )
   const relative = root === undefined ? folderPath : folderPath.slice(root.length)
   return relative.split("/").filter((segment) => segment.length > 0).length
 }
@@ -70,12 +74,19 @@ export function sessionResourceSkillTreeDerive(
 ): readonly SessionResourceSkillTreeFolderNode[] {
   const active = new Set(input.activeSkillNames)
   const excluded = new Set(input.excludedSkillNames)
-  const groupPaths = [...new Set(input.groups.map(({ path }) => path))].sort(sessionResourceSkillTreePathSort)
+  const groupPaths = [
+    ...new Set([...input.groups.map(({ path }) => path), ...input.skills.map(({ bundlePath }) => bundlePath)]),
+  ].sort(sessionResourceSkillTreePathSort)
   const rootPaths = groupPaths.filter(
     (candidate) =>
+      candidate !== "." &&
       !groupPaths.some((other) => other !== candidate && sessionResourceSkillTreeFolderMatches(other, candidate)),
   )
-  const sourceByPath = new Map(input.groups.map(({ path, source }) => [path, source]))
+  const sourceByPath = new Map<string, "global" | "project">()
+  for (const group of input.groups) sourceByPath.set(group.path, group.source)
+  for (const skill of input.skills) {
+    if (!sourceByPath.has(skill.bundlePath)) sourceByPath.set(skill.bundlePath, skill.source)
+  }
 
   return groupPaths.map((folderPath) => {
     const descendants = input.skills

@@ -1,6 +1,9 @@
 import { expect, mock, test } from "bun:test"
 import * as solidRuntime from "solid-js/dist/solid.js"
 import { createRoot, createSignal } from "solid-js/dist/solid.js"
+import type { AgentToolDefaults } from "../src/agents/schema/agentToolDefaultsSchema.js"
+import type { SessionExecutionSelection } from "../src/session/schema/sessionExecutionSelectionSchema.js"
+import type { SessionResourceSelectorAgentTools } from "../src/ui/sessionResourceSelectorView.js"
 
 mock.module("solid-js", () => solidRuntime)
 
@@ -93,6 +96,16 @@ const presetsResponse = {
   digest: digest("e"),
   presets: [
     {
+      description: "All discovered skills.",
+      displayName: "All",
+      excludeSkills: [],
+      immutable: true,
+      includeFolders: [],
+      includeSkills: [],
+      name: "all",
+      version: 1 as const,
+    },
+    {
       description: "Everything",
       excludeSkills: [],
       includeFolders: ["."],
@@ -136,7 +149,7 @@ const descriptionCatalogCreate = (
   }
 }
 
-const selectionResponseCreate = (presetName: "default" | "focused") => {
+const selectionResponseCreate = (presetName: "all" | "default" | "focused") => {
   const activeSkills = presetName === "focused" ? [codeStyle, commits] : [agentBrowser, codeStyle, commits]
   return {
     catalogDigest: digest("d"),
@@ -310,13 +323,17 @@ function fetchCreate(requests: string[], overrides: FetchOverrides = {}) {
       if (url.startsWith(prefix)) return override()
     }
     if (url.startsWith("/api/project/registry")) {
-      return response({ projects: [{ available: true, id: projectId, label: "codeline" }], truncated: false })
+      return response({
+        folders: [],
+        projects: [{ available: true, id: projectId, label: "codeline", parentFolder: null }],
+        truncated: false,
+      })
     }
     if (url.startsWith("/api/project/identity")) return response({ id: projectId, label: "codeline" })
     if (url.startsWith("/api/project/skills/catalog")) return response(catalogResponse)
     if (url.startsWith("/api/project/skills/presets")) return response(presetsResponse)
     if (url.startsWith("/api/project/skills/selection")) {
-      return response(selectionResponseCreate(url.includes("preset=focused") ? "focused" : "default"))
+      return response(selectionResponseCreate(url.includes("preset=focused") ? "focused" : "all"))
     }
     if (url.startsWith("/api/agent-instructions")) return response(instructionsResponse)
     if (url === "/api/servers/example-server/agents") return response(agentsResponse)
@@ -383,10 +400,33 @@ test("the pre-session workspace resolves the project id and loads the effective 
   expect(created.state.isMutable()).toBe(true)
   expect(requests.some((url) => url.startsWith("/api/project/identity?path="))).toBe(true)
   expect(requests.some((url) => url.includes(`/api/project/skills/catalog?project=${projectId}`))).toBe(true)
-  expect(created.state.presetName()).toBe("default")
+  expect(created.state.presetName()).toBe("all")
   expect(created.state.presetSource()).toBe("default")
   expect(created.state.activeSkills().map(({ name }) => name)).toEqual(["agent-browser", "code-style", "commits"])
   expect(created.state.instructionSnapshots().map(({ path }) => path)).toEqual(["global/AGENTS.md", "AGENTS.md"])
+  created.dispose()
+})
+
+test("the pre-session workspace consumes the built-in All selection across global and project skills", async () => {
+  const created = stateCreate({
+    overrides: {
+      "/api/project/registry": () =>
+        response({
+          folders: [],
+          projects: [{ available: true, id: projectId, label: "codeline", parentFolder: null }],
+          truncated: false,
+        }),
+      "/api/project/skills/selection": () => response(selectionResponseCreate("all")),
+    },
+  })
+  await effectsSettle()
+
+  expect(created.state.presetName()).toBe("all")
+  expect(created.state.presets().find(({ name }) => name === "all")).toMatchObject({
+    displayName: "All",
+    immutable: true,
+  })
+  expect(created.state.activeSkills().map(({ name }) => name)).toEqual(["agent-browser", "code-style", "commits"])
   created.dispose()
 })
 
@@ -455,7 +495,7 @@ test("selecting a preset overrides the saved default and applies its exclusions"
   await effectsSettle()
 
   created.state.presetSelect("unknown-preset")
-  expect(created.state.presetName()).toBe("default")
+  expect(created.state.presetName()).toBe("all")
 
   created.state.presetSelect("focused")
   await effectsSettle()
@@ -470,8 +510,27 @@ test("selecting a preset overrides the saved default and applies its exclusions"
   created.dispose()
 })
 
+test("individual skill and folder toggling is disabled while All is the active preset", async () => {
+  const created = stateCreate({})
+  await effectsSettle()
+
+  expect(created.state.presetName()).toBe("all")
+  created.state.skillToggle("commits", false)
+  created.state.folderToggle(".agents/skills/code", false)
+
+  expect(created.state.activeSkills().map(({ name }) => name)).toEqual(["agent-browser", "code-style", "commits"])
+  expect(created.state.pendingSkillSelection()).toEqual({
+    override: { disabledSkills: [], enabledSkills: [] },
+    presetName: "all",
+  })
+  created.dispose()
+})
+
 test("a folder toggle recurses into descendant skills and updates the pending override", async () => {
   const created = stateCreate({})
+  await effectsSettle()
+
+  created.state.presetSelect("default")
   await effectsSettle()
 
   created.state.folderToggle(".agents/skills/code", false)
@@ -488,6 +547,9 @@ test("an individual skill override layers over the recursive folder selection", 
   const created = stateCreate({})
   await effectsSettle()
 
+  created.state.presetSelect("default")
+  await effectsSettle()
+
   created.state.skillToggle("commits", false)
 
   expect(created.state.activeSkills().map(({ name }) => name)).toEqual(["agent-browser", "code-style"])
@@ -501,6 +563,9 @@ test("an individual skill override layers over the recursive folder selection", 
 
 test("changing the preset scope discards pending per-skill overrides", async () => {
   const created = stateCreate({})
+  await effectsSettle()
+
+  created.state.presetSelect("default")
   await effectsSettle()
 
   created.state.skillToggle("commits", false)
@@ -534,7 +599,7 @@ test("agent tool rows are seeded from agent defaults and toggled into the pendin
       role: "subagent",
       webfetch: false,
     },
-  ])
+  ] as unknown as readonly SessionResourceSelectorAgentTools[])
 
   created.state.toolToggle("example-agent-primary", "webfetch", true)
   created.state.toolToggle("example-agent-explore", "bash", true)
@@ -545,7 +610,7 @@ test("agent tool rows are seeded from agent defaults and toggled into the pendin
       selectableSubagents: [{ agentId: "example-agent-explore", tools: { bash: true, webfetch: false } }],
     },
     version: 1,
-  })
+  } as unknown as SessionExecutionSelection)
   created.dispose()
 })
 
@@ -559,7 +624,7 @@ test("other primary agents on the server are never offered or submitted as selec
   ])
   expect(created.state.pendingExecutionSelection()?.tools.selectableSubagents).toEqual([
     { agentId: "example-agent-explore", tools: { bash: false, webfetch: false } },
-  ])
+  ] as unknown as SessionExecutionSelection["tools"]["selectableSubagents"])
   created.dispose()
 })
 
@@ -598,10 +663,13 @@ test("an existing session renders its immutable captured resources without live 
       role: "subagent",
       webfetch: true,
     },
-  ])
+  ] as unknown as readonly SessionResourceSelectorAgentTools[])
   expect(created.state.instructionSnapshots().map(({ path }) => path)).toEqual(["global/AGENTS.md"])
   expect(created.state.descriptionCatalog().estimatedTokens).toBe(15)
-  expect(created.state.existingExecutionSelection()?.tools.primary.tools).toEqual({ bash: true, webfetch: false })
+  expect(created.state.existingExecutionSelection()?.tools.primary.tools).toEqual({
+    bash: true,
+    webfetch: false,
+  } as unknown as AgentToolDefaults)
   created.dispose()
 })
 
@@ -680,13 +748,13 @@ test("a project selected after the initial idle render loads the effective selec
   const created = stateCreate({ projectPath: null })
   await effectsSettle()
   expect(created.state.status()).toBe("idle")
-  expect(created.state.projects()).toEqual([{ available: true, id: projectId, label: "codeline" }])
+  expect(created.state.projects()).toEqual([{ available: true, id: projectId, label: "codeline", parentFolder: null }])
 
   created.projectPathSet("/workspace/codeline")
   await effectsSettle()
 
   expect(created.state.status()).toBe("ready")
-  expect(created.state.presetName()).toBe("default")
+  expect(created.state.presetName()).toBe("all")
   created.dispose()
 })
 
@@ -696,9 +764,10 @@ test("unavailable registered projects are excluded from project choices and cann
     overrides: {
       "/api/project/registry": () =>
         response({
+          folders: [],
           projects: [
-            { available: true, id: projectId, label: "codeline" },
-            { available: false, id: unavailableProjectId, label: "missing" },
+            { available: true, id: projectId, label: "codeline", parentFolder: null },
+            { available: false, id: unavailableProjectId, label: "missing", parentFolder: null },
           ],
           truncated: false,
         }),
@@ -707,7 +776,7 @@ test("unavailable registered projects are excluded from project choices and cann
   })
   await effectsSettle()
 
-  expect(created.state.projects()).toEqual([{ available: true, id: projectId, label: "codeline" }])
+  expect(created.state.projects()).toEqual([{ available: true, id: projectId, label: "codeline", parentFolder: null }])
 
   created.state.projectSelect(unavailableProjectId)
   await effectsSettle()

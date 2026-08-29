@@ -13,19 +13,28 @@ test("the resource selector renders preset, recursive folder, skill, and tool co
   expect(selector).toContain("props.state.skillToggle(skill.name, checked)")
   expect(selector).toContain('props.state.toolToggle(agent.agentId, "bash", checked)')
   expect(selector).toContain('props.state.toolToggle(agent.agentId, "webfetch", checked)')
+  expect(selector).toContain('props.state.toolToggle(agent.agentId, "read", checked)')
+  expect(selector).toContain('props.state.toolToggle(agent.agentId, "write", checked)')
+  expect(selector).toContain('props.state.toolToggle(agent.agentId, "edit", checked)')
 })
 
-test("the resource selector advertises only bash and webfetch tool toggles", () => {
+test("the resource selector advertises all five tool toggles", () => {
   const toolNames = [...selector.matchAll(/toolToggle\(agent\.agentId, "([a-z]+)"/g)].map(([, name]) => name)
-  expect([...new Set(toolNames)].sort()).toEqual(["bash", "webfetch"])
+  expect([...new Set(toolNames)].sort()).toEqual(["bash", "edit", "read", "webfetch", "write"])
   expect(selector).not.toContain('"glob"')
   expect(selector).not.toContain('"grep"')
   expect(selector).not.toContain('"websearch"')
 })
 
 test("preset-excluded skills are shown as disabled and labelled rather than hidden", () => {
-  expect(selector).toContain("disabled={skill.isExcluded}")
+  expect(selector).toContain('disabled={props.state.presetName() === "all" || skill.isExcluded}')
   expect(selector).toContain("excluded by preset")
+})
+
+test("the resource selector disables skill and folder toggles and indicates inclusions when All preset is active", () => {
+  expect(selector).toContain('disabled={props.state.presetName() === "all"}')
+  expect(selector).toContain("All discovered skills are included.")
+  expect(selector).toContain("displayName")
 })
 
 test("the selector shows the effective skill count and labels the catalog tokens as an estimate", () => {

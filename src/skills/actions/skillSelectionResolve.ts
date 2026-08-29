@@ -8,6 +8,7 @@ import type { SkillSelectionOverride } from "../schema/skillSelectionOverrideSch
 import { skillSelectionOverrideSchema } from "../schema/skillSelectionOverrideSchema.js"
 import type { SkillSelection } from "../schema/skillSelectionSchema.js"
 import { skillSelectionSchema } from "../schema/skillSelectionSchema.js"
+import { skillPresetAll } from "../skillPresetAll.js"
 
 export type SkillSelectionResolveInput = {
   catalog: unknown
@@ -80,17 +81,21 @@ export function skillSelectionResolve(input: SkillSelectionResolveInput): Result
   skillSelectionReferencesCollect(override.disabledSkills, availableNames, missingNames)
   skillSelectionReferencesCollect(preset.excludeSkills, availableNames, missingNames)
 
-  for (const name of preset.includeSkills) {
-    if (skillByName.has(name)) selectedNames.add(name)
-  }
-  for (const folderPath of preset.includeFolders) {
-    const folderExists =
-      folderPath === "."
-        ? catalog.skills.some(({ bundlePath }) => bundlePath === ".") || catalog.groups.length > 0
-        : catalog.groups.some(({ path }) => path === folderPath)
-    if (!folderExists) missingFolderPaths.add(folderPath)
-    for (const skill of catalog.skills) {
-      if (skillSelectionFolderMatches(folderPath, skill.bundlePath)) selectedNames.add(skill.name)
+  if (preset.name === skillPresetAll.name) {
+    for (const skill of catalog.skills) selectedNames.add(skill.name)
+  } else {
+    for (const name of preset.includeSkills) {
+      if (skillByName.has(name)) selectedNames.add(name)
+    }
+    for (const folderPath of preset.includeFolders) {
+      const folderExists =
+        folderPath === "."
+          ? catalog.skills.some(({ bundlePath }) => bundlePath === ".") || catalog.groups.length > 0
+          : catalog.groups.some(({ path }) => path === folderPath)
+      if (!folderExists) missingFolderPaths.add(folderPath)
+      for (const skill of catalog.skills) {
+        if (skillSelectionFolderMatches(folderPath, skill.bundlePath)) selectedNames.add(skill.name)
+      }
     }
   }
   for (const name of override.enabledSkills) {

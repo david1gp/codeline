@@ -1,4 +1,5 @@
 import { createSignalObject } from "@adaptive-ds/solid-ui/utils/createSignalObject"
+import { skillPresetAll } from "../../skills/skillPresetAll.js"
 import type { SessionResourceSelectorView } from "../sessionResourceSelectorView.js"
 import { sessionResourceSkillCatalogEstimate } from "../sessionResourceSkillCatalogEstimate.js"
 import { sessionResourceSkillTreeDerive } from "../sessionResourceSkillTreeDerive.js"
@@ -39,11 +40,14 @@ export function demoSessionResourceSelectorStateCreate(
   variant: () => DemoSessionScreenVariant,
 ): SessionResourceSelectorView {
   const activeSkillNames = createSignalObject<readonly string[]>(["code-style", "commits"])
+  const selectedPresetName = createSignalObject<string>("all")
   const selectedProjectId = createSignalObject<string | null>("demo-project-codeline")
   const inspectorOpen = createSignalObject(false)
-  const tools = createSignalObject<Readonly<Record<string, { bash: boolean; webfetch: boolean }>>>({
-    "demo-primary": { bash: true, webfetch: false },
-    "demo-subagent": { bash: false, webfetch: true },
+  const tools = createSignalObject<
+    Readonly<Record<string, { bash: boolean; webfetch: boolean; read: boolean; write: boolean; edit: boolean }>>
+  >({
+    "demo-primary": { bash: true, webfetch: false, read: true, write: true, edit: true },
+    "demo-subagent": { bash: false, webfetch: true, read: true, write: false, edit: false },
   })
 
   const activeSkills = () => demoSkills.filter(({ name }) => activeSkillNames.get().includes(name))
@@ -110,10 +114,13 @@ export function demoSessionResourceSelectorStateCreate(
     pendingExecutionSelection: () => undefined,
     pendingSkillSelection: () => undefined,
     presetDiagnostics: () => [],
-    presetName: () => "default",
-    presetSelect: () => undefined,
-    presets: () => [{ excludeSkills: [], includeFolders: [], includeSkills: [], name: "default", version: 1 }],
-    presetSource: () => "default",
+    presetName: selectedPresetName.get,
+    presetSelect: (name) => selectedPresetName.set(name),
+    presets: () => [
+      skillPresetAll,
+      { excludeSkills: [], includeFolders: [], includeSkills: [], name: "custom", version: 1 },
+    ],
+    presetSource: () => (selectedPresetName.get() === "all" ? "default" : "override"),
     projects: () => demoProjects,
     projectSelect: (projectId: string) => selectedProjectId.set(projectId === "" ? null : projectId),
     retry: () => undefined,

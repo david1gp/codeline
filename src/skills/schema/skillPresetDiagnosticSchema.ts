@@ -32,6 +32,7 @@ export const skillPresetDiagnosticSchema = v.strictObject({
     "name-mismatch",
     "not-regular-file",
     "preset-limit-exceeded",
+    "reserved-name",
     "symbolic-link",
   ]),
   message: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(500)),

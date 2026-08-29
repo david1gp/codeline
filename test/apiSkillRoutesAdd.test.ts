@@ -106,7 +106,22 @@ test("authenticated skill inspection APIs return sanitized catalogs, presets, an
   expect(presetsResponse.status).toBe(200)
   const presets = await presetsResponse.json()
   expect(v.safeParse(skillPresetInspectionResponseSchema, presets).success).toBe(true)
-  expect(presets).toMatchObject({ presets: [{ name: "focused" }] })
+  expect(presets).toMatchObject({
+    presets: [{ displayName: "All", immutable: true, name: "all" }, { name: "focused" }],
+  })
+
+  const initialSelectionResponse = await app.request(`http://codeline.test/project/skills/selection?${projectQuery()}`)
+  expect(initialSelectionResponse.status).toBe(200)
+  const initialSelection = await initialSelectionResponse.json()
+  expect(initialSelection).toMatchObject({
+    preset: { displayName: "All", immutable: true, name: "all" },
+    selection: {
+      activeSkills: [{ name: "global" }, { name: "team" }],
+      excludedSkillNames: [],
+      presetName: "all",
+      userOverride: { disabledSkills: [], enabledSkills: [] },
+    },
+  })
 
   const saved = await app.request("http://codeline.test/project/skill-selection-default", {
     body: JSON.stringify({

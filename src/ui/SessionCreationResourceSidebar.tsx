@@ -1,5 +1,6 @@
-import { Match, Show, Switch } from "solid-js"
+import { For, Match, Show, Switch } from "solid-js"
 import { SelectMultiple } from "#ui/input/select/SelectMultiple.jsx"
+import { SelectSingle } from "#ui/input/select/SelectSingle.jsx"
 import { SelectSingleNative } from "#ui/input/select/SelectSingleNative.jsx"
 import { Button } from "#ui/interactive/button/Button.jsx"
 import { buttonVariant } from "#ui/interactive/button/buttonCva.js"
@@ -31,12 +32,19 @@ export function SessionCreationResourceSidebar(props: { idPrefix?: string; state
 
       <label class="grid gap-1.5" for={`${prefix()}-project`}>
         <span class={sectionLabelClass}>Project</span>
-        <SelectSingleNative
+        <SelectSingle
           id={`${prefix()}-project`}
-          class="!rounded-md !border !border-line !bg-surface !px-2 !py-1.5 !text-xs !text-foreground"
+          class="!w-full"
           valueSignal={controls.project}
           getOptions={controls.projectOptions}
           valueText={controls.projectOptionText}
+          texts={{ noEntries: "No registered projects available.", selectEntry: "Select a project…" }}
+          buttonProps={{
+            class:
+              "!w-full !justify-between !rounded-md !border !border-line !bg-surface !px-2 !py-1.5 !text-xs !text-foreground font-normal",
+            size: "none",
+            variant: "none",
+          }}
         />
       </label>
 
@@ -71,24 +79,31 @@ export function SessionCreationResourceSidebar(props: { idPrefix?: string; state
               id={`${prefix()}-preset`}
               class="!rounded-md !border !border-line !bg-surface !px-2 !py-1.5 !text-xs !text-foreground"
               valueSignal={controls.preset}
-              getOptions={() => props.state.presets().map((preset) => preset.name)}
+              getOptions={controls.presetOptions}
+              valueText={controls.presetOptionText}
             />
             <span class="text-[11px] text-faint">
-              {props.state.presetSource() === "override"
-                ? "Applies to this session only."
-                : "Your saved project default."}
+              {controls.isAllPreset()
+                ? "All discovered skills are included."
+                : props.state.presetSource() === "override"
+                  ? "Applies to this session only."
+                  : "Your saved project default."}
             </span>
           </label>
 
           <SessionCreationResourceGroup
             control={controls.skillGroups}
+            disabled={controls.isAllPreset()}
             emptyText="No skill groups were discovered."
+            helperText={controls.isAllPreset() ? "All discovered skill groups are included." : undefined}
             id={`${prefix()}-skill-groups`}
             label="Skill groups"
           />
           <SessionCreationResourceGroup
             control={controls.skills}
+            disabled={controls.isAllPreset()}
             emptyText="No individual skills are selectable."
+            helperText={controls.isAllPreset() ? "All discovered skills are included." : undefined}
             id={`${prefix()}-skills`}
             label="Skills"
           />
@@ -117,32 +132,67 @@ export function SessionCreationResourceSidebar(props: { idPrefix?: string; state
 
 function SessionCreationResourceGroup(props: {
   control: SessionCreationResourceControl
+  disabled?: boolean
   emptyText: string
+  helperText?: string
   id: string
   label: string
 }) {
   return (
     <div class="grid gap-1.5">
-      <p class={sectionLabelClass}>{props.label}</p>
+      <div class="flex items-baseline justify-between gap-2">
+        <p class={sectionLabelClass}>{props.label}</p>
+        <Show when={props.helperText !== undefined}>
+          <span class="text-[11px] text-faint">{props.helperText}</span>
+        </Show>
+      </div>
       <Show
         when={props.control.options().length > 0}
         fallback={<p class="m-0 text-xs text-faint">{props.emptyText}</p>}
       >
-        <SelectMultiple
-          id={props.id}
-          class={selectClass}
-          addEntryClass={selectButtonClass}
-          listOptionClass={selectOptionClass}
-          innerClass="grid max-h-[45vh] grid-cols-1 gap-1 overflow-y-auto"
-          textAddEntry={`Choose ${props.label.toLowerCase()}`}
-          buttonProps={{
-            buttonChildren: <span>{`Choose ${props.label.toLowerCase()}`}</span>,
-            variant: buttonVariant.outline,
-          }}
-          valueSignal={props.control.valueSignal}
-          getOptions={props.control.options}
-          valueText={props.control.optionText}
-        />
+        <Show
+          when={!props.disabled}
+          fallback={
+            <Show
+              when={props.control.valueSignal.get().length > 0}
+              fallback={<p class="m-0 text-xs text-faint">{props.emptyText}</p>}
+            >
+              <div
+                id={props.id}
+                class="flex flex-wrap gap-1 rounded-md border border-line bg-surface p-1.5"
+                role="list"
+                aria-label={props.label}
+              >
+                <For each={props.control.valueSignal.get()}>
+                  {(item) => (
+                    <span
+                      class="inline-flex items-center rounded-md border border-line-subtle bg-surface-raised px-2 py-1 text-xs text-strong"
+                      role="listitem"
+                    >
+                      {props.control.optionText(item)}
+                    </span>
+                  )}
+                </For>
+              </div>
+            </Show>
+          }
+        >
+          <SelectMultiple
+            id={props.id}
+            class={selectClass}
+            addEntryClass={selectButtonClass}
+            listOptionClass={selectOptionClass}
+            innerClass="grid max-h-[45vh] grid-cols-1 gap-1 overflow-y-auto"
+            textAddEntry={`Choose ${props.label.toLowerCase()}`}
+            buttonProps={{
+              buttonChildren: <span>{`Choose ${props.label.toLowerCase()}`}</span>,
+              variant: buttonVariant.outline,
+            }}
+            valueSignal={props.control.valueSignal}
+            getOptions={props.control.options}
+            valueText={props.control.optionText}
+          />
+        </Show>
       </Show>
     </div>
   )
