@@ -33,7 +33,7 @@
 - [x] 4. Add exact active-run lifecycle synchronization and tests.
 - [x] 5. Add nested project-folder disclosures, management UI, dots, persistent collapse state, and UI tests.
 - [x] 6. Run focused/full checks and verify the managed combined preview in a browser.
-- [ ] 7. Review changes, create conventional commits, push, and deploy.
+- [x] 7. Review changes, create conventional commits, push, and deploy.
 
 ## Paths
 
