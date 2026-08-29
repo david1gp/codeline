@@ -1,4 +1,5 @@
 import type { AgentInstructionInspectionResponse } from "../instructions/api/agentInstructionInspectionResponseSchema.js"
+import type { ProjectRegistryState } from "../project/ui/projectRegistryState.js"
 import type { SessionExecutionResourceSummary } from "../session/api/sessionExecutionResourceSummarySchema.js"
 import type { SessionExecutionSelection } from "../session/schema/sessionExecutionSelectionSchema.js"
 import type { SkillCatalogInspectionResponse } from "../skills/api/skillCatalogInspectionResponseSchema.js"
@@ -85,6 +86,7 @@ export type SessionResourceSelectorView = {
   presets: () => readonly SkillPreset[]
   presetSource: () => "default" | "override"
   projects: () => readonly SessionResourceSelectorProject[]
+  projectRegistryStatus: () => ReturnType<ProjectRegistryState["status"]>
   projectSelect: (projectId: string) => void
   retry: () => void
   roots: () => SkillCatalogInspectionResponse["roots"]

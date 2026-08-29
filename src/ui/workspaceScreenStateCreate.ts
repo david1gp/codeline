@@ -7,15 +7,15 @@ import { applicationShellContext } from "./applicationShellContext.js"
 import { applicationShellStateCreate } from "./applicationShellStateCreate.js"
 import { appShellContext } from "./appShellContext.js"
 import { chatCommandCatalogStateCreate } from "./chatCommandCatalogStateCreate.js"
-import { filesScreenViewCreate } from "./filesScreenViewCreate.js"
 import { eventFeedCoordinatorContext } from "./eventFeedCoordinatorContext.js"
+import { filesScreenViewCreate } from "./filesScreenViewCreate.js"
 import { selectedSessionStateCreate } from "./selectedSessionStateCreate.js"
 import { sessionDrawerContext } from "./sessionDrawerContext.js"
 import { sessionListStateCreate } from "./sessionListStateCreate.js"
 import { type SessionNavigationState, sessionNavigationStateCreate } from "./sessionNavigationStateCreate.js"
 import type { SessionProjectIdOverride } from "./sessionProjectIdOverride.js"
-import { sessionResourceSelectorStateCreate } from "./sessionResourceSelectorStateCreate.js"
 import type { SessionProjectPathOverride } from "./sessionProjectPathOverride.js"
+import { sessionResourceSelectorStateCreate } from "./sessionResourceSelectorStateCreate.js"
 import type { SessionSidebarRouteState } from "./sessionSidebarRouteStateCreate.js"
 import { sessionTargetSelectorStateCreate } from "./sessionTargetSelectorStateCreate.js"
 import { signalObjectCreate } from "./signalObjectCreate.js"
@@ -71,9 +71,11 @@ export function workspaceScreenStateCreate(
   // target selector is referenced lazily instead of creating a construction cycle.
   let sessionTargetSelector: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
   const sessionResourceSelector = sessionResourceSelectorStateCreate({
+    fetch: options.fetcher,
     isOnline: () => pwa?.status() !== "offline",
     projectId: pendingSessionProjectId,
     projectPath: () => (navigation.selectedSessionId() === null ? pendingSessionInspectionProjectPath() : null),
+    projectRegistry,
     selectedAgentId: () => sessionTargetSelector?.selectedAgentId() ?? null,
     selectedServerId: () => sessionTargetSelector?.selectedServerId() ?? null,
     selectedSessionId: navigation.selectedSessionId,

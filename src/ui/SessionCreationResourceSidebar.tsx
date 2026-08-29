@@ -38,7 +38,14 @@ export function SessionCreationResourceSidebar(props: { idPrefix?: string; state
           valueSignal={controls.project}
           getOptions={controls.projectOptions}
           valueText={controls.projectOptionText}
-          texts={{ noEntries: "No registered projects available.", selectEntry: "Select a project…" }}
+          texts={{
+            get noEntries() {
+              return props.state.projectRegistryStatus() === "loading"
+                ? "Loading registered projects…"
+                : "No registered projects available."
+            },
+            selectEntry: "Select a project…",
+          }}
           buttonProps={{
             class:
               "!w-full !justify-between !rounded-md !border !border-line !bg-surface !px-2 !py-1.5 !text-xs !text-foreground font-normal",

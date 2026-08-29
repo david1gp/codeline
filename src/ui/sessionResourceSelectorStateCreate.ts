@@ -5,9 +5,8 @@ import { agentToolDefaultsListFetch } from "../agents/client/agentToolDefaultsLi
 import type { AgentInstructionInspectionResponse } from "../instructions/api/agentInstructionInspectionResponseSchema.js"
 import { agentInstructionInspectionFetch } from "../instructions/client/agentInstructionInspectionFetch.js"
 import type { ProjectApiIdentityResponse } from "../project/api/projectApiIdentityResponseSchema.js"
-import type { ProjectRegistryApiListResponse } from "../project/api/projectRegistryApiListResponseSchema.js"
 import { projectIdentityFetch } from "../project/client/projectIdentityFetch.js"
-import { projectRegistryListFetch } from "../project/client/projectRegistryListFetch.js"
+import type { ProjectRegistryState } from "../project/ui/projectRegistryState.js"
 import type { SessionDetailResponse } from "../session/api/sessionDetailResponseSchema.js"
 import type { SessionExecutionSelection } from "../session/schema/sessionExecutionSelectionSchema.js"
 import { sessionDetailFetch } from "../session/ui/sessionDetailFetch.js"
@@ -34,6 +33,7 @@ type SessionResourceSelectorStateOptions = {
   projectId?: Accessor<string | null>
   /** Legacy project reference used only when no registry project ID is available. */
   projectPath: Accessor<string | null>
+  projectRegistry: ProjectRegistryState
   selectedAgentId: Accessor<string | null>
   selectedServerId: Accessor<string | null>
   selectedSessionId: Accessor<string | null>
@@ -64,12 +64,6 @@ export function sessionResourceSelectorStateCreate(
 
   const selectedProjectIdState = signalObjectCreate<string | null>(null)
 
-  const projectListQuery = httpQueryStateCreate<ProjectRegistryApiListResponse>({
-    enabled: () => !isExistingSession(),
-    key: () => "/api/project/registry",
-    load: async (_key, signal) => projectRegistryListFetch({ ...request, signal }),
-  })
-
   // The inspection routes are project-id scoped. The server owns the reference-to-id
   // mapping, because display labels are disambiguated and are not stable identifiers.
   const projectQuery = httpQueryStateCreate<ProjectApiIdentityResponse>({
@@ -90,16 +84,18 @@ export function sessionResourceSelectorStateCreate(
       return null
     }
     const registeredProjectId = options.projectId?.() ?? null
-    if (registeredProjectId !== null) return registeredProjectId
-    return projectQuery.data()?.id ?? null
+    if (registeredProjectId !== null && projects().some((project) => project.id === registeredProjectId)) {
+      return registeredProjectId
+    }
+    const identityProjectId = projectQuery.data()?.id ?? null
+    return identityProjectId !== null && projects().some((project) => project.id === identityProjectId)
+      ? identityProjectId
+      : null
   }
   const selectedProjectId = () => projectId()
 
   const projects = () => {
-    const list = (projectListQuery.data()?.projects ?? []).filter((project) => project.available !== false)
-    const identity = projectQuery.data()
-    if (identity === undefined || list.some(({ id }) => id === identity.id)) return list
-    return [{ available: true, id: identity.id, label: identity.label }, ...list]
+    return options.projectRegistry.availableProjects()
   }
 
   const projectSelect = (id: string) => {
@@ -426,10 +422,12 @@ export function sessionResourceSelectorStateCreate(
       if (sessionDetailQuery.isError()) return "error"
       return sessionDetailQuery.data() === undefined ? "loading" : "ready"
     }
-    if (projectQuery.isError() || projectListQuery.isError()) return "error"
+    const projectRegistryStatus = options.projectRegistry.status()
+    if (projectRegistryStatus === "error") return "error"
+    if (projectRegistryStatus === "loading") return "loading"
     // No project reference means no inspection read is in flight, so the panel
     // reports that there is nothing to select instead of loading forever.
-    if (projectId() === null) return projectQuery.isIdle() ? "idle" : "loading"
+    if (projectId() === null) return projectQuery.isLoading() ? "loading" : "idle"
     if (queries.some((query) => query.isError())) return "error"
     if (queries.some((query) => query.isLoading() && query.data() === undefined)) return "loading"
     return "ready"
@@ -444,7 +442,9 @@ export function sessionResourceSelectorStateCreate(
     return (
       queries.find((query) => query.isError())?.errorMessage() ??
       (projectQuery.isError() ? (projectQuery.errorMessage() ?? "The project set is unavailable.") : null) ??
-      (projectListQuery.isError() ? (projectListQuery.errorMessage() ?? "Projects could not be loaded.") : null) ??
+      (options.projectRegistry.status() === "error"
+        ? (options.projectRegistry.errorMessage() ?? "Projects could not be loaded.")
+        : null) ??
       null
     )
   }
@@ -534,6 +534,7 @@ export function sessionResourceSelectorStateCreate(
     presets,
     presetSource: () => (presetOverride.get() === null ? "default" : "override"),
     projects,
+    projectRegistryStatus: options.projectRegistry.status,
     projectSelect,
     retry: () => {
       if (isExistingSession()) {
@@ -542,7 +543,7 @@ export function sessionResourceSelectorStateCreate(
       }
       for (const query of queries) query.retry()
       projectQuery.retry()
-      projectListQuery.retry()
+      options.projectRegistry.retry()
     },
     roots: () => catalogQuery.data()?.roots ?? [],
     selectedProjectId,

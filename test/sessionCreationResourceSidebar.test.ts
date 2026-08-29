@@ -38,6 +38,13 @@ test("the creation sidebar positions the grouped project selectSingle before ski
   expect(switchIndex).toBeGreaterThan(projectIndex)
 })
 
+test("the creation sidebar distinguishes a loading shared project registry from a loaded empty registry", () => {
+  expect(sidebarSource).toContain("get noEntries()")
+  expect(sidebarSource).toContain('props.state.projectRegistryStatus() === "loading"')
+  expect(sidebarSource).toContain("Loading registered projects…")
+  expect(sidebarSource).toContain("No registered projects available.")
+})
+
 test("the creation surface renders a filling composer beside the compact sidebar", () => {
   const normalized = selectedSessionSource.replace(/\s+/g, " ")
 

@@ -8,6 +8,7 @@ import type { SessionResourceSelectorAgentTools } from "../src/ui/sessionResourc
 mock.module("solid-js", () => solidRuntime)
 
 const { sessionResourceSelectorStateCreate } = await import("../src/ui/sessionResourceSelectorStateCreate.js")
+const { projectRegistryStateCreate } = await import("../src/project/ui/projectRegistryStateCreate.js")
 
 const digest = (seed: string) => `sha256-${seed.repeat(64).slice(0, 64)}`
 const projectId = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fa6"
@@ -378,10 +379,13 @@ function stateCreate(options: {
   const [projectId] = createSignal(options.projectId ?? null)
   let state: ReturnType<typeof sessionResourceSelectorStateCreate> | undefined
   const dispose = createRoot((rootDispose) => {
+    const fetcher = fetchCreate(options.requests ?? [], options.overrides ?? {})
+    const projectRegistry = projectRegistryStateCreate({ fetch: fetcher })
     state = sessionResourceSelectorStateCreate({
-      fetch: fetchCreate(options.requests ?? [], options.overrides ?? {}),
+      fetch: fetcher,
       projectId,
       projectPath,
+      projectRegistry,
       selectedAgentId: () => "example-agent-primary",
       selectedServerId,
       selectedSessionId,
@@ -398,6 +402,7 @@ test("the pre-session workspace resolves the project id and loads the effective 
 
   expect(created.state.status()).toBe("ready")
   expect(created.state.isMutable()).toBe(true)
+  expect(requests.filter((url) => url.startsWith("/api/project/registry")).length).toBe(1)
   expect(requests.some((url) => url.startsWith("/api/project/identity?path="))).toBe(true)
   expect(requests.some((url) => url.includes(`/api/project/skills/catalog?project=${projectId}`))).toBe(true)
   expect(created.state.presetName()).toBe("all")
@@ -782,6 +787,50 @@ test("unavailable registered projects are excluded from project choices and cann
   await effectsSettle()
 
   expect(created.state.selectedProjectId()).toBeNull()
+  expect(created.state.status()).toBe("idle")
+  created.dispose()
+})
+
+test("a project registry that is still loading is not reported as an empty project set", async () => {
+  const requests: string[] = []
+  const root = createRoot((dispose) => {
+    const projectRegistry = projectRegistryStateCreate({
+      fetch: async (input) => {
+        requests.push(String(input))
+        return new Promise<Response>(() => undefined)
+      },
+    })
+    const state = sessionResourceSelectorStateCreate({
+      projectPath: () => null,
+      projectRegistry,
+      selectedAgentId: () => null,
+      selectedServerId: () => null,
+      selectedSessionId: () => null,
+    })
+    return { dispose, projectRegistry, state }
+  })
+
+  await effectsSettle()
+
+  expect(requests).toEqual(["/api/project/registry"])
+  expect(root.projectRegistry.status()).toBe("loading")
+  expect(root.state.projectRegistryStatus()).toBe("loading")
+  expect(root.state.projects()).toEqual([])
+  expect(root.state.status()).toBe("loading")
+  root.dispose()
+})
+
+test("an empty loaded project registry is reported as empty without offering a project", async () => {
+  const created = stateCreate({
+    overrides: {
+      "/api/project/registry": () => response({ folders: [], projects: [], truncated: false }),
+    },
+    projectPath: null,
+  })
+  await effectsSettle()
+
+  expect(created.state.projectRegistryStatus()).toBe("empty")
+  expect(created.state.projects()).toEqual([])
   expect(created.state.status()).toBe("idle")
   created.dispose()
 })

@@ -122,6 +122,7 @@ export function demoSessionResourceSelectorStateCreate(
     ],
     presetSource: () => (selectedPresetName.get() === "all" ? "default" : "override"),
     projects: () => demoProjects,
+    projectRegistryStatus: () => "ready",
     projectSelect: (projectId: string) => selectedProjectId.set(projectId === "" ? null : projectId),
     retry: () => undefined,
     roots: () => [],
