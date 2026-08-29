@@ -62,7 +62,7 @@ function completedText(
 
 async function sessionCreate(
   sessionId: string,
-  messages: readonly { content: string; metadata?: unknown; role: "assistant" | "user" }[],
+  messages: readonly { content: string; metadata?: Record<string, unknown>; role: "assistant" | "user" }[],
 ) {
   await database.insert(sessionTable).values({
     clientRequestId: `${sessionId}-request`,
