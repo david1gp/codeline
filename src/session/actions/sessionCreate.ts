@@ -91,6 +91,7 @@ export async function sessionCreate(
     projectPath = createResult(project.data.rootDir)
   }
   if (!projectPath.success) return createResultError("sessionCreate", projectPath.errorMessage)
+  const projectReferenceRootDirs = input.projectId === undefined ? options.projectRootDirs : [projectPath.data]
 
   const instructionProjectRoot = projectPath.data === "~" ? path.resolve(os.homedir()) : projectPath.data
   const discoveredInstructions = await (options.agentInstructionsDiscover ?? agentInstructionsDiscover)({
@@ -159,7 +160,7 @@ export async function sessionCreate(
     return createResultError("sessionCreate", "The skill preset catalog could not be resolved.")
 
   const savedSkillDefault = await skillSelectionDefaultLoad(database, userId, projectPath.data, {
-    projectRootDirs: options.projectRootDirs,
+    projectRootDirs: projectReferenceRootDirs,
   })
   if (!savedSkillDefault.success) return createResultError("sessionCreate", savedSkillDefault.errorMessage)
   const skillSelection = skillSelectionPreSessionResolve({
@@ -180,7 +181,7 @@ export async function sessionCreate(
   let savedSelection: unknown
   if (explicitSelection === undefined) {
     const saved = await sessionExecutionSelectionDefaultLoad(database, userId, projectPath.data, {
-      projectRootDirs: options.projectRootDirs,
+      projectRootDirs: projectReferenceRootDirs,
     })
     if (!saved.success) return createResultError("sessionCreate", saved.errorMessage)
     savedSelection = sessionExecutionSelectionPrimaryAgentReplace(saved.data?.executionSelection, primaryAgentId)

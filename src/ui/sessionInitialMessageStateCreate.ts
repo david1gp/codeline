@@ -5,6 +5,7 @@ import { chatCommandComposerStateCreate } from "./chatCommandComposerStateCreate
 import { chatCommandKeyDownHandle } from "./chatCommandKeyDownHandle.js"
 import type { ChatCommandCatalogSource, ChatCommandComposerView } from "./chatCommandView.js"
 import type { SessionChatState } from "./sessionChatStateCreate.js"
+import type { SessionProjectTarget } from "./sessionProjectTarget.js"
 import { signalObjectCreate } from "./signalObjectCreate.js"
 
 type SessionInitialMessageStateOptions = {
@@ -13,7 +14,7 @@ type SessionInitialMessageStateOptions = {
   commandCatalog?: ChatCommandCatalogSource
   selectedSessionId: Accessor<string | null>
   sessionCreateStart: (
-    projectPathOverride?: string,
+    projectTarget?: SessionProjectTarget,
     command?: { arguments: string; name: string },
   ) => Promise<string | null>
   sessionCreateErrorMessage: () => string | undefined

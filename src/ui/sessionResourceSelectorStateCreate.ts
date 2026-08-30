@@ -19,6 +19,7 @@ import { skillSelectionInspectionFetch } from "../skills/client/skillSelectionIn
 import { skillPresetAll } from "../skills/skillPresetAll.js"
 import { httpQueryStateCreate } from "./httpQueryStateCreate.js"
 import type { SessionResourceSelectorAgentTools, SessionResourceSelectorView } from "./sessionResourceSelectorView.js"
+import type { SessionProjectTarget } from "./sessionProjectTarget.js"
 import { sessionResourceSkillCatalogEstimate } from "./sessionResourceSkillCatalogEstimate.js"
 import { sessionResourceSkillSelectionDerive } from "./sessionResourceSkillSelectionDerive.js"
 import { sessionResourceSkillTreeDerive } from "./sessionResourceSkillTreeDerive.js"
@@ -29,6 +30,8 @@ type SessionResourceSelectorFetch = (input: RequestInfo | URL, init?: RequestIni
 type SessionResourceSelectorStateOptions = {
   fetch?: SessionResourceSelectorFetch
   isOnline?: Accessor<boolean>
+  /** Explicit project row target, which takes precedence over the resource picker. */
+  pendingProjectTarget?: Accessor<SessionProjectTarget | null>
   /** Authenticated registry project ID for the pending session, when one is selected. */
   projectId?: Accessor<string | null>
   /** Legacy project reference used only when no registry project ID is available. */
@@ -43,7 +46,7 @@ const skillOverrideEmpty = { disabledSkills: [] as readonly string[], enabledSki
 
 export function sessionResourceSelectorStateCreate(
   options: SessionResourceSelectorStateOptions,
-): SessionResourceSelectorView {
+): SessionResourceSelectorView & { waitForPendingResources: () => Promise<void> } {
   const fetchImplementation = options.fetch ?? globalThis.fetch
   const request = { fetch: fetchImplementation }
 
@@ -66,17 +69,35 @@ export function sessionResourceSelectorStateCreate(
 
   // The inspection routes are project-id scoped. The server owns the reference-to-id
   // mapping, because display labels are disambiguated and are not stable identifiers.
+  const projectPathResolve = () => {
+    const pendingTarget = options.pendingProjectTarget?.()
+    return pendingTarget?.kind === "path" ? pendingTarget.projectPath : options.projectPath()
+  }
   const projectQuery = httpQueryStateCreate<ProjectApiIdentityResponse>({
     key: () => {
-      if (options.projectId?.() !== undefined && options.projectId?.() !== null) return undefined
-      const projectPath = options.projectPath()
+      if (
+        options.pendingProjectTarget?.()?.kind !== "path" &&
+        options.projectId?.() !== undefined &&
+        options.projectId?.() !== null
+      )
+        return undefined
+      const projectPath = projectPathResolve()
       return projectPath === null ? undefined : `/api/project/identity?path=${encodeURIComponent(projectPath)}`
     },
-    load: async (_key, signal) =>
-      projectIdentityFetch(untrack(() => options.projectPath()) ?? "", { ...request, signal }),
+    load: async (_key, signal) => projectIdentityFetch(untrack(projectPathResolve) ?? "", { ...request, signal }),
   })
 
   const projectId = () => {
+    const pendingTarget = options.pendingProjectTarget?.()
+    if (pendingTarget?.kind === "registered") {
+      return projects().some((project) => project.id === pendingTarget.projectId) ? pendingTarget.projectId : null
+    }
+    if (pendingTarget?.kind === "path") {
+      const identityProjectId = projectQuery.data()?.id ?? null
+      return identityProjectId !== null && projects().some((project) => project.id === identityProjectId)
+        ? identityProjectId
+        : null
+    }
     const selected = selectedProjectIdState.get()
     if (selected !== null) {
       const match = projects().find((p) => p.id === selected)
@@ -433,6 +454,21 @@ export function sessionResourceSelectorStateCreate(
     return "ready"
   }
 
+  const waitForPendingResources = async () => {
+    for (;;) {
+      if (isExistingSession() || options.isOnline?.() === false) return
+      if (options.projectRegistry.isLoading() || options.projectRegistry.status() === "loading") {
+        await new Promise<void>((resolve) => setTimeout(resolve, 0))
+        continue
+      }
+      if (projectQuery.isLoading() || queries.some((query) => query.isLoading())) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 0))
+        continue
+      }
+      return
+    }
+  }
+
   const errorMessage = () => {
     if (isExistingSession()) {
       return sessionDetailQuery.isError()
@@ -551,6 +587,7 @@ export function sessionResourceSelectorStateCreate(
     skillToggle,
     status,
     toolToggle,
+    waitForPendingResources,
   }
 }
 

@@ -24,6 +24,7 @@ import { sessionChatStateReadOnlyWrap } from "./sessionChatStateReadOnlyWrap.js"
 import { sessionDisplayModeStateCreate } from "./sessionDisplayModeStateCreate.js"
 import { sessionInitialMessageStateCreate } from "./sessionInitialMessageStateCreate.js"
 import type { SessionNavigationState } from "./sessionNavigationStateCreate.js"
+import type { SessionProjectTarget } from "./sessionProjectTarget.js"
 import { sessionPinToggleStateCreate } from "./sessionPinToggleStateCreate.js"
 import { sessionSettledCacheViewStateCreate } from "./sessionSettledCacheViewStateCreate.js"
 import { sessionSettledCompletionCacheRegistry } from "./sessionSettledCompletionCacheRegistry.js"
@@ -38,7 +39,7 @@ type SelectedSessionStateOptions = {
   commandCatalog?: ChatCommandCatalogSource
   navigation: Accessor<SessionNavigationState>
   sessionCreateStart: (
-    projectPathOverride?: string,
+    projectTarget?: SessionProjectTarget,
     command?: { arguments: string; name: string },
   ) => Promise<string | null>
   sessionCreateErrorMessage: () => string | undefined

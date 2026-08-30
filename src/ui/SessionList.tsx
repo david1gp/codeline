@@ -1,5 +1,4 @@
 import { mdiFolderMultipleOutline } from "@adaptive-ds/mdi/mdiFolderMultipleOutline.js"
-import { mdiFolderOutline } from "@adaptive-ds/mdi/mdiFolderOutline.js"
 import { mdiFolderPlusOutline } from "@adaptive-ds/mdi/mdiFolderPlusOutline.js"
 import { mdiHistory } from "@adaptive-ds/mdi/mdiHistory.js"
 import { mdiLoading } from "@adaptive-ds/mdi/mdiLoading.js"
@@ -13,6 +12,7 @@ import { Button } from "#ui/interactive/button/Button.jsx"
 import { ButtonIconOnly } from "#ui/interactive/button/ButtonIconOnly.jsx"
 import { buttonVariant } from "#ui/interactive/button/buttonCva.js"
 import { Icon } from "#ui/static/icon/Icon.jsx"
+import { projectFolderIconSelect } from "../project/ui/projectFolderIconSelect.js"
 import { ProjectAvatar } from "../project/ui/ProjectAvatar.js"
 import type { ProjectRegistryState } from "../project/ui/projectRegistryState.js"
 import type { ActiveProjectState } from "./activeProjectStateCreate.js"
@@ -20,6 +20,7 @@ import { NewProjectDialog } from "./NewProjectDialog.js"
 import { SessionSidebarDialogs } from "./SessionSidebarDialogs.js"
 import { SessionSidebarMenu } from "./SessionSidebarMenu.js"
 import type { SessionListState } from "./sessionListStateCreate.js"
+import type { SessionProjectTarget } from "./sessionProjectTarget.js"
 import type { SessionSidebarTab } from "./sessionSidebarTab.js"
 
 const tabs: ReadonlyArray<{ icon: string; label: string; value: SessionSidebarTab }> = [
@@ -128,7 +129,7 @@ export function SessionList(props: {
   idPrefix?: string
   onSessionSelect?: () => void
   projectRegistry?: ProjectRegistryState
-  sessionCreateInProject?: (projectPath: string, projectId?: string) => void
+  sessionCreateInProject?: (target: SessionProjectTarget) => void
   state: SessionListState
 }) {
   const prefix = () => props.idPrefix ?? "session"
@@ -249,7 +250,10 @@ export function SessionList(props: {
                     }}
                   >
                     <summary class="flex min-h-10 cursor-pointer list-none items-center gap-2 px-3 text-xs font-semibold text-strong hover:bg-surface-hover">
-                      <Icon path={mdiFolderOutline} class="size-4 shrink-0 text-faint" />
+                      <Icon
+                        path={projectFolderIconSelect(props.state.folderIsOpen(folder))}
+                        class="size-4 shrink-0 text-faint"
+                      />
                       <span class="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap" title={folder.label}>
                         {folder.label}
                       </span>
@@ -322,7 +326,11 @@ export function SessionList(props: {
                                     event.preventDefault()
                                     event.stopPropagation()
                                     if (project.available === false) return
-                                    props.sessionCreateInProject?.(project.projectPath, project.projectId)
+                                    props.sessionCreateInProject?.(
+                                      project.projectId === undefined
+                                        ? { kind: "path", projectPath: project.projectPath }
+                                        : { kind: "registered", projectId: project.projectId },
+                                    )
                                   }}
                                 />
                               </summary>
@@ -398,7 +406,11 @@ export function SessionList(props: {
                           event.preventDefault()
                           event.stopPropagation()
                           if (project.available === false) return
-                          props.sessionCreateInProject?.(project.projectPath, project.projectId)
+                          props.sessionCreateInProject?.(
+                            project.projectId === undefined
+                              ? { kind: "path", projectPath: project.projectPath }
+                              : { kind: "registered", projectId: project.projectId },
+                          )
                         }}
                       />
                     </summary>

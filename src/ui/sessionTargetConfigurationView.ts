@@ -2,6 +2,7 @@ import type { AgentListResponse } from "../agents/api/agentListResponseSchema.js
 import type { ProviderApiConnectionTestResponse } from "../providers/api/providerApiConnectionTestResponseSchema.js"
 import type { ProviderApiModelsResponse } from "../providers/api/providerApiModelsResponseSchema.js"
 import type { ServerListResponse } from "../servers/api/serverListResponseSchema.js"
+import type { SessionProjectTarget } from "./sessionProjectTarget.js"
 
 type SessionTargetConfigurationAgent = AgentListResponse["agents"][number]
 type SessionTargetConfigurationServer = ServerListResponse["servers"][number]
@@ -42,7 +43,7 @@ export type SessionTargetConfigurationView = {
   selectedServerId: string | null
   serverSelect: (serverId: string) => void
   servers: ReadonlyArray<SessionTargetConfigurationServer>
-  sessionCreateStart: (projectPathOverride?: string) => Promise<string | null>
+  sessionCreateStart: (projectTarget?: SessionProjectTarget) => Promise<string | null>
   sessionCreateErrorMessage: string | null
   sessionCreateStatus: "idle" | "creating" | "error"
   status: "loading" | "no-server" | "server-error" | "no-agent" | "agent-error" | "ready"

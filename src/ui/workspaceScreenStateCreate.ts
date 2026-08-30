@@ -1,4 +1,4 @@
-import { onCleanup, useContext } from "solid-js"
+import { batch, onCleanup, useContext } from "solid-js"
 import { projectRegistryStateCreate } from "../project/ui/projectRegistryStateCreate.js"
 import { providerModelSelectorStateCreate } from "../providers/ui/providerModelSelectorStateCreate.js"
 import { activeProjectStateCreate } from "./activeProjectStateCreate.js"
@@ -16,6 +16,7 @@ import { type SessionNavigationState, sessionNavigationStateCreate } from "./ses
 import type { SessionProjectIdOverride } from "./sessionProjectIdOverride.js"
 import type { SessionProjectPathOverride } from "./sessionProjectPathOverride.js"
 import { sessionResourceSelectorStateCreate } from "./sessionResourceSelectorStateCreate.js"
+import type { SessionProjectTarget } from "./sessionProjectTarget.js"
 import type { SessionSidebarRouteState } from "./sessionSidebarRouteStateCreate.js"
 import { sessionTargetSelectorStateCreate } from "./sessionTargetSelectorStateCreate.js"
 import { signalObjectCreate } from "./signalObjectCreate.js"
@@ -49,22 +50,45 @@ export function workspaceScreenStateCreate(
   // `~` is a valid session reference, but it is not necessarily a project in the
   // configured discovery roots. Path-based project reads must wait for a confirmed path.
   const discoveredProjectPathResolve = (path: string | null) => (path === "~" ? null : path)
+  const pendingProjectTargetState = signalObjectCreate<SessionProjectTarget | null>(null)
   const projectPathOverrideState = signalObjectCreate<string | null>(null)
   const projectPathOverride: SessionProjectPathOverride = {
     get: projectPathOverrideState.get,
-    set: (value) => projectPathOverrideState.set(value),
+    set: (value) => {
+      pendingProjectTargetState.set(null)
+      projectPathOverrideState.set(value)
+    },
   }
   const projectIdOverrideState = signalObjectCreate<string | null>(null)
   const projectIdOverride: SessionProjectIdOverride = {
     get: projectIdOverrideState.get,
-    set: (value) => projectIdOverrideState.set(value),
+    set: (value) => {
+      pendingProjectTargetState.set(null)
+      projectIdOverrideState.set(value)
+    },
+  }
+  const pendingProjectTargetSet = (target: SessionProjectTarget) => {
+    batch(() => {
+      pendingProjectTargetState.set(target)
+      projectIdOverrideState.set(target.kind === "registered" ? target.projectId : null)
+      projectPathOverrideState.set(target.kind === "path" ? target.projectPath : null)
+    })
   }
   // The dialog owns the pending project choice through this shared signal. Every
   // pre-session consumer must derive from it so inspection/context reads and the
   // create request cannot silently use different projects.
-  const pendingSessionProjectId = () => projectIdOverride.get() ?? activeProject.project().id ?? null
-  const pendingSessionProjectPath = () =>
-    pendingSessionProjectId() === null ? (projectPathOverride.get() ?? activeProject.project().path) : null
+  const pendingSessionProjectId = () => {
+    const target = pendingProjectTargetState.get()
+    if (target?.kind === "registered") return target.projectId
+    if (target?.kind === "path") return null
+    return projectIdOverride.get() ?? activeProject.project().id ?? null
+  }
+  const pendingSessionProjectPath = () => {
+    const target = pendingProjectTargetState.get()
+    if (target?.kind === "path") return target.projectPath
+    if (target?.kind === "registered") return null
+    return pendingSessionProjectId() === null ? (projectPathOverride.get() ?? activeProject.project().path) : null
+  }
   const pendingSessionInspectionProjectPath = () => discoveredProjectPathResolve(pendingSessionProjectPath())
   // The target selector consumes the pending resource selection, and the resource
   // selector consumes the selected target. Both sides read through accessors, so the
@@ -73,6 +97,7 @@ export function workspaceScreenStateCreate(
   const sessionResourceSelector = sessionResourceSelectorStateCreate({
     fetch: options.fetcher,
     isOnline: () => pwa?.status() !== "offline",
+    pendingProjectTarget: pendingProjectTargetState.get,
     projectId: pendingSessionProjectId,
     projectPath: () => (navigation.selectedSessionId() === null ? pendingSessionInspectionProjectPath() : null),
     projectRegistry,
@@ -86,6 +111,8 @@ export function workspaceScreenStateCreate(
     activeProjectPath: pendingSessionProjectPath,
     isOnline: () => pwa?.status() !== "offline",
     isNewSessionRoute: navigation.isNewSessionRoute,
+    pendingProjectResourcesWait: () => sessionResourceSelector.waitForPendingResources(),
+    pendingProjectTargetSet,
     pendingAgentPrompt: sessionResourceSelector.agentPrompt,
     pendingExecutionSelection: sessionResourceSelector.pendingExecutionSelection,
     pendingInstructionOverrides: sessionResourceSelector.instructionOverrides,

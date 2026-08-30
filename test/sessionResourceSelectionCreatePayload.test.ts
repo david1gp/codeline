@@ -133,7 +133,7 @@ test("the resolved resource selection is sent with the create request and matche
   })
   await effectsSettle()
 
-  await created.state.sessionCreateStart("/workspace/other")
+  await created.state.sessionCreateStart({ kind: "path", projectPath: "/workspace/other" })
 
   expect(bodies).toHaveLength(1)
   expect(bodies[0]).toMatchObject({

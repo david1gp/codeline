@@ -294,10 +294,10 @@ function commandStateCreate(options: {
       commandCatalog: options.catalog ?? commandCatalogCreate(),
       selectedSessionId: selected,
       sessionCreateErrorMessage: () => undefined,
-      sessionCreateStart: async (projectPath, command) => {
+      sessionCreateStart: async (projectTarget, command) => {
         created.push({
           ...(command === undefined ? {} : { command }),
-          ...(projectPath === undefined ? {} : { projectPath }),
+          ...(projectTarget?.kind === "path" ? { projectPath: projectTarget.projectPath } : {}),
         })
         setSelected("session-command")
         return "session-command"

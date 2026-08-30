@@ -599,8 +599,8 @@ test("an overlapping create with a different project only selects the newest ses
   })
   await effectsSettle()
 
-  const first = state?.sessionCreateStart("/workspace/first")
-  const second = state?.sessionCreateStart("/workspace/second")
+  const first = state?.sessionCreateStart({ kind: "path", projectPath: "/workspace/first" })
+  const second = state?.sessionCreateStart({ kind: "path", projectPath: "/workspace/second" })
   await effectsSettle()
   expect(gates).toHaveLength(2)
 
@@ -1380,5 +1380,62 @@ test("sessionCreateStart forwards only the registered projectId when one is prov
   const parsedBody = JSON.parse(requests[0]?.body ?? "{}")
   expect(parsedBody.projectId).toBe(projectId)
   expect(parsedBody).not.toHaveProperty("projectPath")
+  dispose()
+})
+
+test("explicit project row targets replace the active project and wait for shared resources", async () => {
+  const bodies: Array<Record<string, unknown>> = []
+  const targets: Array<{ kind: string; projectId?: string; projectPath?: string }> = []
+  let activeProjectId: string | null = "active-project"
+  let activeProjectPath = "/workspace/active"
+  let gate = deferredCreate<void>()
+  let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
+  const dispose = createRoot((rootDispose) => {
+    state = sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(),
+      activeProjectId: () => activeProjectId,
+      activeProjectPath: () => activeProjectPath,
+      fetch: async (input, init) => {
+        if (String(input) === "/api/sessions" && init?.method === "POST") {
+          bodies.push(JSON.parse(String(init.body)))
+          return response({ created: true, session: { id: `created-${bodies.length}` } }, { status: 201 })
+        }
+        return fetchDefaultCreate([])(input, init)
+      },
+      pendingProjectResourcesWait: async (target) => {
+        targets.push(target)
+        await gate.promise
+      },
+      pendingProjectTargetSet: (target) => {
+        activeProjectId = target.kind === "registered" ? target.projectId : null
+        activeProjectPath = target.kind === "path" ? target.projectPath : "~"
+      },
+      selectedSessionId: () => null,
+      sessionSelect: () => undefined,
+    })
+    return rootDispose
+  })
+  await effectsSettle()
+
+  const registered = state?.sessionCreateStart({ kind: "registered", projectId: "other-project" })
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  expect(targets).toEqual([{ kind: "registered", projectId: "other-project" }])
+  expect(bodies).toHaveLength(0)
+  gate.resolve()
+  await registered
+
+  expect(bodies[0]).toMatchObject({ projectId: "other-project" })
+  expect(bodies[0]).not.toHaveProperty("projectPath")
+
+  gate = deferredCreate<void>()
+  const pathTarget = state?.sessionCreateStart({ kind: "path", projectPath: "/workspace/path-target" })
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  expect(targets[1]).toEqual({ kind: "path", projectPath: "/workspace/path-target" })
+  expect(bodies).toHaveLength(1)
+  gate.resolve()
+  await pathTarget
+
+  expect(bodies[1]).toMatchObject({ projectPath: "/workspace/path-target" })
+  expect(bodies[1]).not.toHaveProperty("projectId")
   dispose()
 })

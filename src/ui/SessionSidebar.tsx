@@ -59,9 +59,7 @@ export function SessionSidebar(props: {
         projectRegistry={props.projectRegistry}
         state={props.sessionList}
         onSessionSelect={props.close}
-        sessionCreateInProject={(projectPath, projectId) =>
-          void props.sessionTarget.sessionCreateStart(projectPath, undefined, projectId)
-        }
+        sessionCreateInProject={(target) => void props.sessionTarget.sessionCreateStart(target)}
       />
     </div>
   )
