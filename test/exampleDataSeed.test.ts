@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
-import { mkdtemp, rm } from "node:fs/promises"
-import { dirname, isAbsolute, join, resolve } from "node:path"
+import { mkdir, mkdtemp, rm } from "node:fs/promises"
+import { basename, dirname, isAbsolute, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { and, eq, inArray } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/libsql"
@@ -178,86 +178,100 @@ test("the typed fixture has stable counts, IDs, timestamps, and content", () => 
 })
 
 test("development fixture can list and use seeded organization servers", async () => {
-  const seeded = await exampleDataSeed(database, { organizationExternalId })
-  expect(seeded.success).toBe(true)
+  const developmentDatabaseDirectory = await mkdtemp(
+    join(process.env.TMPDIR ?? "/tmp", "codeline-development-seed-database-"),
+  )
+  const developmentDatabaseFilePath = join(developmentDatabaseDirectory, "db.sqlite")
+  const migrationResult = await databaseMigrate(developmentDatabaseFilePath)
+  if (!migrationResult.success) throw new Error(migrationResult.errorMessage)
+  const developmentClient = openLibsql(developmentDatabaseFilePath).$client
+  const developmentDatabase = drizzle(developmentClient, { schema: databaseSchema })
 
-  const developmentApp = appCreate({
-    configuration: {
-      authMode: "development",
-      databaseUrl: `file://${databaseFilePath}`,
-      developmentIdentity: {
-        displayName: exampleDataFixture.user.displayName,
-        email: exampleDataFixture.user.email,
-        identityKey: exampleDataFixture.organizationMembership.subject,
+  try {
+    const seeded = await exampleDataSeed(developmentDatabase, { organizationExternalId })
+    expect(seeded.success).toBe(true)
+
+    const developmentApp = appCreate({
+      configuration: {
+        authMode: "development",
+        databaseUrl: `file://${developmentDatabaseFilePath}`,
+        developmentIdentity: {
+          displayName: exampleDataFixture.user.displayName,
+          email: exampleDataFixture.user.email,
+          identityKey: exampleDataFixture.organizationMembership.subject,
+        },
+        nodeEnv: "development",
+        oidcOrganizationId: organizationExternalId,
       },
-      nodeEnv: "development",
-      oidcOrganizationId: organizationExternalId,
-    },
-    database,
-    projectRootDirs: [resolve(dirname(fileURLToPath(import.meta.url)), "..")],
-  })
-  const developmentServers = await developmentApp.request("/api/servers")
-  expect(developmentServers.status).toBe(200)
-  expect(await developmentServers.json()).toMatchObject({
-    servers: [
-      { id: "example-server-local", name: "Example Local Server" },
-      { id: "example-server-remote", name: "Example Remote Server" },
-    ],
-  })
-  const developmentAgents = await developmentApp.request("/api/servers/example-server-local/agents")
-  expect(developmentAgents.status).toBe(200)
-  const developmentAgentsBody = (await developmentAgents.json()) as { agents: Array<{ id: string }> }
-  expect(developmentAgentsBody.agents.some((agent) => agent.id === "example-agent-local")).toBe(true)
+      database: developmentDatabase,
+      projectRootDirs: [resolve(dirname(fileURLToPath(import.meta.url)), "..")],
+    })
+    const developmentServers = await developmentApp.request("/api/servers")
+    expect(developmentServers.status).toBe(200)
+    expect(await developmentServers.json()).toMatchObject({
+      servers: [
+        { id: "example-server-local", name: "Example Local Server" },
+        { id: "example-server-remote", name: "Example Remote Server" },
+      ],
+    })
+    const developmentAgents = await developmentApp.request("/api/servers/example-server-local/agents")
+    expect(developmentAgents.status).toBe(200)
+    const developmentAgentsBody = (await developmentAgents.json()) as { agents: Array<{ id: string }> }
+    expect(developmentAgentsBody.agents.some((agent) => agent.id === "example-agent-local")).toBe(true)
 
-  const registry = await developmentApp.request("/api/project/registry")
-  expect(registry.status).toBe(200)
-  const registryBody = (await registry.json()) as {
-    folders: Array<{ active: boolean; label: string; unseenEnded: boolean }>
-    projects: Array<{
-      active: boolean
-      available: boolean
-      folderId: string | null
-      id: string
-      label: string
-      parentFolder: { id: string; label: string } | null
-      unseenEnded: boolean
-    }>
+    const registry = await developmentApp.request("/api/project/registry")
+    expect(registry.status).toBe(200)
+    const registryBody = (await registry.json()) as {
+      folders: Array<{ active: boolean; label: string; unseenEnded: boolean }>
+      projects: Array<{
+        active: boolean
+        available: boolean
+        folderId: string | null
+        id: string
+        label: string
+        parentFolder: { id: string; label: string } | null
+        unseenEnded: boolean
+      }>
+    }
+    expect(registryBody.projects).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          active: false,
+          available: true,
+          id: "11111111-1111-7111-8111-111111111111",
+          label: "Adaptive example project",
+          parentFolder: expect.objectContaining({ label: "adaptive" }),
+          unseenEnded: false,
+        }),
+        expect.objectContaining({
+          active: false,
+          available: true,
+          id: "22222222-2222-7222-8222-222222222222",
+          label: "Leo example project",
+          parentFolder: expect.objectContaining({ label: "leo" }),
+          unseenEnded: true,
+        }),
+        expect.objectContaining({
+          active: false,
+          available: true,
+          id: "33333333-3333-7333-8333-333333333333",
+          label: "Personal example project",
+          parentFolder: expect.objectContaining({ label: "personal" }),
+          unseenEnded: false,
+        }),
+      ]),
+    )
+    expect(registryBody.folders).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ active: false, label: "adaptive", unseenEnded: false }),
+        expect.objectContaining({ active: false, label: "leo", unseenEnded: true }),
+        expect.objectContaining({ active: false, label: "personal", unseenEnded: false }),
+      ]),
+    )
+  } finally {
+    developmentClient.close()
+    await rm(developmentDatabaseDirectory, { force: true, recursive: true })
   }
-  expect(registryBody.projects).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({
-        active: false,
-        available: true,
-        id: "11111111-1111-7111-8111-111111111111",
-        label: "Adaptive example project",
-        parentFolder: expect.objectContaining({ label: "adaptive" }),
-        unseenEnded: false,
-      }),
-      expect.objectContaining({
-        active: false,
-        available: true,
-        id: "22222222-2222-7222-8222-222222222222",
-        label: "Leo example project",
-        parentFolder: expect.objectContaining({ label: "leo" }),
-        unseenEnded: true,
-      }),
-      expect.objectContaining({
-        active: false,
-        available: true,
-        id: "33333333-3333-7333-8333-333333333333",
-        label: "Personal example project",
-        parentFolder: expect.objectContaining({ label: "personal" }),
-        unseenEnded: false,
-      }),
-    ]),
-  )
-  expect(registryBody.folders).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({ active: false, label: "adaptive", unseenEnded: false }),
-      expect.objectContaining({ active: false, label: "leo", unseenEnded: true }),
-      expect.objectContaining({ active: false, label: "personal", unseenEnded: false }),
-    ]),
-  )
 })
 
 test("rejects an incomplete OIDC fixture identity override", async () => {
@@ -588,4 +602,90 @@ test("reset preserves unrelated data and descendant links", async () => {
     .from(sessionTable)
     .where(eq(sessionTable.id, unrelated.descendantSessionId))
   expect(descendantAfterReset).toEqual([{ parentSessionId: "example-session-active-1" }])
+})
+
+test("an explicit empty root configuration preserves the standard fixture seed", async () => {
+  const seeded = await exampleDataSeed(database, { organizationExternalId, projectRootDirs: [], reset: true })
+
+  expect(seeded).toEqual({ success: true, data: { sessionCount: 15, messageCount: 8 } })
+})
+
+test("configured roots reconcile real children without fixture projects or dependent rows", async () => {
+  const rootsDirectory = await mkdtemp(join(process.env.TMPDIR ?? "/tmp", "codeline-configured-seed-roots-"))
+  const configuredDatabaseDirectory = await mkdtemp(
+    join(process.env.TMPDIR ?? "/tmp", "codeline-configured-seed-database-"),
+  )
+  const configuredDatabaseFilePath = join(configuredDatabaseDirectory, "db.sqlite")
+  const migrationResult = await databaseMigrate(configuredDatabaseFilePath)
+  if (!migrationResult.success) throw new Error(migrationResult.errorMessage)
+  const configuredClient = openLibsql(configuredDatabaseFilePath).$client
+  const configuredDatabase = drizzle(configuredClient, { schema: databaseSchema })
+  const firstProjectPath = join(rootsDirectory, "first-real-project")
+  const secondProjectPath = join(rootsDirectory, "second-real-project")
+  const configuredProjectPaths = [firstProjectPath, secondProjectPath].sort()
+
+  try {
+    await Promise.all([mkdir(firstProjectPath), mkdir(secondProjectPath)])
+    const seeded = await exampleDataSeed(configuredDatabase, {
+      organizationExternalId,
+      projectRootDirs: [rootsDirectory],
+    })
+    expect(seeded).toEqual({ success: true, data: { sessionCount: 0, messageCount: 0 } })
+
+    const projects = await configuredDatabase
+      .select({ parentFolderId: projectTable.parentFolderId, path: projectTable.path })
+      .from(projectTable)
+      .where(eq(projectTable.userId, exampleDataFixture.user.id))
+    expect(projects.map((project) => project.path).sort()).toEqual(configuredProjectPaths)
+    expect(projects.every((project) => project.parentFolderId !== null)).toBe(true)
+
+    const configuredFolders = await configuredDatabase
+      .select({ name: projectFolderTable.name })
+      .from(projectFolderTable)
+      .where(eq(projectFolderTable.userId, exampleDataFixture.user.id))
+    expect(configuredFolders.map((folder) => folder.name)).toContain(basename(rootsDirectory))
+
+    expect(
+      await configuredDatabase
+        .select({ id: projectTable.id })
+        .from(projectTable)
+        .where(
+          inArray(
+            projectTable.path,
+            exampleDataFixture.projects.map((project) => project.path),
+          ),
+        ),
+    ).toEqual([])
+    expect(
+      await configuredDatabase
+        .select({ id: sessionTable.id })
+        .from(sessionTable)
+        .where(inArray(sessionTable.id, sessionIds)),
+    ).toEqual([])
+    expect(
+      await configuredDatabase
+        .select({ id: messageTable.id })
+        .from(messageTable)
+        .where(inArray(messageTable.id, messageIds)),
+    ).toEqual([])
+    expect(
+      await configuredDatabase.select({ id: runTable.id }).from(runTable).where(inArray(runTable.id, runIds)),
+    ).toEqual([])
+    expect(
+      await configuredDatabase
+        .select({ id: attemptTable.id })
+        .from(attemptTable)
+        .where(inArray(attemptTable.id, attemptIds)),
+    ).toEqual([])
+    expect(
+      await configuredDatabase
+        .select({ sessionId: sessionViewTable.sessionId })
+        .from(sessionViewTable)
+        .where(inArray(sessionViewTable.sessionId, sessionIds)),
+    ).toEqual([])
+  } finally {
+    configuredClient.close()
+    await rm(rootsDirectory, { force: true, recursive: true })
+    await rm(configuredDatabaseDirectory, { force: true, recursive: true })
+  }
 })

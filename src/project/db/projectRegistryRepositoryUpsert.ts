@@ -47,6 +47,7 @@ export async function projectRegistryRepositoryUpsert(
         id: uuidv7(),
         ...(parentFolderId === undefined ? {} : { parentFolderId }),
         path: parsed.output.path,
+        authorizationPath: null,
         updatedAt: now,
         userId,
       })

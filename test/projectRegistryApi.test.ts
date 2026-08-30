@@ -108,15 +108,27 @@ describe("project registry HTTP routes", () => {
     expect(firstBody.project.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
 
     const firstList = await app.request("http://codeline.test/project/list")
-    expect(await firstList.json()).toEqual({
-      folders: [],
-      projects: [firstBody.project],
-      truncated: false,
+    const firstListBody = (await firstList.json()) as {
+      folders: Array<{ id: string; label: string }>
+      projects: Array<{ folderId: string | null; id: string; parentFolder: unknown }>
+      truncated: boolean
+    }
+    expect(firstListBody).toMatchObject({ truncated: false })
+    expect(firstListBody.folders).toHaveLength(1)
+    expect(firstListBody.projects).toHaveLength(1)
+    expect(firstListBody.projects[0]).toMatchObject({
+      folderId: firstListBody.folders[0]?.id,
+      id: firstBody.project.id,
+      parentFolder: { id: firstListBody.folders[0]?.id, label: firstListBody.folders[0]?.label },
     })
 
     activeUserId = secondUserId
     const secondList = await app.request("http://codeline.test/project/registry")
-    expect(await secondList.json()).toEqual({ folders: [], projects: [], truncated: false })
+    const secondListBody = (await secondList.json()) as {
+      projects: Array<{ id: string }>
+    }
+    expect(secondListBody.projects).toHaveLength(1)
+    expect(secondListBody.projects[0]?.id).not.toBe(firstBody.project.id)
     const hidden = await app.request(`http://codeline.test/project/registry/${firstBody.project.id}`)
     expect(hidden.status).toBe(404)
     expect(JSON.stringify(await hidden.json())).not.toContain(projectRoot)
@@ -204,8 +216,11 @@ describe("project registry HTTP routes", () => {
 
     await fs.rm(projectRoot, { force: true, recursive: true })
     const listed = await app.request("http://codeline.test/project/registry")
-    expect(await listed.json()).toEqual({
-      folders: [],
+    const listedBody = (await listed.json()) as {
+      projects: Array<Record<string, unknown>>
+      truncated: boolean
+    }
+    expect(listedBody).toMatchObject({
       projects: [
         {
           active: false,

@@ -106,6 +106,13 @@
       "when": 1788009058989,
       "tag": "0014_project_folder_assignment_backfill",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1788085488476,
+      "tag": "0015_project_authorization_path",
+      "breakpoints": true
     }
   ]
 }

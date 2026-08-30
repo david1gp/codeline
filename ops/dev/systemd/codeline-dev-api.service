@@ -7,6 +7,7 @@ PartOf=codeline-dev.target
 [Service]
 Type=simple
 WorkingDirectory=%h/adaptive/codeline
+EnvironmentFile=-%h/adaptive/codeline/ops/dev/codeline-defaults.env
 EnvironmentFile=%h/adaptive/codeline/.env
 Environment=PATH=%h/.local/bin:%h/.bun/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=/usr/bin/env bun ./dist/server/index.js

@@ -55,6 +55,7 @@ test("project registry migration creates the user-scoped table and constraints",
       "parent_folder_id",
       "created_at",
       "updated_at",
+      "authorization_path",
     ])
 
     const indexes = await client.execute("PRAGMA index_list('project')")

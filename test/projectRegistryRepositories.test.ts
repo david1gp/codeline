@@ -2,6 +2,7 @@ import { expect, test } from "bun:test"
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
+import { eq } from "drizzle-orm"
 import { agentTable } from "../src/agents/db/agentTable.js"
 import { databaseConnectionCreate } from "../src/database/databaseConnectionCreate.js"
 import { databaseMigrate } from "../src/database/databaseMigrate.js"
@@ -120,6 +121,7 @@ test("project registry repositories isolate users across every operation", async
     expect(preservedName).toMatchObject({
       success: true,
       data: {
+        authorizationPath: null,
         createdAt: firstProject.data.createdAt,
         displayName: "First User Project",
         id: firstProject.data.id,
@@ -129,6 +131,21 @@ test("project registry repositories isolate users across every operation", async
     if (!preservedName.success) return
     expect(preservedName.data.displayName).toBe("First User Project")
     expect(preservedName.data.id).toBe(firstProject.data.id)
+    await fixture.database
+      .update(projectTable)
+      .set({ authorizationPath: "/tmp/codeline-project-registry-alias" })
+      .where(eq(projectTable.id, firstProject.data.id))
+    const preservedAuthorization = await projectRegistryRepositoryUpsert(fixture.database, firstUserId, {
+      path: projectPath,
+    })
+    expect(preservedAuthorization).toMatchObject({
+      success: true,
+      data: {
+        authorizationPath: "/tmp/codeline-project-registry-alias",
+        id: firstProject.data.id,
+        path: projectPath,
+      },
+    })
 
     const firstProjects = await projectRegistryRepositoryList(fixture.database, firstUserId)
     const secondProjects = await projectRegistryRepositoryList(fixture.database, secondUserId)

@@ -8,6 +8,7 @@ import { apiRequestParse } from "../../api/apiRequestParse.js"
 import type { AppEnvironment } from "../../api/appEnvironment.js"
 import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.js"
 import type { DatabaseClient } from "../../database/databaseClient.js"
+import { projectConfiguredRootsReconcile as projectConfiguredRootsReconcileDefault } from "../db/projectConfiguredRootsReconcile.js"
 import { projectFolderRepositoryCreate } from "../db/projectFolderRepositoryCreate.js"
 import { projectFolderRepositoryDelete } from "../db/projectFolderRepositoryDelete.js"
 import { projectFolderRepositoryList } from "../db/projectFolderRepositoryList.js"
@@ -44,6 +45,7 @@ import { projectPreviewPrepare } from "../projectPreviewPrepare.js"
 import { projectPreviewRead } from "../projectPreviewRead.js"
 import { projectRegistryOpenCodeImport } from "../projectRegistryOpenCodeImport.js"
 import { projectRegistryPathCanonicalize } from "../projectRegistryPathCanonicalize.js"
+import { projectRegistryProjectPathAuthorize } from "../projectRegistryProjectPathAuthorize.js"
 import { projectResolve } from "../projectResolve.js"
 import { projectTextRead } from "../projectTextRead.js"
 import { projectApiDirectoryConfirmRequestSchema } from "./projectApiDirectoryConfirmRequestSchema.js"
@@ -82,6 +84,7 @@ type ApiProjectRoutesOptions = {
   discoveryEntriesRead?: typeof projectDiscoveryEntriesRead
   limits?: ProjectLimits
   openCodeDatabasePath?: string
+  projectConfiguredRootsReconcile?: typeof projectConfiguredRootsReconcileDefault
   rootDirs?: readonly string[]
 }
 
@@ -154,12 +157,18 @@ type ProjectRegistryStatus = Pick<ProjectFolderStatus, "active" | "unseenEnded">
 type ProjectRegistryParentFolder = { id: string; label: string } | null
 
 async function projectRegistryApiProjectCreate(
-  project: { displayName: string | null; id: string; parentFolderId: string | null; path: string },
+  project: {
+    authorizationPath: string | null
+    displayName: string | null
+    id: string
+    parentFolderId: string | null
+    path: string
+  },
   rootDirs: readonly string[],
   parentFolder: ProjectRegistryParentFolder,
   status: ProjectRegistryStatus = { active: false, unseenEnded: false },
 ): Promise<ProjectRegistryApiProject> {
-  const available = (await projectRegistryPathCanonicalize(project.path, rootDirs)).success
+  const available = (await projectRegistryProjectPathAuthorize(project, rootDirs)).success
   return {
     active: status.active,
     available,
@@ -372,6 +381,31 @@ export function apiProjectRoutesAdd(api: Hono<AppEnvironment>, options: ApiProje
     return discoveryRead()
   }
 
+  const configuredRootsReconcile = options.projectConfiguredRootsReconcile ?? projectConfiguredRootsReconcileDefault
+  const configuredRootsReconciliationByUser = new Map<string, ReturnType<typeof configuredRootsReconcile>>()
+  const registryConfiguredRootsReconcile = (userId: string): ReturnType<typeof configuredRootsReconcile> => {
+    const existing = configuredRootsReconciliationByUser.get(userId)
+    if (existing !== undefined) return existing
+
+    const reconciliation = Promise.resolve()
+      .then(() => configuredRootsReconcile(options.database as DatabaseClient, userId, options.rootDirs ?? []))
+      .then(
+        (result) => {
+          if (!result.success) configuredRootsReconciliationByUser.delete(userId)
+          return result
+        },
+        () => {
+          configuredRootsReconciliationByUser.delete(userId)
+          return createResultError(
+            "projectConfiguredRootsReconcile",
+            "The configured project roots could not be reconciled.",
+          )
+        },
+      )
+    configuredRootsReconciliationByUser.set(userId, reconciliation)
+    return reconciliation
+  }
+
   const registryFolderStatusesLoad = async (
     context: ApiContext,
     userId: string,
@@ -460,6 +494,9 @@ export function apiProjectRoutesAdd(api: Hono<AppEnvironment>, options: ApiProje
     if (options.database === undefined) return registryInternalServerError(context)
     const userId = registryRequestUserId(context, options)
     if (userId === undefined) return unauthorized(context)
+
+    const reconciled = await registryConfiguredRootsReconcile(userId)
+    if (!reconciled.success) return registryInternalServerError(context)
 
     const result = await projectRegistryRepositoryList(options.database, userId)
     if (!result.success) return registryInternalServerError(context)

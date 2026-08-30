@@ -4,7 +4,10 @@ set -euo pipefail
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 root=$(git -C "$script_dir/../.." rev-parse --show-toplevel)
 env_file="$root/.env"
+defaults_file="$script_dir/codeline-defaults.env"
 target_unit=codeline-dev.target
+
+source "$script_dir/codeline-project-roots.sh"
 
 fail() {
   printf 'codeline-dev: %s\n' "$1" >&2
@@ -60,6 +63,10 @@ first_loaded_value() {
     fi
   done
   return 1
+}
+
+project_roots_export() {
+  codeline_project_roots_export "$env_file" "$defaults_file"
 }
 
 validate_provider_organization_mapping() {
@@ -212,10 +219,12 @@ case "${1:-help}" in
     ;;
   db-reset)
     validate_database_environment
+    project_roots_export
     (cd "$root" && bun run db:reset)
     ;;
   db-reset-seed)
     validate_database_environment
+    project_roots_export
     (cd "$root" && bun run db:reset-seed)
     ;;
   down|stop)
@@ -233,6 +242,7 @@ case "${1:-help}" in
   reset)
     validate_environment
     validate_database_environment
+    project_roots_export
     (cd "$root" && bun run db:reset-seed)
     ;;
   start|up)

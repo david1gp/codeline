@@ -22,6 +22,7 @@ import { apiMessageRoutesAdd } from "../message/api/apiMessageRoutesAdd.js"
 import type { metricsCollectorCreate } from "../metrics/metricsCollectorCreate.js"
 import { apiNoteRoutesAdd } from "../note/api/apiNoteRoutesAdd.js"
 import { apiProjectRoutesAdd } from "../project/api/apiProjectRoutesAdd.js"
+import type { projectConfiguredRootsReconcile } from "../project/db/projectConfiguredRootsReconcile.js"
 import type { ProjectLimits } from "../project/projectLimitsSchema.js"
 import { apiProviderRoutesAdd } from "../providers/api/apiProviderRoutesAdd.js"
 import { providerDelegationToolLoopCreate } from "../providers/runtime/providerDelegationToolLoopCreate.js"
@@ -74,6 +75,7 @@ type ApiRoutesAddOptions = {
   database?: DatabaseClient
   openCodeDatabasePath?: string
   projectLimits?: ProjectLimits
+  projectConfiguredRootsReconcile?: typeof projectConfiguredRootsReconcile
   projectRootDirs?: readonly string[]
   globalAgentsPath?: string
   globalCommandsPath?: string
@@ -243,6 +245,7 @@ export function apiRoutesAdd(
     database: options.database,
     limits: options.projectLimits,
     openCodeDatabasePath: options.openCodeDatabasePath ?? options.configuration?.openCodeDatabasePath,
+    projectConfiguredRootsReconcile: options.projectConfiguredRootsReconcile,
     rootDirs: options.projectRootDirs ?? [],
   })
   apiCommandRoutesAdd(api, {

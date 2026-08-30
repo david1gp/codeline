@@ -6,6 +6,7 @@ import * as path from "node:path"
 const repositoryRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..")
 const deploySource = path.join(repositoryRoot, "ops/deploy.sh")
 const waitSource = path.join(repositoryRoot, "ops/dev/codeline-dev.sh")
+const projectRootsSource = path.join(repositoryRoot, "ops/dev/codeline-project-roots.sh")
 const readyResponse = '{"database":"ready","service":"codeline","status":"ready"}'
 
 type HarnessOptions = {
@@ -197,6 +198,7 @@ CONFIG_STORE_DIR=./data/config
   await fs.writeFile(apiState, `${initialTargetState}\n`)
   await fs.copyFile(deploySource, deployPath)
   await fs.copyFile(waitSource, waitPath)
+  await fs.copyFile(projectRootsSource, path.join(root, "ops/dev/codeline-project-roots.sh"))
 
   for (const [command, source] of Object.entries(mockCommands)) {
     const commandPath = path.join(binDirectory, command)

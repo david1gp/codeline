@@ -26,6 +26,7 @@ import type { journalBacklogRead } from "../journal/actions/journalBacklogRead.j
 import type { JournalCursorCodec } from "../journal/actions/journalCursorCodecCreate.js"
 import type { journalPostCommitPublishCreate } from "../journal/actions/journalPostCommitPublishCreate.js"
 import type { metricsCollectorCreate } from "../metrics/metricsCollectorCreate.js"
+import type { projectConfiguredRootsReconcile } from "../project/db/projectConfiguredRootsReconcile.js"
 import type { ProjectLimits } from "../project/projectLimitsSchema.js"
 import { providerDelegationToolLoopCreate } from "../providers/runtime/providerDelegationToolLoopCreate.js"
 import type { ProviderModelDiscoveryOptions } from "../providers/runtime/providerModelDiscovery.js"
@@ -77,6 +78,7 @@ export type AppCreateOptions = {
   oidcReturnToPathIsKnown?: typeof appKnownRouteResolve
   openCodeDatabasePath?: string
   projectLimits?: ProjectLimits
+  projectConfiguredRootsReconcile?: typeof projectConfiguredRootsReconcile
   projectRootDirs?: readonly string[]
   globalAgentsPath?: string
   globalCommandsPath?: string
@@ -239,6 +241,7 @@ export function appCreate(options: AppCreateOptions = {}): App {
     metricsCollector: options.metricsCollector,
     clientLogJournalWrite: options.clientLogJournalWrite,
     openCodeDatabasePath: options.openCodeDatabasePath,
+    projectConfiguredRootsReconcile: options.projectConfiguredRootsReconcile,
   })
 
   const uiShellPath = options.uiShellPath ?? "./dist/ui/index.html"

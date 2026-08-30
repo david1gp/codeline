@@ -1,7 +1,7 @@
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
-import { eq, inArray } from "drizzle-orm"
+import { and, eq, inArray } from "drizzle-orm"
 import { agentTable } from "../agents/db/agentTable.js"
 import type { AgentConfiguration } from "../agents/schema/agentConfigurationSchema.js"
 import type { ConfigurationStore } from "../configuration/configurationStore.js"
@@ -10,23 +10,24 @@ import { externalIdentityUpsert } from "../identity/db/externalIdentityUpsert.js
 import { organizationMemberTable } from "../identity/db/organizationMemberTable.js"
 import { organizationTable } from "../identity/db/organizationTable.js"
 import { messageTable } from "../message/db/messageTable.js"
-import { attemptTable } from "../run/db/attemptTable.js"
-import { runTable } from "../run/db/runTable.js"
+import { projectConfiguredRootsReconcile } from "../project/db/projectConfiguredRootsReconcile.js"
+import { projectFolderBootstrapEnsure } from "../project/db/projectFolderBootstrapEnsure.js"
+import { projectFolderBootstrapIdLoad } from "../project/db/projectFolderBootstrapIdLoad.js"
+import { projectTable } from "../project/db/projectTable.js"
 import { providerAgentCatalogAgentNameCreate } from "../providers/catalog/providerAgentCatalogAgentNameCreate.js"
 import { providerAgentCatalogConfigurationCompile } from "../providers/catalog/providerAgentCatalogConfigurationCompile.js"
 import { providerAgentCatalogLoad } from "../providers/catalog/providerAgentCatalogLoad.js"
 import type { ProviderCatalog } from "../providers/schema/providerCatalogSchema.js"
+import { attemptTable } from "../run/db/attemptTable.js"
+import { runTable } from "../run/db/runTable.js"
 import { serverTable } from "../servers/db/serverTable.js"
 import { sessionTable } from "../session/db/sessionTable.js"
 import { sessionViewTable } from "../session/db/sessionViewTable.js"
-import { projectFolderBootstrapEnsure } from "../project/db/projectFolderBootstrapEnsure.js"
-import { projectFolderBootstrapIdLoad } from "../project/db/projectFolderBootstrapIdLoad.js"
-import { projectTable } from "../project/db/projectTable.js"
+import { uuidv7 } from "../uuid/uuidv7.js"
 import type { DatabaseClient, DatabaseExecutor } from "./databaseClient.js"
 import { databaseTransactionRun } from "./databaseTransactionRun.js"
 import { exampleDataConfigurationReconcile } from "./exampleDataConfigurationReconcile.js"
 import { exampleDataFixture } from "./exampleDataFixture.js"
-import { uuidv7 } from "../uuid/uuidv7.js"
 
 function date(value: string): Date {
   return new Date(value)
@@ -45,10 +46,34 @@ async function exampleDataMessagesDelete(database: DatabaseExecutor): Promise<vo
 
 async function exampleDataOwnedRunRowsDelete(database: DatabaseExecutor): Promise<void> {
   const runIds = exampleDataFixture.runs.map((run) => run.id)
+  const attemptIds = exampleDataFixture.attempts.map((attempt) => attempt.id)
   const sessionIds = exampleDataFixture.sessionViews.map((sessionView) => sessionView.sessionId)
 
+  await database.delete(attemptTable).where(inArray(attemptTable.id, attemptIds))
   await database.delete(runTable).where(inArray(runTable.id, runIds))
   await database.delete(sessionViewTable).where(inArray(sessionViewTable.sessionId, sessionIds))
+}
+
+async function exampleDataConfiguredFixtureRowsDelete(
+  database: DatabaseExecutor,
+  userId: string,
+  configuredProjectPaths: readonly string[],
+): Promise<void> {
+  await exampleDataMessagesDelete(database)
+  await exampleDataOwnedRunRowsDelete(database)
+
+  const fixtureSessionIds = exampleDataFixture.sessions.map((session) => session.id)
+  await database.delete(sessionTable).where(inArray(sessionTable.id, fixtureSessionIds))
+
+  const configuredPaths = new Set(configuredProjectPaths)
+  const staleFixtureProjectPaths = exampleDataFixture.projects
+    .map((project) => project.path)
+    .filter((projectPath) => !configuredPaths.has(projectPath))
+  if (staleFixtureProjectPaths.length === 0) return
+
+  await database
+    .delete(projectTable)
+    .where(and(eq(projectTable.userId, userId), inArray(projectTable.path, staleFixtureProjectPaths)))
 }
 
 async function exampleDataProjectsReconcile(database: DatabaseExecutor, userId: string): Promise<Result<void>> {
@@ -267,8 +292,10 @@ async function exampleDataRowsReconcile(
   userId?: string,
   organizationMembershipIssuer?: string,
   organizationMembershipSubject?: string,
+  projectRootDirs?: readonly string[],
 ): Promise<Result<{ sessionCount: number; messageCount: number }>> {
   const op = "exampleDataRowsReconcile"
+  const hasConfiguredProjectRoots = projectRootDirs !== undefined && projectRootDirs.length > 0
   const fixtureUser = userId === undefined ? exampleDataFixture.user : { ...exampleDataFixture.user, id: userId }
   const membershipIssuer = organizationMembershipIssuer ?? exampleDataFixture.organizationMembership.issuer
   const membershipSubject = organizationMembershipSubject ?? exampleDataFixture.organizationMembership.subject
@@ -303,9 +330,20 @@ async function exampleDataRowsReconcile(
     })
     if (!externalIdentity.success) return createResultError(op, externalIdentity.errorMessage)
 
-    const projects = await exampleDataProjectsReconcile(database, fixtureUser.id)
-    if (!projects.success) return createResultError(op, projects.errorMessage)
-    await exampleDataOwnedRunRowsDelete(database)
+    let configuredProjectPaths: readonly string[] = []
+    if (hasConfiguredProjectRoots) {
+      const projects = await projectConfiguredRootsReconcile(database, fixtureUser.id, projectRootDirs ?? [])
+      if (!projects.success) return createResultError(op, projects.errorMessage)
+      configuredProjectPaths = projects.data.map((project) => project.path)
+    } else {
+      const projects = await exampleDataProjectsReconcile(database, fixtureUser.id)
+      if (!projects.success) return createResultError(op, projects.errorMessage)
+    }
+    if (hasConfiguredProjectRoots) {
+      await exampleDataConfiguredFixtureRowsDelete(database, fixtureUser.id, configuredProjectPaths)
+    } else {
+      await exampleDataOwnedRunRowsDelete(database)
+    }
 
     await database
       .insert(organizationMemberTable)
@@ -379,27 +417,12 @@ async function exampleDataRowsReconcile(
         })
     }
 
-    for (const fixtureSession of exampleDataFixture.sessions) {
-      await database
-        .insert(sessionTable)
-        .values({
-          id: fixtureSession.id,
-          userId: fixtureUser.id,
-          serverId: fixtureSession.serverId,
-          primaryAgentId: fixtureSession.primaryAgentId,
-          projectPath: fixtureSession.projectPath,
-          parentSessionId: fixtureSession.parentSessionId,
-          title: fixtureSession.title,
-          clientRequestId: fixtureSession.clientRequestId,
-          metadata: fixtureSession.metadata,
-          archivedAt: fixtureSession.archivedAt === null ? null : date(fixtureSession.archivedAt),
-          createdAt: date(fixtureSession.createdAt),
-          updatedAt: date(fixtureSession.updatedAt),
-          pinned: fixtureSession.pinned,
-        })
-        .onConflictDoUpdate({
-          target: sessionTable.id,
-          set: {
+    if (!hasConfiguredProjectRoots) {
+      for (const fixtureSession of exampleDataFixture.sessions) {
+        await database
+          .insert(sessionTable)
+          .values({
+            id: fixtureSession.id,
             userId: fixtureUser.id,
             serverId: fixtureSession.serverId,
             primaryAgentId: fixtureSession.primaryAgentId,
@@ -412,27 +435,30 @@ async function exampleDataRowsReconcile(
             createdAt: date(fixtureSession.createdAt),
             updatedAt: date(fixtureSession.updatedAt),
             pinned: fixtureSession.pinned,
-          },
-        })
-
-      for (const fixtureMessage of fixtureSession.messages) {
-        await database
-          .insert(messageTable)
-          .values({
-            id: fixtureMessage.id,
-            sessionId: fixtureSession.id,
-            agentId: fixtureSession.primaryAgentId,
-            role: fixtureMessage.role,
-            sequence: fixtureMessage.sequence,
-            content: fixtureMessage.content,
-            clientRequestId: fixtureMessage.clientRequestId,
-            metadata: fixtureMessage.metadata,
-            finalizedAt: date(fixtureMessage.finalizedAt),
-            createdAt: date(fixtureMessage.createdAt),
           })
           .onConflictDoUpdate({
-            target: messageTable.id,
+            target: sessionTable.id,
             set: {
+              userId: fixtureUser.id,
+              serverId: fixtureSession.serverId,
+              primaryAgentId: fixtureSession.primaryAgentId,
+              projectPath: fixtureSession.projectPath,
+              parentSessionId: fixtureSession.parentSessionId,
+              title: fixtureSession.title,
+              clientRequestId: fixtureSession.clientRequestId,
+              metadata: fixtureSession.metadata,
+              archivedAt: fixtureSession.archivedAt === null ? null : date(fixtureSession.archivedAt),
+              createdAt: date(fixtureSession.createdAt),
+              updatedAt: date(fixtureSession.updatedAt),
+              pinned: fixtureSession.pinned,
+            },
+          })
+
+        for (const fixtureMessage of fixtureSession.messages) {
+          await database
+            .insert(messageTable)
+            .values({
+              id: fixtureMessage.id,
               sessionId: fixtureSession.id,
               agentId: fixtureSession.primaryAgentId,
               role: fixtureMessage.role,
@@ -442,15 +468,29 @@ async function exampleDataRowsReconcile(
               metadata: fixtureMessage.metadata,
               finalizedAt: date(fixtureMessage.finalizedAt),
               createdAt: date(fixtureMessage.createdAt),
-            },
-          })
+            })
+            .onConflictDoUpdate({
+              target: messageTable.id,
+              set: {
+                sessionId: fixtureSession.id,
+                agentId: fixtureSession.primaryAgentId,
+                role: fixtureMessage.role,
+                sequence: fixtureMessage.sequence,
+                content: fixtureMessage.content,
+                clientRequestId: fixtureMessage.clientRequestId,
+                metadata: fixtureMessage.metadata,
+                finalizedAt: date(fixtureMessage.finalizedAt),
+                createdAt: date(fixtureMessage.createdAt),
+              },
+            })
+        }
       }
-    }
 
-    const runs = await exampleDataRunsReconcile(database, fixtureUser.id)
-    if (!runs.success) return createResultError(op, runs.errorMessage)
-    const sessionViews = await exampleDataSessionViewsReconcile(database, fixtureUser.id)
-    if (!sessionViews.success) return createResultError(op, sessionViews.errorMessage)
+      const runs = await exampleDataRunsReconcile(database, fixtureUser.id)
+      if (!runs.success) return createResultError(op, runs.errorMessage)
+      const sessionViews = await exampleDataSessionViewsReconcile(database, fixtureUser.id)
+      if (!sessionViews.success) return createResultError(op, sessionViews.errorMessage)
+    }
 
     const catalogAgents = [...catalogConfigurations.data].sort((left, right) => {
       const leftMode = catalogAgentMode(left.configuration) === "primary" ? 0 : 1
@@ -490,8 +530,10 @@ async function exampleDataRowsReconcile(
     }
 
     return createResult({
-      sessionCount: exampleDataFixture.sessions.length,
-      messageCount: exampleDataFixture.sessions.reduce((count, session) => count + session.messages.length, 0),
+      sessionCount: hasConfiguredProjectRoots ? 0 : exampleDataFixture.sessions.length,
+      messageCount: hasConfiguredProjectRoots
+        ? 0
+        : exampleDataFixture.sessions.reduce((count, session) => count + session.messages.length, 0),
     })
   } catch (_error) {
     return createResultError(op, "The example data could not be reconciled.")
@@ -505,6 +547,7 @@ export async function exampleDataSeed(
     catalog?: ProviderCatalog
     configurationStore?: ConfigurationStore
     reset?: boolean
+    projectRootDirs?: readonly string[]
     userId?: string
     organizationMembershipIssuer?: string
     organizationMembershipSubject?: string
@@ -534,6 +577,7 @@ export async function exampleDataSeed(
         options.userId,
         options.organizationMembershipIssuer,
         options.organizationMembershipSubject,
+        options.projectRootDirs,
       )
     } catch (_error) {
       return createResultError(op, "The example data seed transaction failed.")

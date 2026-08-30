@@ -4,7 +4,7 @@ import type { DatabaseExecutor } from "../database/databaseClient.js"
 import { projectDirectoryCanonicalPathResolve } from "./projectDirectoryCanonicalPathResolve.js"
 import { projectDiscoveryIdSchema } from "./projectDiscoveryIdSchema.js"
 import { projectIdSchema } from "./projectIdSchema.js"
-import { projectRegistryPathCanonicalize } from "./projectRegistryPathCanonicalize.js"
+import { projectRegistryProjectPathAuthorize } from "./projectRegistryProjectPathAuthorize.js"
 import {
   type ProjectDiscoveryEntriesReadOptions,
   type ProjectDiscoveryEntriesReadResult,
@@ -45,7 +45,7 @@ export async function projectResolve(
     const registered = await projectRegistryRepositoryResolve(options.database, options.userId, projectId)
     if (!registered.success) return createResultError(op, "The project could not be found.")
 
-    const canonical = await projectRegistryPathCanonicalize(registered.data.path, rootDirs)
+    const canonical = await projectRegistryProjectPathAuthorize(registered.data, rootDirs)
     if (!canonical.success) return createResultError(op, "The project could not be found.")
     return createResult({ id: registered.data.id, rootDir: canonical.data })
   }

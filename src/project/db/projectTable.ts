@@ -11,6 +11,7 @@ export const projectTable = sqliteTable(
       .notNull()
       .references(() => applicationUserTable.id, { onDelete: "cascade" }),
     path: text("path").notNull(),
+    authorizationPath: text("authorization_path"),
     displayName: text("display_name"),
     parentFolderId: text("parent_folder_id")
       .$type<ProjectFolderId | null>()

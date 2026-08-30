@@ -2,6 +2,7 @@ import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { drizzle } from "drizzle-orm/libsql"
 import { configurationStoreCreate } from "../src/configuration/configurationStoreCreate.js"
+import { projectRootConfigurationParse } from "../src/configuration/projectRootConfigurationParse.js"
 import { databasePath } from "../src/database/databasePath.js"
 import { databaseSchema } from "../src/database/databaseSchema.js"
 import { exampleDataSeed } from "../src/database/exampleDataSeed.js"
@@ -37,6 +38,12 @@ if (
 }
 
 const reset = Bun.argv.includes("--reset")
+const configuredProjectRoots = Bun.env.CODELINE_PROJECT_ROOTS
+const projectRootDirsResult = projectRootConfigurationParse(configuredProjectRoots)
+if (!projectRootDirsResult.success) {
+  console.error(projectRootDirsResult.errorMessage)
+  process.exit(1)
+}
 
 if (reset && Bun.env.CODELINE_MANAGED_DATABASE_RESET_LOCK_HELD !== "1") {
   const lock = await managedDatabaseResetLockRun([
@@ -84,6 +91,7 @@ const result = await exampleDataSeed(database, {
   configurationStore: configurationStoreResult.data,
   organizationExternalId,
   reset,
+  ...(configuredProjectRoots === undefined ? {} : { projectRootDirs: projectRootDirsResult.data }),
   ...(userId === undefined ? {} : { userId }),
   ...(userId === undefined || issuer === undefined ? {} : { organizationMembershipIssuer: issuer }),
   ...(userId === undefined || organizationMembershipSubject === undefined ? {} : { organizationMembershipSubject }),
