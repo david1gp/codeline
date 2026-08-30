@@ -42,6 +42,7 @@
     "test:e2e": "playwright test",
     "typecheck": "bun tsc -p tsconfig.json --noEmit",
     "build": "build_dir=${CODELINE_BUILD_DIR:-./dist}; rm -rf -- \"$build_dir\" && bun tsc -p ./tsconfig.json && env -u VITE_USER_NODE_ENV NODE_ENV=production vite build --mode production --outDir \"$build_dir/ui\" && bun build ./src/ui/pwa/serviceWorkerMain.ts --outfile \"$build_dir/ui/service-worker.js\" --target browser --format iife --minify && bun build ./src/index.ts --outdir \"$build_dir/server\" --target bun --sourcemap=external --external valibot",
+    "assets:logo": "bun scripts/logoAssetsGenerate.ts",
     "release": "bash ./ops/release.sh",
     "release:inputs:verify": "bun scripts/releaseInputsVerify.ts",
     "git-store:link": "bash ./ops/dev/git-store-link.sh setup",
