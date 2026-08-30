@@ -252,6 +252,7 @@ export function appCreate(options: AppCreateOptions = {}): App {
   app.get("/assets/*", serveStatic({ root: "./dist/ui" }))
   app.get("/icons/*", serveStatic({ root: "./dist/ui" }))
   app.get("/favicon.ico", serveStatic({ root: "./dist/ui" }))
+  app.get("/logo.svg", serveStatic({ root: "./dist/ui" }))
   app.get("/manifest.webmanifest", serveStatic({ root: "./dist/ui" }))
   app.get("/service-worker.js", async (context, next) => {
     const response = await serveServiceWorker(context, next)

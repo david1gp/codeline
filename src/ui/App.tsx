@@ -6,6 +6,7 @@ import { For, Show } from "solid-js"
 import { ButtonIconOnly } from "#ui/interactive/button/ButtonIconOnly.jsx"
 import { buttonCvaIconOnly, buttonVariant } from "#ui/interactive/button/buttonCva.js"
 import { Icon } from "#ui/static/icon/Icon.jsx"
+import { Img } from "#ui/static/img/Img.jsx"
 import { AccountPopover } from "../identity/ui/AccountPopover.js"
 import type { AuthShellView } from "../identity/ui/authShellView.js"
 import { applicationShellContext } from "./applicationShellContext.js"
@@ -39,12 +40,13 @@ export function App(props: {
               href="/"
               aria-label="Codeline workspace"
             >
-              <span
-                class="grid size-8 place-items-center rounded-[9px] border border-[var(--accent)] bg-[var(--accent-soft)] font-mono text-xs text-[var(--accent)] shadow-[inset_0_0_18px_var(--emblem-glow)]"
-                aria-hidden="true"
-              >
-                C/
-              </span>
+              <Img
+                src="/logo.svg"
+                alt=""
+                width={32}
+                height={32}
+                class="size-8 rounded-[9px] border border-[var(--border)]"
+              />
               <span class="max-[480px]:sr-only">Codeline</span>
             </A>
 

@@ -4,11 +4,12 @@ import { pwaServiceWorkerSkipWaitingMessage } from "./pwaServiceWorkerUpdateAppl
 
 const worker = self as unknown as ServiceWorkerGlobalScope
 
-const shellCacheName = "codeline-shell-v2"
+const shellCacheName = "codeline-shell-v3"
 const precachedPaths = [
   "/",
   "/manifest.webmanifest",
   "/favicon.ico",
+  "/logo.svg",
   "/icons/codeline-icon-192.png",
   "/icons/codeline-icon-512.png",
   "/icons/codeline-icon-maskable-512.png",
