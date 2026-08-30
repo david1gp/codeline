@@ -278,6 +278,11 @@
     background: color-mix(in srgb, var(--muted-foreground) 70%, var(--border));
   }
 
+  .session-context-panel {
+    width: var(--session-context-width, 320px);
+    min-width: var(--session-context-width, 320px);
+  }
+
   .application-shell-right-panel {
     width: var(--right-panel-width, 560px);
     min-width: 300px;
@@ -288,6 +293,17 @@
 
   .application-shell-right-backdrop {
     display: none;
+  }
+}
+
+@media (max-width: 1100px) {
+  .session-context-resize-handle {
+    display: none;
+  }
+
+  .session-context-panel {
+    width: 100%;
+    min-width: 0;
   }
 }
 

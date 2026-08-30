@@ -6,6 +6,7 @@ import { Details } from "#ui/interactive/details/Details.jsx"
 import { FinalizedMessage } from "../message/ui/FinalizedMessage.js"
 import type { providerModelSelectorStateCreate } from "../providers/ui/providerModelSelectorStateCreate.js"
 import { SessionRenameControl } from "../session/ui/SessionRenameControl.js"
+import type { applicationShellStateCreate } from "./applicationShellStateCreate.js"
 import { SessionCapturedContextInspector } from "./SessionCapturedContextInspector.js"
 import { SessionChat } from "./SessionChat.js"
 import { SessionCreationResourceSidebar } from "./SessionCreationResourceSidebar.js"
@@ -19,6 +20,7 @@ export function SelectedSession(props: {
   providerModel?: ReturnType<typeof providerModelSelectorStateCreate>
   resources?: SessionResourceSelectorView
   sessionTarget?: SessionTargetSelectorState
+  shell?: ReturnType<typeof applicationShellStateCreate>
   state: SelectedSessionView
 }) {
   return (
@@ -28,8 +30,10 @@ export function SelectedSession(props: {
           <Match when={!props.state.hasSelection()}>
             {/* Creation surface: the draft owns the remaining height, the still-mutable
                 selection sits in a compact sidebar beside it. */}
-            <div class="flex min-h-0 min-w-0 flex-1 max-[1100px]:flex-col max-[1100px]:overflow-y-auto">
-              <div class="flex min-h-0 min-w-0 flex-1 flex-col max-[1100px]:min-h-[60vh]">
+            {/* Tailwind `max-[n]` compiles to `width < n`, so the stacked breakpoint uses 1101
+                to match the plain CSS `max-width: 1100px` rules and the JS `> 1100` desktop check. */}
+            <div class="flex min-h-0 min-w-0 flex-1 max-[1101px]:flex-col max-[1101px]:overflow-y-auto">
+              <div class="flex min-h-0 min-w-0 flex-1 flex-col max-[1101px]:min-h-[60vh]">
                 <div class="shrink-0 px-4 pt-6 pb-4 text-center max-[760px]:px-3 max-[760px]:pt-4">
                   <h2 class="m-0 text-2xl font-semibold tracking-[-0.02em]">
                     Select a conversation or start a new one.
@@ -45,7 +49,11 @@ export function SelectedSession(props: {
 
               <Show when={props.resources}>
                 {(resources) => (
-                  <SessionCreationResourceSidebar idPrefix="workspace-setup-resources" state={resources()} />
+                  <SessionCreationResourceSidebar
+                    idPrefix="workspace-setup-resources"
+                    shell={props.shell}
+                    state={resources()}
+                  />
                 )}
               </Show>
             </div>
