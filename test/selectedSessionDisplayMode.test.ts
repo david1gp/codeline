@@ -1,10 +1,11 @@
 import { expect, test } from "bun:test"
 
-test("stream mode renders before finalized-message errors so available stream data remains visible", async () => {
+test("bounded semantic history remains visible when the execution stream mode is selected", async () => {
   const source = await Bun.file(new URL("../src/ui/SelectedSession.tsx", import.meta.url)).text()
-  const streamBranch = source.indexOf('<Match when={props.state.displayMode.mode() === "stream"}>')
-  const messageErrorBranch = source.indexOf("<Match when={props.state.isMessagesError()}>")
+  const semanticHistory = source.indexOf("<SessionSemanticHistory")
+  const streamBranch = source.indexOf('<Show when={props.state.displayMode.mode() === "stream"}>')
 
+  expect(semanticHistory).toBeGreaterThanOrEqual(0)
   expect(streamBranch).toBeGreaterThanOrEqual(0)
-  expect(messageErrorBranch).toBeGreaterThan(streamBranch)
+  expect(streamBranch).toBeGreaterThan(semanticHistory)
 })

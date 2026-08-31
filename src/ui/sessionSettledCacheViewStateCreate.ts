@@ -67,6 +67,7 @@ export function sessionSettledCacheViewStateCreate(options: SessionSettledCacheV
         ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
         isOnline: options.isOnline,
         lastLocallyActiveUserId: sessionLastActiveAccountRead(),
+        revalidateOnLoad: false,
         sessionId,
         userId,
       })

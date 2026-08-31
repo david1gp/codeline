@@ -1,6 +1,7 @@
 import { mdiDockRight } from "@adaptive-ds/mdi/mdiDockRight.js"
 import { Show } from "solid-js"
 import { ButtonIconOnly } from "#ui/interactive/button/ButtonIconOnly.jsx"
+import { ChildSessionConversation } from "./ChildSessionConversation.js"
 import { SessionStreamEntryList } from "./SessionStreamEntryList.js"
 import type { SelectedSessionView } from "./selectedSessionView.js"
 import { subagentThreadPanelStateCreate } from "./subagentThreadPanelStateCreate.js"
@@ -30,6 +31,9 @@ export function SubagentThreadPanel(props: { state: SelectedSessionView }) {
           <div class="min-h-0 flex-1 overflow-y-auto p-3">
             <p class="m-0 text-[11px] font-semibold tracking-[0.14em] text-faint uppercase">Task</p>
             <p class="mt-1 mb-4 whitespace-pre-wrap break-words text-[13px] leading-relaxed">{delegation.task}</p>
+            <div class="mb-4">
+              <ChildSessionConversation sessionId={delegation.childSessionId} />
+            </div>
             <section aria-label="Subagent execution stream">
               <p class="m-0 mb-2 text-[11px] font-semibold tracking-[0.14em] text-faint uppercase">Stream</p>
               <Show
@@ -37,7 +41,7 @@ export function SubagentThreadPanel(props: { state: SelectedSessionView }) {
                 keyed
                 fallback={
                   <p class="m-0 text-[13px] text-faint" role="status">
-                    Loading child stream...
+                    No live child stream is available.
                   </p>
                 }
               >

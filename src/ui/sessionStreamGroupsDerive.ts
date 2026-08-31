@@ -13,11 +13,13 @@ export type SessionStreamEntry = {
 export type SessionStreamDelegation = {
   /** Authoritative child target from the delegations API; live feed rows carry no snapshot. */
   childAgentId?: string
+  childSessionId?: string | null
   childRunId: string
   delegationKey: string
   id: string
   parentAttemptId: string
   parentRunId: string
+  parentSessionId?: string
   task: string
 }
 

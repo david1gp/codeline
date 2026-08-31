@@ -1,7 +1,9 @@
 import type { finalizedMessageCopyStateCreate } from "../message/ui/finalizedMessageCopyStateCreate.js"
+import type { SessionLatestAnswer } from "../session/api/sessionLatestAnswerSchema.js"
+import type { SessionCompactRunInputState } from "../session/api/sessionCompactRunInputStateSchema.js"
+import type { SessionSemanticStep } from "../session/api/sessionSemanticStepSchema.js"
 import type { SessionReadOnlyReason } from "../session/client/sessionReadOnlyReasonResolve.js"
 import type { sessionRenameControlStateCreate } from "../session/ui/sessionRenameControlStateCreate.js"
-import type { SessionActiveRunReattachStatus } from "./sessionActiveRunReattachStateCreate.js"
 import type { SessionChatState } from "./sessionChatStateCreate.js"
 import type { sessionDisplayModeStateCreate } from "./sessionDisplayModeStateCreate.js"
 import type { sessionPinToggleStateCreate } from "./sessionPinToggleStateCreate.js"
@@ -26,8 +28,6 @@ export type SelectedSessionViewSession = {
  * demo fixtures can supply the same shape without the view knowing the source.
  */
 export type SelectedSessionView = {
-  /** Reload reattachment progress for a detached run of the open session. */
-  activeRunReattachStatus?: () => SessionActiveRunReattachStatus
   chatCreate: (sessionId: string) => SessionChatState
   hasSelection: () => boolean
   initialChat: SessionChatState
@@ -36,9 +36,17 @@ export type SelectedSessionView = {
   isMessagesError: () => boolean
   isMessagesLoading: () => boolean
   isMessagesRefreshing: () => boolean
+  isOlderHistoryError: () => boolean
+  isOlderHistoryLoading: () => boolean
   isSessionError: () => boolean
   isSessionLoading: () => boolean
   messages: () => ReadonlyArray<SelectedSessionViewMessage>
+  latestAnswer: () => SessionLatestAnswer
+  compactState: () => SessionCompactRunInputState | undefined
+  semanticSteps: () => ReadonlyArray<SessionSemanticStep>
+  throughSeq: () => number | undefined
+  hasOlderHistory: () => boolean
+  loadOlderHistory: () => void
   /** Explains why the open session is read-only, or null when it is editable. */
   readOnlyReason: () => SessionReadOnlyReason | null
   /** Single-sentence notice matching `readOnlyReason`, or undefined when editable. */
@@ -49,6 +57,7 @@ export type SelectedSessionView = {
   renameState: () => ReturnType<typeof sessionRenameControlStateCreate> | undefined
   pinState: () => ReturnType<typeof sessionPinToggleStateCreate> | undefined
   retryMessages: () => void
+  retryOlderHistory: () => void
   retrySession: () => void
   streamGroups: () => ReadonlyArray<SessionStreamGroup>
   isStreamLoading: () => boolean

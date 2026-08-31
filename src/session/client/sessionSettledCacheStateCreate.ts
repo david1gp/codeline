@@ -58,6 +58,8 @@ export function sessionSettledCacheStateCreate(options: {
   fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
   isOnline?: () => boolean
   lastLocallyActiveUserId?: string | null
+  /** Skip the legacy exhaustive settled snapshot when another live projection owns revalidation. */
+  revalidateOnLoad?: boolean
   sessionId: string
   userId: string | null
   asOfSequenceResolve?: (cursor: string) => number | undefined
@@ -212,6 +214,7 @@ export function sessionSettledCacheStateCreate(options: {
   const ready = (async () => {
     const loaded = await load()
     if (!loaded.success) return loaded
+    if (options.revalidateOnLoad === false) return loaded
     return revalidate()
   })()
 

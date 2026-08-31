@@ -1,7 +1,8 @@
 import { For, Show } from "solid-js"
 import { Badge } from "#ui/static/badge/Badge.jsx"
 import type { BadgeVariant } from "#ui/static/badge/badgeCva.jsx"
-import type { SessionStreamDelegationLink, SessionStreamEntry } from "./sessionStreamGroupsDerive.js"
+import type { SessionChildConversationLink } from "./sessionChildConversationLink.js"
+import type { SessionStreamEntry } from "./sessionStreamGroupsDerive.js"
 
 const badgeCompactClass = "shrink-0 border-line-subtle px-1.5 py-0 text-[10px]"
 
@@ -15,13 +16,16 @@ const streamEntryVariant: Record<SessionStreamEntry["kind"], BadgeVariant> = {
 
 export function SessionStreamEntryList(props: {
   entries: ReadonlyArray<SessionStreamEntry>
-  onDelegation?: (delegation: SessionStreamDelegationLink) => void
+  onDelegation?: (delegation: SessionChildConversationLink) => void
 }) {
   return (
     <ol class="m-0 grid list-none gap-1 p-0">
       <For each={props.entries}>
         {(entry) => (
-          <Show when={entry.delegation} fallback={<SessionStreamEntryRow entry={entry} />}>
+          <Show
+            when={entry.delegation?.childSessionId && entry.delegation.parentSessionId ? entry.delegation : undefined}
+            fallback={<SessionStreamEntryRow entry={entry} />}
+          >
             {(delegation) => (
               <li class="min-w-0">
                 <button
@@ -29,8 +33,17 @@ export function SessionStreamEntryList(props: {
                   type="button"
                   aria-label={`Open subagent thread: ${entry.label}. Task: ${delegation().task}`}
                   data-child-agent-id={delegation().childAgentId}
+                  data-child-session-id={delegation().childSessionId ?? undefined}
                   data-child-stream-id={delegation().childStreamId}
-                  onClick={() => props.onDelegation?.(delegation())}
+                  onClick={() =>
+                    props.onDelegation?.({
+                      childSessionId: delegation().childSessionId ?? "",
+                      childStreamId: delegation().childStreamId,
+                      delegationId: delegation().id,
+                      parentSessionId: delegation().parentSessionId ?? "",
+                      task: delegation().task,
+                    })
+                  }
                 >
                   <Badge class={badgeCompactClass} variant="subtle">
                     subagent

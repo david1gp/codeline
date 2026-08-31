@@ -1,12 +1,12 @@
 import { createResultError } from "@adaptive-ds/result"
 import { type Accessor, createEffect, createMemo, onCleanup, useContext } from "solid-js"
 import { finalizedMessageCopyStateCreate } from "../message/ui/finalizedMessageCopyStateCreate.js"
-import { sessionFinalizedMessagesFetch } from "../message/ui/sessionFinalizedMessagesFetch.js"
 import type { CodelineExecution } from "../providers/schema/codelineExecutionSchema.js"
 import { sessionDelegationsFetch } from "../run/ui/sessionDelegationsFetch.js"
+import { sessionBoundedHistoryStateCreate } from "../session/client/sessionBoundedHistoryStateCreate.js"
 import { sessionReadOnlyNoticeResolve } from "../session/client/sessionReadOnlyNoticeResolve.js"
 import { sessionReadOnlyReasonResolve } from "../session/client/sessionReadOnlyReasonResolve.js"
-import { sessionDetailFetch } from "../session/ui/sessionDetailFetch.js"
+import { sessionEtagFetch } from "../session/ui/sessionEtagFetch.js"
 import { sessionPinRequest } from "../session/ui/sessionPinRequest.js"
 import { sessionRenameControlStateCreate } from "../session/ui/sessionRenameControlStateCreate.js"
 import { sessionRenameRequest } from "../session/ui/sessionRenameRequest.js"
@@ -17,7 +17,6 @@ import type { ChatCommandCatalogSource } from "./chatCommandView.js"
 import { eventFeedCoordinatorContext } from "./eventFeedCoordinatorContext.js"
 import { httpQueryStateCreate } from "./httpQueryStateCreate.js"
 import type { SelectedSessionView } from "./selectedSessionView.js"
-import { sessionActiveRunReattachStateCreate } from "./sessionActiveRunReattachStateCreate.js"
 import { sessionChatStateCacheCreate } from "./sessionChatStateCacheCreate.js"
 import { sessionChatStateCreate } from "./sessionChatStateCreate.js"
 import { sessionChatStateReadOnlyWrap } from "./sessionChatStateReadOnlyWrap.js"
@@ -30,7 +29,6 @@ import { sessionSettledCacheViewStateCreate } from "./sessionSettledCacheViewSta
 import { sessionSettledCompletionCacheRegistry } from "./sessionSettledCompletionCacheRegistry.js"
 import { sessionStreamStateCreate } from "./sessionStreamStateCreate.js"
 import { sessionSubagentThreadStateCreate } from "./sessionSubagentThreadStateCreate.js"
-import { signalObjectCreate } from "./signalObjectCreate.js"
 import { sessionViewAcknowledgeStateCreate } from "./sessionViewAcknowledgeStateCreate.js"
 
 type SelectedSessionStateOptions = {
@@ -64,22 +62,22 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
     sessionId: selectedSessionId,
     userId: () => account?.userId() ?? null,
   })
-  const sessionQuery = httpQueryStateCreate({
+  const boundedHistory = sessionBoundedHistoryStateCreate({
     enabled: isSignedIn,
-    key: selectedSessionKey,
-    load: (sessionId, signal) => sessionDetailFetch(sessionId, { signal }),
+    ...(fetcher === undefined ? {} : { fetch: fetcher }),
+    sessionId: selectedSessionId,
   })
-  const liveSession = () => sessionQuery.data()?.session
+  const liveSession = () => boundedHistory.snapshot()?.session
   const cachedSession = () => settledCache.record()?.payload.session
   const session = () => liveSession() ?? cachedSession()
-  const sessionEtag = () => sessionQuery.data()?.etag ?? ""
   const sessionResult = () => ({
-    retry: sessionQuery.retry,
-    type: sessionQuery.isError()
-      ? ("error" as const)
-      : sessionQuery.isLoading()
-        ? ("unknown" as const)
-        : ("complete" as const),
+    retry: boundedHistory.retry,
+    type:
+      boundedHistory.isError() && boundedHistory.snapshot() === undefined
+        ? ("error" as const)
+        : boundedHistory.isLoading() && boundedHistory.snapshot() === undefined
+          ? ("unknown" as const)
+          : ("complete" as const),
   })
   const sessionView = sessionViewAcknowledgeStateCreate({ fetch: fetcher, isOnline })
   let viewedSelectionId: string | null = null
@@ -87,30 +85,34 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
     const sessionId = selectedSessionId()
     if (sessionId !== null) sessionView.acknowledge(sessionId, force)
   }
-  const messagesQuery = httpQueryStateCreate({
-    enabled: isSignedIn,
-    key: () => liveSession()?.id,
-    load: (sessionId, signal) => sessionFinalizedMessagesFetch(sessionId, { signal }),
-  })
-  const messagesReloadVersion = signalObjectCreate(0)
-  let messagesRefreshPending = false
-  const messagesRefresh = () => {
-    messagesRefreshPending = true
-    messagesQuery.refresh()
+  const boundedMessages = () => {
+    const latestAnswer = boundedHistory.latestAnswer()
+    const messages = boundedHistory.semanticSteps().flatMap((step) => {
+      if (step.kind !== "message") return []
+      return [
+        {
+          content: latestAnswer?.id === step.id ? latestAnswer.content : step.summary,
+          id: step.id,
+          role: step.role,
+          sequence: step.sequence,
+        },
+      ]
+    })
+    if (latestAnswer === null || messages.some((message) => message.id === latestAnswer.id)) return messages
+    return [...messages, latestAnswer].sort(
+      (left, right) => left.sequence - right.sequence || left.id.localeCompare(right.id),
+    )
   }
-  createEffect(() => {
-    if (!messagesRefreshPending || !messagesQuery.isComplete()) return
-    messagesRefreshPending = false
-    messagesReloadVersion.set(messagesReloadVersion.get() + 1)
-  })
-  const messages = () => messagesQuery.data()?.messages ?? settledCache.record()?.payload.messages
+  const messages = () =>
+    boundedHistory.snapshot() === undefined ? settledCache.record()?.payload.messages : boundedMessages()
   const messagesResult = () => ({
-    retry: messagesQuery.retry,
-    type: messagesQuery.isError()
-      ? ("error" as const)
-      : messagesQuery.isLoading()
-        ? ("unknown" as const)
-        : ("complete" as const),
+    retry: boundedHistory.retry,
+    type:
+      boundedHistory.isError() && boundedHistory.snapshot() === undefined
+        ? ("error" as const)
+        : boundedHistory.isLoading() && boundedHistory.snapshot() === undefined
+          ? ("unknown" as const)
+          : ("complete" as const),
   })
   const delegationsQuery = httpQueryStateCreate({
     enabled: () => isSignedIn() && liveSession()?.id === selectedSessionId(),
@@ -126,7 +128,7 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
     }))
   const readOnlyReason = createMemo(() =>
     sessionReadOnlyReasonResolve({
-      cacheStatus: settledCache.status(),
+      cacheStatus: boundedHistory.isError() ? "error" : settledCache.status(),
       hasCachedRecord: settledCache.record() !== undefined,
       hasLiveSession: liveSession() !== undefined,
       isOnline: isOnline(),
@@ -150,8 +152,13 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
       mutate: async (sessionId, title) => {
         const reason = readOnlyReason()
         if (reason !== null) return createResultError("selectedSessionRename", sessionReadOnlyNoticeResolve(reason))
-        const result = await sessionRenameRequest(sessionId, title, { etag: sessionEtag() })
-        if (result.success) sessionQuery.refresh()
+        const etag = await sessionEtagFetch(sessionId, fetcher === undefined ? {} : { fetch: fetcher })
+        if (!etag.success) return etag
+        const result = await sessionRenameRequest(sessionId, title, {
+          etag: etag.data,
+          ...(fetcher === undefined ? {} : { fetch: fetcher }),
+        })
+        if (result.success) boundedHistory.refresh()
         return result
       },
     })
@@ -169,8 +176,13 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
       mutate: async (sessionId, pinned) => {
         const reason = readOnlyReason()
         if (reason !== null) return createResultError("selectedSessionPin", sessionReadOnlyNoticeResolve(reason))
-        const result = await sessionPinRequest(sessionId, pinned, { etag: sessionEtag() })
-        if (result.success) sessionQuery.refresh()
+        const etag = await sessionEtagFetch(sessionId, fetcher === undefined ? {} : { fetch: fetcher })
+        if (!etag.success) return etag
+        const result = await sessionPinRequest(sessionId, pinned, {
+          etag: etag.data,
+          ...(fetcher === undefined ? {} : { fetch: fetcher }),
+        })
+        if (result.success) boundedHistory.refresh()
         return result
       },
     })
@@ -179,7 +191,7 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
   }
 
   const chatCreateLive = sessionChatStateCacheCreate({
-    authoritativeReloadVersion: messagesReloadVersion.get,
+    authoritativeReloadVersion: boundedHistory.snapshotVersion,
     chatStateCreate: sessionChatStateCreate,
     codelineExecution: options.codelineExecution,
     ...(options.commandCatalog === undefined ? {} : { commandCatalog: options.commandCatalog }),
@@ -203,11 +215,13 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
   const streamDelegations = () =>
     (delegations() ?? []).map((delegation) => ({
       ...(delegation.childAgentId === undefined ? {} : { childAgentId: delegation.childAgentId }),
+      childSessionId: delegation.childSessionId,
       childRunId: delegation.childRunId,
       delegationKey: delegation.delegationKey,
       id: delegation.id,
       parentAttemptId: delegation.parentAttemptId,
       parentRunId: delegation.parentRunId,
+      parentSessionId: delegation.parentSessionId,
       task: delegation.task,
     }))
   const sessionReady = async (sessionId: string) => {
@@ -217,17 +231,8 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
     }
     return false
   }
-  // Reload rejoins a detached run: discover the session's active runs, read each
-  // run-specific active snapshot, then attach the feed after its cursor.
-  const activeRunReattach = sessionActiveRunReattachStateCreate({
-    activeRunAttach: (input) => {
-      eventFeed?.activeRunAttach(input)
-    },
-    enabled: () => isSignedIn() && isOnline() && readOnlyReason() === null,
-    ...(fetcher === undefined ? {} : { fetch: fetcher }),
-    sessionId: selectedSessionId,
-  })
   const streamState = sessionStreamStateCreate({
+    boundedState: boundedHistory.state,
     delegations: streamDelegations,
     ...(eventFeed === undefined ? {} : { eventFeedState: () => eventFeed.dataState }),
     inFlightRunId: () => {
@@ -240,6 +245,7 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
     },
     isEnabled: () => displayMode.mode() === "stream" || subagentThread.selected() !== undefined,
     sessionId: () => session()?.id,
+    throughSeq: boundedHistory.throughSeq,
   })
   const initialMessage = sessionInitialMessageStateCreate({
     chatCreate,
@@ -250,29 +256,21 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
     sessionReady,
     sessionTargetAvailable: options.sessionTargetAvailable,
   })
-  const lastSession = signalObjectCreate<ReturnType<typeof session>>(undefined)
-  const lastMessages = signalObjectCreate<ReturnType<typeof durableMessages>>([])
-
   const revalidate = () => {
-    sessionQuery.refresh()
-    messagesRefresh()
+    boundedHistory.refresh()
     delegationsQuery.refresh()
     streamState.revalidate()
-    settledCache.revalidate()
   }
+  const boundedRefresh = () => boundedHistory.refresh()
 
   const unregisterEventFeed = [
     eventFeed?.registerSelectedSession({
       completion: () => selectedSessionViewAcknowledge(true),
-      refresh: () => {
-        sessionQuery.refresh()
-      },
+      refresh: boundedRefresh,
       sessionId: selectedSessionId,
     }),
     eventFeed?.registerSelectedMessages({
-      refresh: () => {
-        messagesRefresh()
-      },
+      refresh: boundedRefresh,
       sessionId: selectedSessionId,
     }),
     eventFeed?.registerSelectedDelegations({
@@ -306,17 +304,6 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
   })
 
   createEffect(() => {
-    const current = session()
-    if (current !== undefined) lastSession.set(current)
-    if (selectedSessionId() === null) lastSession.set(undefined)
-  })
-  createEffect(() => {
-    const current = durableMessages()
-    if (current.length > 0) lastMessages.set(current)
-    if (selectedSessionId() === null) lastMessages.set([])
-  })
-
-  createEffect(() => {
     if (
       selectedSessionId() === null ||
       initialMessage.isVisible() ||
@@ -329,16 +316,21 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
   })
 
   return {
-    activeRunReattachStatus: activeRunReattach.status,
     chatCreate,
     displayMode,
-    session: () => session() ?? lastSession.get(),
+    session,
     initialChat: initialMessage.chat,
     isInitialChatVisible: initialMessage.isVisible,
-    messages: () => {
-      const current = durableMessages()
-      return current.length > 0 ? current : lastMessages.get()
-    },
+    messages: durableMessages,
+    latestAnswer: boundedHistory.latestAnswer,
+    compactState: boundedHistory.state,
+    semanticSteps: boundedHistory.semanticSteps,
+    throughSeq: boundedHistory.throughSeq,
+    hasOlderHistory: boundedHistory.hasMore,
+    isOlderHistoryError: boundedHistory.isOlderError,
+    isOlderHistoryLoading: boundedHistory.isOlderLoading,
+    loadOlderHistory: () => void boundedHistory.loadOlder(),
+    retryOlderHistory: boundedHistory.retryOlder,
     readOnlyNotice,
     readOnlyReason,
     refresh: revalidate,
@@ -356,8 +348,7 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
       session() === undefined,
     isSessionError: () => readOnlyReason() === null && sessionResult().type === "error" && session() === undefined,
     isMessagesLoading: () => session() !== undefined && messagesResult().type === "unknown" && messages() === undefined,
-    isMessagesRefreshing: () =>
-      readOnlyReason() === null && messagesResult().type === "unknown" && (messages()?.length ?? 0) > 0,
+    isMessagesRefreshing: () => readOnlyReason() === null && boundedHistory.isRefreshing(),
     isMessagesError: () => readOnlyReason() === null && messagesResult().type === "error" && messages() === undefined,
     isMessagesEmpty: () =>
       (readOnlyReason() !== null || messagesResult().type === "complete") && (messages()?.length ?? 0) === 0,

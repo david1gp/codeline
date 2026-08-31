@@ -89,6 +89,28 @@ test("loads the cached record before a pending online revalidation", async () =>
   database.close()
 })
 
+test("can load offline fallback data without starting the legacy exhaustive snapshot read", async () => {
+  const database = await databaseCreate()
+  const cached = recordCreate("user-a", "session-a", 1)
+  await sessionSettledRecordWrite(database, cached)
+  let fetchCalled = false
+  const state = sessionSettledCacheStateCreate({
+    database,
+    fetch: async () => {
+      fetchCalled = true
+      return new Response(null, { status: 304, headers: { ETag: cached.etag } })
+    },
+    revalidateOnLoad: false,
+    sessionId: "session-a",
+    userId: "user-a",
+  })
+
+  expect(await state.ready).toEqual({ success: true, data: cached })
+  expect(fetchCalled).toBe(false)
+  expect(state.state()).toEqual({ record: cached, status: "ready" })
+  database.close()
+})
+
 test("sends the cached ETag, retains on 304, and atomically replaces on validated 200", async () => {
   const database = await databaseCreate()
   const cached = recordCreate("user-a", "session-a", 1)

@@ -122,3 +122,42 @@ test("stream state keeps durable identity while deriving changing in-flight rows
     dispose()
   })
 })
+
+test("bounded active output is followed only by feed deltas after throughSeq", async () => {
+  await createRoot(async (dispose) => {
+    const feed = feedStateCreate()
+    const run = feed.activeRuns.get("client-run-1")
+    if (run === undefined) throw new Error("missing fixture run")
+    run.deltas = [
+      { delta: " duplicate", deltaKind: "text", messageId: null, sequence: 4 },
+      { delta: " tail", deltaKind: "text", messageId: null, sequence: 6 },
+    ]
+    run.lastSequence = 6
+    run.partialText = "Working duplicate tail"
+
+    const state = sessionStreamStateCreate({
+      boundedState: () => ({
+        input: null,
+        run: {
+          lastSequence: 4,
+          partialText: "Working",
+          runId: "client-run-1",
+          sessionId: "session-1",
+          status: "running",
+        },
+      }),
+      delegations: () => [],
+      eventFeedState: () => feed,
+      inFlightMessages: () => [],
+      inFlightRunId: () => null,
+      isEnabled: () => true,
+      sessionId: () => "session-1",
+      throughSeq: () => 5,
+    })
+
+    await tick()
+    expect(state.groups()[0]?.entries.map((entry) => entry.detail)).toEqual(["Working tail"])
+    expect(state.groups()[0]?.entries[0]?.id).toBe("client-run-1:bounded:5")
+    dispose()
+  })
+})

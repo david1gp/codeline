@@ -1,6 +1,5 @@
 import { For, Show } from "solid-js"
 import { Badge } from "#ui/static/badge/Badge.jsx"
-import { FinalizedMessage } from "../message/ui/FinalizedMessage.js"
 import { SessionStreamEntryList } from "./SessionStreamEntryList.js"
 import type { SelectedSessionView } from "./selectedSessionView.js"
 
@@ -14,23 +13,6 @@ const badgeCompactClass = "shrink-0 border-line-subtle px-1.5 py-0 text-[10px]"
 export function SessionStreamView(props: { state: SelectedSessionView }) {
   return (
     <div class="grid gap-5">
-      <Show when={props.state.messages().length > 0}>
-        <section aria-label="Finalized messages">
-          <p class="m-0 mb-2 text-[11px] font-semibold tracking-[0.14em] text-faint uppercase">Messages</p>
-          <ol class="m-0 grid list-none gap-4 p-0">
-            <For each={props.state.messages()}>
-              {(message) =>
-                message.role === "assistant" || message.role === "user" ? (
-                  <li class="min-w-0">
-                    <FinalizedMessage content={message.content} role={message.role} state={message.copyState} />
-                  </li>
-                ) : null
-              }
-            </For>
-          </ol>
-        </section>
-      </Show>
-
       <section aria-label="Execution stream">
         <p class="m-0 mb-2 text-[11px] font-semibold tracking-[0.14em] text-faint uppercase">Stream</p>
         <Show

@@ -1,9 +1,8 @@
 import { mdiPinOffOutline } from "@adaptive-ds/mdi/mdiPinOffOutline.js"
 import { mdiPinOutline } from "@adaptive-ds/mdi/mdiPinOutline.js"
-import { For, Match, Show, Switch } from "solid-js"
+import { Match, Show, Switch } from "solid-js"
 import { ButtonIconOnly } from "#ui/interactive/button/ButtonIconOnly.jsx"
 import { Details } from "#ui/interactive/details/Details.jsx"
-import { FinalizedMessage } from "../message/ui/FinalizedMessage.js"
 import type { providerModelSelectorStateCreate } from "../providers/ui/providerModelSelectorStateCreate.js"
 import { SessionRenameControl } from "../session/ui/SessionRenameControl.js"
 import type { ActiveProjectState } from "./activeProjectStateCreate.js"
@@ -13,6 +12,7 @@ import { SessionChat } from "./SessionChat.js"
 import { SessionCreationResourceSidebar } from "./SessionCreationResourceSidebar.js"
 import { SessionDisplayModeSwitcher } from "./SessionDisplayModeSwitcher.js"
 import { SessionProjectSelector } from "./SessionProjectSelector.js"
+import { SessionSemanticHistory } from "./SessionSemanticHistory.js"
 import { SessionStreamView } from "./SessionStreamView.js"
 import type { SelectedSessionView } from "./selectedSessionView.js"
 import type { SessionResourceSelectorView } from "./sessionResourceSelectorView.js"
@@ -145,51 +145,13 @@ export function SelectedSession(props: {
                     </Show>
                   </header>
 
-                  <Switch>
-                    <Match when={props.state.displayMode.mode() === "stream"}>
+                  <SessionSemanticHistory state={props.state} />
+
+                  <Show when={props.state.displayMode.mode() === "stream"}>
+                    <div class="mt-5 border-line-subtle border-t pt-5">
                       <SessionStreamView state={props.state} />
-                    </Match>
-                    <Match when={props.state.isMessagesError()}>
-                      <div
-                        class="flex flex-col items-center gap-2 py-8 text-center text-[13px] text-danger"
-                        role="alert"
-                      >
-                        <p class="m-0">Finalized messages are unavailable.</p>
-                        <button
-                          class="cursor-pointer rounded-lg border border-accent-border bg-accent-soft px-3 py-1.5 text-accent"
-                          type="button"
-                          onClick={props.state.retryMessages}
-                        >
-                          Retry
-                        </button>
-                      </div>
-                    </Match>
-                    <Match when={props.state.isMessagesLoading()}>
-                      <div class="py-8 text-center text-[13px] text-faint" role="status">
-                        Loading messages...
-                      </div>
-                    </Match>
-                    <Match when={props.state.isMessagesEmpty()}>
-                      <div class="py-8 text-center text-[13px] text-faint">No finalized messages yet.</div>
-                    </Match>
-                    <Match when={true}>
-                      <ol class="m-0 grid list-none gap-4 p-0" aria-label="Finalized messages">
-                        <For each={props.state.messages()}>
-                          {(message) =>
-                            message.role === "assistant" || message.role === "user" ? (
-                              <li class="min-w-0">
-                                <FinalizedMessage
-                                  content={message.content}
-                                  role={message.role}
-                                  state={message.copyState}
-                                />
-                              </li>
-                            ) : null
-                          }
-                        </For>
-                      </ol>
-                    </Match>
-                  </Switch>
+                    </div>
+                  </Show>
 
                   <Show when={props.state.isMessagesRefreshing()}>
                     <span class="mt-3 block py-2 text-[13px] text-faint" role="status">

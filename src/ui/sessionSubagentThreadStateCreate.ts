@@ -1,5 +1,5 @@
 import { createEffect } from "solid-js"
-import type { SessionStreamDelegationLink } from "./sessionStreamGroupsDerive.js"
+import type { SessionChildConversationLink } from "./sessionChildConversationLink.js"
 import { signalObjectCreate } from "./signalObjectCreate.js"
 
 type SessionSubagentThreadStateOptions = {
@@ -9,7 +9,7 @@ type SessionSubagentThreadStateOptions = {
 }
 
 export function sessionSubagentThreadStateCreate(options: SessionSubagentThreadStateOptions) {
-  const selected = signalObjectCreate<SessionStreamDelegationLink | undefined>(undefined)
+  const selected = signalObjectCreate<SessionChildConversationLink | undefined>(undefined)
   let previousSessionId = options.sessionId()
 
   createEffect(() => {
@@ -26,7 +26,7 @@ export function sessionSubagentThreadStateCreate(options: SessionSubagentThreadS
       selected.set(undefined)
       options.rightPanelClose()
     },
-    open: (delegation: SessionStreamDelegationLink) => {
+    open: (delegation: SessionChildConversationLink) => {
       selected.set(delegation)
       options.rightPanelShow()
     },

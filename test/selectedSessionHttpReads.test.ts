@@ -122,19 +122,23 @@ test("session delegation read uses the typed endpoint and preserves server order
       return Response.json({
         delegations: [
           {
+            childSessionId: null,
             childRunId: "child-2",
             delegationKey: "task-2",
             id: "delegation-2",
             parentAttemptId: "attempt-1",
             parentRunId: "run-1",
+            parentSessionId: "session/1",
             task: "second task",
           },
           {
+            childSessionId: null,
             childRunId: "child-1",
             delegationKey: "task-1",
             id: "delegation-1",
             parentAttemptId: "attempt-1",
             parentRunId: "run-1",
+            parentSessionId: "session/1",
             task: "first task",
           },
         ],
@@ -180,11 +184,14 @@ test("session delegation read sends a cached ETag and preserves a typed 304 resu
   expect(second).toEqual({ success: true, data: { status: 304 } })
 })
 
-test("selected-session state reads delegations through the HTTP client", async () => {
+test("selected-session state uses bounded history while retaining delegation reconciliation", async () => {
   const source = await Bun.file(new URL("../src/ui/selectedSessionStateCreate.ts", import.meta.url)).text()
 
+  expect(source).toContain("sessionBoundedHistoryStateCreate")
   expect(source).toContain("sessionDelegationsFetch")
   expect(source).toContain("httpQueryStateCreate")
+  expect(source).not.toContain("sessionFinalizedMessagesFetch")
+  expect(source).not.toContain("sessionActiveRunReattachStateCreate")
 })
 
 test("session delegation read rejects an empty session identifier without fetching", async () => {
