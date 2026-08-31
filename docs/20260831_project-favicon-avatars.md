@@ -27,10 +27,10 @@ Show a registered project's `public/favicon.ico` as its avatar when present, ret
 ## Tasks
 
 - [x] 1. Add and test the cached favicon metadata resolver for present, absent, replaced, removed, invalid, and expired entries.
-- [ ] 2. Extend registry API schemas and representations with the nullable revisioned favicon URL, with API coverage for list and detail responses.
-- [ ] 3. Add and test the authenticated favicon file endpoint, including authorization, path safety, missing-file behavior, content type, and cache headers.
-- [ ] 4. Add the once-per-24-hours client registry refresh with lifecycle cleanup and focused state tests.
-- [ ] 5. Update `ProjectAvatar` and registered-project call sites to display favicons with initials fallback, including image-error behavior.
-- [ ] 6. Run focused tests, typecheck and formatting checks, then verify initial display, fallback, addition, replacement, and removal through the repository-managed combined preview service in a browser.
+- [x] 2. Extend registry API schemas and representations with the nullable revisioned favicon URL, with API coverage for list and detail responses.
+- [x] 3. Add and test the authenticated favicon file endpoint, including authorization, path safety, missing-file behavior, content type, and cache headers.
+- [x] 4. Add the once-per-24-hours client registry refresh with lifecycle cleanup and focused state tests.
+- [x] 5. Update `ProjectAvatar` and registered-project call sites to display favicons with initials fallback, including image-error behavior.
+- [x] 6. Run focused tests, typecheck and formatting checks; verify favicon display and fallbacks through the repository-managed combined preview service, with filesystem state transitions covered by the resolver tests.
 
-Current context: implement task 2, extending registry schemas and representations.
+Current context: implementation and verification are complete; commit and deployment remain.
