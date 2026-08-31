@@ -66,7 +66,7 @@ function SessionRows(props: {
                 </span>
                 <span class="mt-0.5 flex w-full min-w-0 items-center gap-1.5 text-[11px] text-faint">
                   <Show when={!props.hideProjectLabel}>
-                    <ProjectAvatar name={row.projectLabel} class="size-3 text-[8px]" />
+                    <ProjectAvatar name={row.projectLabel} faviconUrl={row.faviconUrl} class="size-3 text-[8px]" />
                     <span class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">{row.projectLabel}</span>
                     <span aria-hidden="true">·</span>
                   </Show>
@@ -282,7 +282,7 @@ export function SessionList(props: {
                           {(project) => (
                             <details class="group" open={props.state.projectIsOpen(project)}>
                               <summary class="flex min-h-10 cursor-pointer list-none items-center gap-2 px-3 text-xs font-semibold text-strong hover:bg-surface-hover">
-                                <ProjectAvatar name={project.projectLabel} />
+                                <ProjectAvatar name={project.projectLabel} faviconUrl={project.faviconUrl} />
                                 <span
                                   class="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
                                   classList={{ "text-faint": project.available === false }}
@@ -362,7 +362,7 @@ export function SessionList(props: {
                 {(project) => (
                   <details class="group" open={props.state.projectIsOpen(project)}>
                     <summary class="flex min-h-10 cursor-pointer list-none items-center gap-2 px-3 text-xs font-semibold text-strong hover:bg-surface-hover">
-                      <ProjectAvatar name={project.projectLabel} />
+                      <ProjectAvatar name={project.projectLabel} faviconUrl={project.faviconUrl} />
                       <span
                         class="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
                         classList={{ "text-faint": project.available === false }}

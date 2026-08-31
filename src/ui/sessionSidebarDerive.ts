@@ -7,6 +7,7 @@ import type { SessionSidebarSession } from "./sessionSidebarSession.js"
 import { sessionUpdatedAtFormat } from "./sessionUpdatedAtFormat.js"
 
 export type SessionSidebarRow = {
+  faviconUrl?: string | null
   projectLabel: string
   session: SessionSidebarSession
   updatedAtRelative: string
@@ -15,6 +16,7 @@ export type SessionSidebarRow = {
 
 export type SessionSidebarProjectGroup = {
   available?: boolean
+  faviconUrl?: string | null
   folderId?: string | null
   parentFolder?: { id: string; label: string } | null
   projectId?: string
@@ -56,9 +58,11 @@ function sessionSidebarRowCreate(
   session: SessionSidebarSession,
   now: number,
   projectLabels: Record<string, string> = {},
+  projectFaviconUrls: ReadonlyMap<string, string | null> = new Map(),
 ): SessionSidebarRow {
   const updatedAt = sessionUpdatedAtFormat(session.updatedAt, now)
   return {
+    faviconUrl: session.projectId === undefined ? undefined : projectFaviconUrls.get(session.projectId),
     projectLabel: projectLabels[session.projectPath] ?? sessionSidebarProjectLabelResolve(session.projectPath),
     session,
     updatedAtRelative: updatedAt.relative,
@@ -74,9 +78,10 @@ export function sessionSidebarDerive(
   registeredProjects: readonly ProjectRegistryApiProject[] = [],
   registeredFolders: readonly ProjectRegistryApiFolder[] = [],
 ): SessionSidebarTabs {
+  const projectFaviconUrls = new Map(registeredProjects.map((project) => [project.id, project.faviconUrl]))
   const recent = [...activeSessions]
     .sort(sessionSidebarSessionCompare)
-    .map((session) => sessionSidebarRowCreate(session, now, projectLabels))
+    .map((session) => sessionSidebarRowCreate(session, now, projectLabels, projectFaviconUrls))
   const pinned = recent.filter((row) => row.session.pinned)
 
   const matchedSessionIds = new Set<string>()
@@ -95,6 +100,7 @@ export function sessionSidebarDerive(
 
     groups.push({
       available: reg.available,
+      faviconUrl: reg.faviconUrl,
       folderId: registeredFolderMap.has(reg.folderId ?? "")
         ? (reg.folderId ?? null)
         : registeredFolderMap.has(reg.parentFolder?.id ?? "")
@@ -158,7 +164,7 @@ export function sessionSidebarDerive(
     projects: groups,
     recent,
     search: searchResults.map((result) =>
-      sessionSidebarRowCreate(sessionSearchResultAdapt(result), now, projectLabels),
+      sessionSidebarRowCreate(sessionSearchResultAdapt(result), now, projectLabels, projectFaviconUrls),
     ),
     uncategorizedProjects,
   }

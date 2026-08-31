@@ -46,11 +46,15 @@ export function noteGroupsDerive<Note extends NoteGroupRow>(
     groups.set(projectId, group)
   }
   return [...groups]
-    .map(([projectId, groupedNotes]) => ({
-      label: noteProjectLabelResolve(projects, projectId, groupedNotes[0]?.projectPath),
-      projectId,
-      projectPath: groupedNotes[0]?.projectPath ?? null,
-      notes: groupedNotes,
-    }))
+    .map(([projectId, groupedNotes]) => {
+      const registeredProject = projects.find((project) => project.id === projectId)
+      return {
+        faviconUrl: registeredProject?.faviconUrl ?? null,
+        label: noteProjectLabelResolve(projects, projectId, groupedNotes[0]?.projectPath),
+        projectId,
+        projectPath: groupedNotes[0]?.projectPath ?? null,
+        notes: groupedNotes,
+      }
+    })
     .sort(noteGroupsCompare)
 }

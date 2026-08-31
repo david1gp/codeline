@@ -112,7 +112,13 @@ test("sidebar merges registered projects with zero sessions alongside historical
     now,
     {},
     [
-      { available: true, faviconUrl: null, id: regId1, label: "codeline", parentFolder: null },
+      {
+        available: true,
+        faviconUrl: "/api/project/favicon/one?revision=1",
+        id: regId1,
+        label: "codeline",
+        parentFolder: null,
+      },
       { available: false, faviconUrl: null, id: regId2, label: "empty-registered", parentFolder: null },
     ],
   )
@@ -126,8 +132,12 @@ test("sidebar merges registered projects with zero sessions alongside historical
     { available: true, label: "historical", sessionCount: 1 },
   ])
   expect(derived.projects[0]?.projectId).toBe(regId1)
+  expect(derived.projects[0]?.faviconUrl).toBe("/api/project/favicon/one?revision=1")
+  expect(derived.projects[0]?.sessions[0]?.faviconUrl).toBe("/api/project/favicon/one?revision=1")
+  expect(derived.recent[0]?.faviconUrl).toBe("/api/project/favicon/one?revision=1")
   expect(derived.projects[1]?.projectId).toBe(regId2)
   expect(derived.projects[2]?.projectId).toBeUndefined()
+  expect(derived.projects[2]?.faviconUrl).toBeUndefined()
 })
 
 test("sidebar keeps duplicate registered labels and unmatched historical sessions separate", () => {

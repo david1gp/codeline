@@ -44,7 +44,7 @@ test("note groups use registered labels without changing group or note ordering"
     noteGroupsDerive(notes, [
       {
         available: true,
-        faviconUrl: null,
+        faviconUrl: "/api/project/favicon/codeline?revision=1",
         id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb8",
         label: "Codeline",
         parentFolder: null,
@@ -59,24 +59,28 @@ test("note groups use registered labels without changing group or note ordering"
     ]),
   ).toEqual([
     {
+      faviconUrl: "/api/project/favicon/codeline?revision=1",
       label: "Codeline",
       projectId: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb8",
       projectPath: "/workspace/codeline",
       notes: [firstNote!, opaqueNote!],
     },
     {
+      faviconUrl: null,
       label: "Unavailable Project",
       projectId: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb9",
       projectPath: "/workspace/unavailable",
       notes: [unavailableNote!],
     },
     {
+      faviconUrl: null,
       label: "packages/legacy",
       projectId: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc7",
       projectPath: "packages/legacy",
       notes: [legacyNote!],
     },
     {
+      faviconUrl: null,
       label: "Unassigned",
       projectId: null,
       projectPath: null,
@@ -112,7 +116,19 @@ test("note groups keep duplicate project labels separate by opaque project ID", 
       ],
     ),
   ).toEqual([
-    { label: "Shared label", projectId: firstProjectId, projectPath: "/workspace/first", notes: [firstNote] },
-    { label: "Shared label", projectId: secondProjectId, projectPath: "/workspace/second", notes: [secondNote] },
+    {
+      faviconUrl: null,
+      label: "Shared label",
+      projectId: firstProjectId,
+      projectPath: "/workspace/first",
+      notes: [firstNote],
+    },
+    {
+      faviconUrl: null,
+      label: "Shared label",
+      projectId: secondProjectId,
+      projectPath: "/workspace/second",
+      notes: [secondNote],
+    },
   ])
 })

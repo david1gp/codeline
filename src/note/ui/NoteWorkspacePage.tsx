@@ -57,7 +57,7 @@ export function NoteWorkspacePage(props: { state: NoteWorkspaceScreenView }) {
                   }}
                   aria-current={group.projectId === state.activeProjectId() ? "true" : undefined}
                 >
-                  <ProjectAvatar name={group.label} />
+                  <ProjectAvatar name={group.label} faviconUrl={group.faviconUrl} />
                   {group.label}
                 </span>
                 <ul class="m-0 grid list-none gap-0.5 p-0">

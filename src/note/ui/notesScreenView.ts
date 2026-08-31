@@ -6,6 +6,7 @@ export type NotesScreenNote = {
 }
 
 export type NotesScreenGroup = {
+  faviconUrl?: string | null
   label: string
   notes: readonly NotesScreenNote[]
   projectId: string | null
