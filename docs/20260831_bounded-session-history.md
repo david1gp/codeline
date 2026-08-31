@@ -17,7 +17,7 @@ Open a session with the latest agent answer and about 25 recent semantic steps, 
 
 ## Approach
 
-- Current context: feature commits are pushed at `0fcd0b7`; the managed preview already serves that checkout and is healthy. The deployment checkout alignment repair and focused safety verification are complete; publishing is complete, while deployment remains pending.
+- Current context: bounded session history and the managed-checkout deploy repair are pushed and deployed through `b0279c6`; managed and public readiness checks pass.
 - Add backend schemas and transactional read models before changing existing selected-session reads.
 - Introduce the bounded snapshot and fixed-watermark older-history API, then add lazy detail and child references.
 - Migrate selected-session state to snapshot-plus-tail, retaining existing reconciliation behavior as fallback.
@@ -35,4 +35,4 @@ Open a session with the latest agent answer and about 25 recent semantic steps, 
 - [x] 7. Migrate selected-session client state to bounded snapshot-plus-tail with incremental older-page loading.
 - [x] 8. Update the session UI to emphasize the latest answer, show about 25 recent semantic steps, load older steps, lazily expand details, display waiting state, and open child conversations.
 - [x] 9. Run focused and repository verification, then test the combined managed preview in a browser.
-- [ ] 10. Review and publish the completed work with conventional commits, push, and deploy.
+- [x] 10. Review and publish the completed work with conventional commits, push, and deploy.
