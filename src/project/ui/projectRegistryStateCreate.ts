@@ -1,4 +1,5 @@
 import type { Result } from "@adaptive-ds/result"
+import { onCleanup } from "solid-js"
 import type { Accessor } from "solid-js"
 import { httpQueryAccountCacheCreate } from "../../ui/httpQueryAccountCacheCreate.js"
 import { httpQueryStateCreate } from "../../ui/httpQueryStateCreate.js"
@@ -26,7 +27,15 @@ type ProjectRegistryStateOptions = {
   accountId?: Accessor<string | null>
   fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
   isOnline?: Accessor<boolean>
+  scheduler?: ProjectRegistryStateScheduler
 }
+
+type ProjectRegistryStateScheduler = {
+  clearInterval: (handle: unknown) => void
+  setInterval: (handler: () => void, timeoutMs: number) => unknown
+}
+
+const projectRegistryRefreshIntervalMs = 24 * 60 * 60 * 1000
 
 export function projectRegistryStateCreate(options: ProjectRegistryStateOptions = {}) {
   const fetchImplementation = options.fetch ?? globalThis.fetch
@@ -38,6 +47,12 @@ export function projectRegistryStateCreate(options: ProjectRegistryStateOptions 
     key: () => accountCache.keyCreate("/api/project/registry"),
     load: async (_key, signal) => projectRegistryListFetch({ fetch: fetchImplementation, signal }),
   })
+  const scheduler: ProjectRegistryStateScheduler = options.scheduler ?? {
+    clearInterval: (handle) => globalThis.clearInterval(handle as ReturnType<typeof globalThis.setInterval>),
+    setInterval: (handler, timeoutMs) => globalThis.setInterval(handler, timeoutMs),
+  }
+  const refreshTimer = scheduler.setInterval(() => query.refresh(), projectRegistryRefreshIntervalMs)
+  onCleanup(() => scheduler.clearInterval(refreshTimer))
 
   const projects = (): readonly ProjectRegistryApiProject[] => query.data()?.projects ?? []
   const folders = (): readonly ProjectRegistryApiFolder[] => query.data()?.folders ?? []

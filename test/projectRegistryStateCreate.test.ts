@@ -54,6 +54,56 @@ test("projectRegistryStateCreate handles empty state", async () => {
   root.dispose()
 })
 
+test("projectRegistryStateCreate refreshes once per day and cleans up the timer", async () => {
+  let dailyRefresh: (() => void) | undefined
+  let intervalMs = 0
+  let clearedTimer: unknown
+  let listCount = 0
+  const root = createRoot((dispose) => {
+    const state = projectRegistryStateCreate({
+      accountId: () => "user-daily-refresh",
+      fetch: async () => {
+        listCount += 1
+        return Response.json({
+          folders: [],
+          projects: [
+            {
+              available: true,
+              faviconUrl: null,
+              id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb5",
+              label: `Project ${listCount}`,
+            },
+          ],
+          truncated: false,
+        })
+      },
+      scheduler: {
+        clearInterval: (handle) => {
+          clearedTimer = handle
+        },
+        setInterval: (handler, timeoutMs) => {
+          dailyRefresh = handler
+          intervalMs = timeoutMs
+          return "daily-refresh-timer"
+        },
+      },
+    })
+    return { dispose, state }
+  })
+
+  await tick()
+  expect(listCount).toBe(1)
+  expect(intervalMs).toBe(24 * 60 * 60 * 1000)
+
+  dailyRefresh?.()
+  await tick()
+  expect(listCount).toBe(2)
+  expect(root.state.projects()[0]?.label).toBe("Project 2")
+
+  root.dispose()
+  expect(clearedTimer).toBe("daily-refresh-timer")
+})
+
 test("projectRegistryStateCreate handles error and retry", async () => {
   let callCount = 0
   const root = createRoot((dispose) => {
