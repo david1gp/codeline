@@ -17,7 +17,7 @@ Open a session with the latest agent answer and about 25 recent semantic steps, 
 
 ## Approach
 
-- Current context: bounded snapshot/history contracts and focused schema coverage are complete; the transactional snapshot read model is next.
+- Current context: implementation and focused verification are complete; browser verification confirms bounded snapshot/SSE loading and latest-answer activity presentation on seeded data, while older/detail/delegation interactions lack matching seed fixtures. Full-suite verification has one isolated pre-existing notes favicon expectation mismatch. Publishing increment 1 (commits and push) is complete; deployment remains pending.
 - Add backend schemas and transactional read models before changing existing selected-session reads.
 - Introduce the bounded snapshot and fixed-watermark older-history API, then add lazy detail and child references.
 - Migrate selected-session state to snapshot-plus-tail, retaining existing reconciliation behavior as fallback.
@@ -27,12 +27,12 @@ Open a session with the latest agent answer and about 25 recent semantic steps, 
 ## Tasks
 
 - [x] 1. Add bounded snapshot, semantic-step, watermark, and cursor contracts with focused schema tests.
-- [ ] 2. Implement the transactionally consistent bounded session snapshot repository/action/API and handoff tests.
-- [ ] 3. Implement fixed-`throughSeq` backward keyset pagination for older semantic history and stability tests.
-- [ ] 4. Add compact run/tool projections and lazy run/tool detail API with payload-boundary tests.
-- [ ] 5. Add authoritative waiting-for-input projection and response handling where the runtime protocol supports it.
-- [ ] 6. Add stable parent/child session references required for delegation navigation and API tests.
-- [ ] 7. Migrate selected-session client state to bounded snapshot-plus-tail with incremental older-page loading.
-- [ ] 8. Update the session UI to emphasize the latest answer, show about 25 recent semantic steps, load older steps, lazily expand details, display waiting state, and open child conversations.
-- [ ] 9. Run focused and repository verification, then test the combined managed preview in a browser.
+- [x] 2. Implement the transactionally consistent bounded session snapshot repository/action/API and handoff tests.
+- [x] 3. Implement fixed-`throughSeq` backward keyset pagination for older semantic history and stability tests.
+- [x] 4. Add compact run/tool projections and lazy run/tool detail API with payload-boundary tests.
+- [x] 5. Add authoritative waiting-for-input projection and response handling where the runtime protocol supports it.
+- [x] 6. Add stable parent/child session references required for delegation navigation and API tests.
+- [x] 7. Migrate selected-session client state to bounded snapshot-plus-tail with incremental older-page loading.
+- [x] 8. Update the session UI to emphasize the latest answer, show about 25 recent semantic steps, load older steps, lazily expand details, display waiting state, and open child conversations.
+- [x] 9. Run focused and repository verification, then test the combined managed preview in a browser.
 - [ ] 10. Review and publish the completed work with conventional commits, push, and deploy.
