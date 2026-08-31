@@ -2,7 +2,7 @@
 set -euo pipefail
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-managed_checkout_path="$HOME/codeline"
+managed_checkout_path="$script_dir/.."
 
 fail() {
   printf 'codeline-deploy: %s\n' "$1" >&2

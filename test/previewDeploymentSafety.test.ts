@@ -178,7 +178,8 @@ async function harnessCreate(options: HarnessOptions = {}): Promise<Harness> {
   if (initialDist === "prior") await fs.mkdir(liveDist, { recursive: true })
   await fs.mkdir(home, { recursive: true })
   await fs.mkdir(binDirectory, { recursive: true })
-  await fs.symlink(root, path.join(home, "codeline"))
+  await fs.mkdir(path.join(home, "adaptive"), { recursive: true })
+  await fs.symlink(root, path.join(home, "adaptive/codeline"))
   await fs.writeFile(
     path.join(root, ".env"),
     `
