@@ -3,18 +3,21 @@ import { noteProjectChoicesResolve } from "../src/note/ui/noteProjectChoicesReso
 
 const availableFirst = {
   available: true,
+  faviconUrl: null,
   id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fad",
   label: "alpha",
   parentFolder: null,
 }
 const availableSecond = {
   available: true,
+  faviconUrl: null,
   id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fae",
   label: "beta",
   parentFolder: null,
 }
 const unavailableRegistered = {
   available: false,
+  faviconUrl: null,
   id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1faf",
   label: "gamma",
   parentFolder: null,
@@ -41,7 +44,7 @@ test("note project choices preserve an existing unavailable assignment without o
 test("note project choices preserve an existing historical assignment absent from registry", () => {
   const historicalProjectId = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb3"
   expect(noteProjectChoicesResolve(projects, historicalProjectId, "legacy/project")).toEqual([
-    { available: false, id: historicalProjectId, label: "legacy/project", parentFolder: null },
+    { available: false, faviconUrl: null, id: historicalProjectId, label: "legacy/project", parentFolder: null },
     availableFirst,
     availableSecond,
   ])

@@ -11,8 +11,8 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
 test("projectRegistryStateCreate loads registered projects with account scoping", async () => {
   const requests: Array<{ body?: string; headers?: Record<string, string>; url: string }> = []
   const projectsData = [
-    { available: true, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fa0", label: "Codeline" },
-    { available: false, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fa1", label: "Missing Directory" },
+    { available: true, faviconUrl: null, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fa0", label: "Codeline" },
+    { available: false, faviconUrl: null, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fa1", label: "Missing Directory" },
   ]
 
   const root = createRoot((dispose) => {
@@ -66,7 +66,9 @@ test("projectRegistryStateCreate handles error and retry", async () => {
         }
         return Response.json({
           folders: [],
-          projects: [{ available: true, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fa2", label: "Retried Project" }],
+          projects: [
+            { available: true, faviconUrl: null, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fa2", label: "Retried Project" },
+          ],
           truncated: false,
         })
       },
@@ -103,6 +105,7 @@ test("projectRegistryStateCreate projectRegister posts to registry and refreshes
           return Response.json({
             project: {
               available: true,
+              faviconUrl: null,
               id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fa3",
               label: "New Registered",
             },
@@ -113,7 +116,14 @@ test("projectRegistryStateCreate projectRegister posts to registry and refreshes
         if (listCount > 1) {
           return Response.json({
             folders: [],
-            projects: [{ available: true, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fa3", label: "New Registered" }],
+            projects: [
+              {
+                available: true,
+                faviconUrl: null,
+                id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fa3",
+                label: "New Registered",
+              },
+            ],
             truncated: false,
           })
         }
@@ -155,6 +165,7 @@ test("projectRegistryStateCreate projectRename patches registry and refreshes qu
           return Response.json({
             project: {
               available: true,
+              faviconUrl: null,
               id: projectId,
               label: "Renamed Title",
             },
@@ -165,13 +176,13 @@ test("projectRegistryStateCreate projectRename patches registry and refreshes qu
         if (listCount > 1) {
           return Response.json({
             folders: [],
-            projects: [{ available: true, id: projectId, label: "Renamed Title" }],
+            projects: [{ available: true, faviconUrl: null, id: projectId, label: "Renamed Title" }],
             truncated: false,
           })
         }
         return Response.json({
           folders: [],
-          projects: [{ available: true, id: projectId, label: "Initial Title" }],
+          projects: [{ available: true, faviconUrl: null, id: projectId, label: "Initial Title" }],
           truncated: false,
         })
       },
@@ -216,7 +227,7 @@ test("projectRegistryStateCreate projectRemove deletes from registry and refresh
         }
         return Response.json({
           folders: [],
-          projects: [{ available: true, id: projectId, label: "To Remove" }],
+          projects: [{ available: true, faviconUrl: null, id: projectId, label: "To Remove" }],
           truncated: false,
         })
       },
@@ -256,9 +267,9 @@ test("projectRegistryStateCreate openCodeImport posts to import endpoint and ref
           return Response.json({
             folders: [],
             projects: [
-              { available: true, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb0", label: "Imported 1" },
-              { available: true, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb1", label: "Imported 2" },
-              { available: true, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb2", label: "Imported 3" },
+              { available: true, faviconUrl: null, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb0", label: "Imported 1" },
+              { available: true, faviconUrl: null, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb1", label: "Imported 2" },
+              { available: true, faviconUrl: null, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb2", label: "Imported 3" },
             ],
             truncated: false,
           })
@@ -292,6 +303,7 @@ test("projectRegistryStateCreate manages folders and project assignment", async 
   let project = {
     active: false,
     available: true,
+    faviconUrl: null,
     folderId: null as string | null,
     id: projectId,
     label: "Project",

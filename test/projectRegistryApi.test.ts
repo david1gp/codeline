@@ -227,6 +227,7 @@ describe("project registry HTTP routes", () => {
           available: false,
           folderId: null,
           id: projectId,
+          faviconUrl: null,
           label: "Registered Project",
           parentFolder: null,
           unseenEnded: false,
@@ -242,6 +243,7 @@ describe("project registry HTTP routes", () => {
         available: false,
         folderId: null,
         id: projectId,
+        faviconUrl: null,
         label: "Registered Project",
         parentFolder: null,
         unseenEnded: false,
@@ -537,5 +539,40 @@ describe("project registry HTTP routes", () => {
       unseenEnded: true,
     })
     activeOrganizationId = undefined
+  })
+
+  test("includes a revisioned favicon URL in registry list and detail responses", async () => {
+    activeUserId = firstUserId
+    const faviconProjectRoot = path.join(rootDirectory, "favicon-project")
+    await fs.mkdir(path.join(faviconProjectRoot, "public"), { recursive: true })
+    await fs.writeFile(path.join(faviconProjectRoot, "public", "favicon.ico"), Buffer.from([0, 1, 2, 3]))
+
+    const registered = await app.request("http://codeline.test/project/registry", {
+      body: JSON.stringify({ path: faviconProjectRoot }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+    expect(registered.status).toBe(200)
+    const registeredBody = (await registered.json()) as { project: { faviconUrl: string | null; id: string } }
+    const projectId = registeredBody.project.id
+    expect(registeredBody.project.faviconUrl).not.toBeNull()
+
+    const faviconUrl = new URL(registeredBody.project.faviconUrl as string, "http://codeline.test")
+    expect(faviconUrl.pathname).toBe(`/api/project/favicon/${projectId}`)
+    expect(faviconUrl.searchParams.get("revision")).toBeString()
+
+    const listed = await app.request("http://codeline.test/project/registry")
+    expect(listed.status).toBe(200)
+    const listedBody = (await listed.json()) as {
+      projects: Array<{ faviconUrl: string | null; id: string }>
+    }
+    expect(listedBody.projects.find((project) => project.id === projectId)?.faviconUrl).toBe(
+      registeredBody.project.faviconUrl,
+    )
+
+    const detail = await app.request(`http://codeline.test/project/registry/${projectId}`)
+    expect(detail.status).toBe(200)
+    const detailBody = (await detail.json()) as { project: { faviconUrl: string | null; id: string } }
+    expect(detailBody.project).toMatchObject(registeredBody.project)
   })
 })

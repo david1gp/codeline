@@ -9,12 +9,14 @@ const { noteProjectListStateCreate } = await import("../src/note/ui/noteProjectL
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
 const availableProject = {
   available: true,
+  faviconUrl: null,
   id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb0",
   label: "Codeline",
   parentFolder: null,
 }
 const unavailableProject = {
   available: false,
+  faviconUrl: null,
   id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb1",
   label: "Unavailable",
   parentFolder: null,

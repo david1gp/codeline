@@ -30,11 +30,13 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
 test("registering a new project refreshes shared registry and updates sidebar, New Session, Files, and Notes", async () => {
   const initialProject = {
     available: true,
+    faviconUrl: null,
     id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1f90",
     label: "Initial Project",
   }
   const registeredProject = {
     available: true,
+    faviconUrl: null,
     id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1f91",
     label: "Newly Registered",
   }
@@ -198,11 +200,13 @@ test("registering a new project refreshes shared registry and updates sidebar, N
 test("New Project dialog without explicit projectRegistry prop inherits and refreshes shared registry via context", async () => {
   const initialProject = {
     available: true,
+    faviconUrl: null,
     id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fa0",
     label: "Initial Project",
   }
   const registeredProject = {
     available: true,
+    faviconUrl: null,
     id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fa1",
     label: "Via Context",
   }

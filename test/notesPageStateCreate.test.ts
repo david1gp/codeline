@@ -34,7 +34,7 @@ test("notes page state loads typed notes, project labels, and refreshes after re
         }
         return Response.json({
           folders: [],
-          projects: [{ available: true, id: projectId, label: "Codeline", parentFolder: null }],
+          projects: [{ available: true, faviconUrl: null, id: projectId, label: "Codeline", parentFolder: null }],
           truncated: false,
         })
       },

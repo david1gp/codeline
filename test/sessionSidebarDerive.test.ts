@@ -112,8 +112,8 @@ test("sidebar merges registered projects with zero sessions alongside historical
     now,
     {},
     [
-      { available: true, id: regId1, label: "codeline", parentFolder: null },
-      { available: false, id: regId2, label: "empty-registered", parentFolder: null },
+      { available: true, faviconUrl: null, id: regId1, label: "codeline", parentFolder: null },
+      { available: false, faviconUrl: null, id: regId2, label: "empty-registered", parentFolder: null },
     ],
   )
 
@@ -143,8 +143,8 @@ test("sidebar keeps duplicate registered labels and unmatched historical session
     now,
     { "/legacy/first": "first" },
     [
-      { available: true, id: firstProjectId, label: "first", parentFolder: null },
-      { available: true, id: secondProjectId, label: "first", parentFolder: null },
+      { available: true, faviconUrl: null, id: firstProjectId, label: "first", parentFolder: null },
+      { available: true, faviconUrl: null, id: secondProjectId, label: "first", parentFolder: null },
     ],
   )
 
@@ -193,6 +193,7 @@ test("sidebar groups registered projects into user folders while isolating uncat
     [
       {
         available: true,
+        faviconUrl: null,
         folderId: folderId1,
         id: regId1,
         label: "Project One",
@@ -200,14 +201,23 @@ test("sidebar groups registered projects into user folders while isolating uncat
       },
       {
         available: true,
+        faviconUrl: null,
         folderId: folderId1,
         id: regId2,
         label: "Project Two",
         parentFolder: { id: folderId1, label: "Work" },
       },
-      { available: true, folderId: null, id: regId3, label: "Unassigned Project", parentFolder: null },
       {
         available: true,
+        faviconUrl: null,
+        folderId: null,
+        id: regId3,
+        label: "Unassigned Project",
+        parentFolder: null,
+      },
+      {
+        available: true,
+        faviconUrl: null,
         folderId: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fff",
         id: regId4,
         label: "Parent Folder Project",

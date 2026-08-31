@@ -184,15 +184,23 @@ test("New Session lists registered projects with 0 sessions and sets projectIdOv
   const newSessionStarts: number[] = []
 
   const registeredProjects = [
-    { available: true, id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc1", label: "Active", parentFolder: null },
     {
       available: true,
+      faviconUrl: null,
+      id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc1",
+      label: "Active",
+      parentFolder: null,
+    },
+    {
+      available: true,
+      faviconUrl: null,
       id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc2",
       label: "Zero Session Project",
       parentFolder: null,
     },
     {
       available: false,
+      faviconUrl: null,
       id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc3",
       label: "Unavailable Project",
       parentFolder: null,
@@ -269,12 +277,14 @@ test("New Session when active project is unavailable selects first available pro
   const registeredProjects = [
     {
       available: false,
+      faviconUrl: null,
       id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc4",
       label: "Unavailable Project",
       parentFolder: null,
     },
     {
       available: true,
+      faviconUrl: null,
       id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc5",
       label: "Available Project",
       parentFolder: null,
@@ -341,6 +351,7 @@ test("New Session with empty registry defaults to new project option", () => {
       data: {
         project: {
           available: true,
+          faviconUrl: null,
           id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc6",
           label: "Brand New",
           parentFolder: null,
@@ -353,6 +364,7 @@ test("New Session with empty registry defaults to new project option", () => {
       data: {
         project: {
           available: true,
+          faviconUrl: null,
           id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc6",
           label: "Brand New",
           parentFolder: null,
@@ -392,6 +404,7 @@ test("New Session with empty registry defaults to new project option", () => {
   // Confirming new project registers and sets projectIdOverride
   state.projectConfirmed("/workspace/brand-new", {
     available: true,
+    faviconUrl: null,
     id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc6",
     label: "Brand New",
     parentFolder: null,

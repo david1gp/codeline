@@ -6,6 +6,7 @@ import { projectIdSchema } from "../projectIdSchema.js"
 export const projectRegistryApiProjectSchema = v.strictObject({
   active: v.optional(v.boolean()),
   available: v.boolean(),
+  faviconUrl: v.nullable(v.string()),
   folderId: v.optional(v.nullable(projectFolderIdSchema)),
   id: projectIdSchema,
   label: v.pipe(v.string(), v.maxLength(projectDiscoveryLimits.maximumLabelLength)),

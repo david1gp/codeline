@@ -235,7 +235,9 @@ test("session list rejects invalid rename titles before issuing a request", asyn
 
 test("session list projects tab merges registered projects with 0 sessions", async () => {
   const projectId = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fab"
-  const registeredProjects = [{ available: true, id: projectId, label: "Empty Registered Project", parentFolder: null }]
+  const registeredProjects = [
+    { available: true, faviconUrl: null, id: projectId, label: "Empty Registered Project", parentFolder: null },
+  ]
   const mockRegistry = {
     availableProjects: () => registeredProjects,
     errorMessage: () => undefined,
@@ -283,6 +285,7 @@ test("session list projects tab organizes folders and uncategorized projects", a
   const registeredProjects = [
     {
       available: true,
+      faviconUrl: null,
       folderId,
       id: projectId1,
       label: "Foldered Project",
@@ -290,6 +293,7 @@ test("session list projects tab organizes folders and uncategorized projects", a
     },
     {
       available: true,
+      faviconUrl: null,
       folderId: null,
       id: projectId2,
       label: "Uncategorized Project",

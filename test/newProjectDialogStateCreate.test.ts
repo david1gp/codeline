@@ -36,6 +36,7 @@ test("dialog loads clickable suggestions and activates only the server-confirmed
           return Response.json({
             project: {
               available: true,
+              faviconUrl: null,
               id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1f60",
               label: "Canonical Codeline",
             },

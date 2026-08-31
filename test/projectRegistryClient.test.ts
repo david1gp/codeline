@@ -11,6 +11,7 @@ const folderId = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fa1"
 const project = {
   active: false,
   available: true,
+  faviconUrl: null,
   folderId,
   id: projectId,
   label: "Codeline",

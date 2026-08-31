@@ -131,7 +131,7 @@ test("sidebar actions project rename sends PATCH to registry when projectId is p
   const actions = sessionSidebarActionsStateCreate({
     fetcher: fetcherCreate(requests, () =>
       Response.json({
-        project: { available: true, id: projectId, label: "Renamed Project" },
+        project: { available: true, faviconUrl: null, id: projectId, label: "Renamed Project" },
       }),
     ),
     onProjectRenamed: () => {
@@ -341,7 +341,7 @@ test("sidebar actions project move assigns or unassigns folder", async () => {
     fetcher: async (input, init) => {
       requests.push({ ifMatch: null, method: init?.method ?? "GET", url: String(input) })
       return Response.json({
-        project: { available: true, folderId, id: projectId, label: "Project" },
+        project: { available: true, faviconUrl: null, folderId, id: projectId, label: "Project" },
       })
     },
     onProjectMoved: () => {

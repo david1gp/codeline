@@ -30,6 +30,7 @@ import { type ProjectDiscoveryEntriesReadResult, projectDiscoveryEntriesRead } f
 import { projectDiscoveryLimits } from "../projectDiscoveryLimits.js"
 import { projectDiscoveryList } from "../projectDiscoveryList.js"
 import { projectDownloadPrepare } from "../projectDownloadPrepare.js"
+import { projectFaviconMetadataResolve } from "../projectFaviconMetadataResolve.js"
 import { projectFolderIdSchema } from "../projectFolderIdSchema.js"
 import { projectGitBranchDelete } from "../projectGitBranchDelete.js"
 import { projectGitBranchListRead } from "../projectGitBranchListRead.js"
@@ -152,6 +153,10 @@ function projectRegistryLabelCreate(displayName: string | null, projectPath: str
   return [...value].slice(0, projectDiscoveryLimits.maximumLabelLength).join("")
 }
 
+function projectRegistryFaviconUrlCreate(projectId: string, revision: string): string {
+  return `/api/project/favicon/${encodeURIComponent(projectId)}?revision=${encodeURIComponent(revision)}`
+}
+
 type ProjectRegistryStatus = Pick<ProjectFolderStatus, "active" | "unseenEnded">
 
 type ProjectRegistryParentFolder = { id: string; label: string } | null
@@ -168,10 +173,15 @@ async function projectRegistryApiProjectCreate(
   parentFolder: ProjectRegistryParentFolder,
   status: ProjectRegistryStatus = { active: false, unseenEnded: false },
 ): Promise<ProjectRegistryApiProject> {
-  const available = (await projectRegistryProjectPathAuthorize(project, rootDirs)).success
+  const authorization = await projectRegistryProjectPathAuthorize(project, rootDirs)
+  const favicon = authorization.success ? await projectFaviconMetadataResolve(authorization.data) : undefined
   return {
     active: status.active,
-    available,
+    available: authorization.success,
+    faviconUrl:
+      favicon?.success && favicon.data !== null
+        ? projectRegistryFaviconUrlCreate(project.id, favicon.data.revision)
+        : null,
     folderId: project.parentFolderId,
     id: project.id,
     label: projectRegistryLabelCreate(project.displayName, project.path),

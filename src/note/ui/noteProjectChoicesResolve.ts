@@ -13,6 +13,7 @@ export function noteProjectChoicesResolve(
   const currentProject = projects.find((project) => project.id === currentProjectId)
   const choice: ProjectRegistryApiProject = currentProject ?? {
     available: false,
+    faviconUrl: null,
     id: currentProjectId,
     label: noteProjectLabelResolve(projects, currentProjectId, currentProjectPath),
     parentFolder: null,

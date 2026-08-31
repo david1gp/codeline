@@ -195,12 +195,14 @@ test("saving a note invalidates the shared cache entry so a stale 304 cannot res
 test("note detail preserves existing unavailable project assignment in choices and allows reassignment", async () => {
   const availableProject = {
     available: true,
+    faviconUrl: null,
     id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc0",
     label: "Available Project",
     parentFolder: null,
   }
   const unavailableProject = {
     available: false,
+    faviconUrl: null,
     id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc1",
     label: "Unavailable Project",
     parentFolder: null,

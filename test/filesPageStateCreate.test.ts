@@ -10,24 +10,28 @@ const { filesScreenViewCreate } = await import("../src/ui/filesScreenViewCreate.
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
 const firstProject = {
   available: true,
+  faviconUrl: null,
   id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fa0",
   label: "alpha",
   parentFolder: null,
 }
 const secondProject = {
   available: true,
+  faviconUrl: null,
   id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fa1",
   label: "beta",
   parentFolder: { id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb0", label: "Workspace" },
 }
 const thirdProject = {
   available: true,
+  faviconUrl: null,
   id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fa3",
   label: "aardvark",
   parentFolder: { id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb0", label: "Workspace" },
 }
 const unavailableProject = {
   available: false,
+  faviconUrl: null,
   id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fa2",
   label: "gamma",
   parentFolder: null,
