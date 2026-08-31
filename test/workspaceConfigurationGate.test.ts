@@ -23,7 +23,7 @@ test("the workspace shows the initial composer when execution configuration is r
     "fallback={ <WorkspaceSetupPanel configuration={props.state.sessionTargetSelector.configurationReadiness()} resources={props.state.sessionResourceSelector} /> }",
   )
   expect(normalized).toContain(
-    "<SelectedSession providerModel={props.state.providerModelSelector} resources={props.state.sessionResourceSelector} sessionTarget={props.state.sessionTargetSelector} state={props.state.selectedSession} />",
+    "<SelectedSession activeProject={props.state.activeProject} providerModel={props.state.providerModelSelector} resources={props.state.sessionResourceSelector} sessionTarget={props.state.sessionTargetSelector} shell={props.state.shell} state={props.state.selectedSession} />",
   )
 })
 

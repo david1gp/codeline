@@ -18,8 +18,9 @@ import { skillPresetInspectionFetch } from "../skills/client/skillPresetInspecti
 import { skillSelectionInspectionFetch } from "../skills/client/skillSelectionInspectionFetch.js"
 import { skillPresetAll } from "../skills/skillPresetAll.js"
 import { httpQueryStateCreate } from "./httpQueryStateCreate.js"
-import type { SessionResourceSelectorAgentTools, SessionResourceSelectorView } from "./sessionResourceSelectorView.js"
+import { sessionProjectSelectorOptionsDerive } from "./sessionProjectSelectorOptionsDerive.js"
 import type { SessionProjectTarget } from "./sessionProjectTarget.js"
+import type { SessionResourceSelectorAgentTools, SessionResourceSelectorView } from "./sessionResourceSelectorView.js"
 import { sessionResourceSkillCatalogEstimate } from "./sessionResourceSkillCatalogEstimate.js"
 import { sessionResourceSkillSelectionDerive } from "./sessionResourceSkillSelectionDerive.js"
 import { sessionResourceSkillTreeDerive } from "./sessionResourceSkillTreeDerive.js"
@@ -66,6 +67,7 @@ export function sessionResourceSelectorStateCreate(
   const isExistingSession = () => options.selectedSessionId() !== null
 
   const selectedProjectIdState = signalObjectCreate<string | null>(null)
+  const projectSearchState = signalObjectCreate("")
 
   // The inspection routes are project-id scoped. The server owns the reference-to-id
   // mapping, because display labels are disambiguated and are not stable identifiers.
@@ -118,6 +120,10 @@ export function sessionResourceSelectorStateCreate(
   const projects = () => {
     return options.projectRegistry.availableProjects()
   }
+
+  // Keep the Create/New action outside this filtered project list so searching
+  // can never make that action unavailable to the creation surface.
+  const projectOptions = () => sessionProjectSelectorOptionsDerive(projects(), projectSearchState.get())
 
   const projectSelect = (id: string) => {
     if (isExistingSession()) return
@@ -570,6 +576,9 @@ export function sessionResourceSelectorStateCreate(
     presets,
     presetSource: () => (presetOverride.get() === null ? "default" : "override"),
     projects,
+    projectOptions,
+    projectSearch: projectSearchState.get,
+    projectSearchChange: (value: string) => projectSearchState.set(value),
     projectRegistryStatus: options.projectRegistry.status,
     projectSelect,
     retry: () => {

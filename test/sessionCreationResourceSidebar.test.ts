@@ -26,25 +26,14 @@ test("the creation sidebar drives skill groups, skills, and tools through the ge
   expect(sidebarSource).not.toContain("fetch(")
 })
 
-test("the creation sidebar positions the grouped project selectSingle before skills and tools", () => {
-  expect(sidebarSource).toContain('from "#ui/input/select/SelectSingle.jsx"')
-  expect(sidebarSource).toContain("<span class={sectionLabelClass}>Project</span>")
-  expect(sidebarSource).toContain("<SelectSingle")
-  expect(sidebarSource).toContain("valueSignal={controls.project}")
-  expect(sidebarSource).toContain("getOptions={controls.projectOptions}")
-  expect(sidebarSource).toContain("valueText={controls.projectOptionText}")
-  // The project selector appears before the Switch that gates skills/tools on project selection.
-  const projectIndex = sidebarSource.indexOf("valueSignal={controls.project}")
-  const switchIndex = sidebarSource.indexOf("<Switch>")
-  expect(projectIndex).toBeGreaterThan(0)
-  expect(switchIndex).toBeGreaterThan(projectIndex)
-})
-
-test("the creation sidebar distinguishes a loading shared project registry from a loaded empty registry", () => {
-  expect(sidebarSource).toContain("get noEntries()")
-  expect(sidebarSource).toContain('props.state.projectRegistryStatus() === "loading"')
-  expect(sidebarSource).toContain("Loading registered projects…")
-  expect(sidebarSource).toContain("No registered projects available.")
+test("project selection moves above the creation textarea without duplicating in the context sidebar", () => {
+  expect(sidebarSource).not.toContain('from "#ui/input/select/SelectSingle.jsx"')
+  expect(sidebarSource).not.toContain("<SessionProjectSelector")
+  expect(sidebarSource).not.toContain("controls.project")
+  expect(selectedSessionSource.match(/<SessionProjectSelector/g)).toHaveLength(1)
+  expect(selectedSessionSource).toContain('idPrefix="workspace-setup-project"')
+  expect(chatSource).toContain("{props.projectSelector}")
+  expect(chatSource.indexOf("{props.projectSelector}")).toBeLessThan(chatSource.indexOf("<textarea"))
 })
 
 test("the creation sidebar wires an accessible session context resize handle to shell state", () => {
@@ -102,8 +91,9 @@ test("the stacked session context breakpoint applies at exactly 1100px across ut
 test("the creation surface renders a filling composer beside the compact sidebar", () => {
   const normalized = selectedSessionSource.replace(/\s+/g, " ")
 
+  expect(normalized).toContain("<SessionChat isFilling projectSelector={")
   expect(normalized).toContain(
-    "<SessionChat isFilling providerModel={props.providerModel} sessionTarget={props.sessionTarget} state={props.state.initialChat} />",
+    "providerModel={props.providerModel} sessionTarget={props.sessionTarget} state={props.state.initialChat} />",
   )
   expect(normalized).toContain(
     '<SessionCreationResourceSidebar idPrefix="workspace-setup-resources" shell={props.shell} state={resources()} />',

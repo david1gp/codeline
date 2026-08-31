@@ -1,6 +1,5 @@
 import { For, Match, Show, Switch } from "solid-js"
 import { SelectMultiple } from "#ui/input/select/SelectMultiple.jsx"
-import { SelectSingle } from "#ui/input/select/SelectSingle.jsx"
 import { SelectSingleNative } from "#ui/input/select/SelectSingleNative.jsx"
 import { Button } from "#ui/interactive/button/Button.jsx"
 import { buttonVariant } from "#ui/interactive/button/buttonCva.js"
@@ -58,31 +57,6 @@ export function SessionCreationResourceSidebar(props: {
             Skills and tools
           </h3>
         </div>
-
-        <label class="grid gap-1.5" for={`${prefix()}-project`}>
-          <span class={sectionLabelClass}>Project</span>
-          <SelectSingle
-            id={`${prefix()}-project`}
-            class="!w-full"
-            valueSignal={controls.project}
-            getOptions={controls.projectOptions}
-            valueText={controls.projectOptionText}
-            texts={{
-              get noEntries() {
-                return props.state.projectRegistryStatus() === "loading"
-                  ? "Loading registered projects…"
-                  : "No registered projects available."
-              },
-              selectEntry: "Select a project…",
-            }}
-            buttonProps={{
-              class:
-                "!w-full !justify-between !rounded-md !border !border-line !bg-surface !px-2 !py-1.5 !text-xs !text-foreground font-normal",
-              size: "none",
-              variant: "none",
-            }}
-          />
-        </label>
 
         <Switch>
           <Match when={props.state.status() === "offline"}>

@@ -6,17 +6,20 @@ import { Details } from "#ui/interactive/details/Details.jsx"
 import { FinalizedMessage } from "../message/ui/FinalizedMessage.js"
 import type { providerModelSelectorStateCreate } from "../providers/ui/providerModelSelectorStateCreate.js"
 import { SessionRenameControl } from "../session/ui/SessionRenameControl.js"
+import type { ActiveProjectState } from "./activeProjectStateCreate.js"
 import type { applicationShellStateCreate } from "./applicationShellStateCreate.js"
 import { SessionCapturedContextInspector } from "./SessionCapturedContextInspector.js"
 import { SessionChat } from "./SessionChat.js"
 import { SessionCreationResourceSidebar } from "./SessionCreationResourceSidebar.js"
 import { SessionDisplayModeSwitcher } from "./SessionDisplayModeSwitcher.js"
+import { SessionProjectSelector } from "./SessionProjectSelector.js"
 import { SessionStreamView } from "./SessionStreamView.js"
 import type { SelectedSessionView } from "./selectedSessionView.js"
 import type { SessionResourceSelectorView } from "./sessionResourceSelectorView.js"
 import type { SessionTargetSelectorState } from "./sessionTargetSelectorStateCreate.js"
 
 export function SelectedSession(props: {
+  activeProject?: ActiveProjectState
   providerModel?: ReturnType<typeof providerModelSelectorStateCreate>
   resources?: SessionResourceSelectorView
   sessionTarget?: SessionTargetSelectorState
@@ -41,6 +44,17 @@ export function SelectedSession(props: {
                 </div>
                 <SessionChat
                   isFilling
+                  projectSelector={
+                    <Show when={props.resources}>
+                      {(resources) => (
+                        <SessionProjectSelector
+                          activeProject={props.activeProject}
+                          idPrefix="workspace-setup-project"
+                          state={resources()}
+                        />
+                      )}
+                    </Show>
+                  }
                   providerModel={props.providerModel}
                   sessionTarget={props.sessionTarget}
                   state={props.state.initialChat}

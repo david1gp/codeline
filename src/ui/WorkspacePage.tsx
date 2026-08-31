@@ -90,6 +90,7 @@ export function WorkspacePage(props: { state: WorkspaceScreenView }) {
           }
         >
           <SelectedSession
+            activeProject={props.state.activeProject}
             providerModel={props.state.providerModelSelector}
             resources={props.state.sessionResourceSelector}
             sessionTarget={props.state.sessionTargetSelector}

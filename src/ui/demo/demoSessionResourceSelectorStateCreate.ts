@@ -1,5 +1,6 @@
 import { createSignalObject } from "@adaptive-ds/solid-ui/utils/createSignalObject"
 import { skillPresetAll } from "../../skills/skillPresetAll.js"
+import { sessionProjectSelectorOptionsDerive } from "../sessionProjectSelectorOptionsDerive.js"
 import type { SessionResourceSelectorView } from "../sessionResourceSelectorView.js"
 import { sessionResourceSkillCatalogEstimate } from "../sessionResourceSkillCatalogEstimate.js"
 import { sessionResourceSkillTreeDerive } from "../sessionResourceSkillTreeDerive.js"
@@ -122,6 +123,9 @@ export function demoSessionResourceSelectorStateCreate(
     ],
     presetSource: () => (selectedPresetName.get() === "all" ? "default" : "override"),
     projects: () => demoProjects,
+    projectOptions: () => sessionProjectSelectorOptionsDerive(demoProjects),
+    projectSearch: () => "",
+    projectSearchChange: () => undefined,
     projectRegistryStatus: () => "ready",
     projectSelect: (projectId: string) => selectedProjectId.set(projectId === "" ? null : projectId),
     retry: () => undefined,

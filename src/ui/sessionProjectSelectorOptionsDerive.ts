@@ -8,10 +8,18 @@ function sessionProjectSelectorTextCompare(left: string, right: string): number 
 /** Groups session projects by parent folder for SelectSingle while preserving ID selection. */
 export function sessionProjectSelectorOptionsDerive(
   projects: readonly SessionResourceSelectorProject[],
+  search = "",
 ): SelectSingleEntry[] {
+  const normalizedSearch = search.trim().toLocaleLowerCase()
+  const visibleProjects = projects.filter((project) => {
+    if (project.available === false) return false
+    if (normalizedSearch.length === 0) return true
+    const visibleDetails = [project.label, project.parentFolder?.label ?? ""]
+    return visibleDetails.some((detail) => detail.toLocaleLowerCase().includes(normalizedSearch))
+  })
   const groups = new Map<string, { label: string; projects: SessionResourceSelectorProject[] }>()
 
-  for (const project of projects) {
+  for (const project of visibleProjects) {
     const parentFolder = project.parentFolder
     const rawLabel = parentFolder?.label.trim() ?? ""
     const label = rawLabel || "Uncategorized"

@@ -326,7 +326,7 @@ function fetchCreate(requests: string[], overrides: FetchOverrides = {}) {
     if (url.startsWith("/api/project/registry")) {
       return response({
         folders: [],
-        projects: [{ available: true, id: projectId, label: "codeline", parentFolder: null }],
+        projects: [{ available: true, faviconUrl: null, id: projectId, label: "codeline", parentFolder: null }],
         truncated: false,
       })
     }
@@ -418,7 +418,7 @@ test("the pre-session workspace consumes the built-in All selection across globa
       "/api/project/registry": () =>
         response({
           folders: [],
-          projects: [{ available: true, id: projectId, label: "codeline", parentFolder: null }],
+          projects: [{ available: true, faviconUrl: null, id: projectId, label: "codeline", parentFolder: null }],
           truncated: false,
         }),
       "/api/project/skills/selection": () => response(selectionResponseCreate("all")),
@@ -753,7 +753,9 @@ test("a project selected after the initial idle render loads the effective selec
   const created = stateCreate({ projectPath: null })
   await effectsSettle()
   expect(created.state.status()).toBe("idle")
-  expect(created.state.projects()).toEqual([{ available: true, id: projectId, label: "codeline", parentFolder: null }])
+  expect(created.state.projects()).toEqual([
+    { available: true, faviconUrl: null, id: projectId, label: "codeline", parentFolder: null },
+  ])
 
   created.projectPathSet("/workspace/codeline")
   await effectsSettle()
@@ -771,8 +773,8 @@ test("unavailable registered projects are excluded from project choices and cann
         response({
           folders: [],
           projects: [
-            { available: true, id: projectId, label: "codeline", parentFolder: null },
-            { available: false, id: unavailableProjectId, label: "missing", parentFolder: null },
+            { available: true, faviconUrl: null, id: projectId, label: "codeline", parentFolder: null },
+            { available: false, faviconUrl: null, id: unavailableProjectId, label: "missing", parentFolder: null },
           ],
           truncated: false,
         }),
@@ -781,7 +783,9 @@ test("unavailable registered projects are excluded from project choices and cann
   })
   await effectsSettle()
 
-  expect(created.state.projects()).toEqual([{ available: true, id: projectId, label: "codeline", parentFolder: null }])
+  expect(created.state.projects()).toEqual([
+    { available: true, faviconUrl: null, id: projectId, label: "codeline", parentFolder: null },
+  ])
 
   created.state.projectSelect(unavailableProjectId)
   await effectsSettle()
@@ -845,6 +849,61 @@ test("selecting a project via projectSelect transitions from idle to ready", asy
 
   expect(created.state.status()).toBe("ready")
   expect(created.state.selectedProjectId()).toBe(projectId)
+  created.dispose()
+})
+
+test("project search filters visible details without changing selection", async () => {
+  const created = stateCreate({
+    overrides: {
+      "/api/project/registry": () =>
+        response({
+          folders: [],
+          projects: [
+            {
+              available: true,
+              faviconUrl: null,
+              id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb0",
+              label: "Zeta App",
+              parentFolder: { id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb3", label: "Tools" },
+            },
+            {
+              available: true,
+              faviconUrl: null,
+              id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb1",
+              label: "Alpha Service",
+              parentFolder: { id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb4", label: "Core" },
+            },
+            {
+              available: false,
+              faviconUrl: null,
+              id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb2",
+              label: "Missing Tools",
+              parentFolder: null,
+            },
+          ],
+          truncated: false,
+        }),
+    },
+    projectPath: null,
+  })
+  await effectsSettle()
+
+  created.state.projectSelect("0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb0")
+  created.state.projectSearchChange("CORE")
+
+  expect(created.state.selectedProjectId()).toBe("0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb0")
+  expect(created.state.projectOptions()).toEqual([
+    { label: "Core", type: "group" },
+    { type: "item", value: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb1" },
+  ])
+
+  created.state.projectSearchChange("")
+  expect(created.state.projectOptions()).toEqual([
+    { label: "Core", type: "group" },
+    { type: "item", value: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb1" },
+    { label: "Tools", type: "group" },
+    { type: "item", value: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fb0" },
+  ])
   created.dispose()
 })
 

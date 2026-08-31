@@ -65,3 +65,42 @@ test("preserves every project even with identical labels", () => {
 test("returns an empty array when no projects are given", () => {
   expect(sessionProjectSelectorOptionsDerive([])).toEqual([])
 })
+
+test("filters case-insensitively by visible project and parent-folder details", () => {
+  expect(
+    sessionProjectSelectorOptionsDerive(
+      [
+        { id: "project-api", label: "API Service", parentFolder: { id: "folder-core", label: "Core" } },
+        { id: "project-web", label: "Web App", parentFolder: { id: "folder-core", label: "Core" } },
+        { id: "project-tools", label: "Release Tools", parentFolder: { id: "folder-tools", label: "Tooling" } },
+      ],
+      "TOOL",
+    ),
+  ).toEqual([
+    { label: "Tooling", type: "group" },
+    { type: "item", value: "project-tools" },
+  ])
+
+  expect(
+    sessionProjectSelectorOptionsDerive(
+      [{ id: "project-api", label: "API Service", parentFolder: { id: "folder-core", label: "Core" } }],
+      "service",
+    ),
+  ).toEqual([
+    { label: "Core", type: "group" },
+    { type: "item", value: "project-api" },
+  ])
+})
+
+test("keeps unavailable projects out and leaves the project list empty for a non-match", () => {
+  const projects = [
+    { available: true, id: "project-api", label: "API Service", parentFolder: null },
+    { available: false, id: "project-missing", label: "API Missing", parentFolder: null },
+  ]
+
+  expect(sessionProjectSelectorOptionsDerive(projects, "api")).toEqual([
+    { label: "Uncategorized", type: "group" },
+    { type: "item", value: "project-api" },
+  ])
+  expect(sessionProjectSelectorOptionsDerive(projects, "unknown")).toEqual([])
+})

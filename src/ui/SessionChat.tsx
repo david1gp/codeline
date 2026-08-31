@@ -1,4 +1,4 @@
-import { For, Show } from "solid-js"
+import { For, type JSX, Show } from "solid-js"
 import { MessageBody } from "../message/ui/MessageBody.js"
 import { ProviderModelSelector } from "../providers/ui/ProviderModelSelector.js"
 import type { providerModelSelectorStateCreate } from "../providers/ui/providerModelSelectorStateCreate.js"
@@ -11,6 +11,7 @@ import type { SessionTargetSelectorState } from "./sessionTargetSelectorStateCre
 export function SessionChat(props: {
   /** Full-height composer used by the creation surface, so the draft owns the pane. */
   isFilling?: boolean
+  projectSelector?: JSX.Element
   providerModel?: ReturnType<typeof providerModelSelectorStateCreate>
   sessionTarget?: SessionTargetSelectorState
   state: SessionChatState
@@ -107,6 +108,7 @@ export function SessionChat(props: {
           aria-label="Chat composer"
           onSubmit={props.state.submitHandle}
         >
+          {props.projectSelector}
           <Show when={props.state.command}>{(command) => <ChatCommandSuggestions state={command()} />}</Show>
           <div
             class="flex min-w-0 items-end gap-2 rounded-[14px] border border-line bg-surface px-3 py-2.5 shadow-[0_1px_2px_var(--shadow-color),0_8px_24px_-12px_var(--shadow-color-strong)] focus-within:border-accent-border"

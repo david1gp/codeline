@@ -1,6 +1,5 @@
 import type { SelectSingleEntry } from "#ui/input/select/SelectSingleEntry.js"
 import type { SignalObject } from "#ui/utils/createSignalObject.js"
-import { sessionProjectSelectorOptionsDerive } from "./sessionProjectSelectorOptionsDerive.js"
 import type { SessionResourceSelectorView } from "./sessionResourceSelectorView.js"
 
 export type SessionCreationResourceControl = {
@@ -117,7 +116,7 @@ export function sessionCreationResourceControlsStateCreate(
       .filter((entry) => entry.isEnabled)
       .map((entry) => entry.value)
 
-  const projectOptions = () => sessionProjectSelectorOptionsDerive(resources().projects())
+  const projectOptions = () => resources().projectOptions()
 
   const projectOptionText = (projectId: string) => {
     if (projectId === "") return "Select a project…"

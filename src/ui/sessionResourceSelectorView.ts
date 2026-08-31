@@ -1,3 +1,4 @@
+import type { SelectSingleEntry } from "#ui/input/select/SelectSingleEntry.js"
 import type { AgentInstructionInspectionResponse } from "../instructions/api/agentInstructionInspectionResponseSchema.js"
 import type { ProjectRegistryState } from "../project/ui/projectRegistryState.js"
 import type { SessionExecutionResourceSummary } from "../session/api/sessionExecutionResourceSummarySchema.js"
@@ -32,6 +33,7 @@ export type SessionResourceSelectorInstructionSnapshot =
 
 export type SessionResourceSelectorProject = {
   available?: boolean
+  faviconUrl?: string | null
   id: string
   label: string
   parentFolder?: { id: string; label: string } | null
@@ -86,6 +88,9 @@ export type SessionResourceSelectorView = {
   presets: () => readonly SkillPreset[]
   presetSource: () => "default" | "override"
   projects: () => readonly SessionResourceSelectorProject[]
+  projectOptions: () => SelectSingleEntry[]
+  projectSearch: () => string
+  projectSearchChange: (value: string) => void
   projectRegistryStatus: () => ReturnType<ProjectRegistryState["status"]>
   projectSelect: (projectId: string) => void
   retry: () => void

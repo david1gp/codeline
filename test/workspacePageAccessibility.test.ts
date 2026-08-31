@@ -15,23 +15,21 @@ test("the context-owned mobile session drawer is a full-width modal and isolates
   expect(appSource).toContain("inert={navigation.sessionDrawer.isSessionDrawerOpen()}")
 })
 
-test("desktop and mobile session sidebars share the selected project override", async () => {
+test("workspace surfaces share the active project state", async () => {
   const workspacePage = (await Bun.file(new URL("../src/ui/WorkspacePage.tsx", import.meta.url)).text()).replace(
     /\s+/g,
     " ",
   )
   const sidebar = await Bun.file(new URL("../src/ui/SessionSidebar.tsx", import.meta.url)).text()
 
-  expect(workspacePage.split("projectPathOverride={props.state.projectPathOverride}").length - 1).toBe(2)
-  expect(sidebar).toContain("projectPathOverride={props.projectPathOverride}")
+  expect(workspacePage.split("activeProject={props.state.activeProject}").length - 1).toBe(3)
+  expect(sidebar).toContain("activeProject={props.activeProject}")
 })
 
 test("the pending project identity scopes resource inspection and session creation", async () => {
   const source = await Bun.file(new URL("../src/ui/workspaceScreenStateCreate.ts", import.meta.url)).text()
 
-  expect(source).toContain(
-    "const pendingSessionProjectId = () => projectIdOverride.get() ?? activeProject.project().id ?? null",
-  )
+  expect(source).toContain('if (target?.kind === "registered") return target.projectId')
   expect(source).toContain(
     "pendingSessionProjectId() === null ? (projectPathOverride.get() ?? activeProject.project().path) : null",
   )
