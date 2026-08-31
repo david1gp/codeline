@@ -5,6 +5,10 @@ function sessionProjectSelectorTextCompare(left: string, right: string): number 
   return left.localeCompare(right, undefined, { sensitivity: "base" }) || left.localeCompare(right)
 }
 
+function sessionProjectSelectorPathHasHiddenSegment(path: string): boolean {
+  return path.split(/[\\/]/).some((segment) => segment.startsWith("."))
+}
+
 /** Groups session projects by parent folder for SelectSingle while preserving ID selection. */
 export function sessionProjectSelectorOptionsDerive(
   projects: readonly SessionResourceSelectorProject[],
@@ -13,6 +17,8 @@ export function sessionProjectSelectorOptionsDerive(
   const normalizedSearch = search.trim().toLocaleLowerCase()
   const visibleProjects = projects.filter((project) => {
     if (project.available === false) return false
+    if (sessionProjectSelectorPathHasHiddenSegment(project.label)) return false
+    if (sessionProjectSelectorPathHasHiddenSegment(project.parentFolder?.label ?? "")) return false
     if (normalizedSearch.length === 0) return true
     const visibleDetails = [project.label, project.parentFolder?.label ?? ""]
     return visibleDetails.some((detail) => detail.toLocaleLowerCase().includes(normalizedSearch))
