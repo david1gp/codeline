@@ -241,7 +241,7 @@ bun run db:seed
 bun run db:seed -- --reset
 ```
 
-The target starts the compiled Bun/Hono preview service and waits for readiness at `/api/ready`. The service loads the ignored `.env` file, runs from the stable `~/codeline` checkout link, and restarts on failure. `bun run start` runs the compiled API directly without a watch process; use `bun run deploy` for the managed preview lifecycle.
+The target starts the compiled Bun/Hono preview service and waits for readiness at `/api/ready`. The service loads the ignored `.env` file, runs from the stable `~/adaptive/codeline` checkout link, and restarts on failure. `bun run start` runs the compiled API directly without a watch process; use `bun run deploy` for the managed preview lifecycle.
 
 Troubleshooting:
 

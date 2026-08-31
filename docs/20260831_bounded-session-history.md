@@ -17,7 +17,7 @@ Open a session with the latest agent answer and about 25 recent semantic steps, 
 
 ## Approach
 
-- Current context: implementation and focused verification are complete; browser verification confirms bounded snapshot/SSE loading and latest-answer activity presentation on seeded data, while older/detail/delegation interactions lack matching seed fixtures. Full-suite verification has one isolated pre-existing notes favicon expectation mismatch. Publishing increment 1 (commits and push) is complete; deployment remains pending.
+- Current context: feature commits are pushed at `0fcd0b7`; the managed preview already serves that checkout and is healthy. The deployment checkout alignment repair and focused safety verification are complete; publishing is complete, while deployment remains pending.
 - Add backend schemas and transactional read models before changing existing selected-session reads.
 - Introduce the bounded snapshot and fixed-watermark older-history API, then add lazy detail and child references.
 - Migrate selected-session state to snapshot-plus-tail, retaining existing reconciliation behavior as fallback.
