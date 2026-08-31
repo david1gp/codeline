@@ -253,7 +253,7 @@ export function appCreate(options: AppCreateOptions = {}): App {
     return response
   })
   app.get("/assets/*", serveStatic({ root: "./dist/ui" }))
-  app.get("/icons/*", serveStatic({ root: "./dist/ui" }))
+  app.get("/logo/*", serveStatic({ root: "./dist/ui" }))
   app.get("/favicon.ico", serveStatic({ root: "./dist/ui" }))
   app.get("/logo.svg", serveStatic({ root: "./dist/ui" }))
   app.get("/manifest.webmanifest", serveStatic({ root: "./dist/ui" }))

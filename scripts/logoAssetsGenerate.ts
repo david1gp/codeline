@@ -1,24 +1,11 @@
-import { mkdir, writeFile } from "node:fs/promises"
+import { mkdir } from "node:fs/promises"
 import { dirname, join } from "node:path"
-import { mdiCodeArray } from "@adaptive-ds/mdi/mdiCodeArray.js"
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 
-const canvasSize = 512
-const glyphSize = 288
-const cornerRadius = 96
-const glyphOffset = (canvasSize - glyphSize) / 2
-const glyphScale = glyphSize / 24
-
-const logoSvgSource = `<svg xmlns="http://www.w3.org/2000/svg" width="${canvasSize}" height="${canvasSize}" viewBox="0 0 ${canvasSize} ${canvasSize}" role="img" aria-label="Codeline">
-  <rect width="${canvasSize}" height="${canvasSize}" rx="${cornerRadius}" ry="${cornerRadius}" fill="#ffffff" />
-  <path transform="translate(${glyphOffset} ${glyphOffset}) scale(${glyphScale})" fill="#000000" d="${mdiCodeArray}" />
-</svg>
-`
-
 const pngTargets = [
-  { path: "public/icons/codeline-icon-192.png", size: 192, maskable: false },
-  { path: "public/icons/codeline-icon-512.png", size: 512, maskable: false },
-  { path: "public/icons/codeline-icon-maskable-512.png", size: 512, maskable: true },
+  { path: "public/logo/codeline-icon-192.png", size: 192, maskable: false },
+  { path: "public/logo/codeline-icon-512.png", size: 512, maskable: false },
+  { path: "public/logo/codeline-icon-maskable-512.png", size: 512, maskable: true },
 ] as const
 
 async function magickRun(op: string, args: readonly string[]): Promise<Result<null>> {
@@ -35,17 +22,11 @@ async function magickRun(op: string, args: readonly string[]): Promise<Result<nu
   }
 }
 
-/** Writes `public/logo.svg` from the MDI `code-array` glyph and generates the favicon and PWA icons. */
+/** Generates favicon and PWA icons from the canonical `public/logo.svg` asset. */
 export async function logoAssetsGenerate(rootDirectory: string): Promise<Result<null>> {
   const op = "logoAssetsGenerate"
 
   const logoPath = join(rootDirectory, "public/logo.svg")
-  try {
-    await mkdir(dirname(logoPath), { recursive: true })
-    await writeFile(logoPath, logoSvgSource, "utf8")
-  } catch (error) {
-    return createResultError(op, `failed to write ${logoPath}: ${String(error)}`)
-  }
 
   for (const target of pngTargets) {
     const targetPath = join(rootDirectory, target.path)

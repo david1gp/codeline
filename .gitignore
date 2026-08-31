@@ -31,7 +31,7 @@ logs/
 !.env.example
 
 # Application icons must stay tracked even when a global ignore excludes images.
-!public/icons/*.png
+!public/logo/*.png
 
 # Local application data and caches
 data/

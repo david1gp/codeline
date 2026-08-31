@@ -10,9 +10,9 @@ const precachedPaths = [
   "/manifest.webmanifest",
   "/favicon.ico",
   "/logo.svg",
-  "/icons/codeline-icon-192.png",
-  "/icons/codeline-icon-512.png",
-  "/icons/codeline-icon-maskable-512.png",
+  "/logo/codeline-icon-192.png",
+  "/logo/codeline-icon-512.png",
+  "/logo/codeline-icon-maskable-512.png",
 ]
 
 worker.addEventListener("install", (event) => {

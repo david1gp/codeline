@@ -5,7 +5,7 @@ const origin = "https://codeline.work"
 
 test.each([
   ["GET", "https://codeline.work/assets/app.js", true],
-  ["GET", "https://codeline.work/icons/codeline-icon-192.png", true],
+  ["GET", "https://codeline.work/logo/codeline-icon-192.png", true],
   ["GET", "https://codeline.work/manifest.webmanifest", true],
   ["GET", "https://codeline.work/favicon.ico", true],
   ["GET", "https://codeline.work/api/health", false],

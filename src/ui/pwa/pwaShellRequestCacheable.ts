@@ -1,4 +1,4 @@
-const staticPathPrefixes = ["/assets/", "/icons/"] as const
+const staticPathPrefixes = ["/assets/", "/logo/"] as const
 const staticPaths = ["/favicon.ico", "/logo.svg", "/manifest.webmanifest"] as const
 
 export function pwaShellRequestCacheable(request: { method: string; url: string }, scopeOrigin: string): boolean {
