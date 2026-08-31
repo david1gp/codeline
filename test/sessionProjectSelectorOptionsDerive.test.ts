@@ -104,3 +104,22 @@ test("keeps unavailable projects out and leaves the project list empty for a non
   ])
   expect(sessionProjectSelectorOptionsDerive(projects, "unknown")).toEqual([])
 })
+
+test("excludes dot-prefixed project and parent-folder path segments before searching", () => {
+  const projects = [
+    { id: "visible", label: "icons.bootstrap", parentFolder: { id: "assets", label: "Assets/icons" } },
+    { id: "hidden-project", label: "vendor/.bootstrap-icons", parentFolder: { id: "assets", label: "Assets/icons" } },
+    { id: "hidden-project-root", label: ".storybook", parentFolder: null },
+    { id: "hidden-folder", label: "Application", parentFolder: { id: "private", label: "Work/.private" } },
+  ]
+
+  expect(sessionProjectSelectorOptionsDerive(projects)).toEqual([
+    { label: "Assets/icons", type: "group" },
+    { type: "item", value: "visible" },
+  ])
+  expect(sessionProjectSelectorOptionsDerive(projects, "bootstrap")).toEqual([
+    { label: "Assets/icons", type: "group" },
+    { type: "item", value: "visible" },
+  ])
+  expect(sessionProjectSelectorOptionsDerive(projects, "private")).toEqual([])
+})
