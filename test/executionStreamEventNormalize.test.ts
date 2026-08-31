@@ -103,6 +103,7 @@ test("ignores unknown provider events and keeps malformed event errors bounded",
   for (const input of [
     { delta: "future", type: "TEXT_MESSAGE_CONTENT_FUTURE" },
     { outcome: { type: "future_terminal" }, type: "RUN_FINISHED_FUTURE" },
+    { name: "tool-input-available", type: EventType.CUSTOM, value: { input: "future" } },
   ]) {
     expect(providerExecutionEventFromStreamChunk(input)).toMatchObject({ data: null, success: true })
   }
@@ -142,6 +143,22 @@ test("ignores unknown provider events and keeps malformed event errors bounded",
     const result = providerExecutionEventFromStreamChunk({ outcome, type: "RUN_FINISHED" })
     expect(result).toMatchObject({ data: { status, type: "terminal" }, success: true })
   }
+})
+
+test("does not invent waiting-for-input state for unsupported runtime signals", () => {
+  const nativeInterrupt = providerExecutionEventFromStreamChunk({
+    outcome: { interrupts: [{ id: "interrupt-1" }], type: "interrupt" },
+    type: EventType.RUN_FINISHED,
+  })
+  // Codeline currently has no persisted interrupt/input event; the existing terminal
+  // contract must not be mistaken for the bounded snapshot's input state.
+  expect(nativeInterrupt).toMatchObject({ data: { status: "aborted", type: "terminal" }, success: true })
+  expect(
+    executionStreamEventNormalize({
+      eventType: "waiting_for_input",
+      payload: { prompt: "Choose", requestId: "request-1" },
+    }).success,
+  ).toBe(false)
 })
 
 test("rejects malformed provider events and unsafe written-file paths", () => {

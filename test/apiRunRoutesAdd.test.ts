@@ -128,11 +128,13 @@ test("delegation read route passes the authenticated organization and session sc
       return createResult({
         delegations: [
           {
+            childSessionId: "child-session-1",
             childRunId: "child-1",
             delegationKey: "task-1",
             id: "delegation-1",
             parentAttemptId: "attempt-1",
             parentRunId: "run-1",
+            parentSessionId: scope.sessionId,
             task: "Inspect the implementation.",
           },
         ],
@@ -152,11 +154,13 @@ test("delegation read route passes the authenticated organization and session sc
   expect(await response.json()).toMatchObject({
     delegations: [
       {
+        childSessionId: "child-session-1",
         childRunId: "child-1",
         delegationKey: "task-1",
         id: "delegation-1",
         parentAttemptId: "attempt-1",
         parentRunId: "run-1",
+        parentSessionId: scope.sessionId,
         task: "Inspect the implementation.",
       },
     ],
@@ -307,4 +311,77 @@ test("session run snapshot client encodes the session ID and validates the respo
   expect(loaded).toMatchObject({ success: true, data: { events: [], runs: [] } })
   expect(request?.input).toBe("/api/sessions/session%2Fa/runs/snapshot")
   expect(request?.init?.method).toBe("GET")
+})
+
+test("run detail routes pass the authenticated scope and keep run and tool detail separate", async () => {
+  const app = new Hono<AppEnvironment>()
+  const scope = { organizationId: "organization-1", sessionId: "session-1", userId: "user-1" }
+  let runScope: unknown[] | undefined
+  let toolScope: unknown[] | undefined
+  app.use("*", async (context, next) => {
+    context.set("database", {} as AppEnvironment["Variables"]["database"])
+    context.set("requestIdentity", scope)
+    await next()
+  })
+
+  apiRunRoutesAdd(app, {
+    runDetailLoad: async (...input) => {
+      runScope = input
+      return createResult({
+        run: { cancellationKind: null, failure: null, id: "run-1", sessionId: scope.sessionId, status: "succeeded" },
+        tools: [
+          {
+            detailId: "tool-1",
+            outcome: "success",
+            result: "bounded result",
+            resultTruncated: false,
+            sequence: 2,
+            toolCallId: "call-1",
+            toolName: "read",
+          },
+        ],
+        transcript: {
+          activities: [],
+          assistantText: "",
+          attempts: [{ ordinal: 1, status: "succeeded" }],
+          cancellation: null,
+          failure: null,
+          invariantViolations: [],
+          terminalOutcome: { status: "completed" },
+        },
+      })
+    },
+    runToolDetailLoad: async (...input) => {
+      toolScope = input
+      return createResult({
+        runId: "run-1",
+        sessionId: scope.sessionId,
+        tool: {
+          detailId: "tool-1",
+          outcome: "success",
+          result: "bounded result",
+          resultTruncated: false,
+          sequence: 2,
+          toolCallId: "call-1",
+          toolName: "read",
+        },
+      })
+    },
+  })
+
+  const runResponse = await app.request(`http://codeline.test/sessions/${scope.sessionId}/runs/run-1/detail`)
+  expect(runResponse.status).toBe(200)
+  expect(runScope?.slice(1)).toEqual([scope.userId, scope.organizationId, scope.sessionId, "run-1"])
+  expect(await runResponse.json()).toMatchObject({
+    run: { id: "run-1", status: "succeeded" },
+    tools: [{ detailId: "tool-1", toolCallId: "call-1" }],
+    transcript: { activities: [] },
+  })
+
+  const toolResponse = await app.request(
+    `http://codeline.test/sessions/${scope.sessionId}/runs/run-1/tools/tool-1/detail`,
+  )
+  expect(toolResponse.status).toBe(200)
+  expect(toolScope?.slice(1)).toEqual([scope.userId, scope.organizationId, scope.sessionId, "run-1", "tool-1"])
+  expect(await toolResponse.json()).toMatchObject({ tool: { detailId: "tool-1", result: "bounded result" } })
 })

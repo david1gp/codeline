@@ -22,6 +22,7 @@ export const runErrorCodes = {
   createFailed: "run.create-failed",
   cursorEncodingFailed: "run.cursor-encoding-failed",
   deadlineNotInherited: "run.deadline-not-inherited",
+  detailInvalid: "run.detail-invalid",
   delegationClockInvalid: "run.delegation-clock-invalid",
   delegationConflict: "run.delegation-conflict",
   delegationFinalizationConflict: "run.delegation-finalization-conflict",
@@ -64,4 +65,6 @@ export const runErrorCodes = {
   transitionInvalid: "run.transition-invalid",
   transitionFailed: "run.transition-failed",
   terminalResultMissing: "run.terminal-result-missing",
+  toolDetailInvalid: "run.tool-detail-invalid",
+  toolNotFound: "run.tool-not-found",
 } as const

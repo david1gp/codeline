@@ -14,6 +14,7 @@ export const runActiveSnapshotResponseSchema = v.strictObject({
   lastSequence: apiSequenceSchema,
   partialText: v.string(),
   failure: v.optional(v.nullable(runFailureMetadataSchema)),
+  // Waiting-for-input remains absent until a runtime signal is persisted in Codeline's contract.
   // Reconciliation may observe a terminal transition, so terminal statuses are intentional here.
   status: runStatusSchema,
 })

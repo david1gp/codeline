@@ -46,6 +46,7 @@ type ExecutionTranscriptRun = {
 type ExecutionTranscriptNormalizeInput = {
   attempts?: ReadonlyArray<ExecutionTranscriptAttempt>
   events: ReadonlyArray<ExecutionTranscriptEvent>
+  includeToolCallIds?: boolean
   run?: ExecutionTranscriptRun
   /** Set only after the selected stream's async iteration has ended. */
   streamEnded?: boolean
@@ -54,16 +55,27 @@ type ExecutionTranscriptNormalizeInput = {
 type ExecutionTranscriptActivity =
   | { kind: "thinking"; phase: "started" | "finished" }
   | { content: string; kind: "thinking"; phase: "delta" }
-  | { kind: "tool"; name: string; phase: "started" }
-  | { content: string; kind: "tool"; name?: string; phase: "delta" }
-  | { content: string; kind: "tool"; name?: string; phase: "output"; truncated: boolean }
+  | { kind: "tool"; name: string; phase: "started"; sequence?: number; toolCallId?: string }
+  | { content: string; kind: "tool"; name?: string; phase: "delta"; sequence?: number; toolCallId?: string }
+  | {
+      content: string
+      kind: "tool"
+      name?: string
+      phase: "output"
+      sequence?: number
+      toolCallId?: string
+      truncated: boolean
+    }
   | {
       content: string
       kind: "tool"
       name?: string
       outcome: "error" | "success"
       phase: "result"
+      sequence?: number
+      toolCallId?: string
       truncated: boolean
+      workingDirectory?: string
     }
   | { kind: "written_file"; path: string }
 
@@ -126,6 +138,16 @@ function eventSequence(input: ExecutionTranscriptEvent): number | undefined {
   if (input.sequence !== undefined) return input.sequence
   const candidate = objectRecord(input.event)
   return typeof candidate?.sequence === "number" ? candidate.sequence : undefined
+}
+
+function executionTranscriptToolMetadataCreate(
+  input: ExecutionTranscriptNormalizeInput,
+  event: ExecutionTranscriptEvent,
+  toolCallId: string,
+): { sequence?: number; toolCallId?: string } {
+  if (input.includeToolCallIds !== true) return {}
+  const sequence = eventSequence(event)
+  return { ...(sequence === undefined ? {} : { sequence }), toolCallId }
 }
 
 function orderedEvents(events: ReadonlyArray<ExecutionTranscriptEvent>): Array<OrderedTranscriptEvent> {
@@ -364,7 +386,12 @@ export function executionTranscriptNormalize(input: ExecutionTranscriptNormalize
       }
       if (event.event.eventType === "tool_start") {
         tools.set(event.event.payload.toolCallId, { closed: false, name: event.event.payload.toolName })
-        activities.push({ kind: "tool", name: event.event.payload.toolName, phase: "started" })
+        activities.push({
+          ...executionTranscriptToolMetadataCreate(input, event, event.event.payload.toolCallId),
+          kind: "tool",
+          name: event.event.payload.toolName,
+          phase: "started",
+        })
         continue
       }
       if (event.event.eventType === "tool_output") {
@@ -385,6 +412,7 @@ export function executionTranscriptNormalize(input: ExecutionTranscriptNormalize
         } else {
           activities.push({
             content: event.event.payload.output,
+            ...executionTranscriptToolMetadataCreate(input, event, event.event.payload.toolCallId),
             ...(tool === undefined ? {} : { name: tool.name }),
             kind: "tool",
             phase: "output",
@@ -401,11 +429,15 @@ export function executionTranscriptNormalize(input: ExecutionTranscriptNormalize
         if (tool !== undefined) tool.closed = true
         activities.push({
           content: event.event.payload.result,
+          ...executionTranscriptToolMetadataCreate(input, event, event.event.payload.toolCallId),
           ...(tool === undefined ? {} : { name: tool.name }),
           kind: "tool",
           outcome: event.event.payload.outcome,
           phase: "result",
           truncated: event.event.payload.truncated,
+          ...(input.includeToolCallIds !== true || event.event.payload.workingDirectory === undefined
+            ? {}
+            : { workingDirectory: event.event.payload.workingDirectory }),
         })
         lastToolOutputCallId = undefined
         continue

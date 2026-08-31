@@ -74,6 +74,8 @@ import { bashToolCreate } from "../../tools/runtime/bashToolCreate.js"
 import { toolRegistryCreate } from "../../tools/runtime/toolRegistryCreate.js"
 import type { ToolName } from "../../tools/schema/toolNameSchema.js"
 import { sessionArchive } from "../actions/sessionArchive.js"
+import { sessionBoundedHistoryPage } from "../actions/sessionBoundedHistoryPage.js"
+import { sessionBoundedSnapshot } from "../actions/sessionBoundedSnapshot.js"
 import type { sessionChatAdapterCreate } from "../actions/sessionChatAdapterCreate.js"
 import { sessionChatCommandSubtaskAdapterCreate } from "../actions/sessionChatCommandSubtaskAdapterCreate.js"
 import { sessionChatContextToolLifecycleResolve } from "../actions/sessionChatContextToolLifecycleResolve.js"
@@ -91,6 +93,7 @@ import { sessionSettledSnapshot } from "../actions/sessionSettledSnapshot.js"
 import { sessionShellSnapshot } from "../actions/sessionShellSnapshot.js"
 import { sessionViewAcknowledge } from "../actions/sessionViewAcknowledge.js"
 import { sessionJournalRecipientResolverCreate } from "../db/sessionJournalRecipientResolverCreate.js"
+import { sessionBoundedHistoryQuerySchema } from "../schema/sessionBoundedHistoryQuerySchema.js"
 import { sessionChatRequestSchema } from "../schema/sessionChatRequestSchema.js"
 import { sessionCreateRequestSchema } from "../schema/sessionCreateRequestSchema.js"
 import { sessionPinRequestSchema } from "../schema/sessionPinRequestSchema.js"
@@ -1598,6 +1601,61 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     const response = await completeJsonResponse(context, result.data, headers, options.metricsCollector)
     if (response.status === 200) options.metricsCollector?.increment("snapshot_response_total", 1, { status: "200" })
     return response
+  })
+
+  api.get("/sessions/:sessionId/bounded-snapshot", async (context) => {
+    const organizationId = context.var.requestIdentity.organizationId
+    if (organizationId === undefined) return notFound(context)
+    const result = await sessionBoundedSnapshot(
+      options.database,
+      context.var.requestIdentity.userId,
+      organizationId,
+      context.req.param("sessionId"),
+      { cursorCodec: options.journalCursorCodec },
+    )
+    if (!result.success) {
+      if (result.code === "session_not_found" || result.errorMessage.includes("could not be found"))
+        return notFound(context)
+      return internalServerError(context)
+    }
+
+    const headers = new Headers({
+      "Cache-Control": "private, no-cache",
+      Vary: "Cookie, Accept-Encoding",
+    })
+    return completeJsonResponse(context, result.data, headers, options.metricsCollector)
+  })
+
+  api.get("/sessions/:sessionId/bounded-history", async (context) => {
+    const organizationId = context.var.requestIdentity.organizationId
+    if (organizationId === undefined) return notFound(context)
+    const parsed = apiRequestParse(
+      "sessionBoundedHistoryQueryParse",
+      sessionBoundedHistoryQuerySchema,
+      context.req.query(),
+    )
+    if (!parsed.success) return badRequest(context, "The bounded session history query is invalid.")
+
+    const result = await sessionBoundedHistoryPage(
+      options.database,
+      context.var.requestIdentity.userId,
+      organizationId,
+      context.req.param("sessionId"),
+      parsed.data,
+      { cursorCodec: options.journalCursorCodec },
+    )
+    if (!result.success) {
+      if (result.errorMessage.includes("cursor"))
+        return badRequest(context, "The bounded session history cursor is invalid.")
+      if (result.errorMessage.includes("could not be found")) return notFound(context)
+      return internalServerError(context)
+    }
+
+    const headers = new Headers({
+      "Cache-Control": "private, no-cache",
+      Vary: "Cookie, Accept-Encoding",
+    })
+    return completeJsonResponse(context, result.data, headers, options.metricsCollector)
   })
 
   api.get("/sessions/:sessionId", async (context) => {

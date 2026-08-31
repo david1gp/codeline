@@ -16,16 +16,20 @@ import { runActiveRegistryCreate } from "../actions/runActiveRegistryCreate.js"
 import { runActiveSnapshotLoad } from "../actions/runActiveSnapshotLoad.js"
 import { runCancel } from "../actions/runCancel.js"
 import { runCancellationCoordinatorCreate } from "../actions/runCancellationCoordinatorCreate.js"
+import { runDetailLoad } from "../actions/runDetailLoad.js"
 import { runDelegationsLoad } from "../actions/runDelegationsLoad.js"
 import { runLoad } from "../actions/runLoad.js"
 import { runSessionSnapshotLoad } from "../actions/runSessionSnapshotLoad.js"
+import { runToolDetailLoad } from "../actions/runToolDetailLoad.js"
 import { runErrorCatalog } from "../errors/runErrorCatalog.js"
 import { runCancelInputSchema } from "../schema/runCancelInputSchema.js"
 import { runActiveListResponseSchema } from "./runActiveListResponseSchema.js"
 import { runActiveSnapshotResponseSchema } from "./runActiveSnapshotResponseSchema.js"
 import { runCancelResponseSchema } from "./runCancelResponseSchema.js"
 import { runDelegationsResponseCreate } from "./runDelegationsResponseCreate.js"
+import { runDetailResponseSchema } from "./runDetailResponseSchema.js"
 import { runSessionSnapshotResponseSchema } from "./runSessionSnapshotResponseSchema.js"
+import { runToolDetailResponseSchema } from "./runToolDetailResponseSchema.js"
 
 type ApiContext = Context<AppEnvironment>
 type RunCancellationCoordinator = ReturnType<typeof runCancellationCoordinatorCreate>
@@ -38,9 +42,11 @@ type ApiRunRoutesOptions = {
   runActiveSnapshotLoad?: typeof runActiveSnapshotLoad
   runCancel?: typeof runCancel
   runCancellationCoordinator?: RunCancellationCoordinator
+  runDetailLoad?: typeof runDetailLoad
   runDelegationsLoad?: typeof runDelegationsLoad
   runLoad?: typeof runLoad
   runSessionSnapshotLoad?: typeof runSessionSnapshotLoad
+  runToolDetailLoad?: typeof runToolDetailLoad
   metricsCollector?: ReturnType<typeof metricsCollectorCreate>
 }
 
@@ -135,6 +141,45 @@ export function apiRunRoutesAdd(api: Hono<AppEnvironment>, options: ApiRunRoutes
     if (!result.success) return errorResponse(context, result, catalog)
 
     const response = v.safeParse(runSessionSnapshotResponseSchema, result.data)
+    if (!response.success) return internalServerError(context, catalog)
+    context.header("Cache-Control", "private, no-cache")
+    context.header("Vary", "Cookie, Accept-Encoding")
+    return context.json(response.output)
+  })
+
+  api.get("/sessions/:sessionId/runs/:runId/detail", async (context) => {
+    const organizationId = context.var.requestIdentity.organizationId
+    if (organizationId === undefined) return notFound(context, catalog)
+
+    const result = await (options.runDetailLoad ?? runDetailLoad)(
+      context.var.database,
+      context.var.requestIdentity.userId,
+      organizationId,
+      context.req.param("sessionId"),
+      context.req.param("runId"),
+    )
+    if (!result.success) return errorResponse(context, result, catalog)
+    const response = v.safeParse(runDetailResponseSchema, result.data)
+    if (!response.success) return internalServerError(context, catalog)
+    context.header("Cache-Control", "private, no-cache")
+    context.header("Vary", "Cookie, Accept-Encoding")
+    return context.json(response.output)
+  })
+
+  api.get("/sessions/:sessionId/runs/:runId/tools/:toolId/detail", async (context) => {
+    const organizationId = context.var.requestIdentity.organizationId
+    if (organizationId === undefined) return notFound(context, catalog)
+
+    const result = await (options.runToolDetailLoad ?? runToolDetailLoad)(
+      context.var.database,
+      context.var.requestIdentity.userId,
+      organizationId,
+      context.req.param("sessionId"),
+      context.req.param("runId"),
+      context.req.param("toolId"),
+    )
+    if (!result.success) return errorResponse(context, result, catalog)
+    const response = v.safeParse(runToolDetailResponseSchema, result.data)
     if (!response.success) return internalServerError(context, catalog)
     context.header("Cache-Control", "private, no-cache")
     context.header("Vary", "Cookie, Accept-Encoding")

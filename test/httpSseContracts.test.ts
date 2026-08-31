@@ -73,20 +73,21 @@ test("standard API error extensions are deliberately validated", () => {
 })
 
 test("active-run reconciliation accepts terminal statuses intentionally", () => {
+  const response = { lastSequence: 4, partialText: "partial" }
   for (const status of ["succeeded", "failed", "aborted"] as const) {
     expect(
       v.safeParse(runActiveSummarySchema, {
-        lastSequence: 4,
-        partialText: "partial",
+        ...response,
         runId: "run-1",
         sessionId: "session-1",
         status,
       }).success,
     ).toBe(true)
-    expect(
-      v.safeParse(runActiveSnapshotResponseSchema, { lastSequence: 4, partialText: "partial", status }).success,
-    ).toBe(true)
+    expect(v.safeParse(runActiveSnapshotResponseSchema, { ...response, status }).success).toBe(true)
   }
+  expect(v.safeParse(runActiveSnapshotResponseSchema, { ...response, input: null, status: "running" }).success).toBe(
+    false,
+  )
 })
 
 test("settled session reconciliation uses the complete authoritative typed payload", () => {

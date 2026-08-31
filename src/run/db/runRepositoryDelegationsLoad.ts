@@ -1,13 +1,9 @@
 import { createResult, type Result } from "@adaptive-ds/result"
-import { and, asc, eq } from "drizzle-orm"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
-import { serverTable } from "../../servers/db/serverTable.js"
-import { sessionTable } from "../../session/db/sessionTable.js"
+import { sessionDelegationReferencesLoad } from "../../session/db/sessionDelegationReferencesLoad.js"
 import type { RunDelegationsResponse } from "../api/runDelegationsResponseSchema.js"
 import { runErrorCodes } from "../errors/runErrorCodes.js"
 import { runResultCreateError } from "../errors/runResultCreateError.js"
-import { runDelegationTable } from "./runDelegationTable.js"
-import { runTable } from "./runTable.js"
 
 type RunDelegationsLoadResult = Pick<RunDelegationsResponse, "delegations" | "revision">
 
@@ -30,39 +26,34 @@ export async function runRepositoryDelegationsLoad(
   const op = "runRepositoryDelegationsLoad"
 
   try {
-    const [authorizedSession] = await database
-      .select({ id: sessionTable.id, revision: sessionTable.revision })
-      .from(sessionTable)
-      .innerJoin(
-        serverTable,
-        and(eq(sessionTable.serverId, serverTable.id), eq(serverTable.organizationId, organizationId)),
+    const loaded = await sessionDelegationReferencesLoad(database, userId, organizationId, sessionId)
+    if (!loaded.success)
+      return runResultCreateError(
+        op,
+        loaded.errorMessage,
+        loaded.errorMessage.includes("could not be found")
+          ? runErrorCodes.sessionNotFound
+          : runErrorCodes.delegationsLoadFailed,
       )
-      .where(and(eq(sessionTable.id, sessionId), eq(sessionTable.userId, userId)))
-      .limit(1)
-    if (authorizedSession === undefined)
-      return runResultCreateError(op, "The session could not be found.", runErrorCodes.sessionNotFound)
 
-    const rows = await database
-      .select({
-        childRunId: runDelegationTable.childRunId,
-        childSnapshot: runTable.snapshot,
-        delegationKey: runDelegationTable.delegationKey,
-        id: runDelegationTable.id,
-        parentAttemptId: runDelegationTable.parentAttemptId,
-        parentRunId: runDelegationTable.parentRunId,
-        task: runDelegationTable.task,
-      })
-      .from(runDelegationTable)
-      .leftJoin(runTable, eq(runTable.id, runDelegationTable.childRunId))
-      .where(and(eq(runDelegationTable.sessionId, sessionId), eq(runDelegationTable.userId, userId)))
-      .orderBy(asc(runDelegationTable.createdAt), asc(runDelegationTable.id))
+    const delegations = loaded.data.delegations.map(
+      ({ childSnapshot, childSessionId, delegation, parentSessionId }) => {
+        const childAgentId = runDelegationChildAgentIdResolve(childSnapshot)
+        return {
+          childSessionId,
+          childRunId: delegation.childRunId,
+          delegationKey: delegation.delegationKey,
+          id: delegation.id,
+          parentAttemptId: delegation.parentAttemptId,
+          parentRunId: delegation.parentRunId,
+          parentSessionId,
+          ...(childAgentId === undefined ? {} : { childAgentId }),
+          task: delegation.task,
+        }
+      },
+    )
 
-    const delegations = rows.map(({ childSnapshot, ...delegation }) => {
-      const childAgentId = runDelegationChildAgentIdResolve(childSnapshot)
-      return childAgentId === undefined ? delegation : { ...delegation, childAgentId }
-    })
-
-    return createResult({ delegations, revision: authorizedSession.revision })
+    return createResult({ delegations, revision: loaded.data.parentRevision })
   } catch (_error) {
     return runResultCreateError(op, "The delegations could not be loaded.", runErrorCodes.delegationsLoadFailed)
   }

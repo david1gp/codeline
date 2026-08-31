@@ -17,6 +17,8 @@ const sessionCompactRunStateSchema = v.strictObject({
 })
 
 export const sessionCompactRunInputStateSchema = v.strictObject({
+  // Current supported runtimes do not persist an authoritative input-needed event.
+  // Keep this nullable slot empty rather than deriving it from run or tool data.
   input: v.nullable(sessionInputStateSchema),
   run: v.nullable(sessionCompactRunStateSchema),
 })

@@ -18,11 +18,14 @@ export const sessionSemanticStepSchema = v.variant("kind", [
   }),
   v.strictObject({
     ...semanticStepBaseEntries,
+    detailId: apiPublicIdSchema,
     childReference: v.optional(v.nullable(sessionChildReferenceSchema)),
     kind: v.literal("tool"),
+    runId: apiPublicIdSchema,
   }),
   v.strictObject({
     ...semanticStepBaseEntries,
+    detailId: apiPublicIdSchema,
     kind: v.literal("run"),
   }),
   v.strictObject({

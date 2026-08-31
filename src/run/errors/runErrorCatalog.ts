@@ -25,6 +25,7 @@ const runErrorEntries = [
   { code: runErrorCodes.createFailed, httpStatus: 500, retryable: true },
   { code: runErrorCodes.cursorEncodingFailed, httpStatus: 500, retryable: false },
   { code: runErrorCodes.deadlineNotInherited, httpStatus: 500, retryable: false },
+  { code: runErrorCodes.detailInvalid, httpStatus: 500, retryable: false },
   { code: runErrorCodes.delegationClockInvalid, httpStatus: 500, retryable: false },
   { code: runErrorCodes.delegationConflict, httpStatus: 409, retryable: false },
   { code: runErrorCodes.delegationFinalizationConflict, httpStatus: 409, retryable: false },
@@ -65,6 +66,8 @@ const runErrorEntries = [
   { code: runErrorCodes.stateInconsistent, httpStatus: 500, retryable: false },
   { code: runErrorCodes.statusInvalid, httpStatus: 500, retryable: false },
   { code: runErrorCodes.terminalResultMissing, httpStatus: 500, retryable: false },
+  { code: runErrorCodes.toolDetailInvalid, httpStatus: 500, retryable: false },
+  { code: runErrorCodes.toolNotFound, httpStatus: 404, retryable: false },
   { code: runErrorCodes.transitionFailed, httpStatus: 500, retryable: true },
   { code: runErrorCodes.transitionInvalid, httpStatus: 409, retryable: false },
 ] as const satisfies readonly ApiErrorCatalogEntry[]

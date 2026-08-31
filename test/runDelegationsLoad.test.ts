@@ -104,11 +104,13 @@ test.skipIf(!databaseAvailable)("loads only authorized session delegations in cr
       .map((delegation) => ({
         // The load joins the child run so the UI can label the delegation's target agent.
         childAgentId: agentId,
+        childSessionId: null,
         childRunId: delegation.childRunId,
         delegationKey: delegation.delegationKey,
         id: delegation.id,
         parentAttemptId: delegation.parentAttemptId,
         parentRunId: delegation.parentRunId,
+        parentSessionId: sessionId,
         task: delegation.task,
       }))
     expect(loaded.data.delegations).toEqual(expected)

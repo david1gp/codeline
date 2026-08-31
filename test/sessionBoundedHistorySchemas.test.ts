@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test"
 import * as v from "valibot"
+import { sessionBoundedHistoryPageSchema } from "../src/session/api/sessionBoundedHistoryPageSchema.js"
+import { sessionBoundedShellSchema } from "../src/session/api/sessionBoundedShellSchema.js"
 import { sessionBoundedSnapshotSchema } from "../src/session/api/sessionBoundedSnapshotSchema.js"
 import { sessionChildReferenceSchema } from "../src/session/api/sessionChildReferenceSchema.js"
 import { sessionCompactRunInputStateSchema } from "../src/session/api/sessionCompactRunInputStateSchema.js"
@@ -21,18 +23,11 @@ const assistantAnswer = {
   sessionId: "session-1",
 }
 const session = {
-  archivedAt: null,
-  createdAt: "2026-08-31T12:00:00.000Z",
   id: "session-1",
-  metadata: {},
-  parentSessionId: null,
   pinned: false,
-  primaryAgentId: "agent-1",
   projectPath: "~",
   revision: 1,
-  serverId: "server-1",
   title: "Session",
-  updatedAt: "2026-08-31T12:00:01.000Z",
 }
 const state = {
   input: null,
@@ -70,14 +65,17 @@ test("semantic steps are bounded, typed, and strict", () => {
   expect(
     v.safeParse(sessionSemanticStepSchema, {
       childReference: { childSessionId: "child-1", parentSessionId: "session-1" },
+      detailId: "tool-1",
       id: "step-2",
       kind: "tool",
+      runId: "run-1",
       sequence: 2,
       summary: "Delegated work",
     }).success,
   ).toBe(true)
   expect(
     v.safeParse(sessionSemanticStepSchema, {
+      detailId: "run-1",
       id: "step-3",
       kind: "unknown",
       sequence: 3,
@@ -104,14 +102,39 @@ test("semantic steps are bounded, typed, and strict", () => {
   ).toBe(false)
 })
 
-test("latest answers require assistant messages and child references require both IDs", () => {
+test("latest answers bound content and metadata while retaining normal content", () => {
   expect(v.safeParse(sessionLatestAnswerSchema, assistantAnswer).success).toBe(true)
   expect(v.safeParse(sessionLatestAnswerSchema, null).success).toBe(true)
   expect(v.safeParse(sessionLatestAnswerSchema, { ...assistantAnswer, role: "user" }).success).toBe(false)
+  expect(v.safeParse(sessionLatestAnswerSchema, { ...assistantAnswer, content: "x".repeat(16_385) }).success).toBe(
+    false,
+  )
+  expect(v.safeParse(sessionLatestAnswerSchema, { ...assistantAnswer, content: "😀".repeat(4_097) }).success).toBe(
+    false,
+  )
+  expect(
+    v.safeParse(sessionLatestAnswerSchema, {
+      ...assistantAnswer,
+      metadata: Object.fromEntries(Array.from({ length: 51 }, (_, index) => [`key-${index}`, index])),
+    }).success,
+  ).toBe(false)
+  expect(
+    v.safeParse(sessionLatestAnswerSchema, {
+      ...assistantAnswer,
+      metadata: Object.fromEntries(Array.from({ length: 50 }, (_, index) => [`key-${index}`, "x".repeat(400)])),
+    }).success,
+  ).toBe(false)
   expect(
     v.safeParse(sessionChildReferenceSchema, { childSessionId: "child-1", parentSessionId: "session-1" }).success,
   ).toBe(true)
   expect(v.safeParse(sessionChildReferenceSchema, { childSessionId: "child-1" }).success).toBe(false)
+})
+
+test("bounded session shells retain selected-session fields without unrestricted data", () => {
+  expect(v.safeParse(sessionBoundedShellSchema, session).success).toBe(true)
+  expect(v.safeParse(sessionBoundedShellSchema, { ...session, metadata: "large" }).success).toBe(false)
+  expect(v.safeParse(sessionBoundedShellSchema, { ...session, agentPrompt: "large" }).success).toBe(false)
+  expect(v.safeParse(sessionBoundedShellSchema, { ...session, title: "x".repeat(501) }).success).toBe(false)
 })
 
 test("compact run/input state is nullable per active concern and rejects unbounded text", () => {
@@ -131,8 +154,17 @@ test("compact run/input state is nullable per active concern and rejects unbound
   ).toBe(false)
 })
 
+test("keeps unsupported waiting state absent from older history pages", () => {
+  const page = { hasMore: false, nextCursor: null, semanticSteps: [], throughSeq: 0 }
+  expect(v.safeParse(sessionBoundedHistoryPageSchema, page).success).toBe(true)
+  expect(v.safeParse(sessionBoundedHistoryPageSchema, { ...page, state: { input: null, run: null } }).success).toBe(
+    false,
+  )
+})
+
 test("bounded snapshots cap semantic history and allow an empty or exhausted older page", () => {
   const snapshot = {
+    hasMore: true,
     latestAnswer: assistantAnswer,
     olderCursor: "cursor-opaque",
     semanticSteps: [
@@ -144,13 +176,15 @@ test("bounded snapshots cap semantic history and allow an empty or exhausted old
     throughSeq: 4,
   }
   expect(v.safeParse(sessionBoundedSnapshotSchema, snapshot).success).toBe(true)
-  expect(v.safeParse(sessionBoundedSnapshotSchema, { ...snapshot, olderCursor: null, semanticSteps: [] }).success).toBe(
-    true,
-  )
+  expect(
+    v.safeParse(sessionBoundedSnapshotSchema, { ...snapshot, hasMore: false, olderCursor: null, semanticSteps: [] })
+      .success,
+  ).toBe(true)
   expect(
     v.safeParse(sessionBoundedSnapshotSchema, {
       ...snapshot,
       semanticSteps: Array.from({ length: 26 }, (_, index) => ({
+        detailId: `run-${index + 1}`,
         id: `step-${index + 1}`,
         kind: "run",
         sequence: index + 1,

@@ -24,6 +24,7 @@ type ExecutionTranscriptProjectInput = {
   backlog?: ReadonlyArray<ExecutionTranscriptSourceEvent>
   events?: ReadonlyArray<ExecutionTranscriptSourceEvent>
   finalizedAssistantText?: string
+  includeToolCallIds?: boolean
   run?: ExecutionTranscriptRun
   streamEnded?: boolean
 }
@@ -250,6 +251,7 @@ export function executionTranscriptProject(input: ExecutionTranscriptProjectInpu
   return executionTranscriptNormalize({
     ...(attempts === undefined ? {} : { attempts }),
     events,
+    includeToolCallIds: input.includeToolCallIds,
     ...(run === undefined ? {} : { run }),
     ...(input.streamEnded === undefined ? {} : { streamEnded: input.streamEnded }),
   })
