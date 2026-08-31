@@ -32,5 +32,3 @@ Show a registered project's `public/favicon.ico` as its avatar when present, ret
 - [x] 4. Add the once-per-24-hours client registry refresh with lifecycle cleanup and focused state tests.
 - [x] 5. Update `ProjectAvatar` and registered-project call sites to display favicons with initials fallback, including image-error behavior.
 - [x] 6. Run focused tests, typecheck and formatting checks; verify favicon display and fallbacks through the repository-managed combined preview service, with filesystem state transitions covered by the resolver tests.
-
-Current context: implementation and verification are complete; commit and deployment remain.
