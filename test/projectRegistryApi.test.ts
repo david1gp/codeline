@@ -543,6 +543,17 @@ describe("project registry HTTP routes", () => {
 
   test("includes a revisioned favicon URL in registry list and detail responses", async () => {
     activeUserId = firstUserId
+    const noFaviconProjectRoot = path.join(rootDirectory, "no-favicon-project")
+    await fs.mkdir(noFaviconProjectRoot)
+    const noFaviconRegistered = await app.request("http://codeline.test/project/registry", {
+      body: JSON.stringify({ path: noFaviconProjectRoot }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+    expect(noFaviconRegistered.status).toBe(200)
+    const noFaviconBody = (await noFaviconRegistered.json()) as { project: { faviconUrl: string | null; id: string } }
+    expect(noFaviconBody.project.faviconUrl).toBeNull()
+
     const faviconProjectRoot = path.join(rootDirectory, "favicon-project")
     await fs.mkdir(path.join(faviconProjectRoot, "public"), { recursive: true })
     await fs.writeFile(path.join(faviconProjectRoot, "public", "favicon.ico"), Buffer.from([0, 1, 2, 3]))
@@ -569,10 +580,87 @@ describe("project registry HTTP routes", () => {
     expect(listedBody.projects.find((project) => project.id === projectId)?.faviconUrl).toBe(
       registeredBody.project.faviconUrl,
     )
+    expect(listedBody.projects.find((project) => project.id === noFaviconBody.project.id)?.faviconUrl).toBeNull()
 
     const detail = await app.request(`http://codeline.test/project/registry/${projectId}`)
     expect(detail.status).toBe(200)
     const detailBody = (await detail.json()) as { project: { faviconUrl: string | null; id: string } }
     expect(detailBody.project).toMatchObject(registeredBody.project)
+
+    const noFaviconDetail = await app.request(`http://codeline.test/project/registry/${noFaviconBody.project.id}`)
+    expect(noFaviconDetail.status).toBe(200)
+    const noFaviconDetailBody = (await noFaviconDetail.json()) as { project: { faviconUrl: string | null; id: string } }
+    expect(noFaviconDetailBody.project).toMatchObject(noFaviconBody.project)
+  })
+
+  test("serves only authorized regular project favicons with revision-aware browser caching", async () => {
+    activeUserId = firstUserId
+    const faviconProjectRoot = path.join(rootDirectory, "favicon-endpoint-project")
+    const publicRoot = path.join(faviconProjectRoot, "public")
+    const faviconPath = path.join(publicRoot, "favicon.ico")
+    const faviconContent = Buffer.from([0, 1, 2, 3, 4])
+    await fs.mkdir(publicRoot, { recursive: true })
+    await fs.writeFile(faviconPath, faviconContent)
+
+    const registered = await app.request("http://codeline.test/project/registry", {
+      body: JSON.stringify({ path: faviconProjectRoot }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+    expect(registered.status).toBe(200)
+    const registeredBody = (await registered.json()) as { project: { faviconUrl: string | null; id: string } }
+    expect(registeredBody.project.faviconUrl).not.toBeNull()
+
+    const emittedUrl = new URL(registeredBody.project.faviconUrl as string, "http://codeline.test")
+    const endpointPath = `${emittedUrl.pathname.replace(/^\/api/, "")}${emittedUrl.search}`
+
+    activeUserId = ""
+    const unauthorized = await app.request(`http://codeline.test${endpointPath}`)
+    expect(unauthorized.status).toBe(401)
+
+    activeUserId = secondUserId
+    const isolated = await app.request(`http://codeline.test${endpointPath}`)
+    expect(isolated.status).toBe(404)
+
+    activeUserId = firstUserId
+    const malformed = await app.request("http://codeline.test/project/favicon/not-a-project?revision=test")
+    expect(malformed.status).toBe(400)
+    const missingProject = await app.request(
+      "http://codeline.test/project/favicon/00000000-0000-7000-8000-000000000000?revision=test",
+    )
+    expect(missingProject.status).toBe(404)
+
+    const served = await app.request(`http://codeline.test${endpointPath}`)
+    expect(served.status).toBe(200)
+    expect(served.headers.get("Cache-Control")).toBe("private, max-age=86400, immutable")
+    expect(served.headers.get("Content-Length")).toBe(String(faviconContent.length))
+    expect(served.headers.get("Content-Type")).toBe("image/x-icon")
+    expect(served.headers.get("Last-Modified")).toBe((await fs.stat(faviconPath)).mtime.toUTCString())
+    expect(served.headers.get("X-Content-Type-Options")).toBe("nosniff")
+    expect(Buffer.from(await served.arrayBuffer())).toEqual(faviconContent)
+
+    await fs.rm(faviconPath)
+    const missing = await app.request(`http://codeline.test${endpointPath}`)
+    expect(missing.status).toBe(404)
+
+    await fs.mkdir(faviconPath)
+    const directory = await app.request(`http://codeline.test${endpointPath}`)
+    expect(directory.status).toBe(404)
+    await fs.rm(faviconPath, { recursive: true })
+
+    const outsideFaviconPath = path.join(outsideRoot, "outside-favicon.ico")
+    await fs.writeFile(outsideFaviconPath, Buffer.from([9, 9, 9]))
+    await fs.symlink(outsideFaviconPath, faviconPath)
+    const symlink = await app.request(`http://codeline.test${endpointPath}`)
+    expect(symlink.status).toBe(404)
+
+    await fs.rm(faviconPath)
+    const outsidePublicRoot = path.join(outsideRoot, "outside-public")
+    await fs.mkdir(outsidePublicRoot)
+    await fs.writeFile(path.join(outsidePublicRoot, "favicon.ico"), Buffer.from([8, 8, 8]))
+    await fs.rm(publicRoot, { recursive: true })
+    await fs.symlink(outsidePublicRoot, publicRoot)
+    const publicSymlink = await app.request(`http://codeline.test${endpointPath}`)
+    expect(publicSymlink.status).toBe(404)
   })
 })

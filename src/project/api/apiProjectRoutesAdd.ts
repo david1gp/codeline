@@ -31,6 +31,7 @@ import { projectDiscoveryLimits } from "../projectDiscoveryLimits.js"
 import { projectDiscoveryList } from "../projectDiscoveryList.js"
 import { projectDownloadPrepare } from "../projectDownloadPrepare.js"
 import { projectFaviconMetadataResolve } from "../projectFaviconMetadataResolve.js"
+import { projectFaviconRead } from "../projectFaviconRead.js"
 import { projectFolderIdSchema } from "../projectFolderIdSchema.js"
 import { projectGitBranchDelete } from "../projectGitBranchDelete.js"
 import { projectGitBranchListRead } from "../projectGitBranchListRead.js"
@@ -696,6 +697,33 @@ export function apiProjectRoutesAdd(api: Hono<AppEnvironment>, options: ApiProje
     return new Response(null, { status: 204 })
   }
 
+  const registryFavicon = async (context: ApiContext, projectId: string) => {
+    if (options.database === undefined) return registryInternalServerError(context)
+    const userId = registryRequestUserId(context, options)
+    if (userId === undefined) return unauthorized(context)
+    const id = apiRequestParse("projectRegistryProjectQueryParse", projectApiProjectQuerySchema, { project: projectId })
+    if (!id.success) return registryBadRequest(context, "The project selection is invalid.")
+
+    const resolved = await projectResolve(options.rootDirs ?? [], id.data.project, {
+      database: options.database,
+      userId,
+    })
+    if (!resolved.success) return registryUnavailable(context)
+
+    const favicon = await projectFaviconRead(resolved.data.rootDir)
+    if (!favicon.success) return registryUnavailable(context)
+
+    return new Response(Readable.toWeb(favicon.data.stream) as unknown as BodyInit, {
+      headers: {
+        "Cache-Control": "private, max-age=86400, immutable",
+        "Content-Length": String(favicon.data.size),
+        "Content-Type": "image/x-icon",
+        "Last-Modified": favicon.data.modifiedAt.toUTCString(),
+        "X-Content-Type-Options": "nosniff",
+      },
+    })
+  }
+
   api.get("/project/registry", registryList)
   api.get("/project/registry/list", registryList)
   api.get("/project/registry/folders", registryFolderList)
@@ -732,6 +760,7 @@ export function apiProjectRoutesAdd(api: Hono<AppEnvironment>, options: ApiProje
   api.patch("/project/rename/:projectId", (context) => registryRename(context, context.req.param("projectId")))
   api.delete("/project/remove/:projectId", (context) => registryRemove(context, context.req.param("projectId")))
   api.patch("/project/move/:projectId", (context) => registryMove(context, context.req.param("projectId")))
+  api.get("/project/favicon/:projectId", (context) => registryFavicon(context, context.req.param("projectId")))
 
   api.get("/project/list", async (context) => {
     if (options.database !== undefined) return registryList(context)
