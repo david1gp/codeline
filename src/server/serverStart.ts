@@ -15,12 +15,16 @@ import { databaseUrl } from "../database/databaseUrl.js"
 import { journalBacklogRead } from "../journal/actions/journalBacklogRead.js"
 import type { JournalCursorCodec } from "../journal/actions/journalCursorCodecCreate.js"
 import { journalCursorCodecCreate } from "../journal/actions/journalCursorCodecCreate.js"
+import { journalGlobalSummaryBacklogRead } from "../journal/actions/journalGlobalSummaryBacklogRead.js"
+import { journalGlobalSummaryPostCommitPublishCreate } from "../journal/actions/journalGlobalSummaryPostCommitPublishCreate.js"
 import { journalPostCommitPublishCreate } from "../journal/actions/journalPostCommitPublishCreate.js"
 import { metricsCollectorCreate } from "../metrics/metricsCollectorCreate.js"
 import { providerAgentCatalogLoad } from "../providers/catalog/providerAgentCatalogLoad.js"
 import type { ProviderCatalog } from "../providers/schema/providerCatalogSchema.js"
 import { runActiveRegistryCreate } from "../run/actions/runActiveRegistryCreate.js"
 import { runStartupInterruptionReconcile } from "../run/actions/runStartupInterruptionReconcile.js"
+import { sessionDetailPostCommitPublishCreate } from "../session/actions/sessionDetailPostCommitPublishCreate.js"
+import { sessionDetailStreamBacklogRead } from "../session/actions/sessionDetailStreamBacklogRead.js"
 import { streamLiveSubscriptionCreate } from "../stream/actions/streamLiveSubscriptionCreate.js"
 import { streamSseConnectionWriterCreate } from "../stream/actions/streamSseConnectionWriterCreate.js"
 import { streamSseSchedulerCreate } from "../stream/actions/streamSseSchedulerCreate.js"
@@ -52,7 +56,9 @@ type ServerStartOptions = {
     providerAgentCatalog?: ProviderCatalog
     journalCursorCodec: JournalCursorCodec
     journalBacklogRead: typeof journalBacklogRead
+    journalGlobalSummaryBacklogRead: typeof journalGlobalSummaryBacklogRead
     journalPostCommitPublish: ReturnType<typeof journalPostCommitPublishCreate>
+    sessionDetailStreamBacklogRead: typeof sessionDetailStreamBacklogRead
     streamLiveSubscription: ReturnType<typeof streamLiveSubscriptionCreate>
     streamSseConnectionWriterCreate: typeof streamSseConnectionWriterCreate
     streamSseNow: () => number
@@ -148,10 +154,27 @@ export async function serverStart(options: ServerStartOptions = {}): Promise<Ser
   const journalCursorCodec = options.journalCursorCodec ?? serverJournalCursorCodecCreate()
   const streamLiveSubscription = streamLiveSubscriptionCreate()
   const streamSseScheduler = streamSseSchedulerCreate()
-  const journalPostCommitPublish = journalPostCommitPublishCreate({
+  const journalDetailPostCommitPublish = journalPostCommitPublishCreate({
     cursorCodec: journalCursorCodec,
     liveSubscription: streamLiveSubscription,
   })
+  const journalGlobalSummaryPostCommitPublish = journalGlobalSummaryPostCommitPublishCreate({
+    cursorCodec: journalCursorCodec,
+    liveSubscription: streamLiveSubscription,
+  })
+  const sessionDetailPostCommitPublish = sessionDetailPostCommitPublishCreate({
+    cursorCodec: journalCursorCodec,
+    database: database.data.db,
+    liveSubscription: streamLiveSubscription,
+  })
+  const journalPostCommitPublish = async (events: Parameters<typeof journalDetailPostCommitPublish>[0]) => {
+    const detailPublished = await journalDetailPostCommitPublish(events)
+    const sessionDetailPublished = await sessionDetailPostCommitPublish(events)
+    const globalSummaryPublished = await journalGlobalSummaryPostCommitPublish(events)
+    if (!detailPublished.success) return detailPublished
+    if (!sessionDetailPublished.success) return sessionDetailPublished
+    return globalSummaryPublished
+  }
   const metricsCollector = options.metricsCollector ?? metricsCollectorCreate()
   const shutdownCoordinator = options.serverShutdownCoordinator ?? serverShutdownCoordinatorCreate()
   const runActiveRegistry = options.runActiveRegistry ?? runActiveRegistryCreate()
@@ -163,7 +186,10 @@ export async function serverStart(options: ServerStartOptions = {}): Promise<Ser
     providerAgentCatalog: providerAgentCatalogResult.data,
     journalCursorCodec,
     journalBacklogRead,
+    journalGlobalSummaryBacklogRead,
     journalPostCommitPublish,
+    sessionDetailStreamBacklogRead,
+    globalSummaryLiveSubscription: streamLiveSubscription,
     streamLiveSubscription,
     streamSseConnectionWriterCreate,
     streamSseNow: Date.now,

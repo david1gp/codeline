@@ -9,6 +9,7 @@ import type { JournalEvent } from "../schema/journalEventSchema.js"
 import { journalEventSchema } from "../schema/journalEventSchema.js"
 import { type EventFeedCursor, eventFeedCursorSchema } from "./eventFeedCursorSchema.js"
 import { eventFeedEventParse } from "./eventFeedEventParse.js"
+import { globalSummaryEventJournalAdapt } from "./globalSummaryEventJournalAdapt.js"
 
 const eventFeedResourceTypeSchema = v.picklist(["agent", "message", "note", "run", "server", "session", "session-list"])
 const eventFeedDeltaKindSchema = v.picklist(["text", "thinking", "tool"])
@@ -56,6 +57,8 @@ export type EventFeedRun = {
   runId: string
   sessionId: string
   superseded: boolean
+  terminalChangePosition: number | null
+  terminalKind: EventFeedRunCheckpoint | null
   terminalStatus: "succeeded" | "failed" | "aborted" | null
 }
 export type EventFeedStaleResource = EventFeedResource & {
@@ -71,23 +74,15 @@ export type EventFeedDelta = {
 export type EventFeedReconciliationInstruction =
   | {
       authoritative: "session-snapshot"
+      changePosition: number
       kind: "authoritative-replacement"
       messageId: string | null
-      preserveDeltas: false
-      reason: "run-completed"
-      runId: string
-      sessionId: string
-      sessionRevision: number
-    }
-  | {
-      authoritative: "active-run-snapshot"
-      checkpoint: "failed" | "cancelled" | "interrupted"
-      kind: "run-checkpoint"
       preserveDeltas: true
-      reason: "run-checkpoint"
+      reason: "run-terminal"
       runId: string
       sessionId: string
       sessionRevision: number
+      terminalKind: EventFeedRunCheckpoint
     }
   | {
       cachedRevision: number | null
@@ -154,6 +149,8 @@ function eventFeedStateRunClone(run: EventFeedRun): EventFeedRun {
     runId: run.runId,
     sessionId: run.sessionId,
     superseded: run.superseded,
+    terminalChangePosition: run.terminalChangePosition,
+    terminalKind: run.terminalKind,
     terminalStatus: run.terminalStatus,
   }
 }
@@ -241,6 +238,8 @@ export function eventFeedStateCreate(options: EventFeedStateCreateOptions) {
       runId: event.runId,
       sessionId: event.sessionId,
       superseded: false,
+      terminalChangePosition: null,
+      terminalKind: null,
       terminalStatus: null,
     }
     activeRuns.set(event.runId, run)
@@ -281,7 +280,6 @@ export function eventFeedStateCreate(options: EventFeedStateCreateOptions) {
       if (!ensured.success) return ensured
       const run = ensured.data
       if (run.phase !== "active" || run.superseded) return createResult({ ignored: "terminal-run", instruction: null })
-      if (event.sequence > run.lastSequence) run.lastSequence = event.sequence
       return createResult({ instruction: null })
     }
 
@@ -311,46 +309,38 @@ export function eventFeedStateCreate(options: EventFeedStateCreateOptions) {
     const ensured = eventFeedStateRunEnsure(event)
     if (!ensured.success) return ensured
     const run = ensured.data
-    run.lastSequence = event.sequence
+    const changePosition = event.changePosition
+    if (changePosition === undefined) return eventFeedStateError("The terminal event has no session change position.")
+    if (run.terminalChangePosition !== null && changePosition <= run.terminalChangePosition)
+      return createResult({ ignored: "stale-event", instruction: null })
+    if (run.terminalKind !== null) return createResult({ ignored: "terminal-run", instruction: null })
+    const terminalKind =
+      event.eventType === "run-completed"
+        ? "completed"
+        : event.eventType === "run-failed"
+          ? "failed"
+          : event.eventType === "run-cancelled"
+            ? "cancelled"
+            : "interrupted"
     run.phase = "reconciling"
     run.terminalStatus =
       event.eventType === "run-completed" ? "succeeded" : event.eventType === "run-failed" ? "failed" : "aborted"
-    run.superseded = event.eventType === "run-completed"
-    if (run.superseded) {
-      run.checkpoint = "completed"
-      run.deltas = []
-      run.deltaTextByKind = eventFeedStateDeltaTextCreate()
-      run.partialText = ""
-    }
-
-    if (event.eventType === "run-completed") {
-      return createResult({
-        instruction: {
-          authoritative: "session-snapshot",
-          kind: "authoritative-replacement",
-          messageId: event.messageId,
-          preserveDeltas: false,
-          reason: "run-completed",
-          runId: event.runId,
-          sessionId: event.sessionId,
-          sessionRevision: event.sessionRevision,
-        },
-      })
-    }
-
-    const checkpoint =
-      event.eventType === "run-failed" ? "failed" : event.eventType === "run-cancelled" ? "cancelled" : "interrupted"
-    run.checkpoint = checkpoint
+    run.checkpoint = terminalKind
+    run.superseded = false
+    run.terminalChangePosition = changePosition
+    run.terminalKind = terminalKind
     return createResult({
       instruction: {
-        authoritative: "active-run-snapshot",
-        checkpoint,
-        kind: "run-checkpoint",
+        authoritative: "session-snapshot",
+        changePosition,
+        kind: "authoritative-replacement",
+        messageId: event.eventType === "run-completed" ? event.messageId : null,
         preserveDeltas: true,
-        reason: "run-checkpoint",
+        reason: "run-terminal",
         runId: event.runId,
         sessionId: event.sessionId,
         sessionRevision: event.sessionRevision,
+        terminalKind,
       },
     })
   }
@@ -412,7 +402,7 @@ export function eventFeedStateCreate(options: EventFeedStateCreateOptions) {
   const applySse = (input: unknown): Result<EventFeedApplyResult> => {
     const parsed = eventFeedEventParse(input)
     if (!parsed.success) return parsed
-    return apply(parsed.data.data)
+    return apply(globalSummaryEventJournalAdapt(parsed.data.data))
   }
 
   const bootstrap = (input: unknown): Result<EventFeedState> => {
@@ -459,7 +449,10 @@ export function eventFeedStateCreate(options: EventFeedStateCreateOptions) {
     return createResult(state())
   }
 
-  const sessionReplace = (input: unknown): Result<EventFeedState> => {
+  const sessionReplace = (
+    input: unknown,
+    terminal?: Extract<EventFeedReconciliationInstruction, { kind: "authoritative-replacement" }>,
+  ): Result<EventFeedState> => {
     const parsed = v.safeParse(sessionSnapshotResponseSchema, input)
     if (!parsed.success)
       return eventFeedStateError("The authoritative session snapshot is invalid.", "invalid_replacement")
@@ -467,6 +460,22 @@ export function eventFeedStateCreate(options: EventFeedStateCreateOptions) {
       resourceId: parsed.output.session.id,
       resourceType: "session" as const,
       revision: parsed.output.revision,
+    }
+    if (terminal !== undefined) {
+      if (parsed.output.session.id !== terminal.sessionId || parsed.output.revision < terminal.sessionRevision)
+        return eventFeedStateError("The authoritative session replacement is stale.", "stale_replacement")
+      const run = activeRuns.get(terminal.runId)
+      if (
+        run === undefined ||
+        run.sessionId !== terminal.sessionId ||
+        run.terminalChangePosition !== terminal.changePosition ||
+        run.terminalKind !== terminal.terminalKind
+      )
+        return eventFeedStateError("The terminal reconciliation generation is stale.", "stale_replacement")
+      const replaced = resourceReplace(replacement)
+      if (!replaced.success) return replaced
+      activeRuns.delete(terminal.runId)
+      return createResult(state())
     }
     const replaced = resourceReplace(replacement)
     if (!replaced.success) return replaced
@@ -494,6 +503,8 @@ export function eventFeedStateCreate(options: EventFeedStateCreateOptions) {
       runId: snapshot.runId,
       sessionId: snapshot.sessionId,
       superseded: false,
+      terminalChangePosition: existing?.terminalChangePosition ?? null,
+      terminalKind: existing?.terminalKind ?? null,
       terminalStatus,
     })
   }

@@ -96,6 +96,7 @@ function completedFrame(sequence: number): StreamSseFrame {
   const id = `cursor-${userId}-${sequence}`
   return {
     data: {
+      changePosition: sequence,
       eventType: "run-completed",
       id,
       messageId: null,

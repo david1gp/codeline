@@ -6,9 +6,10 @@ import {
   type SessionSettledSnapshotResponse,
   sessionSettledSnapshotResponseSchema,
 } from "../../session/api/sessionSettledSnapshotResponseSchema.js"
-import type { StreamSseFrame } from "../../stream/api/streamSseFrameSchema.js"
+import type { GlobalSummarySseFrame } from "../../stream/api/globalSummarySseFrameSchema.js"
 import { eventFeedCursorSchema } from "../../stream/client/eventFeedCursorSchema.js"
 import { eventFeedEventParse } from "../../stream/client/eventFeedEventParse.js"
+import { globalSummaryEventJournalAdapt } from "../../stream/client/globalSummaryEventJournalAdapt.js"
 import {
   type EventFeedApplyResult,
   type EventFeedReconciliationInstruction,
@@ -21,7 +22,7 @@ import type { UiDataLayerStatus } from "../../ui/uiDataLayerStatusSchema.js"
 import type { EventFeedOwnerRegistry } from "./eventFeedOwnerRegistryCreate.js"
 
 const eventFeedEventTypes = [
-  "delta",
+  "input-needed",
   "invalidate",
   "reset",
   "run-cancelled",
@@ -48,7 +49,6 @@ const eventFeedResetBootstrapSchema = v.strictObject({
 
 type EventFeedTransportState = "closed" | "connecting" | "open" | "reconnecting"
 type EventFeedReset = Extract<EventFeedReconciliationInstruction, { kind: "reset" }>
-type EventFeedRunCheckpoint = Extract<EventFeedReconciliationInstruction, { kind: "run-checkpoint" }>
 type EventFeedCompletion = Extract<EventFeedReconciliationInstruction, { kind: "authoritative-replacement" }>
 type EventFeedMessage = Event & {
   data: unknown
@@ -82,7 +82,7 @@ type EventFeedResetActiveRunInput = {
   runId: string
   sessionId: string
 }
-type EventFeedActiveRunCallbackInput = EventFeedRunCheckpoint | EventFeedResetActiveRunInput
+type EventFeedActiveRunCallbackInput = EventFeedResetActiveRunInput
 type EventFeedSessionSnapshotInput = EventFeedCompletion
 type EventFeedResetSessionSnapshotInput = {
   authoritative: "session-snapshot"
@@ -101,7 +101,10 @@ export type EventFeedReconciliationCallbacks = {
   sessionSnapshotLoad: (
     input: EventFeedSessionSnapshotInput | EventFeedResetSessionSnapshotInput,
   ) => EventFeedCallbackResult<SessionSettledSnapshotResponse>
-  sessionSnapshotReplace: (snapshot: SessionSettledSnapshotResponse) => EventFeedCallbackResult<void>
+  sessionSnapshotReplace: (
+    snapshot: SessionSettledSnapshotResponse,
+    input?: EventFeedSessionSnapshotInput | EventFeedResetSessionSnapshotInput,
+  ) => EventFeedCallbackResult<void>
   shellListBootstrap: (input: EventFeedResetCallbackInput) => EventFeedCallbackResult<EventFeedResetBootstrap>
   visibleResources: () => readonly EventFeedResource[] | Promise<readonly EventFeedResource[]>
 }
@@ -113,7 +116,7 @@ export type EventFeedCreateOptions = {
     settledCacheKeys?: readonly string[]
   }
   onError?: (result: Result<unknown>) => void
-  onEvent?: (frame: StreamSseFrame) => void
+  onEvent?: (frame: GlobalSummarySseFrame) => void
   onAuthenticationError?: () => void
   onStateChange?: (state: UiDataLayerStatus) => void
   ownershipRegistry: EventFeedOwnerRegistry
@@ -136,8 +139,7 @@ function eventFeedUrlCreate(cursor: string | null): string {
 function eventFeedInstructionKey(instruction: EventFeedReconciliationInstruction): string {
   if (instruction.kind === "reset") return "reset"
   if (instruction.kind === "resource-stale") return `resource:${instruction.resourceType}:${instruction.resourceId}`
-  if (instruction.kind === "run-checkpoint") return `run:${instruction.runId}`
-  return `session:${instruction.runId}`
+  return `run:${instruction.runId}`
 }
 
 function eventFeedCallbackError<T>(operation: string): Result<T> {
@@ -191,6 +193,7 @@ export function eventFeedCreate(options: EventFeedCreateOptions) {
   let resetProcessing = false
   let reportedStateKey: string | null = null
   const pending = new Map<string, EventFeedReconciliationInstruction>()
+  const pendingGenerations = new Map<string, number>()
   const processing = new Map<string, Promise<Result<void>>>()
   let retryQueue: Promise<Result<void>> = Promise.resolve(createResult(undefined))
 
@@ -299,25 +302,29 @@ export function eventFeedCreate(options: EventFeedCreateOptions) {
   const callbackSessionApply = async (
     instruction: EventFeedSessionSnapshotInput | EventFeedResetSessionSnapshotInput,
     replacement: unknown,
+    current?: () => boolean,
   ): Promise<Result<void>> => {
     const snapshot = callbackSessionValidate(instruction, replacement)
     if (!snapshot.success) return snapshot
+    if (instruction.sessionRevision !== undefined && snapshot.data.revision < instruction.sessionRevision)
+      return createResultError("eventFeedSessionSnapshotLoad", "The session snapshot is older than the terminal event.")
+    if (current?.() === false) return createResult(undefined)
     const stored = await eventFeedCallbackRun("eventFeedSessionSnapshotReplace", () =>
-      options.reconciliation.sessionSnapshotReplace(snapshot.data),
+      options.reconciliation.sessionSnapshotReplace(snapshot.data, instruction),
     )
     if (!stored.success) return stored
-    const replaced = feedState.sessionReplace(snapshot.data)
-    if (!replaced.success) return replaced
-    return createResult(undefined)
-  }
-
-  const callbackRunApply = (snapshot: RunActiveSummary): Result<void> => {
-    const replaced = feedState.runReplace(snapshot)
+    if (current?.() === false) return createResult(undefined)
+    const replaced = feedState.sessionReplace(snapshot.data, "resetDiscovered" in instruction ? undefined : instruction)
     if (!replaced.success) return replaced
     return createResult(undefined)
   }
 
   const epochCurrent = (epoch: number): boolean => !closed && epoch === reconciliationEpoch
+  const pendingGenerationCurrent = (
+    key: string,
+    instruction: EventFeedReconciliationInstruction,
+    generation: number,
+  ): boolean => pending.get(key) === instruction && pendingGenerations.get(key) === generation
 
   const reconcileReset = async (instruction: EventFeedReset, epoch: number): Promise<Result<void>> => {
     const bootstrap = await eventFeedCallbackRun("eventFeedResetBootstrap", () =>
@@ -438,7 +445,7 @@ export function eventFeedCreate(options: EventFeedCreateOptions) {
 
     for (const completedSession of completedSessions) {
       const sessionReplaced = await eventFeedCallbackRun("eventFeedSessionSnapshotReplace", () =>
-        options.reconciliation.sessionSnapshotReplace(completedSession.replacement),
+        options.reconciliation.sessionSnapshotReplace(completedSession.replacement, completedSession.instruction),
       )
       if (!sessionReplaced.success) return sessionReplaced
       if (!epochCurrent(epoch)) return createResult(undefined)
@@ -455,6 +462,7 @@ export function eventFeedCreate(options: EventFeedCreateOptions) {
     key: string,
     instruction: EventFeedReconciliationInstruction,
     epoch: number,
+    generation: number,
   ): Promise<Result<void>> => {
     if (!epochCurrent(epoch)) return createResult(undefined)
     if (instruction.kind === "reset") {
@@ -507,68 +515,23 @@ export function eventFeedCreate(options: EventFeedCreateOptions) {
         stateEmit()
         return result
       }
-      if (!epochCurrent(epoch)) return createResult(undefined)
-      const replaced = await callbackSessionApply(instruction, result.data)
+      if (!epochCurrent(epoch) || !pendingGenerationCurrent(key, instruction, generation))
+        return createResult(undefined)
+      const replaced = await callbackSessionApply(
+        instruction,
+        result.data,
+        () => epochCurrent(epoch) && pendingGenerationCurrent(key, instruction, generation),
+      )
       if (!replaced.success) {
         stateEmit()
         return replaced
       }
-      if (pending.get(key) === instruction) pending.delete(key)
+      if (!pendingGenerationCurrent(key, instruction, generation)) return createResult(undefined)
+      pending.delete(key)
       stateEmit()
       return createResult(undefined)
     }
 
-    const result = await eventFeedCallbackRun("eventFeedActiveRunSnapshotLoad", () =>
-      options.reconciliation.activeRunSnapshotLoad(instruction),
-    )
-    if (!result.success) {
-      stateEmit()
-      return result
-    }
-    if (!epochCurrent(epoch)) return createResult(undefined)
-    const replaced = callbackRunApply(result.data)
-    if (!replaced.success) {
-      stateEmit()
-      return replaced
-    }
-    if (result.data.status === "succeeded") {
-      const completionResult = await eventFeedCallbackRun("eventFeedSessionSnapshotLoad", () =>
-        options.reconciliation.sessionSnapshotLoad({
-          authoritative: "session-snapshot",
-          kind: "authoritative-replacement",
-          messageId: null,
-          preserveDeltas: false,
-          reason: "run-completed",
-          runId: instruction.runId,
-          sessionId: instruction.sessionId,
-          sessionRevision: instruction.sessionRevision,
-        }),
-      )
-      if (!completionResult.success) {
-        stateEmit()
-        return completionResult
-      }
-      if (!epochCurrent(epoch)) return createResult(undefined)
-      const sessionReplaced = await callbackSessionApply(
-        {
-          authoritative: "session-snapshot",
-          kind: "authoritative-replacement",
-          messageId: null,
-          preserveDeltas: false,
-          reason: "run-completed",
-          runId: instruction.runId,
-          sessionId: instruction.sessionId,
-          sessionRevision: instruction.sessionRevision,
-        },
-        completionResult.data,
-      )
-      if (!sessionReplaced.success) {
-        stateEmit()
-        return sessionReplaced
-      }
-    }
-    if (pending.get(key) === instruction) pending.delete(key)
-    stateEmit()
     return createResult(undefined)
   }
 
@@ -577,7 +540,8 @@ export function eventFeedCreate(options: EventFeedCreateOptions) {
     const instruction = pending.get(key)
     if (instruction === undefined) return
     const epoch = reconciliationEpoch
-    const promise = reconcileOne(key, instruction, epoch)
+    const generation = pendingGenerations.get(key) ?? 0
+    const promise = reconcileOne(key, instruction, epoch, generation)
     processing.set(key, promise)
     void promise.then((result) => {
       processing.delete(key)
@@ -593,13 +557,14 @@ export function eventFeedCreate(options: EventFeedCreateOptions) {
       for (const key of pending.keys()) pending.delete(key)
     }
     const key = eventFeedInstructionKey(instruction)
+    pendingGenerations.set(key, (pendingGenerations.get(key) ?? 0) + 1)
     pending.set(key, instruction)
     stateEmit()
     reconcileSchedule(key)
   }
 
-  const eventApply = (frame: StreamSseFrame): Result<EventFeedApplyResult> => {
-    const applied = feedState.apply(frame.data)
+  const eventApply = (frame: GlobalSummarySseFrame): Result<EventFeedApplyResult> => {
+    const applied = feedState.apply(globalSummaryEventJournalAdapt(frame.data))
     if (!applied.success) return applied
     if (frame.data.eventType !== "reset" && applied.data.applied) currentCursor = frame.id
     if (applied.data.instruction !== null) pendingAdd(applied.data.instruction)

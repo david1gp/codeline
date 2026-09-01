@@ -11,6 +11,7 @@ import { applicationUserTable } from "../src/identity/db/applicationUserTable.js
 import { organizationTable } from "../src/identity/db/organizationTable.js"
 import { journalBacklogRead } from "../src/journal/actions/journalBacklogRead.js"
 import { journalCursorCodecCreate } from "../src/journal/actions/journalCursorCodecCreate.js"
+import { journalGlobalSummaryPostCommitPublishCreate } from "../src/journal/actions/journalGlobalSummaryPostCommitPublishCreate.js"
 import { journalPostCommitPublishCreate } from "../src/journal/actions/journalPostCommitPublishCreate.js"
 import { journalRunFinalize } from "../src/journal/actions/journalRunFinalize.js"
 import { journalEventTable } from "../src/journal/db/journalEventTable.js"
@@ -23,6 +24,7 @@ import { serverTable } from "../src/servers/db/serverTable.js"
 import type { SessionSettledSnapshotResponse } from "../src/session/api/sessionSettledSnapshotResponseSchema.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
 import { streamLiveSubscriptionCreate } from "../src/stream/actions/streamLiveSubscriptionCreate.js"
+import type { GlobalSummarySseFrame } from "../src/stream/api/globalSummarySseFrameSchema.js"
 import type { StreamSseFrame } from "../src/stream/api/streamSseFrameSchema.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
 import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
@@ -52,7 +54,7 @@ class FakeEventSource {
     this.readyState = 2
   }
 
-  emit(frame: StreamSseFrame): void {
+  emit(frame: StreamSseFrame | GlobalSummarySseFrame): void {
     const message = new Event(frame.event) as Event & { data?: unknown; lastEventId?: unknown }
     message.data = JSON.stringify(frame.data)
     message.lastEventId = frame.id
@@ -231,10 +233,9 @@ test.skipIf(!databaseAvailable)(
     expect(initialCursorResult.success).toBe(true)
     if (!initialCursorResult.success) return
 
-    const statusByRun = new Map<string, "failed" | "aborted">()
     const terminalSequenceByRun = new Map<string, number>()
-    const checkpoints: string[] = []
-    const publishedFrames: StreamSseFrame[] = []
+    const reconciledTerminalKinds: string[] = []
+    const publishedFrames: GlobalSummarySseFrame[] = []
     let source: FakeEventSource | undefined
     const feed = eventFeedCreate({
       bootstrap: { asOfCursor: initialCursorResult.data, lastEventId: initialCursorResult.data },
@@ -246,15 +247,12 @@ test.skipIf(!databaseAvailable)(
       onEvent: (frame) => publishedFrames.push(frame),
       reconciliation: {
         activeRunSnapshotLoad: async (input) => {
-          if ("checkpoint" in input) checkpoints.push(`${input.checkpoint}:${input.runId}`)
           return createResult({
-            lastSequence:
-              terminalSequenceByRun.get(input.runId) ??
-              ("lastSequence" in input ? input.lastSequence : input.sessionRevision),
+            lastSequence: terminalSequenceByRun.get(input.runId) ?? input.lastSequence,
             partialText: `authoritative-${input.runId}`,
             runId: input.runId,
             sessionId: input.sessionId,
-            status: statusByRun.get(input.runId) ?? "aborted",
+            status: "running",
           })
         },
         resourceRevalidate: async (input) =>
@@ -263,7 +261,10 @@ test.skipIf(!databaseAvailable)(
             resourceType: input.resourceType,
             revision: input.serverRevision,
           }),
-        sessionSnapshotLoad: async () => createResult(sessionSnapshot(1)),
+        sessionSnapshotLoad: async (input) => {
+          if ("terminalKind" in input) reconciledTerminalKinds.push(`${input.terminalKind}:${input.runId}`)
+          return createResult(sessionSnapshot(input.sessionRevision ?? 1))
+        },
         sessionSnapshotReplace: async () => createResult(undefined),
         shellListBootstrap: async (input) =>
           createResult({
@@ -278,12 +279,12 @@ test.skipIf(!databaseAvailable)(
     if (source === undefined) throw new Error("The feed source was not created.")
     source.open()
 
-    const postCommitPublish = journalPostCommitPublishCreate({
+    const postCommitPublish = journalGlobalSummaryPostCommitPublishCreate({
       cursorCodec: cursorCodecResult.data,
       liveSubscription: {
-        publish: (_userId, frame) => {
+        globalSummaryPublish: (_userId, frame) => {
           const runId = (frame.data as { runId?: string }).runId
-          if (frame.event !== "delta" && runId !== undefined) terminalSequenceByRun.set(runId, frame.data.sequence)
+          if (runId !== undefined) terminalSequenceByRun.set(runId, frame.data.globalSequence)
           source?.emit(frame)
         },
       },
@@ -309,7 +310,6 @@ test.skipIf(!databaseAvailable)(
         expect(created.success).toBe(true)
         if (!created.success) return
         actualRunId = created.data.run.id
-        statusByRun.set(actualRunId, lifecycle.terminalStatus)
         expect(
           await runTransition(database, fixture.userId, fixture.sessionId, created.data.run.id, { status: "running" }),
         ).toMatchObject({ success: true })
@@ -346,6 +346,7 @@ test.skipIf(!databaseAvailable)(
             terminalEvent: {
               eventType: "run-interrupted",
               payload: {
+                changePosition: 1,
                 reason: "The API process stopped while the run was active.",
                 runId: actualRunId,
                 sessionId: fixture.sessionId,
@@ -360,9 +361,8 @@ test.skipIf(!databaseAvailable)(
 
       await flush()
       const runFrames = publishedFrames.slice(framesBeforeRun)
-      const expectedEvents: StreamSseFrame["event"][] =
-        lifecycle.providerStatus === "interrupted" ? [] : ["delta", "delta"]
-      expectedEvents.push(`run-${lifecycle.checkpoint}` as StreamSseFrame["event"])
+      const expectedEvents: GlobalSummarySseFrame["event"][] = []
+      expectedEvents.push(`run-${lifecycle.checkpoint}` as GlobalSummarySseFrame["event"])
       expect(runFrames.map((frame) => frame.event)).toEqual(expectedEvents)
       expect(runFrames.at(-1)?.data).toMatchObject({ eventType: `run-${lifecycle.checkpoint}`, runId: actualRunId })
       if (lifecycle.checkpoint === "failed")
@@ -371,14 +371,8 @@ test.skipIf(!databaseAvailable)(
         expect(runFrames.at(-1)?.data).toMatchObject({ reason: "user-requested" })
       if (lifecycle.checkpoint === "interrupted")
         expect(runFrames.at(-1)?.data).toMatchObject({ reason: "The API process stopped while the run was active." })
-      expect(checkpoints).toContain(`${lifecycle.checkpoint}:${actualRunId}`)
-      expect(feed.dataState.activeRuns.get(actualRunId)).toMatchObject({
-        checkpoint: lifecycle.checkpoint,
-        lastSequence: terminalSequenceByRun.get(actualRunId),
-        partialText: `authoritative-${actualRunId}`,
-        phase: "settled",
-        terminalStatus: lifecycle.terminalStatus,
-      })
+      expect(reconciledTerminalKinds).toContain(`${lifecycle.checkpoint}:${actualRunId}`)
+      expect(feed.dataState.activeRuns.has(actualRunId)).toBe(false)
 
       const journalEvents = await database
         .select({ eventType: journalEventTable.eventType })
@@ -421,7 +415,7 @@ test.skipIf(!databaseAvailable)(
       reconciliation: {
         activeRunSnapshotLoad: async (input) =>
           createResult({
-            lastSequence: "lastSequence" in input ? input.lastSequence : input.sessionRevision,
+            lastSequence: input.lastSequence,
             partialText: "",
             runId: input.runId,
             sessionId: input.sessionId,
@@ -433,9 +427,9 @@ test.skipIf(!databaseAvailable)(
             resourceType: input.resourceType,
             revision: input.serverRevision,
           }),
-        sessionSnapshotLoad: async () => {
+        sessionSnapshotLoad: async (input) => {
           sessionSnapshotLoads += 1
-          return createResult(sessionSnapshot(1))
+          return createResult(sessionSnapshot(input.sessionRevision ?? 1))
         },
         sessionSnapshotReplace: async () => createResult(undefined),
         shellListBootstrap: async (input) =>
@@ -453,19 +447,18 @@ test.skipIf(!databaseAvailable)(
 
     const liveSubscription = streamLiveSubscriptionCreate()
     let brokenObserverCalls = 0
-    const unsubscribeBrokenObserver = liveSubscription.subscribe(fixture.userId, () => {
+    const unsubscribeBrokenObserver = liveSubscription.globalSummarySubscribe(fixture.userId, () => {
       brokenObserverCalls += 1
       throw new Error("The live observer failed.")
     })
-    const healthyFrames: StreamSseFrame[] = []
-    const unsubscribeHealthyObserver = liveSubscription.subscribe(fixture.userId, (event) => {
-      if (!("data" in event)) return
+    const healthyFrames: GlobalSummarySseFrame[] = []
+    const unsubscribeHealthyObserver = liveSubscription.globalSummarySubscribe(fixture.userId, (event) => {
       healthyFrames.push(event)
       source?.emit(event)
     })
     const provider = runProviderOutputCreate({
       database,
-      journalPostCommitPublish: journalPostCommitPublishCreate({
+      journalPostCommitPublish: journalGlobalSummaryPostCommitPublishCreate({
         cursorCodec: cursorCodecResult.data,
         liveSubscription,
       }),
@@ -498,12 +491,12 @@ test.skipIf(!databaseAvailable)(
     expect(journalEvents.map((event) => event.eventType)).toEqual(["run-completed"])
     expect(sessionSnapshotLoads).toBe(1)
     expect(feed.dataState.activeRuns.has(created.data.run.id)).toBe(false)
-    expect(feed.dataState.resourceRevisions.get(`session:${fixture.sessionId}`)).toBe(1)
+    expect(feed.dataState.resourceRevisions.get(`session:${fixture.sessionId}`)).toBe(2)
 
     unsubscribeHealthyObserver()
     unsubscribeBrokenObserver()
     feed.close()
-    expect(liveSubscription.subscriberCount(fixture.userId)).toBe(0)
+    expect(liveSubscription.globalSummarySubscriberCount(fixture.userId)).toBe(0)
   },
 )
 
@@ -554,7 +547,7 @@ test.skipIf(!databaseAvailable)(
       })
       const healthyFrames: StreamSseFrame[] = []
       const unsubscribeHealthyObserver = liveSubscription.subscribe(fixture.userId, (event) => {
-        if ("data" in event) healthyFrames.push(event)
+        if ("data" in event) healthyFrames.push(event as StreamSseFrame)
       })
       const provider = runProviderOutputCreate({
         database,

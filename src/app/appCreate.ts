@@ -6,6 +6,7 @@ import type { apiClientLogJournalWrite } from "../api/diagnostics/apiClientLogJo
 import type { ApiErrorResponse } from "../api/errors/apiErrorResponseSchema.js"
 import type { HealthResponse } from "../api/health/healthResponseSchema.js"
 import { commandCatalogDiscover } from "../commands/actions/commandCatalogDiscover.js"
+import { sessionCompactionGenerate } from "../compaction/actions/sessionCompactionGenerate.js"
 import type { ConfigurationStore } from "../configuration/configurationStore.js"
 import type { RuntimeConfiguration } from "../configuration/runtimeConfigurationSchema.js"
 import type { DatabaseClient } from "../database/databaseClient.js"
@@ -24,6 +25,7 @@ import type { OidcProviderFetch } from "../identity/oidc/oidcProviderFetch.js"
 import { agentInstructionsDiscover } from "../instructions/actions/agentInstructionsDiscover.js"
 import type { journalBacklogRead } from "../journal/actions/journalBacklogRead.js"
 import type { JournalCursorCodec } from "../journal/actions/journalCursorCodecCreate.js"
+import type { journalGlobalSummaryBacklogRead } from "../journal/actions/journalGlobalSummaryBacklogRead.js"
 import type { journalPostCommitPublishCreate } from "../journal/actions/journalPostCommitPublishCreate.js"
 import type { metricsCollectorCreate } from "../metrics/metricsCollectorCreate.js"
 import type { projectConfiguredRootsReconcile } from "../project/db/projectConfiguredRootsReconcile.js"
@@ -45,7 +47,7 @@ import { runRetryAttemptCreate } from "../run/actions/runRetryAttemptCreate.js"
 import { runTransition } from "../run/actions/runTransition.js"
 import type { serverShutdownCoordinatorCreate } from "../server/serverShutdownCoordinatorCreate.js"
 import { sessionChatAdapterCreate } from "../session/actions/sessionChatAdapterCreate.js"
-import { sessionCompactionGenerate } from "../compaction/actions/sessionCompactionGenerate.js"
+import type { sessionDetailStreamBacklogRead } from "../session/actions/sessionDetailStreamBacklogRead.js"
 import { skillCatalogDiscover } from "../skills/actions/skillCatalogDiscover.js"
 import { skillPresetCatalogLoad } from "../skills/actions/skillPresetCatalogLoad.js"
 import type { streamLiveSubscriptionCreate } from "../stream/actions/streamLiveSubscriptionCreate.js"
@@ -107,7 +109,10 @@ export type AppCreateOptions = {
   sessionChatAdapter?: typeof sessionChatAdapterCreate
   journalCursorCodec?: JournalCursorCodec
   journalBacklogRead?: typeof journalBacklogRead
+  journalGlobalSummaryBacklogRead?: typeof journalGlobalSummaryBacklogRead
   journalPostCommitPublish?: ReturnType<typeof journalPostCommitPublishCreate>
+  sessionDetailStreamBacklogRead?: typeof sessionDetailStreamBacklogRead
+  globalSummaryLiveSubscription?: ReturnType<typeof streamLiveSubscriptionCreate>
   streamLiveSubscription?: ReturnType<typeof streamLiveSubscriptionCreate>
   streamSseConnectionWriterCreate?: typeof streamSseConnectionWriterCreate
   streamSseNow?: () => number
@@ -233,7 +238,10 @@ export function appCreate(options: AppCreateOptions = {}): App {
     sessionChatAdapter: options.sessionChatAdapter,
     journalCursorCodec: options.journalCursorCodec,
     journalBacklogRead: options.journalBacklogRead,
+    journalGlobalSummaryBacklogRead: options.journalGlobalSummaryBacklogRead,
     journalPostCommitPublish: options.journalPostCommitPublish,
+    sessionDetailStreamBacklogRead: options.sessionDetailStreamBacklogRead,
+    globalSummaryLiveSubscription: options.globalSummaryLiveSubscription,
     streamLiveSubscription: options.streamLiveSubscription,
     streamSseConnectionWriterCreate: options.streamSseConnectionWriterCreate,
     streamSseNow: options.streamSseNow,

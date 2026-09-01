@@ -2,7 +2,7 @@ import { expect, test } from "bun:test"
 import { createResult } from "@adaptive-ds/result"
 import type { RunActiveSummary } from "../src/run/api/runActiveSummarySchema.js"
 import type { SessionSettledSnapshotResponse } from "../src/session/api/sessionSettledSnapshotResponseSchema.js"
-import type { StreamSseFrame } from "../src/stream/api/streamSseFrameSchema.js"
+import type { GlobalSummarySseFrame } from "../src/stream/api/globalSummarySseFrameSchema.js"
 import { eventFeedCoordinatorStateCreate } from "../src/ui/eventFeedCoordinatorStateCreate.js"
 
 type CoordinatorOptions = Parameters<typeof eventFeedCoordinatorStateCreate>[0]
@@ -32,7 +32,7 @@ class FakeEventSource {
     this.readyState = 2
   }
 
-  emit(frame: StreamSseFrame): void {
+  emit(frame: GlobalSummarySseFrame): void {
     const message = new Event(frame.event) as Event & { data?: string; lastEventId?: string }
     message.data = JSON.stringify(frame.data)
     message.lastEventId = frame.id
@@ -51,14 +51,14 @@ class FakeEventSource {
   }
 }
 
-function sessionSnapshot(sessionId: string): SessionSettledSnapshotResponse {
+function sessionSnapshot(sessionId: string, revision = 1): SessionSettledSnapshotResponse {
   const timestamp = "2026-01-01T00:00:00.000Z"
   return {
     asOfCursor: "cursor-1",
     asOfSequence: 1,
     etag: '"session-1"',
     messages: [],
-    revision: 1,
+    revision,
     schemaVersion: "session-snapshot-v1",
     session: {
       archivedAt: null,
@@ -69,7 +69,7 @@ function sessionSnapshot(sessionId: string): SessionSettledSnapshotResponse {
       pinned: false,
       primaryAgentId: "agent-1",
       projectPath: "/tmp/project",
-      revision: 1,
+      revision,
       serverId: "server-1",
       title: sessionId,
       updatedAt: timestamp,
@@ -87,7 +87,7 @@ function reconciliation(overrides: Partial<CoordinatorReconciliation> = {}): Coo
     activeRunSnapshotLoad: () => createResult(runSummary()),
     resourceRevalidate: (input) =>
       createResult({ resourceId: input.resourceId, resourceType: input.resourceType, revision: input.serverRevision }),
-    sessionSnapshotLoad: (input) => createResult(sessionSnapshot(input.sessionId)),
+    sessionSnapshotLoad: (input) => createResult(sessionSnapshot(input.sessionId, input.sessionRevision ?? 1)),
     sessionSnapshotReplace: () => createResult(undefined),
     shellListBootstrap: (input) =>
       createResult({
@@ -102,30 +102,46 @@ function reconciliation(overrides: Partial<CoordinatorReconciliation> = {}): Coo
 }
 
 function frame(
-  eventType: StreamSseFrame["event"],
+  eventType: GlobalSummarySseFrame["event"],
   sequence: number,
   values: Record<string, unknown> = {},
-): StreamSseFrame {
+): GlobalSummarySseFrame {
   const data = {
     eventType,
     id: `cursor-${sequence}`,
-    sequence,
+    globalSequence: sequence,
     ...(eventType === "reset"
-      ? { asOfSequence: sequence, reason: "cursor-expired" }
+      ? { asOfGlobalSequence: sequence, reason: "cursor-expired" }
       : eventType === "invalidate"
         ? { resourceId: "session-1", resourceType: "session", revision: sequence }
-        : eventType === "delta"
-          ? { delta: "fragment", deltaKind: "text", messageId: null, runId: "run-1", sessionId: "session-1" }
-          : eventType === "run-completed"
-            ? { messageId: null, runId: "run-1", sessionId: "session-1", sessionRevision: sequence }
-            : eventType === "run-started"
-              ? { runId: "run-1", sessionId: "session-1" }
-              : eventType === "run-failed"
-                ? { failure: null, runId: "run-1", sessionId: "session-1", sessionRevision: sequence }
-                : { runId: "run-1", sessionId: "session-1", sessionRevision: sequence, reason: "test" }),
+        : eventType === "run-completed"
+          ? {
+              changePosition: sequence,
+              messageId: null,
+              runId: "run-1",
+              sessionId: "session-1",
+              sessionRevision: sequence,
+            }
+          : eventType === "run-started"
+            ? { runId: "run-1", sessionId: "session-1" }
+            : eventType === "run-failed"
+              ? {
+                  changePosition: sequence,
+                  failure: null,
+                  runId: "run-1",
+                  sessionId: "session-1",
+                  sessionRevision: sequence,
+                }
+              : {
+                  changePosition: sequence,
+                  runId: "run-1",
+                  sessionId: "session-1",
+                  sessionRevision: sequence,
+                  reason: "test",
+                }),
     ...values,
   }
-  return { data, event: eventType, id: `cursor-${sequence}` } as StreamSseFrame
+  return { data, event: eventType, id: `cursor-${sequence}` } as GlobalSummarySseFrame
 }
 
 function coordinatorCreate(overrides: Partial<CoordinatorOptions> = {}): {
@@ -363,19 +379,13 @@ test("acknowledges the selected session after a completion snapshot refresh", as
   coordinator.close()
 })
 
-test("refreshes selected session queries after an authoritative run cancellation snapshot", async () => {
+test("refreshes selected session queries after authoritative cancellation replacement", async () => {
   const calls: string[] = []
   const { coordinator, source } = coordinatorCreate({
     reconciliation: reconciliation({
-      activeRunSnapshotLoad: (input) => {
-        calls.push(`snapshot:${input.reason}`)
-        return createResult({
-          lastSequence: 1,
-          partialText: "",
-          runId: input.runId,
-          sessionId: input.sessionId,
-          status: "aborted",
-        })
+      sessionSnapshotReplace: () => {
+        calls.push("snapshot")
+        return createResult(undefined)
       },
     }),
   })
@@ -390,7 +400,7 @@ test("refreshes selected session queries after an authoritative run cancellation
   source.emit(frame("run-cancelled", 1))
   await flush()
 
-  expect(calls).toEqual(["snapshot:run-checkpoint", "session"])
+  expect(calls).toEqual(["snapshot", "session"])
   coordinator.close()
 })
 

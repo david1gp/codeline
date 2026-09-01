@@ -4,6 +4,7 @@ import { apiAgentRoutesAdd } from "../agents/api/apiAgentRoutesAdd.js"
 import { appKnownRouteResolve } from "../app/appKnownRouteResolve.js"
 import { commandCatalogDiscover } from "../commands/actions/commandCatalogDiscover.js"
 import { apiCommandRoutesAdd } from "../commands/api/apiCommandRoutesAdd.js"
+import { sessionCompactionGenerate } from "../compaction/actions/sessionCompactionGenerate.js"
 import type { ConfigurationStore } from "../configuration/configurationStore.js"
 import type { RuntimeConfiguration } from "../configuration/runtimeConfigurationSchema.js"
 import type { DatabaseClient } from "../database/databaseClient.js"
@@ -17,6 +18,7 @@ import { agentInstructionsDiscover } from "../instructions/actions/agentInstruct
 import { apiAgentInstructionRoutesAdd } from "../instructions/api/apiAgentInstructionRoutesAdd.js"
 import type { journalBacklogRead } from "../journal/actions/journalBacklogRead.js"
 import type { JournalCursorCodec } from "../journal/actions/journalCursorCodecCreate.js"
+import type { journalGlobalSummaryBacklogRead } from "../journal/actions/journalGlobalSummaryBacklogRead.js"
 import type { journalPostCommitPublishCreate } from "../journal/actions/journalPostCommitPublishCreate.js"
 import { apiMessageRoutesAdd } from "../message/api/apiMessageRoutesAdd.js"
 import type { metricsCollectorCreate } from "../metrics/metricsCollectorCreate.js"
@@ -43,7 +45,6 @@ import { runLoad } from "../run/actions/runLoad.js"
 import { runRetryAttemptCreate } from "../run/actions/runRetryAttemptCreate.js"
 import { runSessionSnapshotLoad } from "../run/actions/runSessionSnapshotLoad.js"
 import { runTransition } from "../run/actions/runTransition.js"
-import { sessionCompactionGenerate } from "../compaction/actions/sessionCompactionGenerate.js"
 import { apiRunRoutesAdd } from "../run/api/apiRunRoutesAdd.js"
 import { runErrorCatalog } from "../run/errors/runErrorCatalog.js"
 import type { serverShutdownCoordinatorCreate } from "../server/serverShutdownCoordinatorCreate.js"
@@ -53,6 +54,8 @@ import { apiSessionBranchRoutesAdd } from "../session/api/apiSessionBranchRoutes
 import { apiSessionExecutionSelectionDefaultRoutesAdd } from "../session/api/apiSessionExecutionSelectionDefaultRoutesAdd.js"
 import { apiSessionRenameRoutesAdd } from "../session/api/apiSessionRenameRoutesAdd.js"
 import { apiSessionRoutesAdd } from "../session/api/apiSessionRoutesAdd.js"
+import { apiSessionDetailEventsRoutesAdd } from "../session/api/apiSessionDetailEventsRoutesAdd.js"
+import type { sessionDetailStreamBacklogRead } from "../session/actions/sessionDetailStreamBacklogRead.js"
 import { skillCatalogDiscover } from "../skills/actions/skillCatalogDiscover.js"
 import { skillPresetCatalogLoad } from "../skills/actions/skillPresetCatalogLoad.js"
 import { apiSkillRoutesAdd } from "../skills/api/apiSkillRoutesAdd.js"
@@ -121,8 +124,11 @@ type ApiRoutesAddOptions = {
   authCallbackRoute?: Hono<AppEnvironment>
   sessionChatAdapter?: typeof sessionChatAdapterCreate
   journalBacklogRead?: typeof journalBacklogRead
+  journalGlobalSummaryBacklogRead?: typeof journalGlobalSummaryBacklogRead
   journalCursorCodec?: JournalCursorCodec
   journalPostCommitPublish?: ReturnType<typeof journalPostCommitPublishCreate>
+  sessionDetailStreamBacklogRead?: typeof sessionDetailStreamBacklogRead
+  globalSummaryLiveSubscription?: ReturnType<typeof streamLiveSubscriptionCreate>
   streamLiveSubscription?: ReturnType<typeof streamLiveSubscriptionCreate>
   streamSseConnectionWriterCreate?: typeof streamSseConnectionWriterCreate
   streamSseNow?: () => number
@@ -278,7 +284,7 @@ export function apiRoutesAdd(
   // opaque cursor codec are present. Partial API composition is allowed only
   // when the authenticated event route cannot be configured at all.
   if (
-    options.journalBacklogRead === undefined ||
+    (options.journalBacklogRead === undefined && options.journalGlobalSummaryBacklogRead === undefined) ||
     options.streamSseConnectionWriterCreate === undefined ||
     options.streamSseNow === undefined ||
     options.streamSseScheduler === undefined ||
@@ -297,14 +303,40 @@ export function apiRoutesAdd(
     options.database !== undefined &&
     options.journalCursorCodec !== undefined
   ) {
+    if (options.journalGlobalSummaryBacklogRead !== undefined && options.globalSummaryLiveSubscription === undefined)
+      throw new Error("The global summary event feed dependencies are required.")
+    const backlogRead = options.journalGlobalSummaryBacklogRead ?? options.journalBacklogRead
+    if (backlogRead === undefined) throw new Error("The authenticated event feed backlog reader is required.")
     apiEventsRoutesAdd(api, {
-      backlogRead: options.journalBacklogRead,
+      backlogRead,
       connectionWriterCreate: options.streamSseConnectionWriterCreate,
       cursorCodec: options.journalCursorCodec,
+      globalSummaryLiveSubscription: options.globalSummaryLiveSubscription,
       liveSubscription: options.streamLiveSubscription,
       now: options.streamSseNow,
       scheduler: options.streamSseScheduler,
       metricsCollector: options.metricsCollector,
+    })
+  }
+  if (
+    options.configuration !== undefined &&
+    options.database !== undefined &&
+    options.journalCursorCodec !== undefined &&
+    options.sessionDetailStreamBacklogRead !== undefined &&
+    options.streamLiveSubscription !== undefined &&
+    options.streamSseConnectionWriterCreate !== undefined &&
+    options.streamSseNow !== undefined &&
+    options.streamSseScheduler !== undefined &&
+    options.metricsCollector !== undefined
+  ) {
+    apiSessionDetailEventsRoutesAdd(api, {
+      backlogRead: options.sessionDetailStreamBacklogRead,
+      connectionWriterCreate: options.streamSseConnectionWriterCreate,
+      cursorCodec: options.journalCursorCodec,
+      liveSubscription: options.streamLiveSubscription,
+      metricsCollector: options.metricsCollector,
+      now: options.streamSseNow,
+      scheduler: options.streamSseScheduler,
     })
   }
   apiTestingRoutesAdd(api)

@@ -5,38 +5,68 @@ import * as v from "valibot"
 import type { AppEnvironment } from "../../api/appEnvironment.js"
 import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.js"
 import { journalBacklogCursorSelect } from "../../journal/actions/journalBacklogCursorSelect.js"
-import type { journalBacklogRead } from "../../journal/actions/journalBacklogRead.js"
 import type { JournalCursorCodec } from "../../journal/actions/journalCursorCodecCreate.js"
+import type { journalGlobalSummaryBacklogRead } from "../../journal/actions/journalGlobalSummaryBacklogRead.js"
 import type { metricsCollectorCreate } from "../../metrics/metricsCollectorCreate.js"
 import { streamLiveSubscriptionCreate } from "../../stream/actions/streamLiveSubscriptionCreate.js"
 import type { streamSseConnectionWriterCreate } from "../../stream/actions/streamSseConnectionWriterCreate.js"
+import type { GlobalSummarySseFrame } from "../../stream/api/globalSummarySseFrameSchema.js"
+import { globalSummarySseFrameSchema } from "../../stream/api/globalSummarySseFrameSchema.js"
 import type { StreamSseFrame } from "../../stream/api/streamSseFrameSchema.js"
 import { streamSseFrameSchema } from "../../stream/api/streamSseFrameSchema.js"
-import type { JournalEvent } from "../../stream/schema/journalEventSchema.js"
-import { journalEventSchema } from "../../stream/schema/journalEventSchema.js"
 
 type ApiEventsRoutesScheduler = Parameters<typeof streamSseConnectionWriterCreate>[0]["scheduler"]
 type ApiEventsRoutesConnection = ReturnType<typeof streamSseConnectionWriterCreate>
+type ApiEventsGlobalSummaryLiveSubscription = Pick<
+  ReturnType<typeof streamLiveSubscriptionCreate>,
+  "globalSummarySubscribe"
+>
+type ApiEventsBacklogFrame = GlobalSummarySseFrame | StreamSseFrame
 type ApiEventsBacklogData = {
-  afterSequence: number
   mode: "replay" | "reset"
-  pages: AsyncIterable<Result<readonly StreamSseFrame[]>>
+  pages: AsyncIterable<Result<readonly ApiEventsBacklogFrame[]>>
   replayUpperBound: number
   selectedCursor: string | undefined
 }
 type ApiEventsBacklogRead = (
-  dependencies: Parameters<typeof journalBacklogRead>[0],
-  input: Parameters<typeof journalBacklogRead>[1],
+  dependencies: Parameters<typeof journalGlobalSummaryBacklogRead>[0],
+  input: Parameters<typeof journalGlobalSummaryBacklogRead>[1],
 ) => Promise<Result<ApiEventsBacklogData>>
 
 type ApiEventsRoutesOptions = {
   backlogRead: ApiEventsBacklogRead
   connectionWriterCreate: typeof streamSseConnectionWriterCreate
   cursorCodec: JournalCursorCodec
+  globalSummaryLiveSubscription?: ApiEventsGlobalSummaryLiveSubscription
   liveSubscription: ReturnType<typeof streamLiveSubscriptionCreate>
   now: () => number
   scheduler: ApiEventsRoutesScheduler
   metricsCollector: ReturnType<typeof metricsCollectorCreate>
+}
+
+function apiEventsGlobalCursorValidate(
+  cursorCodec: Pick<JournalCursorCodec, "validate">,
+  userId: string,
+  cursor: unknown,
+  allowLegacyCursor: boolean,
+): Result<{ globalSequence: number }> {
+  const globalCursorCodec = cursorCodec as Pick<JournalCursorCodec, "validate"> & {
+    validateGlobalSequence?: JournalCursorCodec["validateGlobalSequence"]
+  }
+  if (allowLegacyCursor) {
+    const validated = cursorCodec.validate(cursor, userId)
+    if (!validated.success) return validated
+    return createResult({ globalSequence: validated.data.sequence })
+  }
+  if (globalCursorCodec.validateGlobalSequence !== undefined) {
+    const validated = globalCursorCodec.validateGlobalSequence(cursor, userId)
+    if (!validated.success) return validated
+    return createResult({ globalSequence: validated.data.globalSequence })
+  }
+
+  const validated = cursorCodec.validate(cursor, userId)
+  if (!validated.success) return validated
+  return createResult({ globalSequence: validated.data.sequence })
 }
 
 type ApiEventsContext = Context<AppEnvironment>
@@ -77,85 +107,90 @@ function apiEventsBacklogErrorResponse(context: ApiEventsContext, result: { code
   return apiEventsInternalError(context)
 }
 
-function apiEventsLiveFrameCreate(
-  cursorCodec: Pick<JournalCursorCodec, "encode">,
+function apiEventsGlobalFrameValidate(
+  cursorCodec: Pick<JournalCursorCodec, "validate">,
   userId: string,
-  event: JournalEvent,
-): Result<StreamSseFrame> {
-  const op = "apiEventsLiveFrameCreate"
-  const encoded = cursorCodec.encode(userId, event.sequence)
-  if (!encoded.success) return createResultError(op, encoded.errorMessage)
-
-  const parsed = v.safeParse(streamSseFrameSchema, {
-    data: { ...event, id: encoded.data },
-    event: event.eventType,
-    id: encoded.data,
-  })
-  if (!parsed.success) return createResultError(op, "The live journal event does not form a valid SSE frame.")
+  event: unknown,
+): Result<GlobalSummarySseFrame> {
+  const op = "apiEventsGlobalFrameValidate"
+  const parsed = v.safeParse(globalSummarySseFrameSchema, event)
+  if (!parsed.success) return createResultError(op, "The global summary event does not match its contract.")
+  const validated = apiEventsGlobalCursorValidate(cursorCodec, userId, parsed.output.id, false)
+  if (!validated.success) return createResultError(op, validated.errorMessage)
+  if (validated.data.globalSequence !== parsed.output.data.globalSequence)
+    return createResultError(op, "The global summary cursor does not match its sequence.")
   return createResult(parsed.output)
 }
 
-function apiEventsReplayBaselineResolve(
+function apiEventsGlobalReplayBaselineResolve(
   cursorCodec: Pick<JournalCursorCodec, "validate">,
   userId: string,
   input: { after?: unknown; lastEventId?: unknown },
+  allowLegacyCursor: boolean,
 ): Result<number> {
-  const op = "apiEventsReplayBaselineResolve"
+  const op = "apiEventsGlobalReplayBaselineResolve"
   const selected = journalBacklogCursorSelect(input)
   if (!selected.success) return selected
   if (selected.data.cursor === undefined) return createResult(0)
 
-  const validated = cursorCodec.validate(selected.data.cursor, userId)
+  const validated = apiEventsGlobalCursorValidate(cursorCodec, userId, selected.data.cursor, allowLegacyCursor)
   if (!validated.success) {
     const code = validated.code === "cursor_owner_mismatch" ? "cursor_owner_mismatch" : "cursor_invalid"
     return createResultErrorCode(op, validated.errorMessage, code)
   }
-  if (!Number.isSafeInteger(validated.data.sequence) || validated.data.sequence < 0)
-    return createResultErrorCode(op, "The journal sequence is invalid.", "cursor_invalid")
-  return createResult(validated.data.sequence)
+  if (!Number.isSafeInteger(validated.data.globalSequence) || validated.data.globalSequence < 0)
+    return createResultErrorCode(op, "The global sequence is invalid.", "cursor_invalid")
+  return createResult(validated.data.globalSequence)
 }
 
 function apiEventsSubscriptionCreate(
   liveSubscription: ReturnType<typeof streamLiveSubscriptionCreate>,
+  globalSummaryLiveSubscription: ApiEventsGlobalSummaryLiveSubscription | undefined,
   cursorCodec: Pick<JournalCursorCodec, "encode" | "validate">,
-  baselineSequence: number,
+  baselineGlobalSequence: number,
   onConversionError: () => void,
 ) {
+  if (globalSummaryLiveSubscription === undefined) {
+    return {
+      subscribe: (userId: string, subscriber: (event: GlobalSummarySseFrame) => void): (() => void) =>
+        liveSubscription.subscribe(userId, (event, publishedUserId) => {
+          if (publishedUserId !== userId) {
+            onConversionError()
+            return
+          }
+          if ("data" in event) {
+            const parsed = v.safeParse(streamSseFrameSchema, event)
+            if (!parsed.success) {
+              onConversionError()
+              return
+            }
+            const validated = cursorCodec.validate(parsed.output.id, userId)
+            if (!validated.success || validated.data.sequence !== parsed.output.data.sequence) {
+              onConversionError()
+              return
+            }
+            subscriber(parsed.output as unknown as GlobalSummarySseFrame)
+            return
+          }
+          subscriber(event as unknown as GlobalSummarySseFrame)
+        }),
+    }
+  }
+
   return {
-    subscribe: (userId: string, subscriber: (event: StreamSseFrame) => void): (() => void) =>
-      liveSubscription.subscribe(userId, (event, publishedUserId) => {
+    subscribe: (userId: string, subscriber: (event: GlobalSummarySseFrame) => void): (() => void) =>
+      globalSummaryLiveSubscription.globalSummarySubscribe(userId, (event, publishedUserId) => {
         if (publishedUserId !== userId) {
           onConversionError()
           return
         }
-        if ("data" in event) {
-          const parsed = v.safeParse(streamSseFrameSchema, event)
-          if (!parsed.success) {
-            onConversionError()
-            return
-          }
-          const validated = cursorCodec.validate(parsed.output.id, userId)
-          if (!validated.success || validated.data.sequence !== parsed.output.data.sequence) {
-            onConversionError()
-            return
-          }
-          if (parsed.output.data.sequence <= baselineSequence) return
-          subscriber(parsed.output)
-          return
-        }
-
-        const parsed = v.safeParse(journalEventSchema, event)
-        if (!parsed.success) {
+        const global = apiEventsGlobalFrameValidate(cursorCodec, userId, event)
+        if (!global.success) {
           onConversionError()
           return
         }
-        if (parsed.output.sequence <= baselineSequence) return
-        const frame = apiEventsLiveFrameCreate(cursorCodec, userId, parsed.output)
-        if (!frame.success) {
-          onConversionError()
-          return
-        }
-        subscriber(frame.data)
+        if (global.data.data.globalSequence <= baselineGlobalSequence) return
+        subscriber(global.data)
       }),
   }
 }
@@ -164,17 +199,25 @@ function apiEventsConnectionWriterCreate(
   context: ApiEventsContext,
   options: ApiEventsRoutesOptions,
   cursorCodec: JournalCursorCodec,
-  baselineSequence: number,
+  baselineGlobalSequence: number,
   connection: { current?: ApiEventsRoutesConnection },
   outputWriter: WritableStreamDefaultWriter<Uint8Array>,
 ): ApiEventsRoutesConnection {
-  const subscription = apiEventsSubscriptionCreate(options.liveSubscription, cursorCodec, baselineSequence, () => {
-    void connection.current?.disconnect("connection-frame-invalid")
-  })
+  const subscription = apiEventsSubscriptionCreate(
+    options.liveSubscription,
+    options.globalSummaryLiveSubscription,
+    cursorCodec,
+    baselineGlobalSequence,
+    () => {
+      void connection.current?.disconnect("connection-frame-invalid")
+    },
+  )
   return options.connectionWriterCreate({
-    baselineSequence,
+    baselineSequence: baselineGlobalSequence,
+    baselineGlobalSequence: options.globalSummaryLiveSubscription === undefined ? undefined : baselineGlobalSequence,
     now: options.now,
     scheduler: options.scheduler,
+    sequenceKind: options.globalSummaryLiveSubscription === undefined ? "journal" : "global-summary",
     subscription,
     userId: context.var.requestIdentity.userId,
     writer: {
@@ -189,6 +232,9 @@ function apiEventsConnectionWriterCreate(
 async function apiEventsBacklogPump(
   connection: ApiEventsRoutesConnection,
   pages: ApiEventsBacklogData["pages"],
+  cursorCodec: Pick<JournalCursorCodec, "encode" | "validate">,
+  userId: string,
+  globalSummaryLiveSubscription: ApiEventsGlobalSummaryLiveSubscription | undefined,
 ): Promise<void> {
   try {
     for await (const page of pages) {
@@ -196,7 +242,20 @@ async function apiEventsBacklogPump(
         await connection.disconnect("backlog-page-read-failed")
         return
       }
-      const enqueued = await connection.enqueueBacklog(page.data)
+      const frames: ApiEventsBacklogFrame[] = []
+      for (const event of page.data) {
+        if (globalSummaryLiveSubscription === undefined) {
+          frames.push(event)
+          continue
+        }
+        const validated = apiEventsGlobalFrameValidate(cursorCodec, userId, event)
+        if (!validated.success) {
+          await connection.disconnect("backlog-frame-invalid")
+          return
+        }
+        frames.push(validated.data)
+      }
+      const enqueued = await connection.enqueueBacklog(frames)
       if (!enqueued.success) {
         if (!connection.isDisconnected()) await connection.disconnect("backlog-queue-failed")
         return
@@ -220,11 +279,16 @@ export function apiEventsRoutesAdd(api: Hono<AppEnvironment>, options: ApiEvents
       return apiEventsUnauthorized(context)
 
     const cursorCodec = options.cursorCodec
-    const baseline = apiEventsReplayBaselineResolve(cursorCodec, identity.userId, {
-      after: context.req.query("after"),
-      lastEventId: context.req.header("Last-Event-ID"),
-    })
-    if (!baseline.success) return apiEventsBacklogErrorResponse(context, baseline)
+    const baselineGlobalSequence = apiEventsGlobalReplayBaselineResolve(
+      cursorCodec,
+      identity.userId,
+      {
+        after: context.req.query("after"),
+        lastEventId: context.req.header("Last-Event-ID"),
+      },
+      options.globalSummaryLiveSubscription === undefined,
+    )
+    if (!baselineGlobalSequence.success) return apiEventsBacklogErrorResponse(context, baselineGlobalSequence)
 
     const output = new TransformStream<Uint8Array, Uint8Array>()
     const outputWriter = output.writable.getWriter()
@@ -233,7 +297,7 @@ export function apiEventsRoutesAdd(api: Hono<AppEnvironment>, options: ApiEvents
       context,
       options,
       cursorCodec,
-      baseline.data,
+      baselineGlobalSequence.data,
       connectionState,
       outputWriter,
     )
@@ -295,7 +359,13 @@ export function apiEventsRoutesAdd(api: Hono<AppEnvironment>, options: ApiEvents
       options.metricsCollector.increment("sse_reset_total")
     }
 
-    void apiEventsBacklogPump(connection, backlog.data.pages)
+    void apiEventsBacklogPump(
+      connection,
+      backlog.data.pages,
+      cursorCodec,
+      identity.userId,
+      options.globalSummaryLiveSubscription,
+    )
 
     return new Response(output.readable, {
       headers: {

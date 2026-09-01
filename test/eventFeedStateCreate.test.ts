@@ -2,7 +2,11 @@ import { expect, test } from "bun:test"
 import { eventFeedStateCreate } from "../src/stream/client/eventFeedStateCreate.js"
 
 function event(id: string, sequence: number, payload: Record<string, unknown>): Record<string, unknown> {
-  return { id, sequence, ...payload }
+  const eventType = payload.eventType
+  const terminal =
+    typeof eventType === "string" &&
+    ["run-cancelled", "run-completed", "run-failed", "run-interrupted"].includes(eventType)
+  return { id, sequence, ...(terminal ? { changePosition: sequence } : {}), ...payload }
 }
 
 function createFeed(initial?: Parameters<typeof eventFeedStateCreate>[0]["initial"]) {
@@ -89,7 +93,7 @@ test("ignores stale invalidations and requests newer resource reconciliation", (
   expect(feed.state().staleResources.get("session:session-1")).toMatchObject({ cachedRevision: 4, serverRevision: 5 })
 })
 
-test("deduplicates events and completion supersedes deltas with authoritative replacement", () => {
+test("deduplicates events and retains a completed run tail until authoritative replacement", () => {
   const { feed } = createFeed({ asOfCursor: "cursor-1", lastEventId: "cursor-1" })
   const delta = event("cursor-2", 2, {
     delta: "partial",
@@ -113,9 +117,20 @@ test("deduplicates events and completion supersedes deltas with authoritative re
   )
   expect(completed).toMatchObject({
     success: true,
-    data: { instruction: { authoritative: "session-snapshot", preserveDeltas: false } },
+    data: {
+      instruction: {
+        authoritative: "session-snapshot",
+        changePosition: 3,
+        preserveDeltas: true,
+        terminalKind: "completed",
+      },
+    },
   })
-  expect(feed.state().activeRuns.get("run-1")).toMatchObject({ deltas: [], partialText: "", superseded: true })
+  expect(feed.state().activeRuns.get("run-1")).toMatchObject({
+    partialText: "partial",
+    superseded: false,
+    terminalKind: "completed",
+  })
 
   const lateDelta = feed.apply(
     event("cursor-4", 4, {
@@ -128,7 +143,7 @@ test("deduplicates events and completion supersedes deltas with authoritative re
     }),
   )
   expect(lateDelta).toMatchObject({ success: true, data: { ignored: "terminal-run" } })
-  expect(feed.state().activeRuns.get("run-1")?.partialText).toBe("")
+  expect(feed.state().activeRuns.get("run-1")?.partialText).toBe("partial")
 })
 
 test("registers a run from its typed start event before the first delta", () => {
@@ -143,7 +158,7 @@ test("registers a run from its typed start event before the first delta", () => 
     ),
   ).toMatchObject({ success: true, data: { applied: true, instruction: null } })
   expect(feed.state().activeRuns.get("run-1")).toMatchObject({
-    lastSequence: 2,
+    lastSequence: 0,
     phase: "active",
     partialText: "",
     terminalStatus: null,
@@ -164,7 +179,7 @@ test("registers a run from its typed start event before the first delta", () => 
   expect(feed.state().activeRuns.get("run-1")).toMatchObject({ lastSequence: 3, partialText: "first" })
 })
 
-test("maps lifecycle checkpoints to active-state reconciliation and accepts authoritative replacement", () => {
+test("maps failure to authoritative session reconciliation while retaining its visible tail", () => {
   const { feed } = createFeed({ asOfCursor: "cursor-1", lastEventId: "cursor-1" })
   expect(
     feed.apply(
@@ -188,27 +203,23 @@ test("maps lifecycle checkpoints to active-state reconciliation and accepts auth
         sessionRevision: 3,
       }),
     ),
-  ).toMatchObject({ success: true, data: { instruction: { kind: "run-checkpoint", preserveDeltas: true } } })
-  expect(feed.state().activeRuns.get("run-1")).toMatchObject({ phase: "reconciling", partialText: "partial" })
-
-  expect(
-    feed.runReplace({
-      lastSequence: 3,
-      partialText: "authoritative",
-      runId: "run-1",
-      sessionId: "session-1",
-      status: "failed",
-    }),
-  ).toMatchObject({ success: true })
+  ).toMatchObject({
+    success: true,
+    data: { instruction: { kind: "authoritative-replacement", preserveDeltas: true, terminalKind: "failed" } },
+  })
   expect(feed.state().activeRuns.get("run-1")).toMatchObject({
-    phase: "settled",
-    partialText: "authoritative",
-    deltas: [],
+    phase: "reconciling",
+    partialText: "partial",
+    terminalKind: "failed",
   })
 })
 
-test("maps failed, cancelled, and interrupted checkpoints to active-run reconciliation", () => {
+test("preserves every exact terminal kind in authoritative reconciliation", () => {
   const lifecycleEvents = [
+    {
+      eventType: "run-completed",
+      messageId: "message-1",
+    },
     {
       eventType: "run-failed",
       failure: null,
@@ -237,45 +248,103 @@ test("maps failed, cancelled, and interrupted checkpoints to active-run reconcil
       success: true,
       data: {
         instruction: {
-          checkpoint: lifecycle.eventType.slice("run-".length),
-          kind: "run-checkpoint",
+          kind: "authoritative-replacement",
           preserveDeltas: true,
+          terminalKind: lifecycle.eventType.slice("run-".length),
         },
       },
     })
     expect(feed.state().activeRuns.get("run-1")).toMatchObject({
       checkpoint: lifecycle.eventType.slice("run-".length),
       phase: "reconciling",
+      terminalKind: lifecycle.eventType.slice("run-".length),
     })
   }
 })
 
-test("parses one JSON SSE event, rejects malformed data without mutation, and handles reset non-destructively", () => {
+test("rejects stale and conflicting terminal events by session change position", () => {
+  const { feed } = createFeed({ asOfCursor: "cursor-1", lastEventId: "cursor-1" })
+  expect(
+    feed.apply(
+      event("cursor-10", 10, {
+        changePosition: 8,
+        eventType: "run-cancelled",
+        runId: "run-1",
+        sessionId: "session-1",
+        sessionRevision: 2,
+      }),
+    ),
+  ).toMatchObject({ success: true, data: { applied: true } })
+
+  expect(
+    feed.apply(
+      event("cursor-11", 11, {
+        changePosition: 7,
+        eventType: "run-interrupted",
+        reason: "stale",
+        runId: "run-1",
+        sessionId: "session-1",
+        sessionRevision: 3,
+      }),
+    ),
+  ).toMatchObject({ success: true, data: { ignored: "stale-event", instruction: null } })
+  expect(
+    feed.apply(
+      event("cursor-12", 12, {
+        changePosition: 9,
+        eventType: "run-failed",
+        failure: null,
+        runId: "run-1",
+        sessionId: "session-1",
+        sessionRevision: 4,
+      }),
+    ),
+  ).toMatchObject({ success: true, data: { ignored: "terminal-run", instruction: null } })
+  expect(feed.state().activeRuns.get("run-1")).toMatchObject({
+    terminalChangePosition: 8,
+    terminalKind: "cancelled",
+  })
+})
+
+test("parses one global-summary SSE event, rejects detail deltas, and handles reset non-destructively", () => {
   const { feed } = createFeed({
     asOfCursor: "cursor-4",
     lastEventId: "cursor-4",
     settledCacheKeys: ["session-settled"],
   })
   const parsed = feed.applySse({
-    data: JSON.stringify(
-      event("cursor-5", 5, {
-        delta: "live",
-        deltaKind: "text",
-        eventType: "delta",
-        messageId: "message-1",
-        runId: "run-1",
-        sessionId: "session-1",
-      }),
-    ),
-    event: "delta",
+    data: JSON.stringify({
+      eventType: "run-started",
+      globalSequence: 5,
+      id: "cursor-5",
+      runId: "run-1",
+      sessionId: "session-1",
+    }),
+    event: "run-started",
     id: "cursor-5",
   })
   expect(parsed).toMatchObject({ success: true, data: { applied: true } })
   const beforeMalformed = feed.state()
-  expect(feed.applySse({ data: "{not-json", event: "delta", id: "cursor-bad" })).toMatchObject({
+  expect(feed.applySse({ data: "{not-json", event: "run-started", id: "cursor-bad" })).toMatchObject({
     code: "invalid_event",
     success: false,
   })
+  expect(
+    feed.applySse({
+      data: JSON.stringify(
+        event("cursor-detail", 6, {
+          delta: "not-global",
+          deltaKind: "text",
+          eventType: "delta",
+          messageId: null,
+          runId: "run-1",
+          sessionId: "session-1",
+        }),
+      ),
+      event: "delta",
+      id: "cursor-detail",
+    }),
+  ).toMatchObject({ code: "invalid_event", success: false })
   expect(feed.state()).toMatchObject({
     lastEventId: beforeMalformed.lastEventId,
     asOfCursor: beforeMalformed.asOfCursor,

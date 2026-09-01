@@ -1,10 +1,14 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
 import type { metricsCollectorCreate } from "../../metrics/metricsCollectorCreate.js"
+import type { GlobalSummarySseFrame } from "../api/globalSummarySseFrameSchema.js"
+import { globalSummarySseFrameSchema } from "../api/globalSummarySseFrameSchema.js"
 import type { StreamSseFrame } from "../api/streamSseFrameSchema.js"
 import { streamSseFrameSchema } from "../api/streamSseFrameSchema.js"
 import { streamSseFrameSerialize } from "../api/streamSseFrameSerialize.js"
 import type { JournalEvent } from "../schema/journalEventSchema.js"
+import type { SessionDetailSseFrame } from "../../session/api/sessionDetailSseFrameSchema.js"
+import { sessionDetailSseFrameSchema } from "../../session/api/sessionDetailSseFrameSchema.js"
 
 type StreamSseConnectionWriterSink = {
   abort: (reason?: unknown) => Promise<void> | void
@@ -21,7 +25,9 @@ type StreamSseConnectionWriterScheduler = {
 
 type StreamSseConnectionWriterDependencies = {
   baselineSequence: number
+  baselineGlobalSequence?: number
   now: () => number
+  sequenceKind?: "global-summary" | "journal" | "session-detail"
   scheduler: StreamSseConnectionWriterScheduler
   subscription: {
     subscribe: (userId: string, subscriber: (event: StreamSseConnectionInputEvent) => void) => () => void
@@ -34,10 +40,11 @@ type StreamSseConnectionWriterDependencies = {
 type StreamSseConnectionQueueEvent = {
   allowBaseline: boolean
   bytes: Uint8Array
+  key: string
   sequence: number
 }
 
-type StreamSseConnectionInputEvent = JournalEvent | StreamSseFrame
+type StreamSseConnectionInputEvent = GlobalSummarySseFrame | JournalEvent | SessionDetailSseFrame | StreamSseFrame
 
 const streamSseConnectionWriterHeartbeatIntervalMs = 15_000
 const streamSseConnectionWriterBlockedWriteTimeoutMs = 15_000
@@ -48,11 +55,33 @@ const streamSseConnectionWriterMaximumReplayStagingEvents = 128
 const streamSseConnectionWriterMaximumFrameBytes = 128 * 1024
 const streamSseConnectionWriterHeartbeat = new TextEncoder().encode(": heartbeat\n\n")
 
-function streamSseConnectionFrameCreate(event: StreamSseConnectionInputEvent): Result<Uint8Array> {
+function streamSseConnectionFrameCreate(
+  event: StreamSseConnectionInputEvent,
+  sequenceKind: "global-summary" | "journal" | "session-detail",
+): Result<Uint8Array> {
   const op = "streamSseConnectionFrameCreate"
   try {
     const frame = "data" in event ? event : { data: event, event: event.eventType, id: event.id }
-    const parsed = v.safeParse(streamSseFrameSchema, frame)
+    if (sequenceKind === "global-summary") {
+      const parsed = v.safeParse(globalSummarySseFrameSchema, frame)
+      if (!parsed.success) return createResultError(op, "The global summary SSE event is invalid or exceeds 128 KiB.")
+      const bytes = new TextEncoder().encode(streamSseFrameSerialize(parsed.output))
+      if (bytes.byteLength > streamSseConnectionWriterMaximumFrameBytes)
+        return createResultError(op, "The global summary SSE event is invalid or exceeds 128 KiB.")
+      return createResult(bytes)
+    }
+
+    if (sequenceKind === "session-detail") {
+      const parsed = v.safeParse(sessionDetailSseFrameSchema, frame)
+      if (!parsed.success) return createResultError(op, "The selected-session SSE event is invalid or exceeds 128 KiB.")
+      const bytes = new TextEncoder().encode(streamSseFrameSerialize(parsed.output))
+      if (bytes.byteLength > streamSseConnectionWriterMaximumFrameBytes)
+        return createResultError(op, "The selected-session SSE event is invalid or exceeds 128 KiB.")
+      return createResult(bytes)
+    }
+
+    const globalParsed = v.safeParse(globalSummarySseFrameSchema, frame)
+    const parsed = globalParsed.success ? globalParsed : v.safeParse(streamSseFrameSchema, frame)
     if (!parsed.success) return createResultError(op, "The SSE event is invalid or exceeds 128 KiB.")
 
     const bytes = new TextEncoder().encode(streamSseFrameSerialize(parsed.output))
@@ -64,9 +93,58 @@ function streamSseConnectionFrameCreate(event: StreamSseConnectionInputEvent): R
   }
 }
 
+function streamSseConnectionEventSequence(
+  event: StreamSseConnectionInputEvent,
+  sequenceKind: "global-summary" | "journal" | "session-detail",
+): number {
+  if (!("data" in event)) {
+    if (sequenceKind === "global-summary")
+      return "globalSequence" in event && typeof event.globalSequence === "number" ? event.globalSequence : Number.NaN
+    if (sequenceKind === "session-detail")
+      return "changePosition" in event && typeof event.changePosition === "number" ? event.changePosition : Number.NaN
+    return event.sequence
+  }
+  if (sequenceKind === "global-summary") {
+    const globalParsed = v.safeParse(globalSummarySseFrameSchema, event)
+    return globalParsed.success ? globalParsed.output.data.globalSequence : Number.NaN
+  }
+  if (sequenceKind === "session-detail") {
+    const selectedParsed = v.safeParse(sessionDetailSseFrameSchema, event)
+    return selectedParsed.success
+      ? selectedParsed.output.data.eventType === "entry"
+        ? selectedParsed.output.data.changePosition
+        : selectedParsed.output.data.asOfPosition
+      : Number.NaN
+  }
+  const globalParsed = v.safeParse(globalSummarySseFrameSchema, event)
+  if (globalParsed.success) return globalParsed.output.data.globalSequence
+  const legacyParsed = v.safeParse(streamSseFrameSchema, event)
+  if (legacyParsed.success) return legacyParsed.output.data.sequence
+  return Number.NaN
+}
+
+function streamSseConnectionEventKey(
+  event: StreamSseConnectionInputEvent,
+  sequenceKind: "global-summary" | "journal" | "session-detail",
+): string {
+  if (sequenceKind === "session-detail") {
+    const parsed = v.safeParse(
+      sessionDetailSseFrameSchema,
+      "data" in event ? event : { data: event, event: event.eventType, id: event.id },
+    )
+    if (parsed.success) {
+      if (parsed.output.data.eventType === "entry")
+        return `entry:${parsed.output.data.entryId}:${parsed.output.data.changePosition}`
+      return `reset:${parsed.output.data.sessionId}:${parsed.output.data.asOfPosition}`
+    }
+  }
+  return "data" in event ? event.id : event.id
+}
+
 export function streamSseConnectionWriterCreate(dependencies: StreamSseConnectionWriterDependencies) {
-  const eventQueue = new Map<number, StreamSseConnectionQueueEvent>()
-  const replayQueue = new Map<number, StreamSseConnectionQueueEvent>()
+  const sequenceKind = dependencies.sequenceKind ?? "journal"
+  const eventQueue = new Map<string, StreamSseConnectionQueueEvent>()
+  const replayQueue = new Map<string, StreamSseConnectionQueueEvent>()
   const heartbeatQueue: Uint8Array[] = []
 
   let resolveDisconnected: () => void = () => undefined
@@ -86,7 +164,7 @@ export function streamSseConnectionWriterCreate(dependencies: StreamSseConnectio
   let metricsConnectionOpened = false
   let queuedBytes = 0
   let replayQueuedBytes = 0
-  let lastWrittenSequence = dependencies.baselineSequence
+  let lastWrittenSequence = dependencies.baselineGlobalSequence ?? dependencies.baselineSequence
   let replayUpperBound: number | undefined
   let drainPromise: Promise<void> | undefined
   let maximumReplayStagingBytes = 0
@@ -167,17 +245,17 @@ export function streamSseConnectionWriterCreate(dependencies: StreamSseConnectio
 
   const staleEventQueueDiscard = (): void => {
     if (lastWrittenSequence === undefined) return
-    for (const [sequence, event] of eventQueue) {
-      if (sequence > lastWrittenSequence) continue
-      eventQueue.delete(sequence)
+    for (const [key, event] of eventQueue) {
+      if (event.sequence > lastWrittenSequence) continue
+      eventQueue.delete(key)
       queuedBytes -= event.bytes.byteLength
     }
   }
 
-  const replayQueueDelete = (sequence: number): void => {
-    const event = replayQueue.get(sequence)
+  const replayQueueDelete = (key: string): void => {
+    const event = replayQueue.get(key)
     if (event === undefined) return
-    replayQueue.delete(sequence)
+    replayQueue.delete(key)
     queuedBytes -= event.bytes.byteLength
     replayQueuedBytes -= event.bytes.byteLength
     for (const resolve of replayCapacityWaiters.splice(0)) resolve()
@@ -185,9 +263,9 @@ export function streamSseConnectionWriterCreate(dependencies: StreamSseConnectio
 
   const replayQueueNext = (): StreamSseConnectionQueueEvent | undefined => {
     let next: StreamSseConnectionQueueEvent | undefined
-    for (const [sequence, event] of replayQueue) {
-      if (lastWrittenSequence !== undefined && sequence <= lastWrittenSequence && !event.allowBaseline) {
-        replayQueueDelete(sequence)
+    for (const [key, event] of replayQueue) {
+      if (lastWrittenSequence !== undefined && event.sequence <= lastWrittenSequence && !event.allowBaseline) {
+        replayQueueDelete(key)
         continue
       }
       if (next === undefined || event.sequence < next.sequence) next = event
@@ -294,12 +372,12 @@ export function streamSseConnectionWriterCreate(dependencies: StreamSseConnectio
           continue
         }
         if (event !== undefined) {
-          const replayEvent = replayQueue.get(event.sequence)
-          const liveEvent = eventQueue.get(event.sequence)
+          const replayEvent = replayQueue.get(event.key)
+          const liveEvent = eventQueue.get(event.key)
           if (replayEvent !== event && liveEvent !== event) return
-          if (replayEvent === event) replayQueueDelete(event.sequence)
+          if (replayEvent === event) replayQueueDelete(event.key)
           if (liveEvent === event) {
-            eventQueue.delete(event.sequence)
+            eventQueue.delete(event.key)
             queuedBytes -= event.bytes.byteLength
           }
           if (lastWrittenSequence === undefined || event.sequence > lastWrittenSequence)
@@ -348,12 +426,13 @@ export function streamSseConnectionWriterCreate(dependencies: StreamSseConnectio
   const enqueueEvent = (event: StreamSseConnectionInputEvent): Result<void> => {
     const op = "streamSseConnectionWriterEnqueueEvent"
     if (disconnected) return createResultError(op, "The SSE connection is disconnected.")
-    const sequence = "data" in event ? event.data.sequence : event.sequence
+    const sequence = streamSseConnectionEventSequence(event, sequenceKind)
+    const key = streamSseConnectionEventKey(event, sequenceKind)
     if (lastWrittenSequence !== undefined && sequence <= lastWrittenSequence) return createResult(undefined)
     if (replayUpperBound !== undefined && sequence <= replayUpperBound) return createResult(undefined)
-    if (eventQueue.has(sequence) || replayQueue.has(sequence)) return createResult(undefined)
+    if (eventQueue.has(key) || replayQueue.has(key)) return createResult(undefined)
 
-    const frame = streamSseConnectionFrameCreate(event)
+    const frame = streamSseConnectionFrameCreate(event, sequenceKind)
     if (!frame.success) {
       void disconnect("connection-frame-invalid")
       return frame
@@ -367,7 +446,7 @@ export function streamSseConnectionWriterCreate(dependencies: StreamSseConnectio
       return createResultError(op, "The SSE connection queue limit was exceeded.")
     }
 
-    eventQueue.set(sequence, { allowBaseline: false, bytes: frame.data, sequence })
+    eventQueue.set(key, { allowBaseline: false, bytes: frame.data, key, sequence })
     queuedBytes += frame.data.byteLength
     if (!backlogOpen) drainStart()
     return createResult(undefined)
@@ -414,9 +493,9 @@ export function streamSseConnectionWriterCreate(dependencies: StreamSseConnectio
     if (!Number.isSafeInteger(upperBound) || upperBound < 0)
       return createResultError(op, "The SSE replay upper bound is invalid.")
     replayUpperBound = upperBound
-    for (const [sequence, event] of eventQueue) {
-      if (sequence > upperBound) continue
-      eventQueue.delete(sequence)
+    for (const [key, event] of eventQueue) {
+      if (event.sequence > upperBound) continue
+      eventQueue.delete(key)
       queuedBytes -= event.bytes.byteLength
     }
     return createResult(undefined)
@@ -439,12 +518,13 @@ export function streamSseConnectionWriterCreate(dependencies: StreamSseConnectio
     if (!backlogOpen) return createResultError(op, "The SSE backlog handoff is already complete.")
     for (const event of events) {
       if (disconnected) return createResultError(op, "The SSE connection is disconnected.")
-      const sequence = "data" in event ? event.data.sequence : event.sequence
+      const sequence = streamSseConnectionEventSequence(event, sequenceKind)
+      const key = streamSseConnectionEventKey(event, sequenceKind)
       const isReset = ("data" in event ? event.data.eventType : event.eventType) === "reset"
       if (lastWrittenSequence !== undefined && sequence <= lastWrittenSequence && !isReset) continue
-      if (replayQueue.has(sequence) || (!isReset && eventQueue.has(sequence))) continue
+      if (replayQueue.has(key) || (!isReset && eventQueue.has(key))) continue
 
-      const frame = streamSseConnectionFrameCreate(event)
+      const frame = streamSseConnectionFrameCreate(event, sequenceKind)
       if (!frame.success) {
         void disconnect("connection-frame-invalid")
         return frame
@@ -453,7 +533,7 @@ export function streamSseConnectionWriterCreate(dependencies: StreamSseConnectio
       if (!capacityAvailable) return createResultError(op, "The SSE connection is disconnected.")
       if (disconnected) return createResultError(op, "The SSE connection is disconnected.")
       if (lastWrittenSequence !== undefined && sequence <= lastWrittenSequence && !isReset) continue
-      if (replayQueue.has(sequence) || (!isReset && eventQueue.has(sequence))) continue
+      if (replayQueue.has(key) || (!isReset && eventQueue.has(key))) continue
       const overflowReason = queueOverflowReason(frame.data.byteLength)
       if (overflowReason !== undefined) {
         dependencies.metricsCollector?.increment("sse_queue_overflow_total", 1, {
@@ -462,7 +542,7 @@ export function streamSseConnectionWriterCreate(dependencies: StreamSseConnectio
         void disconnect(queueOverflowDisconnectReason(overflowReason))
         return createResultError(op, "The SSE connection queue limit was exceeded.")
       }
-      replayQueue.set(sequence, { allowBaseline: isReset, bytes: frame.data, sequence })
+      replayQueue.set(key, { allowBaseline: isReset, bytes: frame.data, key, sequence })
       queuedBytes += frame.data.byteLength
       replayQueuedBytes += frame.data.byteLength
       maximumReplayStagingBytes = Math.max(maximumReplayStagingBytes, replayQueuedBytes)

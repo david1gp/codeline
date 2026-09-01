@@ -1,6 +1,6 @@
 import { createResult, createResultErrorCode, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
-import { type StreamSseFrame, streamSseFrameSchema } from "../api/streamSseFrameSchema.js"
+import { type GlobalSummarySseFrame, globalSummarySseFrameSchema } from "../api/globalSummarySseFrameSchema.js"
 
 type EventFeedEventInput = {
   data?: unknown
@@ -17,7 +17,7 @@ function eventFeedEventError(message: string, errorData?: string) {
   return result
 }
 
-export function eventFeedEventParse(input: unknown): Result<StreamSseFrame> {
+export function eventFeedEventParse(input: unknown): Result<GlobalSummarySseFrame> {
   if (typeof input !== "object" || input === null || Array.isArray(input)) {
     return eventFeedEventError("The SSE event is not an object.")
   }
@@ -30,7 +30,7 @@ export function eventFeedEventParse(input: unknown): Result<StreamSseFrame> {
   const json = v.safeParse(v.pipe(v.string(), v.parseJson()), candidate.data)
   if (!json.success) return eventFeedEventError("The SSE event data is not valid JSON.", v.summarize(json.issues))
 
-  const frame = v.safeParse(streamSseFrameSchema, { data: json.output, event, id })
+  const frame = v.safeParse(globalSummarySseFrameSchema, { data: json.output, event, id })
   if (!frame.success)
     return eventFeedEventError("The SSE event does not match the shared event contract.", v.summarize(frame.issues))
   return createResult(frame.output)
