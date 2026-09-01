@@ -10,6 +10,7 @@ import { externalIdentityUpsert } from "../identity/db/externalIdentityUpsert.js
 import { organizationMemberTable } from "../identity/db/organizationMemberTable.js"
 import { organizationTable } from "../identity/db/organizationTable.js"
 import { messageTable } from "../message/db/messageTable.js"
+import { messageApiRecordCreate } from "../message/api/messageApiRecordCreate.js"
 import { projectConfiguredRootsReconcile } from "../project/db/projectConfiguredRootsReconcile.js"
 import { projectFolderBootstrapEnsure } from "../project/db/projectFolderBootstrapEnsure.js"
 import { projectFolderBootstrapIdLoad } from "../project/db/projectFolderBootstrapIdLoad.js"
@@ -18,10 +19,23 @@ import { providerAgentCatalogAgentNameCreate } from "../providers/catalog/provid
 import { providerAgentCatalogConfigurationCompile } from "../providers/catalog/providerAgentCatalogConfigurationCompile.js"
 import { providerAgentCatalogLoad } from "../providers/catalog/providerAgentCatalogLoad.js"
 import type { ProviderCatalog } from "../providers/schema/providerCatalogSchema.js"
+import { runCancel } from "../run/actions/runCancel.js"
+import { runChildCreate } from "../run/actions/runChildCreate.js"
+import { runCreate } from "../run/actions/runCreate.js"
+import { runProviderOutputCreate } from "../run/actions/runProviderOutputCreate.js"
+import { runStartupInterruptionReconcile } from "../run/actions/runStartupInterruptionReconcile.js"
+import { runTransition } from "../run/actions/runTransition.js"
+import { runDelegationFinalize } from "../run/actions/runDelegationFinalize.js"
 import { attemptTable } from "../run/db/attemptTable.js"
+import { runActiveStateTable } from "../run/db/runActiveStateTable.js"
+import { runDelegationTable } from "../run/db/runDelegationTable.js"
+import { runFinalizedDetailTable } from "../run/db/runFinalizedDetailTable.js"
 import { runTable } from "../run/db/runTable.js"
+import { journalEventTable } from "../journal/db/journalEventTable.js"
 import { serverTable } from "../servers/db/serverTable.js"
 import { sessionTable } from "../session/db/sessionTable.js"
+import { sessionHistoryEntryRepositoryUpsert } from "../session/db/sessionHistoryEntryRepositoryUpsert.js"
+import { sessionHistoryEntryTable } from "../session/db/sessionHistoryEntryTable.js"
 import { sessionViewTable } from "../session/db/sessionViewTable.js"
 import { uuidv7 } from "../uuid/uuidv7.js"
 import type { DatabaseClient, DatabaseExecutor } from "./databaseClient.js"
@@ -49,9 +63,130 @@ async function exampleDataOwnedRunRowsDelete(database: DatabaseExecutor): Promis
   const attemptIds = exampleDataFixture.attempts.map((attempt) => attempt.id)
   const sessionIds = exampleDataFixture.sessionViews.map((sessionView) => sessionView.sessionId)
 
+  await database.delete(journalEventTable).where(inArray(journalEventTable.runId, runIds))
+  await database.delete(runDelegationTable).where(
+    inArray(
+      runDelegationTable.id,
+      exampleDataFixture.delegations.map((delegation) => delegation.id),
+    ),
+  )
+  await database.delete(runFinalizedDetailTable).where(inArray(runFinalizedDetailTable.runId, runIds))
+  await database.delete(runActiveStateTable).where(inArray(runActiveStateTable.runId, runIds))
   await database.delete(attemptTable).where(inArray(attemptTable.id, attemptIds))
   await database.delete(runTable).where(inArray(runTable.id, runIds))
   await database.delete(sessionViewTable).where(inArray(sessionViewTable.sessionId, sessionIds))
+}
+
+async function exampleDataRunRowsAlreadySeeded(database: DatabaseExecutor, userId: string): Promise<boolean> {
+  try {
+    const runIds = exampleDataFixture.runs.map((run) => run.id)
+    const runs = await database
+      .select({
+        cancellationKind: runTable.cancellationKind,
+        failure: runTable.failure,
+        id: runTable.id,
+        status: runTable.status,
+      })
+      .from(runTable)
+      .where(and(eq(runTable.userId, userId), inArray(runTable.id, runIds)))
+    if (runs.length !== runIds.length) return false
+    if (
+      runs.some((run) => {
+        const fixtureRun = exampleDataFixture.runs.find((candidate) => candidate.id === run.id)
+        return (
+          fixtureRun === undefined ||
+          run.status !== fixtureRun.status ||
+          JSON.stringify(run.failure) !== JSON.stringify(fixtureRun.failure) ||
+          run.cancellationKind !== fixtureRun.cancellationKind
+        )
+      })
+    )
+      return false
+
+    const attemptIds = exampleDataFixture.attempts.map((attempt) => attempt.id)
+    const attempts = await database
+      .select({ id: attemptTable.id, status: attemptTable.status })
+      .from(attemptTable)
+      .where(and(eq(attemptTable.userId, userId), inArray(attemptTable.id, attemptIds)))
+    if (attempts.length !== attemptIds.length) return false
+    if (
+      attempts.some((attempt) => {
+        const fixtureAttempt = exampleDataFixture.attempts.find((candidate) => candidate.id === attempt.id)
+        return fixtureAttempt === undefined || attempt.status !== fixtureAttempt.status
+      })
+    )
+      return false
+
+    const details = await database
+      .select({ runId: runFinalizedDetailTable.runId })
+      .from(runFinalizedDetailTable)
+      .where(and(eq(runFinalizedDetailTable.userId, userId), inArray(runFinalizedDetailTable.runId, runIds)))
+    if (details.length !== runIds.length) return false
+
+    const delegations = await database
+      .select({ id: runDelegationTable.id, finalizedResult: runDelegationTable.finalizedResult })
+      .from(runDelegationTable)
+      .where(
+        and(
+          eq(runDelegationTable.userId, userId),
+          inArray(
+            runDelegationTable.id,
+            exampleDataFixture.delegations.map((delegation) => delegation.id),
+          ),
+        ),
+      )
+    if (delegations.length !== exampleDataFixture.delegations.length) return false
+    if (delegations.some((delegation) => delegation.finalizedResult === null)) return false
+
+    const activeStates = await database
+      .select({ runId: runActiveStateTable.runId })
+      .from(runActiveStateTable)
+      .where(and(eq(runActiveStateTable.userId, userId), inArray(runActiveStateTable.runId, runIds)))
+    if (activeStates.length !== 0) return false
+
+    const entries = await database
+      .select({
+        sourceDetailId: sessionHistoryEntryTable.sourceDetailId,
+        sourceId: sessionHistoryEntryTable.sourceId,
+        sourceType: sessionHistoryEntryTable.sourceType,
+      })
+      .from(sessionHistoryEntryTable)
+      .where(
+        and(
+          eq(sessionHistoryEntryTable.userId, userId),
+          inArray(
+            sessionHistoryEntryTable.sessionId,
+            exampleDataFixture.sessions.map((session) => session.id),
+          ),
+        ),
+      )
+    const runEntryIds = new Set(entries.filter((entry) => entry.sourceType === "run").map((entry) => entry.sourceId))
+    if (runIds.some((runId) => !runEntryIds.has(runId))) return false
+    const toolEntryKeys = new Set(
+      entries
+        .filter((entry) => entry.sourceType === "tool")
+        .map((entry) => `${entry.sourceId}\u0000${entry.sourceDetailId}`),
+    )
+    if (
+      exampleDataFixture.tools.some((tool) => !toolEntryKeys.has(`${tool.runId}\u0000${tool.toolCallId}`)) ||
+      exampleDataFixture.delegations.some(
+        (delegation) => !toolEntryKeys.has(`${delegation.parentRunId}\u0000${delegation.delegationKey}`),
+      )
+    )
+      return false
+    return true
+  } catch (_error) {
+    return false
+  }
+}
+
+async function exampleDataHistoryRowsDelete(database: DatabaseExecutor): Promise<void> {
+  await database.delete(sessionHistoryEntryTable).where(
+    inArray(
+      sessionHistoryEntryTable.sessionId,
+      exampleDataFixture.sessions.map((session) => session.id),
+    ),
+  )
 }
 
 async function exampleDataConfiguredFixtureRowsDelete(
@@ -114,88 +249,223 @@ async function exampleDataProjectsReconcile(database: DatabaseExecutor, userId: 
   }
 }
 
+const exampleDataScheduler = {
+  clearTimeout: (_handle: unknown) => undefined,
+  setTimeout: (_handler: () => void, _timeoutMs: number) => 1,
+}
+
+async function exampleDataJournalPostCommitPublish(): Promise<Result<void>> {
+  return createResult(undefined)
+}
+
+function exampleDataRunTransitionCreate(fixtureRun: (typeof exampleDataFixture.runs)[number]) {
+  return (
+    database: DatabaseExecutor,
+    userId: string,
+    sessionId: string,
+    runId: string,
+    input: Parameters<typeof runTransition>[4],
+  ) =>
+    runTransition(database, userId, sessionId, runId, input, {
+      now: () => date(input.status === "running" ? fixtureRun.startedAt : fixtureRun.finishedAt),
+    })
+}
+
+function exampleDataRunProviderCreate(
+  database: DatabaseExecutor,
+  userId: string,
+  fixtureRun: (typeof exampleDataFixture.runs)[number],
+) {
+  return runProviderOutputCreate({
+    database,
+    journalPostCommitPublish: exampleDataJournalPostCommitPublish,
+    requestId: `example-data-${fixtureRun.clientRunId}`,
+    runId: fixtureRun.id,
+    scheduler: exampleDataScheduler,
+    sessionId: fixtureRun.sessionId,
+    userId,
+    runTransition: exampleDataRunTransitionCreate(fixtureRun),
+  })
+}
+
+async function exampleDataRunToolsAppend(
+  provider: ReturnType<typeof runProviderOutputCreate>,
+  tools: readonly (typeof exampleDataFixture.tools)[number][],
+): Promise<Result<void>> {
+  const op = "exampleDataRunToolsAppend"
+  for (const tool of tools) {
+    for (const event of [
+      { eventType: "tool_start", payload: { toolCallId: tool.toolCallId, toolName: tool.toolName } },
+      { eventType: "tool_output", payload: { output: tool.output, toolCallId: tool.toolCallId, truncated: false } },
+      {
+        eventType: "tool_result",
+        payload: {
+          outcome: tool.outcome,
+          result: tool.result,
+          toolCallId: tool.toolCallId,
+          truncated: false,
+          workingDirectory: tool.workingDirectory,
+        },
+      },
+    ]) {
+      const appended = await provider.append(event)
+      if (!appended.success) return createResultError(op, appended.errorMessage)
+      const flushed = await provider.flush()
+      if (!flushed.success) return createResultError(op, flushed.errorMessage)
+    }
+  }
+  return createResult(undefined)
+}
+
+async function exampleDataRunStartAndTools(
+  database: DatabaseExecutor,
+  userId: string,
+  fixtureRun: (typeof exampleDataFixture.runs)[number],
+): Promise<Result<ReturnType<typeof runProviderOutputCreate>>> {
+  const provider = exampleDataRunProviderCreate(database, userId, fixtureRun)
+  const started = await provider.start()
+  if (!started.success) return createResultError("exampleDataRunsReconcile", started.errorMessage)
+  const tools = await exampleDataRunToolsAppend(
+    provider,
+    exampleDataFixture.tools.filter((tool) => tool.runId === fixtureRun.id),
+  )
+  if (!tools.success) return tools
+  return createResult(provider)
+}
+
+async function exampleDataRunFinalize(
+  provider: ReturnType<typeof runProviderOutputCreate>,
+  userId: string,
+  fixtureRun: (typeof exampleDataFixture.runs)[number],
+  database: DatabaseExecutor,
+): Promise<Result<void>> {
+  if (fixtureRun.outcome === "cancelled") {
+    const cancellation = await runCancel(
+      database,
+      userId,
+      fixtureRun.sessionId,
+      fixtureRun.id,
+      {},
+      {
+        now: () => date(fixtureRun.cancellationRequestedAt),
+      },
+    )
+    if (!cancellation.success) return createResultError("exampleDataRunsReconcile", cancellation.errorMessage)
+  }
+
+  const finalized = await provider.finalize({
+    ...(fixtureRun.failure === null ? {} : { failure: fixtureRun.failure }),
+    ...(fixtureRun.outcome === "cancelled" ? { reason: "The deterministic example run was cancelled." } : {}),
+    status: fixtureRun.status === "succeeded" ? "succeeded" : fixtureRun.status === "failed" ? "failed" : "aborted",
+  })
+  if (!finalized.success) return createResultError("exampleDataRunsReconcile", finalized.errorMessage)
+  return createResult(undefined)
+}
+
+async function exampleDataDelegatedChildReconcile(
+  database: DatabaseExecutor,
+  userId: string,
+  delegation: (typeof exampleDataFixture.delegations)[number],
+): Promise<Result<void>> {
+  const parent = exampleDataFixture.runs.find((run) => run.id === delegation.parentRunId)
+  const child = exampleDataFixture.runs.find((run) => run.id === delegation.childRunId)
+  if (parent === undefined || child === undefined)
+    return createResultError("exampleDataRunsReconcile", "The delegated example runs are missing.")
+
+  const created = await runChildCreate(
+    database,
+    userId,
+    parent.sessionId,
+    {
+      delegationKey: delegation.delegationKey,
+      parentAttemptId: delegation.parentAttemptId,
+      parentRunId: delegation.parentRunId,
+      snapshot: child.snapshot,
+      task: delegation.task,
+    },
+    undefined,
+    {
+      attemptId:
+        child.id === undefined
+          ? undefined
+          : exampleDataFixture.attempts.find((attempt) => attempt.runId === child.id)?.id,
+      delegationId: delegation.id,
+      id: child.id,
+      now: () => date(child.createdAt),
+    },
+  )
+  if (!created.success) return createResultError("exampleDataRunsReconcile", created.errorMessage)
+
+  const childStarted = await exampleDataRunStartAndTools(database, userId, child)
+  if (!childStarted.success) return childStarted
+  const childFinalized = await exampleDataRunFinalize(childStarted.data, userId, child, database)
+  if (!childFinalized.success) return childFinalized
+  const finalized = await runDelegationFinalize(
+    database,
+    userId,
+    parent.sessionId,
+    delegation.id,
+    delegation.finalizedResult,
+    {
+      now: () => date(child.finishedAt),
+    },
+  )
+  if (!finalized.success) return createResultError("exampleDataRunsReconcile", finalized.errorMessage)
+  return createResult(undefined)
+}
+
 async function exampleDataRunsReconcile(database: DatabaseExecutor, userId: string): Promise<Result<void>> {
   const op = "exampleDataRunsReconcile"
 
   try {
-    for (const fixtureRun of exampleDataFixture.runs) {
-      await database
-        .insert(runTable)
-        .values({
+    if (await exampleDataRunRowsAlreadySeeded(database, userId)) return createResult(undefined)
+    const childRunIds = new Set(exampleDataFixture.delegations.map((delegation) => delegation.childRunId))
+    const rootRuns = exampleDataFixture.runs.filter((fixtureRun) => !childRunIds.has(fixtureRun.id))
+    const providers = new Map<string, ReturnType<typeof runProviderOutputCreate>>()
+    for (const fixtureRun of rootRuns) {
+      const created = await runCreate(
+        database,
+        userId,
+        fixtureRun.sessionId,
+        {
           budget: fixtureRun.budget,
           clientRunId: fixtureRun.clientRunId,
-          createdAt: date(fixtureRun.createdAt),
-          deadlineAt: date(fixtureRun.deadlineAt),
-          failure: fixtureRun.failure,
-          finishedAt: fixtureRun.finishedAt === null ? null : date(fixtureRun.finishedAt),
-          id: fixtureRun.id,
-          sessionId: fixtureRun.sessionId,
           snapshot: fixtureRun.snapshot,
-          startedAt: date(fixtureRun.startedAt),
-          status: fixtureRun.status,
           streamId: fixtureRun.streamId,
-          updatedAt: date(fixtureRun.updatedAt),
-          userId,
-        })
-        .onConflictDoUpdate({
-          target: runTable.id,
-          set: {
-            budget: fixtureRun.budget,
-            clientRunId: fixtureRun.clientRunId,
-            createdAt: date(fixtureRun.createdAt),
-            deadlineAt: date(fixtureRun.deadlineAt),
-            failure: fixtureRun.failure,
-            finishedAt: fixtureRun.finishedAt === null ? null : date(fixtureRun.finishedAt),
-            sessionId: fixtureRun.sessionId,
-            snapshot: fixtureRun.snapshot,
-            startedAt: date(fixtureRun.startedAt),
-            status: fixtureRun.status,
-            streamId: fixtureRun.streamId,
-            updatedAt: date(fixtureRun.updatedAt),
-            userId,
-          },
-        })
+        },
+        {
+          attemptId: exampleDataFixture.attempts.find((attempt) => attempt.runId === fixtureRun.id)?.id,
+          id: fixtureRun.id,
+          now: () => date(fixtureRun.createdAt),
+        },
+      )
+      if (!created.success) return createResultError(op, created.errorMessage)
+      const started = await exampleDataRunStartAndTools(database, userId, fixtureRun)
+      if (!started.success) return started
+      providers.set(fixtureRun.id, started.data)
     }
 
-    for (const fixtureAttempt of exampleDataFixture.attempts) {
-      await database
-        .insert(attemptTable)
-        .values({
-          budget: fixtureAttempt.budget,
-          createdAt: date(fixtureAttempt.createdAt),
-          failure: fixtureAttempt.failure,
-          finishedAt: fixtureAttempt.finishedAt === null ? null : date(fixtureAttempt.finishedAt),
-          id: fixtureAttempt.id,
-          ordinal: fixtureAttempt.ordinal,
-          runId: fixtureAttempt.runId,
-          sessionId: fixtureAttempt.sessionId,
-          snapshot: fixtureAttempt.snapshot,
-          startedAt: date(fixtureAttempt.startedAt),
-          status: fixtureAttempt.status,
-          streamId: fixtureAttempt.streamId,
-          updatedAt: date(fixtureAttempt.updatedAt),
-          userId,
-        })
-        .onConflictDoUpdate({
-          target: attemptTable.id,
-          set: {
-            budget: fixtureAttempt.budget,
-            createdAt: date(fixtureAttempt.createdAt),
-            failure: fixtureAttempt.failure,
-            finishedAt: fixtureAttempt.finishedAt === null ? null : date(fixtureAttempt.finishedAt),
-            ordinal: fixtureAttempt.ordinal,
-            runId: fixtureAttempt.runId,
-            sessionId: fixtureAttempt.sessionId,
-            snapshot: fixtureAttempt.snapshot,
-            startedAt: date(fixtureAttempt.startedAt),
-            status: fixtureAttempt.status,
-            streamId: fixtureAttempt.streamId,
-            updatedAt: date(fixtureAttempt.updatedAt),
-            userId,
-          },
-        })
+    for (const delegation of exampleDataFixture.delegations) {
+      const child = await exampleDataDelegatedChildReconcile(database, userId, delegation)
+      if (!child.success) return child
     }
 
+    for (const fixtureRun of rootRuns) {
+      if (fixtureRun.outcome === "interrupted") continue
+      const provider = providers.get(fixtureRun.id)
+      if (provider === undefined) return createResultError(op, "The example run provider is missing.")
+      const finalized = await exampleDataRunFinalize(provider, userId, fixtureRun, database)
+      if (!finalized.success) return finalized
+    }
+
+    const interruptedRun = exampleDataFixture.runs.find((run) => run.id === "example-run-interrupted-1")
+    if (interruptedRun === undefined) return createResultError(op, "The interrupted example run is missing.")
+    const interrupted = await runStartupInterruptionReconcile({
+      database,
+      now: () => date(interruptedRun.finishedAt),
+      postCommitPublish: exampleDataJournalPostCommitPublish,
+    })
+    if (!interrupted.success) return createResultError(op, interrupted.errorMessage)
     return createResult(undefined)
   } catch (_error) {
     return createResultError(op, "The example runs could not be reconciled.")
@@ -293,6 +563,7 @@ async function exampleDataRowsReconcile(
   organizationMembershipIssuer?: string,
   organizationMembershipSubject?: string,
   projectRootDirs?: readonly string[],
+  reset?: boolean,
 ): Promise<Result<{ sessionCount: number; messageCount: number }>> {
   const op = "exampleDataRowsReconcile"
   const hasConfiguredProjectRoots = projectRootDirs !== undefined && projectRootDirs.length > 0
@@ -341,9 +612,10 @@ async function exampleDataRowsReconcile(
     }
     if (hasConfiguredProjectRoots) {
       await exampleDataConfiguredFixtureRowsDelete(database, fixtureUser.id, configuredProjectPaths)
-    } else {
+    } else if (reset === true || !(await exampleDataRunRowsAlreadySeeded(database, fixtureUser.id))) {
       await exampleDataOwnedRunRowsDelete(database)
     }
+    if (userId !== undefined && userId !== exampleDataFixture.user.id) await exampleDataHistoryRowsDelete(database)
 
     await database
       .insert(organizationMemberTable)
@@ -483,6 +755,27 @@ async function exampleDataRowsReconcile(
                 createdAt: date(fixtureMessage.createdAt),
               },
             })
+          const historyMessage = messageApiRecordCreate({
+            agentId: fixtureSession.primaryAgentId,
+            clientRequestId: fixtureMessage.clientRequestId,
+            content: fixtureMessage.content,
+            createdAt: fixtureMessage.createdAt,
+            finalizedAt: fixtureMessage.finalizedAt,
+            id: fixtureMessage.id,
+            metadata: fixtureMessage.metadata,
+            role: fixtureMessage.role,
+            sequence: fixtureMessage.sequence,
+            sessionId: fixtureSession.id,
+          })
+          if (!historyMessage.success) return createResultError(op, historyMessage.errorMessage)
+          const historyEntry = await sessionHistoryEntryRepositoryUpsert(database, fixtureUser.id, fixtureSession.id, {
+            id: fixtureMessage.id,
+            kind: "message",
+            payload: historyMessage.data,
+            sourceId: fixtureMessage.id,
+            sourceType: "message",
+          })
+          if (!historyEntry.success) return createResultError(op, historyEntry.errorMessage)
         }
       }
 
@@ -578,6 +871,7 @@ export async function exampleDataSeed(
         options.organizationMembershipIssuer,
         options.organizationMembershipSubject,
         options.projectRootDirs,
+        options.reset,
       )
     } catch (_error) {
       return createResultError(op, "The example data seed transaction failed.")

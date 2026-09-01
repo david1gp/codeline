@@ -107,13 +107,17 @@ type ExampleDataFixture = {
     sessionId: string
     clientRunId: string
     streamId: string
-    status: "succeeded"
+    outcome: "cancelled" | "completed" | "failed" | "interrupted"
+    status: "succeeded" | "failed" | "aborted"
     snapshot: RunExecutionSnapshot
     budget: RunBudget
     deadlineAt: string
-    failure: null
+    failure: { code: string; message: string } | null
+    cancellationKind: "requested" | "ancestor" | null
+    cancellationRequestedAt: string | null
+    cancellationSourceRunId: string | null
     startedAt: string
-    finishedAt: string | null
+    finishedAt: string
     createdAt: string
     updatedAt: string
   }[]
@@ -123,14 +127,37 @@ type ExampleDataFixture = {
     sessionId: string
     ordinal: number
     streamId: string
-    status: "succeeded"
+    status: "succeeded" | "failed" | "aborted"
     snapshot: RunExecutionSnapshot
     budget: RunBudget
-    failure: null
+    failure: { code: string; message: string } | null
     startedAt: string
-    finishedAt: string | null
+    finishedAt: string
     createdAt: string
     updatedAt: string
+  }[]
+  tools: readonly {
+    runId: string
+    toolCallId: string
+    toolName: string
+    output: string
+    result: string
+    outcome: "error" | "success"
+    workingDirectory: string
+  }[]
+  delegations: readonly {
+    id: string
+    parentRunId: string
+    parentAttemptId: string
+    childRunId: string
+    delegationKey: string
+    rootOrdinal: number
+    depth: number
+    task: string
+    finalizedResult:
+      | { status: "succeeded"; text: string }
+      | { failure: { code: string; message: string }; status: "failed"; text: string }
+      | { failure: { code: string; message: string }; status: "aborted"; text: string }
   }[]
   sessionViews: readonly {
     sessionId: string
@@ -434,15 +461,133 @@ export const exampleDataFixture = {
       sessionId: "example-session-active-2",
       clientRunId: "example-client-run-ended-1",
       streamId: "example-stream-ended-1",
+      outcome: "completed",
       status: "succeeded",
       snapshot: exampleDataRunSnapshotCreate("example-agent-local", "example-server-local"),
       budget: exampleDataRunBudget,
-      deadlineAt: "2026-08-12T09:07:00.000Z",
+      deadlineAt: "2026-08-12T08:11:30.000Z",
       failure: null,
+      cancellationKind: null,
+      cancellationRequestedAt: null,
+      cancellationSourceRunId: null,
       startedAt: "2026-08-12T08:07:00.000Z",
       finishedAt: "2026-08-12T08:08:30.000Z",
       createdAt: "2026-08-12T08:06:30.000Z",
       updatedAt: "2026-08-12T08:08:30.000Z",
+    },
+    {
+      id: "example-run-completed-2",
+      sessionId: "example-session-active-1",
+      clientRunId: "example-client-run-completed-2",
+      streamId: "example-stream-completed-2",
+      outcome: "completed",
+      status: "succeeded",
+      snapshot: exampleDataRunSnapshotCreate("example-agent-local", "example-server-local"),
+      budget: exampleDataRunBudget,
+      deadlineAt: "2026-08-12T08:19:00.000Z",
+      failure: null,
+      cancellationKind: null,
+      cancellationRequestedAt: null,
+      cancellationSourceRunId: null,
+      startedAt: "2026-08-12T08:14:00.000Z",
+      finishedAt: "2026-08-12T08:15:30.000Z",
+      createdAt: "2026-08-12T08:13:30.000Z",
+      updatedAt: "2026-08-12T08:15:30.000Z",
+    },
+    {
+      id: "example-run-failed-1",
+      sessionId: "example-session-archived-1",
+      clientRunId: "example-client-run-failed-1",
+      streamId: "example-stream-failed-1",
+      outcome: "failed",
+      status: "failed",
+      snapshot: exampleDataRunSnapshotCreate("example-agent-local", "example-server-local"),
+      budget: exampleDataRunBudget,
+      deadlineAt: "2026-08-12T08:21:30.000Z",
+      failure: { code: "example_provider_failed", message: "The deterministic example provider failed." },
+      cancellationKind: null,
+      cancellationRequestedAt: null,
+      cancellationSourceRunId: null,
+      startedAt: "2026-08-12T08:16:00.000Z",
+      finishedAt: "2026-08-12T08:17:00.000Z",
+      createdAt: "2026-08-12T08:15:30.000Z",
+      updatedAt: "2026-08-12T08:17:00.000Z",
+    },
+    {
+      id: "example-run-cancelled-1",
+      sessionId: "example-session-remote-1",
+      clientRunId: "example-client-run-cancelled-1",
+      streamId: "example-stream-cancelled-1",
+      outcome: "cancelled",
+      status: "aborted",
+      snapshot: exampleDataRunSnapshotCreate("example-agent-remote", "example-server-remote"),
+      budget: exampleDataRunBudget,
+      deadlineAt: "2026-08-12T08:23:30.000Z",
+      failure: null,
+      cancellationKind: "requested",
+      cancellationRequestedAt: "2026-08-12T08:19:30.000Z",
+      cancellationSourceRunId: null,
+      startedAt: "2026-08-12T08:18:00.000Z",
+      finishedAt: "2026-08-12T08:19:00.000Z",
+      createdAt: "2026-08-12T08:17:30.000Z",
+      updatedAt: "2026-08-12T08:19:00.000Z",
+    },
+    {
+      id: "example-run-interrupted-1",
+      sessionId: "example-session-active-1",
+      clientRunId: "example-client-run-interrupted-1",
+      streamId: "example-stream-interrupted-1",
+      outcome: "interrupted",
+      status: "aborted",
+      snapshot: exampleDataRunSnapshotCreate("example-agent-local", "example-server-local"),
+      budget: exampleDataRunBudget,
+      deadlineAt: "2026-08-12T08:25:30.000Z",
+      failure: { code: "chat_interrupted", message: "The API process stopped while the run was active." },
+      cancellationKind: null,
+      cancellationRequestedAt: null,
+      cancellationSourceRunId: null,
+      startedAt: "2026-08-12T08:20:00.000Z",
+      finishedAt: "2026-08-12T08:21:00.000Z",
+      createdAt: "2026-08-12T08:19:30.000Z",
+      updatedAt: "2026-08-12T08:21:00.000Z",
+    },
+    {
+      id: "example-run-delegating-1",
+      sessionId: "example-session-active-1",
+      clientRunId: "example-client-run-delegating-1",
+      streamId: "example-stream-delegating-1",
+      outcome: "completed",
+      status: "succeeded",
+      snapshot: exampleDataRunSnapshotCreate("example-agent-local", "example-server-local"),
+      budget: { ...exampleDataRunBudget, maxChildDepth: 1, maxChildRuns: 2 },
+      deadlineAt: "2026-08-12T08:27:30.000Z",
+      failure: null,
+      cancellationKind: null,
+      cancellationRequestedAt: null,
+      cancellationSourceRunId: null,
+      startedAt: "2026-08-12T08:22:00.000Z",
+      finishedAt: "2026-08-12T08:24:00.000Z",
+      createdAt: "2026-08-12T08:21:30.000Z",
+      updatedAt: "2026-08-12T08:24:00.000Z",
+    },
+    {
+      id: "example-run-child-1",
+      sessionId: "example-session-active-1",
+      clientRunId: "child-run:example-run-child-1",
+      streamId: "run-child:example-run-child-1",
+      outcome: "completed",
+      status: "succeeded",
+      snapshot: exampleDataRunSnapshotCreate("example-agent-local-review", "example-server-local"),
+      budget: { ...exampleDataRunBudget, maxChildDepth: 1, maxChildRuns: 2 },
+      deadlineAt: "2026-08-12T08:27:30.000Z",
+      failure: null,
+      cancellationKind: null,
+      cancellationRequestedAt: null,
+      cancellationSourceRunId: null,
+      startedAt: "2026-08-12T08:22:30.000Z",
+      finishedAt: "2026-08-12T08:23:30.000Z",
+      createdAt: "2026-08-12T08:22:30.000Z",
+      updatedAt: "2026-08-12T08:23:30.000Z",
     },
   ],
   attempts: [
@@ -460,6 +605,249 @@ export const exampleDataFixture = {
       finishedAt: "2026-08-12T08:08:30.000Z",
       createdAt: "2026-08-12T08:06:30.000Z",
       updatedAt: "2026-08-12T08:08:30.000Z",
+    },
+    {
+      id: "example-attempt-completed-2",
+      runId: "example-run-completed-2",
+      sessionId: "example-session-active-1",
+      ordinal: 1,
+      streamId: "example-stream-completed-2",
+      status: "succeeded",
+      snapshot: exampleDataRunSnapshotCreate("example-agent-local", "example-server-local"),
+      budget: exampleDataRunBudget,
+      failure: null,
+      startedAt: "2026-08-12T08:14:00.000Z",
+      finishedAt: "2026-08-12T08:15:30.000Z",
+      createdAt: "2026-08-12T08:13:30.000Z",
+      updatedAt: "2026-08-12T08:15:30.000Z",
+    },
+    {
+      id: "example-attempt-failed-1",
+      runId: "example-run-failed-1",
+      sessionId: "example-session-archived-1",
+      ordinal: 1,
+      streamId: "example-stream-failed-1",
+      status: "failed",
+      snapshot: exampleDataRunSnapshotCreate("example-agent-local", "example-server-local"),
+      budget: exampleDataRunBudget,
+      failure: { code: "example_provider_failed", message: "The deterministic example provider failed." },
+      startedAt: "2026-08-12T08:16:00.000Z",
+      finishedAt: "2026-08-12T08:17:00.000Z",
+      createdAt: "2026-08-12T08:15:30.000Z",
+      updatedAt: "2026-08-12T08:17:00.000Z",
+    },
+    {
+      id: "example-attempt-cancelled-1",
+      runId: "example-run-cancelled-1",
+      sessionId: "example-session-remote-1",
+      ordinal: 1,
+      streamId: "example-stream-cancelled-1",
+      status: "aborted",
+      snapshot: exampleDataRunSnapshotCreate("example-agent-remote", "example-server-remote"),
+      budget: exampleDataRunBudget,
+      failure: null,
+      startedAt: "2026-08-12T08:18:00.000Z",
+      finishedAt: "2026-08-12T08:19:00.000Z",
+      createdAt: "2026-08-12T08:17:30.000Z",
+      updatedAt: "2026-08-12T08:19:00.000Z",
+    },
+    {
+      id: "example-attempt-interrupted-1",
+      runId: "example-run-interrupted-1",
+      sessionId: "example-session-active-1",
+      ordinal: 1,
+      streamId: "example-stream-interrupted-1",
+      status: "aborted",
+      snapshot: exampleDataRunSnapshotCreate("example-agent-local", "example-server-local"),
+      budget: exampleDataRunBudget,
+      failure: { code: "chat_interrupted", message: "The API process stopped while the run was active." },
+      startedAt: "2026-08-12T08:20:00.000Z",
+      finishedAt: "2026-08-12T08:21:00.000Z",
+      createdAt: "2026-08-12T08:19:30.000Z",
+      updatedAt: "2026-08-12T08:21:00.000Z",
+    },
+    {
+      id: "example-attempt-delegating-1",
+      runId: "example-run-delegating-1",
+      sessionId: "example-session-active-1",
+      ordinal: 1,
+      streamId: "example-stream-delegating-1",
+      status: "succeeded",
+      snapshot: exampleDataRunSnapshotCreate("example-agent-local", "example-server-local"),
+      budget: { ...exampleDataRunBudget, maxChildDepth: 1, maxChildRuns: 2 },
+      failure: null,
+      startedAt: "2026-08-12T08:22:00.000Z",
+      finishedAt: "2026-08-12T08:24:00.000Z",
+      createdAt: "2026-08-12T08:21:30.000Z",
+      updatedAt: "2026-08-12T08:24:00.000Z",
+    },
+    {
+      id: "example-attempt-child-1",
+      runId: "example-run-child-1",
+      sessionId: "example-session-active-1",
+      ordinal: 1,
+      streamId: "run-child:example-run-child-1",
+      status: "succeeded",
+      snapshot: exampleDataRunSnapshotCreate("example-agent-local-review", "example-server-local"),
+      budget: { ...exampleDataRunBudget, maxChildDepth: 1, maxChildRuns: 2 },
+      failure: null,
+      startedAt: "2026-08-12T08:22:30.000Z",
+      finishedAt: "2026-08-12T08:23:30.000Z",
+      createdAt: "2026-08-12T08:22:30.000Z",
+      updatedAt: "2026-08-12T08:23:30.000Z",
+    },
+  ],
+  tools: [
+    {
+      runId: "example-run-ended-1",
+      toolCallId: "example-tool-ended-read",
+      toolName: "read",
+      output: "Read the workspace shell configuration.",
+      result: "The workspace shell configuration is valid.",
+      outcome: "success",
+      workingDirectory: "/workspace/adaptive",
+    },
+    {
+      runId: "example-run-ended-1",
+      toolCallId: "example-tool-ended-write",
+      toolName: "write",
+      output: "Prepared the shell update.",
+      result: "The shell update was written.",
+      outcome: "success",
+      workingDirectory: "/workspace/adaptive",
+    },
+    {
+      runId: "example-run-completed-2",
+      toolCallId: "example-tool-completed-search",
+      toolName: "search",
+      output: "Searched the synchronized message records.",
+      result: "Found the expected message records.",
+      outcome: "success",
+      workingDirectory: "/workspace/leo",
+    },
+    {
+      runId: "example-run-completed-2",
+      toolCallId: "example-tool-completed-test",
+      toolName: "test",
+      output: "Ran the synchronization checks.",
+      result: "All synchronization checks passed.",
+      outcome: "success",
+      workingDirectory: "/workspace/leo",
+    },
+    {
+      runId: "example-run-failed-1",
+      toolCallId: "example-tool-failed-lint",
+      toolName: "lint",
+      output: "Checked the archived walkthrough.",
+      result: "The archived walkthrough contains a deterministic lint failure.",
+      outcome: "error",
+      workingDirectory: "/workspace/personal",
+    },
+    {
+      runId: "example-run-failed-1",
+      toolCallId: "example-tool-failed-log",
+      toolName: "log",
+      output: "Collected the provider failure log.",
+      result: "The provider returned example_provider_failed.",
+      outcome: "error",
+      workingDirectory: "/workspace/personal",
+    },
+    {
+      runId: "example-run-cancelled-1",
+      toolCallId: "example-tool-cancelled-inspect",
+      toolName: "inspect",
+      output: "Inspected the remote project state.",
+      result: "The remote project was ready for the requested change.",
+      outcome: "success",
+      workingDirectory: "/workspace/personal",
+    },
+    {
+      runId: "example-run-cancelled-1",
+      toolCallId: "example-tool-cancelled-patch",
+      toolName: "patch",
+      output: "Prepared the remote project patch.",
+      result: "The patch was not applied because the run was cancelled.",
+      outcome: "error",
+      workingDirectory: "/workspace/personal",
+    },
+    {
+      runId: "example-run-interrupted-1",
+      toolCallId: "example-tool-interrupted-read",
+      toolName: "read",
+      output: "Read the active interrupted run state.",
+      result: "The active state was retained before interruption.",
+      outcome: "success",
+      workingDirectory: "/workspace/adaptive",
+    },
+    {
+      runId: "example-run-interrupted-1",
+      toolCallId: "example-tool-interrupted-status",
+      toolName: "status",
+      output: "Checked the active provider status.",
+      result: "The provider stopped before completion.",
+      outcome: "error",
+      workingDirectory: "/workspace/adaptive",
+    },
+    {
+      runId: "example-run-delegating-1",
+      toolCallId: "example-tool-delegating-read",
+      toolName: "read",
+      output: "Read the parent task context.",
+      result: "The parent task is ready for delegation.",
+      outcome: "success",
+      workingDirectory: "/workspace/adaptive",
+    },
+    {
+      runId: "example-run-delegating-1",
+      toolCallId: "example-tool-delegating-plan",
+      toolName: "plan",
+      output: "Prepared the delegated task plan.",
+      result: "The child task plan was accepted.",
+      outcome: "success",
+      workingDirectory: "/workspace/adaptive",
+    },
+    {
+      runId: "example-run-child-1",
+      toolCallId: "example-tool-child-write",
+      toolName: "write",
+      output: "Prepared the child implementation.",
+      result: "The child implementation was written.",
+      outcome: "success",
+      workingDirectory: "/workspace/adaptive",
+    },
+    {
+      runId: "example-run-child-1",
+      toolCallId: "example-tool-child-test",
+      toolName: "test",
+      output: "Ran the child verification suite.",
+      result: "The child verification suite passed.",
+      outcome: "success",
+      workingDirectory: "/workspace/adaptive",
+    },
+    {
+      runId: "example-run-child-1",
+      toolCallId: "example-tool-child-verify",
+      toolName: "verify",
+      output: "Checked the child output.",
+      result: "The child output is ready for the parent.",
+      outcome: "success",
+      workingDirectory: "/workspace/adaptive",
+    },
+  ],
+  delegations: [
+    {
+      id: "example-delegation-1",
+      parentRunId: "example-run-delegating-1",
+      parentAttemptId: "example-attempt-delegating-1",
+      childRunId: "example-run-child-1",
+      delegationKey: "example-delegation-tool",
+      rootOrdinal: 1,
+      depth: 1,
+      task: "Implement and verify the delegated example task.",
+      finalizedResult: {
+        status: "succeeded",
+        text: "The delegated example task is complete.",
+      },
     },
   ],
   sessionViews: [

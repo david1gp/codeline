@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test"
 import { mkdir, mkdtemp, rm } from "node:fs/promises"
 import { basename, dirname, isAbsolute, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { and, eq, inArray } from "drizzle-orm"
+import { and, asc, eq, inArray } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/libsql"
 import { agentTable } from "../src/agents/db/agentTable.js"
 import { appCreate } from "../src/app/appCreate.js"
@@ -20,9 +20,12 @@ import { projectFolderTable } from "../src/project/db/projectFolderTable.js"
 import { projectTable } from "../src/project/db/projectTable.js"
 import { providerAgentCatalogLoad } from "../src/providers/catalog/providerAgentCatalogLoad.js"
 import { attemptTable } from "../src/run/db/attemptTable.js"
+import { runDelegationTable } from "../src/run/db/runDelegationTable.js"
+import { runFinalizedDetailTable } from "../src/run/db/runFinalizedDetailTable.js"
 import { runTable } from "../src/run/db/runTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
+import { sessionHistoryEntryTable } from "../src/session/db/sessionHistoryEntryTable.js"
 import { sessionViewTable } from "../src/session/db/sessionViewTable.js"
 import { simulationScenarioSessionMetadata } from "../src/simulation/simulationScenarioSessionMetadata.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
@@ -137,6 +140,24 @@ test("the typed fixture has stable counts, IDs, timestamps, and content", () => 
   expect(exampleDataFixture.sessions.filter((session) => session.archivedAt === null)).toHaveLength(14)
   expect(exampleDataFixture.sessions.flatMap((session) => session.messages)).toHaveLength(8)
   expect(exampleDataFixture.sessions[0]?.messages[1]?.content).toBe("The workspace shell is ready for local sessions.")
+  expect(exampleDataFixture.tools).toHaveLength(15)
+  expect(exampleDataFixture.delegations).toEqual([
+    expect.objectContaining({
+      childRunId: "example-run-child-1",
+      delegationKey: "example-delegation-tool",
+      id: "example-delegation-1",
+      parentRunId: "example-run-delegating-1",
+    }),
+  ])
+  expect(exampleDataFixture.runs.map((run) => run.outcome)).toEqual([
+    "completed",
+    "completed",
+    "failed",
+    "cancelled",
+    "interrupted",
+    "completed",
+    "completed",
+  ])
   expect(exampleDataFixture.sessions.slice(0, 4).map((session) => session.parentSessionId)).toEqual([
     null,
     "example-session-active-1",
@@ -172,6 +193,12 @@ test("the typed fixture has stable counts, IDs, timestamps, and content", () => 
   )
   expect(exampleDataFixture.runs.map((run) => `${run.sessionId}:${run.status}`)).toEqual([
     "example-session-active-2:succeeded",
+    "example-session-active-1:succeeded",
+    "example-session-archived-1:failed",
+    "example-session-remote-1:aborted",
+    "example-session-active-1:aborted",
+    "example-session-active-1:succeeded",
+    "example-session-active-1:succeeded",
   ])
   expect(exampleDataFixture.sessionViews.map((view) => view.sessionId)).toEqual(["example-session-active-2"])
   expect(exampleDataFixture.sessions.map((session) => session.pinned).slice(0, 4)).toEqual([true, false, true, true])
@@ -241,7 +268,7 @@ test("development fixture can list and use seeded organization servers", async (
           id: "11111111-1111-7111-8111-111111111111",
           label: "Adaptive example project",
           parentFolder: expect.objectContaining({ label: "adaptive" }),
-          unseenEnded: false,
+          unseenEnded: true,
         }),
         expect.objectContaining({
           active: false,
@@ -257,15 +284,15 @@ test("development fixture can list and use seeded organization servers", async (
           id: "33333333-3333-7333-8333-333333333333",
           label: "Personal example project",
           parentFolder: expect.objectContaining({ label: "personal" }),
-          unseenEnded: false,
+          unseenEnded: true,
         }),
       ]),
     )
     expect(registryBody.folders).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ active: false, label: "adaptive", unseenEnded: false }),
+        expect.objectContaining({ active: false, label: "adaptive", unseenEnded: true }),
         expect.objectContaining({ active: false, label: "leo", unseenEnded: true }),
-        expect.objectContaining({ active: false, label: "personal", unseenEnded: false }),
+        expect.objectContaining({ active: false, label: "personal", unseenEnded: true }),
       ]),
     )
   } finally {
@@ -522,12 +549,20 @@ test("reset preserves unrelated data and descendant links", async () => {
   expect(folders.map((folder) => folder.bootstrapKey).sort()).toEqual(["adaptive", "leo", "personal"])
   expect(
     runs.map((run) => ({ id: run.id, status: run.status })).sort((left, right) => left.id.localeCompare(right.id)),
-  ).toEqual([{ id: "example-run-ended-1", status: "succeeded" }])
+  ).toEqual(
+    exampleDataFixture.runs
+      .map((run) => ({ id: run.id, status: run.status }))
+      .sort((left, right) => left.id.localeCompare(right.id)),
+  )
   expect(
     attempts
       .map((attempt) => ({ id: attempt.id, status: attempt.status }))
       .sort((left, right) => left.id.localeCompare(right.id)),
-  ).toEqual([{ id: "example-attempt-ended-1", status: "succeeded" }])
+  ).toEqual(
+    exampleDataFixture.attempts
+      .map((attempt) => ({ id: attempt.id, status: attempt.status }))
+      .sort((left, right) => left.id.localeCompare(right.id)),
+  )
   expect(sessionViews).toEqual([
     { acknowledgedFinishedAt: new Date("2026-08-12T08:08:00.000Z"), sessionId: "example-session-active-2" },
   ])
@@ -559,6 +594,74 @@ test("reset preserves unrelated data and descendant links", async () => {
   expect(messages.find((message) => message.id === "example-message-active-2-assistant")?.content).toBe(
     "The synchronized message view is available.",
   )
+
+  const historyEntries = await database
+    .select()
+    .from(sessionHistoryEntryTable)
+    .where(inArray(sessionHistoryEntryTable.sessionId, sessionIds))
+    .orderBy(asc(sessionHistoryEntryTable.sessionId), asc(sessionHistoryEntryTable.position))
+  expect(historyEntries.length).toBeGreaterThan(25)
+  expect(new Set(historyEntries.map((entry) => entry.kind))).toEqual(new Set(["message", "run", "tool"]))
+  expect(historyEntries.filter((entry) => entry.kind === "message")).toHaveLength(8)
+  expect(historyEntries.filter((entry) => entry.kind === "run")).toHaveLength(exampleDataFixture.runs.length)
+  expect(historyEntries.filter((entry) => entry.kind === "tool")).toHaveLength(
+    exampleDataFixture.tools.length + exampleDataFixture.delegations.length,
+  )
+  expect(
+    historyEntries
+      .filter((entry) => entry.kind === "run")
+      .map((entry) => (entry.payload as { terminalKind?: string }).terminalKind)
+      .sort(),
+  ).toEqual(["cancelled", "completed", "completed", "completed", "completed", "failed", "interrupted"].sort())
+
+  const delegationRows = await database
+    .select()
+    .from(runDelegationTable)
+    .where(
+      inArray(
+        runDelegationTable.id,
+        exampleDataFixture.delegations.map((delegation) => delegation.id),
+      ),
+    )
+  expect(delegationRows).toHaveLength(exampleDataFixture.delegations.length)
+  expect(delegationRows[0]).toMatchObject({
+    childRunId: "example-run-child-1",
+    finalizedResult: { status: "succeeded" },
+    parentRunId: "example-run-delegating-1",
+  })
+  const delegationEntry = historyEntries.find(
+    (entry) => entry.sourceType === "tool" && entry.sourceDetailId === "example-delegation-tool",
+  )
+  expect(delegationEntry).toMatchObject({
+    payload: {
+      childRunId: "example-run-child-1",
+      delegationId: "example-delegation-1",
+      delegationStatus: "succeeded",
+      parentSessionId: "example-session-active-1",
+    },
+  })
+
+  const finalizedDetails = await database
+    .select()
+    .from(runFinalizedDetailTable)
+    .where(inArray(runFinalizedDetailTable.runId, runIds))
+  expect(finalizedDetails).toHaveLength(exampleDataFixture.runs.length)
+  expect(finalizedDetails.find((detail) => detail.runId === "example-run-child-1")?.tools).toHaveLength(3)
+  expect(finalizedDetails.find((detail) => detail.runId === "example-run-child-1")?.transcript.terminalOutcome).toEqual(
+    {
+      status: "completed",
+    },
+  )
+  const firstHistorySnapshot = historyEntries.map((entry) => ({
+    id: entry.id,
+    kind: entry.kind,
+    payload: entry.payload,
+    position: entry.position,
+    sessionId: entry.sessionId,
+    sourceDetailId: entry.sourceDetailId,
+    sourceId: entry.sourceId,
+    sourceType: entry.sourceType,
+  }))
   const firstSnapshot = {
     sessions: [...sessions].sort((left, right) => left.id.localeCompare(right.id)),
     messages: [...messages].sort((left, right) => left.id.localeCompare(right.id)),
@@ -575,6 +678,23 @@ test("reset preserves unrelated data and descendant links", async () => {
     ),
   }
   expect(secondSnapshot).toEqual(firstSnapshot)
+  const secondHistorySnapshot = (
+    await database
+      .select()
+      .from(sessionHistoryEntryTable)
+      .where(inArray(sessionHistoryEntryTable.sessionId, sessionIds))
+      .orderBy(asc(sessionHistoryEntryTable.sessionId), asc(sessionHistoryEntryTable.position))
+  ).map((entry) => ({
+    id: entry.id,
+    kind: entry.kind,
+    payload: entry.payload,
+    position: entry.position,
+    sessionId: entry.sessionId,
+    sourceDetailId: entry.sourceDetailId,
+    sourceId: entry.sourceId,
+    sourceType: entry.sourceType,
+  }))
+  expect(secondHistorySnapshot).toEqual(firstHistorySnapshot)
 
   const unrelatedRows = await database
     .select({ sessionId: sessionTable.id, messageId: messageTable.id })
