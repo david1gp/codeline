@@ -1,4 +1,5 @@
 import { type APIRequestContext, type BrowserContext, expect, type Page, test } from "@playwright/test"
+import { sessionCacheDatabaseConfig } from "../src/session/storage/sessionCacheDatabaseConfig.js"
 import { e2eExampleDataSeedForMember, e2eExampleDataSeedRestore } from "./e2eExampleDataSeedForMember.js"
 import { e2eJournalEventsPrune } from "./e2eJournalEventsPrune.js"
 import { e2eMemberSessionsIssue } from "./e2eMemberSessionsIssue.js"
@@ -7,7 +8,6 @@ import { e2eRunIdCreate } from "./e2eRunIdCreate.js"
 
 const baseOrigin = process.env.PUBLIC_ORIGIN ?? "https://preview.codeline.work"
 const sessionCookieName = "__Host-codeline-session"
-const settledDatabaseName = "codeline-settled-sessions"
 const cachedSessionId = "example-session-active-1"
 const cachedSessionTitle = "Build the workspace shell"
 
@@ -39,8 +39,8 @@ async function sessionRename(api: APIRequestContext, title: string): Promise<voi
   expect(renamed.status(), await renamed.text()).toBe(200)
 }
 
-/** Reads the device-local settled records the application itself wrote. */
-async function settledRecordsRead(page: Page): Promise<Array<Record<string, unknown>>> {
+/** Reads the bounded device-local snapshot records the application itself wrote. */
+async function sessionSnapshotRecordsRead(page: Page): Promise<Array<Record<string, unknown>>> {
   return page.evaluate(async (name) => {
     const opened = await new Promise<IDBDatabase>((resolve, reject) => {
       const request = indexedDB.open(name)
@@ -48,8 +48,8 @@ async function settledRecordsRead(page: Page): Promise<Array<Record<string, unkn
       request.onerror = () => reject(request.error)
     })
     try {
-      if (!opened.objectStoreNames.contains("settledSessions")) return []
-      const store = opened.transaction("settledSessions", "readonly").objectStore("settledSessions")
+      if (!opened.objectStoreNames.contains("sessionSnapshots")) return []
+      const store = opened.transaction("sessionSnapshots", "readonly").objectStore("sessionSnapshots")
       const records = await new Promise<unknown[]>((resolve, reject) => {
         const request = store.getAll()
         request.onsuccess = () => resolve(request.result as unknown[])
@@ -59,7 +59,7 @@ async function settledRecordsRead(page: Page): Promise<Array<Record<string, unkn
     } finally {
       opened.close()
     }
-  }, settledDatabaseName)
+  }, sessionCacheDatabaseConfig.name)
 }
 
 test("an expired SSE cursor resets the feed and reconciles without discarding cached sessions", async ({ browser }) => {
@@ -123,8 +123,10 @@ test("an expired SSE cursor resets the feed and reconciles without discarding ca
     await expect(page.getByText(cachedSessionTitle).first()).toBeVisible()
 
     // The device-local record is written purely through public behavior.
-    await expect.poll(async () => (await settledRecordsRead(page)).length, { timeout: 15_000 }).toBeGreaterThan(0)
-    const recordsBefore = await settledRecordsRead(page)
+    await expect
+      .poll(async () => (await sessionSnapshotRecordsRead(page)).length, { timeout: 15_000 })
+      .toBeGreaterThan(0)
+    const recordsBefore = await sessionSnapshotRecordsRead(page)
     const cachedBefore = recordsBefore.find((record) => record.sessionId === cachedSessionId)
     expect(cachedBefore).toBeDefined()
 
@@ -178,7 +180,7 @@ test("an expired SSE cursor resets the feed and reconciles without discarding ca
       })
       .toBe(true)
     await expect
-      .poll(() => reconciliation().some((entry) => entry.startsWith(`GET /api/sessions/${cachedSessionId}/messages`)), {
+      .poll(() => reconciliation().some((entry) => entry === `GET /api/sessions/${cachedSessionId}/bounded-snapshot`), {
         timeout: 60_000,
       })
       .toBe(true)
@@ -187,7 +189,7 @@ test("an expired SSE cursor resets the feed and reconciles without discarding ca
     await expect(page.getByText(expiredTitle).first()).toBeVisible({ timeout: 60_000 })
 
     // An expired replay cursor never discards durable device-local data.
-    const recordsAfter = await settledRecordsRead(page)
+    const recordsAfter = await sessionSnapshotRecordsRead(page)
     expect(recordsAfter.some((record) => record.sessionId === cachedSessionId)).toBe(true)
     expect(recordsAfter.length).toBeGreaterThanOrEqual(recordsBefore.length)
     const recordKeysBefore = recordsBefore.map((record) => `${String(record.userId)}:${String(record.sessionId)}`)

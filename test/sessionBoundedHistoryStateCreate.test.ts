@@ -25,15 +25,16 @@ const messageStepCreate = (id: string, sequence: number) => ({
 
 const snapshotCreate = (
   semanticSteps: ReadonlyArray<ReturnType<typeof messageStepCreate>>,
-  input: { cursor?: string | null; sessionId?: string; throughSeq?: number } = {},
+  input: { cursor?: string | null; sessionId?: string; throughPosition?: number } = {},
 ) => ({
+  detailCursor: `detail-${input.sessionId ?? "session-1"}-${input.throughPosition ?? 10}`,
   hasMore: input.cursor !== null,
   latestAnswer: null,
   olderCursor: input.cursor === undefined ? "cursor-older-1" : input.cursor,
   semanticSteps,
   session: sessionCreate(input.sessionId),
   state: { input: null, run: null },
-  throughSeq: input.throughSeq ?? 10,
+  throughPosition: input.throughPosition ?? 10,
 })
 
 test("bounded client reads use typed snapshot and opaque-cursor endpoints", async () => {
@@ -46,7 +47,7 @@ test("bounded client reads use typed snapshot and opaque-cursor endpoints", asyn
         hasMore: false,
         nextCursor: null,
         semanticSteps: [messageStepCreate("message-1", 1)],
-        throughSeq: 10,
+        throughPosition: 10,
       })
     return Response.json(snapshotCreate([messageStepCreate("message-2", 2)], { sessionId: "session/1" }))
   }
@@ -78,7 +79,7 @@ test("older pages prepend stably, deduplicate overlaps, and retain a failed curs
         hasMore: true,
         nextCursor: "cursor-older-2",
         semanticSteps: [messageStepCreate("message-2", 2), messageStepCreate("message-3", 3)],
-        throughSeq: 10,
+        throughPosition: 10,
       })
     secondPageAttempts += 1
     if (secondPageAttempts === 1) return new Response("", { status: 503, statusText: "Unavailable" })
@@ -86,7 +87,7 @@ test("older pages prepend stably, deduplicate overlaps, and retain a failed curs
       hasMore: false,
       nextCursor: null,
       semanticSteps: [messageStepCreate("message-1", 1), messageStepCreate("message-2", 2)],
-      throughSeq: 10,
+      throughPosition: 10,
     })
   }
   const root = createRoot((dispose) => ({
@@ -127,14 +128,14 @@ test("a history watermark mismatch discards pages and falls back to an authorita
       return Response.json(
         snapshotReads === 1
           ? snapshotCreate([messageStepCreate("message-old", 3)])
-          : snapshotCreate([messageStepCreate("message-new", 5)], { cursor: null, throughSeq: 12 }),
+          : snapshotCreate([messageStepCreate("message-new", 5)], { cursor: null, throughPosition: 12 }),
       )
     }
     return Response.json({
       hasMore: false,
       nextCursor: null,
       semanticSteps: [messageStepCreate("message-mismatched", 2)],
-      throughSeq: 9,
+      throughPosition: 9,
     })
   }
   const root = createRoot((dispose) => ({
@@ -148,7 +149,7 @@ test("a history watermark mismatch discards pages and falls back to an authorita
   await settle()
 
   expect(snapshotReads).toBe(2)
-  expect(root.state.throughSeq()).toBe(12)
+  expect(root.state.throughPosition()).toBe(12)
   expect(root.state.semanticSteps().map((step) => step.id)).toEqual(["message-new"])
   expect(root.state.isOlderError()).toBe(false)
   root.dispose()

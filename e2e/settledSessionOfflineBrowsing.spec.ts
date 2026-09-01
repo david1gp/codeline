@@ -1,4 +1,5 @@
 import { type BrowserContext, expect, type Page, test } from "@playwright/test"
+import { sessionCacheDatabaseConfig } from "../src/session/storage/sessionCacheDatabaseConfig.js"
 import { e2eExampleDataSeedForMember, e2eExampleDataSeedRestore } from "./e2eExampleDataSeedForMember.js"
 import { e2eMemberSessionsIssue } from "./e2eMemberSessionsIssue.js"
 import { e2eMemberSessionsPurge } from "./e2eMemberSessionsPurge.js"
@@ -6,7 +7,6 @@ import { e2eRunIdCreate } from "./e2eRunIdCreate.js"
 
 const sessionCookieName = "__Host-codeline-session"
 const baseOrigin = process.env.PUBLIC_ORIGIN ?? "https://preview.codeline.work"
-const settledDatabaseName = "codeline-settled-sessions"
 const lastActiveAccountStorageKey = "codeline-last-active-account"
 
 const cachedSessionId = "example-session-active-1"
@@ -25,8 +25,8 @@ async function sessionCookieSet(context: BrowserContext, token: string): Promise
   ])
 }
 
-/** Reads the device-local settled records the application itself wrote. */
-async function settledRecordsRead(page: Page, databaseName: string): Promise<Array<Record<string, unknown>>> {
+/** Reads the bounded device-local snapshot records the application itself wrote. */
+async function sessionSnapshotRecordsRead(page: Page, databaseName: string): Promise<Array<Record<string, unknown>>> {
   return page.evaluate(async (name) => {
     const opened = await new Promise<IDBDatabase>((resolve, reject) => {
       const request = indexedDB.open(name)
@@ -34,8 +34,8 @@ async function settledRecordsRead(page: Page, databaseName: string): Promise<Arr
       request.onerror = () => reject(request.error)
     })
     try {
-      if (!opened.objectStoreNames.contains("settledSessions")) return []
-      const store = opened.transaction("settledSessions", "readonly").objectStore("settledSessions")
+      if (!opened.objectStoreNames.contains("sessionSnapshots")) return []
+      const store = opened.transaction("sessionSnapshots", "readonly").objectStore("sessionSnapshots")
       const records = await new Promise<unknown[]>((resolve, reject) => {
         const request = store.getAll()
         request.onsuccess = () => resolve(request.result as unknown[])
@@ -92,16 +92,18 @@ test("a settled session cached while signed in stays readable signed out and off
     await expect(page.getByRole("textbox", { name: "Message" })).toBeEnabled()
 
     await expect
-      .poll(async () => (await settledRecordsRead(page, settledDatabaseName)).length, { timeout: 15_000 })
+      .poll(async () => (await sessionSnapshotRecordsRead(page, sessionCacheDatabaseConfig.name)).length, {
+        timeout: 15_000,
+      })
       .toBeGreaterThan(0)
 
-    const cachedRecords = await settledRecordsRead(page, settledDatabaseName)
+    const cachedRecords = await sessionSnapshotRecordsRead(page, sessionCacheDatabaseConfig.name)
     const ownerRecord = cachedRecords.find((record) => record.sessionId === cachedSessionId)
     expect(ownerRecord).toBeDefined()
     expect(ownerRecord?.userId).toBe(owner.userId)
-    expect(ownerRecord?.etag).toEqual(expect.any(String))
-    expect(ownerRecord?.schemaVersion).toEqual(expect.any(String))
-    expect(ownerRecord?.asOfSequence).toEqual(expect.any(Number))
+    expect(ownerRecord?.schemaVersion).toBe(sessionCacheDatabaseConfig.recordSchemaVersion)
+    expect(ownerRecord?.storedAt).toEqual(expect.any(Number))
+    expect(ownerRecord?.payload).toEqual(expect.objectContaining({ throughPosition: expect.any(Number) }))
 
     const lastActiveAccount = await page.evaluate(
       (key) => window.localStorage.getItem(key),
@@ -139,7 +141,7 @@ test("a settled session cached while signed in stays readable signed out and off
     await expect(page.locator("header").getByRole("button", { name: /^Events offline/ })).toBeVisible()
 
     // Going offline must never discard the cached account data.
-    const recordsWhileOffline = await settledRecordsRead(page, settledDatabaseName)
+    const recordsWhileOffline = await sessionSnapshotRecordsRead(page, sessionCacheDatabaseConfig.name)
     expect(recordsWhileOffline.some((record) => record.sessionId === cachedSessionId)).toBe(true)
 
     // Restoring connectivity reopens the feed and revalidates the authoritative
@@ -159,7 +161,7 @@ test("a settled session cached while signed in stays readable signed out and off
         { timeout: 30_000 },
       )
     const authoritativeSession = recoveryResponseWait(`/api/sessions/${cachedSessionId}`)
-    const authoritativeMessages = recoveryResponseWait(`/api/sessions/${cachedSessionId}/messages`)
+    const authoritativeMessages = recoveryResponseWait(`/api/sessions/${cachedSessionId}/bounded-snapshot`)
     const authoritativeDelegations = recoveryResponseWait(`/api/sessions/${cachedSessionId}/delegations`)
     await context.setOffline(false)
     await expect(page.locator("header").getByRole("button", { name: "Events reconnecting" })).toBeVisible()
@@ -190,7 +192,7 @@ test("a settled session cached while signed in stays readable signed out and off
     await expect(page.getByRole("button", { name: `Rename ${cachedSessionTitle}` })).toHaveCount(0)
 
     // Sign-out must not delete the cached account data.
-    const recordsAfterSignOut = await settledRecordsRead(page, settledDatabaseName)
+    const recordsAfterSignOut = await sessionSnapshotRecordsRead(page, sessionCacheDatabaseConfig.name)
     expect(recordsAfterSignOut.some((record) => record.sessionId === cachedSessionId)).toBe(true)
 
     // A different account on the same device never sees the cached records.
@@ -199,7 +201,7 @@ test("a settled session cached while signed in stays readable signed out and off
     await expect(sessionBody(page).getByText(cachedUserMessage)).toHaveCount(0)
     await expect(sessionBody(page).getByText(cachedAssistantMessage)).toHaveCount(0)
 
-    const isolatedRecords = await settledRecordsRead(page, settledDatabaseName)
+    const isolatedRecords = await sessionSnapshotRecordsRead(page, sessionCacheDatabaseConfig.name)
     expect(isolatedRecords.every((record) => record.userId !== otherAccount.userId)).toBe(true)
 
     await page.close()
