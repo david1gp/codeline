@@ -1,11 +1,15 @@
 import { createResult, type Result } from "@adaptive-ds/result"
+import * as v from "valibot"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { sessionDelegationReferencesLoad } from "../../session/db/sessionDelegationReferencesLoad.js"
 import type { RunDelegationsResponse } from "../api/runDelegationsResponseSchema.js"
 import { runErrorCodes } from "../errors/runErrorCodes.js"
 import { runResultCreateError } from "../errors/runResultCreateError.js"
+import { runDelegationResultSchema } from "../schema/runDelegationResultSchema.js"
 
 type RunDelegationsLoadResult = Pick<RunDelegationsResponse, "delegations" | "revision">
+
+const runDelegationFinalizedResultSchema = v.nullable(runDelegationResultSchema)
 
 function runDelegationChildAgentIdResolve(snapshot: unknown): string | undefined {
   if (typeof snapshot !== "object" || snapshot === null) return undefined
@@ -36,22 +40,31 @@ export async function runRepositoryDelegationsLoad(
           : runErrorCodes.delegationsLoadFailed,
       )
 
-    const delegations = loaded.data.delegations.map(
-      ({ childSnapshot, childSessionId, delegation, parentSessionId }) => {
-        const childAgentId = runDelegationChildAgentIdResolve(childSnapshot)
-        return {
-          childSessionId,
-          childRunId: delegation.childRunId,
-          delegationKey: delegation.delegationKey,
-          id: delegation.id,
-          parentAttemptId: delegation.parentAttemptId,
-          parentRunId: delegation.parentRunId,
-          parentSessionId,
-          ...(childAgentId === undefined ? {} : { childAgentId }),
-          task: delegation.task,
-        }
-      },
-    )
+    const delegations = [] as RunDelegationsResponse["delegations"]
+    for (const { childSnapshot, childSessionId, delegation, parentSessionId } of loaded.data.delegations) {
+      const finalizedResult = v.safeParse(runDelegationFinalizedResultSchema, delegation.finalizedResult)
+      if (!finalizedResult.success)
+        return runResultCreateError(
+          op,
+          "The persisted delegation result is invalid.",
+          runErrorCodes.delegationsLoadFailed,
+        )
+
+      const childAgentId = runDelegationChildAgentIdResolve(childSnapshot)
+      delegations.push({
+        childSessionId,
+        childRunId: delegation.childRunId,
+        delegationId: delegation.id,
+        delegationKey: delegation.delegationKey,
+        finalizedResult: finalizedResult.output,
+        id: delegation.id,
+        parentAttemptId: delegation.parentAttemptId,
+        parentRunId: delegation.parentRunId,
+        parentSessionId,
+        ...(childAgentId === undefined ? {} : { childAgentId }),
+        task: delegation.task,
+      })
+    }
 
     return createResult({ delegations, revision: loaded.data.parentRevision })
   } catch (_error) {

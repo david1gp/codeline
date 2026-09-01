@@ -23,11 +23,14 @@ const expectedTables = [
   "project_folder_assignment_backfill",
   "project_registry_session_path_backfill",
   "run",
+  "run_active_state",
   "run_delegation",
+  "run_finalized_detail",
   "server",
   "session_compaction",
   "session",
   "session_execution_selection_default",
+  "session_history_entry",
   "session_view",
   "skill_selection_default",
 ] as const
@@ -152,4 +155,50 @@ test("SQLite compaction records are versioned and have one active row per sessio
     "session_compaction_status_allowed",
     "session_compaction_lifecycle_consistent",
   ])
+})
+
+test("SQLite bounded history records enforce session ownership and idempotent ordering", () => {
+  const sessionConfig = getTableConfig(databaseSchema.sessionTable)
+  const historyConfig = getTableConfig(databaseSchema.sessionHistoryEntryTable)
+  const activeStateConfig = getTableConfig(databaseSchema.runActiveStateTable)
+  const finalizedDetailConfig = getTableConfig(databaseSchema.runFinalizedDetailTable)
+
+  expect(sessionConfig.columns.map((column) => column.name)).toContain("next_history_position")
+  expect(sessionConfig.checks.map((check) => check.name)).toEqual([
+    "session_next_history_position_positive",
+    "session_next_history_position_safe",
+  ])
+  expect(historyConfig.indexes.map((index) => index.config.name)).toEqual([
+    "session_history_entry_session_source_unique",
+    "session_history_entry_session_position_unique",
+    "session_history_entry_session_change_position_idx",
+  ])
+  expect(historyConfig.foreignKeys.map((foreignKey) => foreignKey.getName())).toEqual([
+    "session_history_entry_user_id_identity_user_id_fk",
+    "session_history_entry_user_session_consistency_fk",
+  ])
+  expect(historyConfig.checks.map((check) => check.name)).toEqual([
+    "session_history_entry_kind_allowed",
+    "session_history_entry_source_type_allowed",
+    "session_history_entry_source_id_bounded",
+    "session_history_entry_source_detail_id_bounded",
+    "session_history_entry_position_positive",
+    "session_history_entry_position_safe",
+    "session_history_entry_change_position_positive",
+    "session_history_entry_change_position_safe",
+    "session_history_entry_change_position_ordered",
+  ])
+  expect(activeStateConfig.foreignKeys.map((foreignKey) => foreignKey.getName())).toEqual([
+    "run_active_state_user_id_identity_user_id_fk",
+    "run_active_state_user_session_run_consistency_fk",
+  ])
+  expect(activeStateConfig.indexes.map((index) => index.config.name)).toEqual([
+    "run_active_state_session_change_position_idx",
+    "run_active_state_user_session_idx",
+  ])
+  expect(finalizedDetailConfig.foreignKeys.map((foreignKey) => foreignKey.getName())).toEqual([
+    "run_finalized_detail_user_id_identity_user_id_fk",
+    "run_finalized_detail_user_session_run_consistency_fk",
+  ])
+  expect(finalizedDetailConfig.indexes.map((index) => index.config.name)).toEqual(["run_finalized_detail_session_idx"])
 })

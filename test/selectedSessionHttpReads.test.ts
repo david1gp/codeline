@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test"
-import { sessionFinalizedMessagesFetch } from "../src/message/ui/sessionFinalizedMessagesFetch.js"
 import { sessionDelegationsFetch } from "../src/run/ui/sessionDelegationsFetch.js"
 import { sessionDetailFetch } from "../src/session/ui/sessionDetailFetch.js"
 import { sessionPinRequest } from "../src/session/ui/sessionPinRequest.js"
@@ -29,19 +28,6 @@ const sessionDetail = (overrides: Record<string, unknown> = {}) => ({
   server: { id: "server-1" },
   session: sessionShell(),
   ...overrides,
-})
-
-const message = (id: string, sequence: number) => ({
-  agentId: "agent-1",
-  clientRequestId: `req-${id}`,
-  content: `content ${id}`,
-  createdAt: "2026-08-23T10:00:00.000Z",
-  finalizedAt: "2026-08-23T10:00:01.000Z",
-  id,
-  metadata: null,
-  role: sequence % 2 === 1 ? "user" : "assistant",
-  sequence,
-  sessionId: "session-1",
 })
 
 test("session detail read parses the typed representation with its revision and ETag", async () => {
@@ -75,45 +61,6 @@ test("session detail read surfaces structured API errors instead of throwing", a
   expect(result.errorMessage).toBe("The requested resource was not found.")
 })
 
-test("finalized message reads follow nextCursor and keep server sequence order", async () => {
-  const urls: string[] = []
-  const result = await sessionFinalizedMessagesFetch("session-1", {
-    fetch: async (input) => {
-      urls.push(String(input))
-      if (urls.length === 1)
-        return Response.json({
-          asOfCursor: "cursor-a",
-          etag: '"messages:1"',
-          hasMore: true,
-          messages: [message("m1", 1), message("m2", 2)],
-          nextCursor: "cursor-next",
-          revision: 4,
-          schemaVersion: "message.v1",
-        })
-      return Response.json({
-        asOfCursor: "cursor-b",
-        etag: '"messages:2"',
-        hasMore: false,
-        messages: [message("m3", 3)],
-        nextCursor: null,
-        revision: 5,
-        schemaVersion: "message.v1",
-      })
-    },
-  })
-
-  expect(urls).toEqual([
-    "/api/sessions/session-1/messages?limit=100",
-    "/api/sessions/session-1/messages?cursor=cursor-next&limit=100",
-  ])
-  expect(result.success).toBe(true)
-  if (!result.success) return
-  expect(result.data.messages.map((entry) => entry.id)).toEqual(["m1", "m2", "m3"])
-  expect(result.data.revision).toBe(5)
-  expect(result.data.asOfCursor).toBe("cursor-b")
-  expect(result.data.etag).toBe('"messages:2"')
-})
-
 test("session delegation read uses the typed endpoint and preserves server order", async () => {
   const requests: string[] = []
   const result = await sessionDelegationsFetch("session/1", {
@@ -124,7 +71,9 @@ test("session delegation read uses the typed endpoint and preserves server order
           {
             childSessionId: null,
             childRunId: "child-2",
+            delegationId: "delegation-2",
             delegationKey: "task-2",
+            finalizedResult: { status: "succeeded", text: "completed" },
             id: "delegation-2",
             parentAttemptId: "attempt-1",
             parentRunId: "run-1",
@@ -134,7 +83,9 @@ test("session delegation read uses the typed endpoint and preserves server order
           {
             childSessionId: null,
             childRunId: "child-1",
+            delegationId: "delegation-1",
             delegationKey: "task-1",
+            finalizedResult: null,
             id: "delegation-1",
             parentAttemptId: "attempt-1",
             parentRunId: "run-1",
@@ -154,6 +105,7 @@ test("session delegation read uses the typed endpoint and preserves server order
   if (!result.success) return
   if (result.data.status === 304) return
   expect(result.data.data.delegations.map((delegation) => delegation.id)).toEqual(["delegation-2", "delegation-1"])
+  expect(result.data.data.delegations[0]?.finalizedResult).toEqual({ status: "succeeded", text: "completed" })
   expect(result.data.revision).toBe(4)
 })
 

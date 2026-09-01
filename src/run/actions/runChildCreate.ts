@@ -26,8 +26,9 @@ export function runChildCreate(
   sessionId: string,
   input: Parameters<typeof runRepositoryChildCreate>[3],
   journal?: RunChildCreateJournal,
+  options: Parameters<typeof runRepositoryChildCreate>[4] = {},
 ): Promise<Result<RunChildCreateResult>> {
-  if (journal === undefined) return runRepositoryChildCreate(database, userId, sessionId, input)
+  if (journal === undefined) return runRepositoryChildCreate(database, userId, sessionId, input, options)
 
   const writer = journalWriteCreate({
     database: database as DatabaseClient,
@@ -38,7 +39,7 @@ export function runChildCreate(
 
   return writer.run<RunChildCreateResult>({
     mutate: async (transaction) => {
-      const result = await runRepositoryChildCreate(transaction, userId, sessionId, input)
+      const result = await runRepositoryChildCreate(transaction, userId, sessionId, input, options)
       if (result.success) mutation = result.data
       return result
     },

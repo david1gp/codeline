@@ -7,6 +7,7 @@ import { sessionTable } from "../../session/db/sessionTable.js"
 import { runErrorCodes } from "../errors/runErrorCodes.js"
 import { runResultCreateError } from "../errors/runResultCreateError.js"
 import { type RunDelegationResult, runDelegationResultSchema } from "../schema/runDelegationResultSchema.js"
+import { runDelegationHistoryToolProjectionPersist } from "../actions/runDelegationHistoryToolProjectionPersist.js"
 import { attemptTable } from "./attemptTable.js"
 import { runDelegationTable } from "./runDelegationTable.js"
 import { runTable } from "./runTable.js"
@@ -245,6 +246,8 @@ export async function runRepositoryDelegationFinalize(
             runErrorCodes.stateInconsistent,
           )
         }
+        const projected = await runDelegationHistoryToolProjectionPersist(transaction, userId, sessionId, delegation)
+        if (!projected.success) return projected
         return createResult({ attempt, changed: false, delegation, run })
       }
 
@@ -294,6 +297,14 @@ export async function runRepositoryDelegationFinalize(
         result,
       })
       if (!updatedDelegation.success) return updatedDelegation
+
+      const projected = await runDelegationHistoryToolProjectionPersist(
+        transaction,
+        userId,
+        sessionId,
+        updatedDelegation.data,
+      )
+      if (!projected.success) return projected
 
       return createResult({
         attempt: updatedAttempt.data,

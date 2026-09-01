@@ -6,8 +6,10 @@ import { apiIdempotencyRequestHashCreate } from "../../api/idempotency/apiIdempo
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { databaseExecutorTransactionRun } from "../../database/databaseExecutorTransactionRun.js"
 import { serverTable } from "../../servers/db/serverTable.js"
+import { sessionHistoryEntryRepositoryUpsert } from "../../session/db/sessionHistoryEntryRepositoryUpsert.js"
 import { sessionTable } from "../../session/db/sessionTable.js"
 import { uuidv7 } from "../../uuid/uuidv7.js"
+import { messageApiRecordCreate } from "../api/messageApiRecordCreate.js"
 import { messageAppendResponseCreate } from "../api/messageAppendResponseCreate.js"
 import { type MessageAppendResponse, messageAppendResponseSchema } from "../api/messageAppendResponseSchema.js"
 import { type MessageAppendRequest, messageAppendRequestSchema } from "../schema/messageAppendRequestSchema.js"
@@ -90,6 +92,15 @@ export async function messageRepositoryAppendMutation(
       if (existing !== undefined) {
         if (existing.role !== parsedInput.output.role || existing.content !== parsedInput.output.content)
           return idempotencyConflict(op, "The message client request ID was already used with different content.")
+        const historyMessage = messageApiRecordCreate(existing)
+        if (!historyMessage.success) return createResultError(op, historyMessage.errorMessage)
+        const historyEntry = await sessionHistoryEntryRepositoryUpsert(executor, userId, sessionId, {
+          kind: "message",
+          payload: historyMessage.data,
+          sourceId: existing.id,
+          sourceType: "message",
+        })
+        if (!historyEntry.success) return createResultError(op, historyEntry.errorMessage)
         const response = messageAppendResponseCreate({ created: false, message: existing })
         if (!response.success) return response
         const stored = await messageIdempotencyStore(
@@ -130,6 +141,16 @@ export async function messageRepositoryAppendMutation(
         })
         .returning()
       if (message === undefined) return createResultError(op, "The message could not be appended.")
+
+      const historyMessage = messageApiRecordCreate(message)
+      if (!historyMessage.success) return createResultError(op, historyMessage.errorMessage)
+      const historyEntry = await sessionHistoryEntryRepositoryUpsert(executor, userId, sessionId, {
+        kind: "message",
+        payload: historyMessage.data,
+        sourceId: message.id,
+        sourceType: "message",
+      })
+      if (!historyEntry.success) return createResultError(op, historyEntry.errorMessage)
 
       const [updatedSession] = await executor
         .update(sessionTable)

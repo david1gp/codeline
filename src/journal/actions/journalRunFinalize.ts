@@ -3,7 +3,8 @@ import { and, eq, inArray } from "drizzle-orm"
 import * as v from "valibot"
 import { apiPublicIdSchema } from "../../api/schema/apiPublicIdSchema.js"
 import { apiRevisionSchema } from "../../api/schema/apiRevisionSchema.js"
-import type { DatabaseClient, DatabaseTransaction } from "../../database/databaseClient.js"
+import type { DatabaseExecutor, DatabaseTransaction } from "../../database/databaseClient.js"
+import { sessionSnapshotWatermarkSchema } from "../../session/api/sessionSnapshotWatermarkSchema.js"
 import { journalEventTable } from "../db/journalEventTable.js"
 import type { JournalEventRecipientResolver } from "./journalEventRecipientResolver.js"
 import type { journalEventsAppendPersist } from "./journalEventsAppendPersist.js"
@@ -20,6 +21,7 @@ const journalRunTerminalEventSchema = v.variant("eventType", [
   v.strictObject({
     eventType: v.literal("run-completed"),
     payload: v.strictObject({
+      changePosition: v.pipe(sessionSnapshotWatermarkSchema, v.minValue(1)),
       messageId: v.nullable(apiPublicIdSchema),
       runId: apiPublicIdSchema,
       sessionId: apiPublicIdSchema,
@@ -29,6 +31,7 @@ const journalRunTerminalEventSchema = v.variant("eventType", [
   v.strictObject({
     eventType: v.literal("run-failed"),
     payload: v.strictObject({
+      changePosition: v.pipe(sessionSnapshotWatermarkSchema, v.minValue(1)),
       failure: v.nullable(journalRunFailureSchema),
       runId: apiPublicIdSchema,
       sessionId: apiPublicIdSchema,
@@ -38,6 +41,7 @@ const journalRunTerminalEventSchema = v.variant("eventType", [
   v.strictObject({
     eventType: v.literal("run-cancelled"),
     payload: v.strictObject({
+      changePosition: v.pipe(sessionSnapshotWatermarkSchema, v.minValue(1)),
       reason: v.optional(v.pipe(v.string(), v.maxLength(200))),
       runId: apiPublicIdSchema,
       sessionId: apiPublicIdSchema,
@@ -47,6 +51,7 @@ const journalRunTerminalEventSchema = v.variant("eventType", [
   v.strictObject({
     eventType: v.literal("run-interrupted"),
     payload: v.strictObject({
+      changePosition: v.pipe(sessionSnapshotWatermarkSchema, v.minValue(1)),
       reason: v.pipe(v.string(), v.maxLength(200)),
       runId: apiPublicIdSchema,
       sessionId: apiPublicIdSchema,
@@ -55,18 +60,17 @@ const journalRunTerminalEventSchema = v.variant("eventType", [
   }),
 ])
 
-const journalRunFinalizeInputSchema = v.strictObject({
-  runId: apiPublicIdSchema,
-  terminalEvent: journalRunTerminalEventSchema,
-})
-
-type JournalRunFinalizeInput = v.InferOutput<typeof journalRunFinalizeInputSchema>
+const journalRunFinalizeRunIdSchema = apiPublicIdSchema
+type JournalRunFinalizeInput = {
+  runId: string
+  terminalEvent: unknown | (() => unknown)
+}
 type JournalRunFinalizeOperation<T> = (transaction: DatabaseTransaction) => Promise<Result<T>>
 type JournalEvent = typeof journalEventTable.$inferSelect
 
 type JournalRunFinalizeDependencies = {
   appendPersist?: typeof journalEventsAppendPersist
-  database: DatabaseClient
+  database: DatabaseExecutor
   runDeltasDelete?: typeof journalRunDeltasDelete
   postCommitPublish: (events: readonly JournalEvent[]) => Result<void> | Promise<Result<void>>
   resolveRecipients: JournalEventRecipientResolver
@@ -122,40 +126,45 @@ export function journalRunFinalize(dependencies: JournalRunFinalizeDependencies)
     operation: JournalRunFinalizeOperation<T>,
   ): Promise<Result<T>> => {
     const op = "journalRunFinalize"
-    const parsedInput = v.safeParse(journalRunFinalizeInputSchema, input)
-    if (!parsedInput.success) return createResultError(op, "The journal run finalization input is invalid.")
-    if (parsedInput.output.terminalEvent.payload.runId !== parsedInput.output.runId)
-      return createResultError(op, "The terminal event run ID does not match the finalized run.")
+    const parsedRunId = v.safeParse(journalRunFinalizeRunIdSchema, input.runId)
+    if (!parsedRunId.success) return createResultError(op, "The journal run finalization input is invalid.")
 
     let priorRecipientIds: string[] = []
     const result = await writer.run<T>({
       additionalRecipientIds: async (transaction) => {
-        const prior = await journalRunPriorDeltaRecipients(transaction, parsedInput.output.runId)
+        const prior = await journalRunPriorDeltaRecipients(transaction, parsedRunId.output)
         if (prior.success) priorRecipientIds = prior.data
         return prior
       },
       beforeMutation: async (transaction) => {
-        const latestPriorRecipients = await journalRunPriorDeltaRecipients(transaction, parsedInput.output.runId)
+        const latestPriorRecipients = await journalRunPriorDeltaRecipients(transaction, parsedRunId.output)
         if (!latestPriorRecipients.success) return latestPriorRecipients
         priorRecipientIds = latestPriorRecipients.data
         if (priorRecipientIds.length > 0) {
           const priorLocked = await journalSequenceLocksAcquire(transaction, priorRecipientIds)
           if (!priorLocked.success) return createResultError(op, priorLocked.errorMessage)
         }
-        return journalRunDuplicateCheck(transaction, parsedInput.output.runId)
+        return journalRunDuplicateCheck(transaction, parsedRunId.output)
       },
       mutate: operation,
-      resources: [{ resourceId: parsedInput.output.runId, resourceType: "run" }],
+      resources: [{ resourceId: parsedRunId.output, resourceType: "run" }],
       write: async (transaction, journal) => {
         if (priorRecipientIds.length > 0) {
-          const deleted = await runDeltasDelete(transaction, parsedInput.output.runId, priorRecipientIds)
+          const deleted = await runDeltasDelete(transaction, parsedRunId.output, priorRecipientIds)
           if (!deleted.success) return createResultError(op, deleted.errorMessage)
         }
 
+        const terminalEvent = v.safeParse(
+          journalRunTerminalEventSchema,
+          typeof input.terminalEvent === "function" ? input.terminalEvent() : input.terminalEvent,
+        )
+        if (!terminalEvent.success) return createResultError(op, "The terminal event is invalid.")
+        if (terminalEvent.output.payload.runId !== parsedRunId.output)
+          return createResultError(op, "The terminal event run ID does not match the finalized run.")
         const appended = await journal.append({
-          eventType: parsedInput.output.terminalEvent.eventType,
-          payload: parsedInput.output.terminalEvent.payload,
-          resource: { resourceId: parsedInput.output.runId, resourceType: "run" },
+          eventType: terminalEvent.output.eventType,
+          payload: terminalEvent.output.payload,
+          resource: { resourceId: parsedRunId.output, resourceType: "run" },
         })
         if (!appended.success) return createResultError(op, appended.errorMessage)
         return createResult(undefined)

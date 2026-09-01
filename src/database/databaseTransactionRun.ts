@@ -1,8 +1,10 @@
 import { createResultError, type Result, type ResultErr } from "@adaptive-ds/result"
-import { sql } from "drizzle-orm"
+import { is, sql } from "drizzle-orm"
+import { LibSQLTransaction } from "drizzle-orm/libsql"
 import type {
   DatabaseClient,
   DatabaseConnection,
+  DatabaseExecutor,
   DatabaseTransaction,
   DatabaseTransactionHandle,
 } from "./databaseClient.js"
@@ -18,20 +20,24 @@ class DatabaseTransactionRollback extends Error {
 }
 
 export async function databaseTransactionRun<T>(
-  database: DatabaseClient,
+  database: DatabaseExecutor,
   operation: (transaction: DatabaseTransaction) => Promise<Result<T>>,
 ): Promise<Result<T>> {
   const op = "databaseTransactionRun"
   const busyTimeoutMilliseconds = 5_000
 
+  if (is(database, LibSQLTransaction)) return await operation(database as DatabaseTransaction)
+
+  const client = database as DatabaseClient
+
   let connection: DatabaseConnection | undefined
   let transactionResult: Result<T> | undefined
   try {
-    const acquired = database.rootTransactionConnectionCreate
-      ? await databaseTransactionConnectionAcquire(database, busyTimeoutMilliseconds)
+    const acquired = client.rootTransactionConnectionCreate
+      ? await databaseTransactionConnectionAcquire(client, busyTimeoutMilliseconds)
       : undefined
     connection = acquired?.connection
-    const transactionDatabase = acquired?.connection.db ?? database
+    const transactionDatabase = acquired?.connection.db ?? client
 
     if (acquired?.transactionHandle !== undefined) {
       const transactionHandle = acquired.transactionHandle
@@ -62,12 +68,12 @@ export async function databaseTransactionRun<T>(
     }
 
     if (acquired?.transactionHandle === undefined) {
-      if (connection === undefined && database.$client !== undefined)
-        await database.$client.execute("PRAGMA busy_timeout = 0")
+      if (connection === undefined && client.$client !== undefined)
+        await client.$client.execute("PRAGMA busy_timeout = 0")
 
       transactionResult = await transactionDatabase.transaction(
         async (transaction) => {
-          if (connection !== undefined || database.$client !== undefined)
+          if (connection !== undefined || client.$client !== undefined)
             await transaction.run(sql.raw(`pragma busy_timeout = ${busyTimeoutMilliseconds}`))
           const result = await operation(transaction)
           if (!result.success) throw new DatabaseTransactionRollback(result)

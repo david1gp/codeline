@@ -2,8 +2,10 @@ import { createResult, createResultError, type Result } from "@adaptive-ds/resul
 import { and, asc, eq, inArray, isNotNull, lte } from "drizzle-orm"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { databaseExecutorTransactionRun } from "../../database/databaseExecutorTransactionRun.js"
+import { sessionHistoryEntryRepositoryUpsert } from "../../session/db/sessionHistoryEntryRepositoryUpsert.js"
 import { sessionTable } from "../../session/db/sessionTable.js"
 import { uuidv7 } from "../../uuid/uuidv7.js"
+import { messageApiRecordCreate } from "../api/messageApiRecordCreate.js"
 import { messageTable } from "./messageTable.js"
 
 export async function messageRepositoryCopyFinalizedPrefix(
@@ -81,6 +83,18 @@ export async function messageRepositoryCopyFinalizedPrefix(
 
       if (copied.length !== prefix.length)
         return createResultError(op, "The finalized message prefix could not be copied.")
+
+      for (const message of copied) {
+        const historyMessage = messageApiRecordCreate(message)
+        if (!historyMessage.success) return createResultError(op, historyMessage.errorMessage)
+        const historyEntry = await sessionHistoryEntryRepositoryUpsert(executor, userId, targetSessionId, {
+          kind: "message",
+          payload: historyMessage.data,
+          sourceId: message.id,
+          sourceType: "message",
+        })
+        if (!historyEntry.success) return createResultError(op, historyEntry.errorMessage)
+      }
       return createResult(copied)
     } catch (_error) {
       return createResultError(op, "The finalized message prefix could not be copied.")

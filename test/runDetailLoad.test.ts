@@ -15,7 +15,12 @@ import { journalWriteCreate } from "../src/journal/actions/journalWriteCreate.js
 import { apiRunRoutesAdd } from "../src/run/api/apiRunRoutesAdd.js"
 import { runDetailLoad } from "../src/run/actions/runDetailLoad.js"
 import { runCreate } from "../src/run/actions/runCreate.js"
+import { runTerminalFinalize } from "../src/run/actions/runTerminalFinalize.js"
+import { runTransition } from "../src/run/actions/runTransition.js"
 import { runRepositoryToolDetailLoad } from "../src/run/db/runRepositoryToolDetailLoad.js"
+import { runActiveStateRepositoryUpsert } from "../src/run/db/runActiveStateRepositoryUpsert.js"
+import { runActiveStateTable } from "../src/run/db/runActiveStateTable.js"
+import { attemptTable } from "../src/run/db/attemptTable.js"
 import { runTable } from "../src/run/db/runTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionBoundedSnapshot } from "../src/session/actions/sessionBoundedSnapshot.js"
@@ -94,6 +99,12 @@ test.skipIf(!databaseAvailable)("loads bounded run details", async () => {
   expect(created.success).toBe(true)
   if (!created.success) return
 
+  const started = await runTransition(database, fixture.userId, fixture.sessionId, created.data.run.id, {
+    status: "running",
+  })
+  expect(started.success).toBe(true)
+  if (!started.success) return
+
   const toolCallId = `${fixturePrefix}-tool-call`
   const oversized = `raw-prefix-${"x".repeat(12_000)}-retained-tail`
   const journal = journalWriteCreate({
@@ -149,23 +160,40 @@ test.skipIf(!databaseAvailable)("loads bounded run details", async () => {
   })
   expect(written.success).toBe(true)
 
+  const finalized = await runTerminalFinalize(
+    {
+      database,
+      journalPostCommitPublish: async () => createResult(undefined),
+      runId: created.data.run.id,
+      sessionId: fixture.sessionId,
+      userId: fixture.userId,
+    },
+    { status: "succeeded" },
+  )
+  expect(finalized.success).toBe(true)
+  if (!finalized.success) return
+  await database.delete(journalEventTable).where(eq(journalEventTable.runId, created.data.run.id))
+  await database.delete(attemptTable).where(eq(attemptTable.runId, created.data.run.id))
+  await database.delete(runActiveStateTable).where(eq(runActiveStateTable.runId, created.data.run.id))
+
   const snapshot = await sessionBoundedSnapshot(database, fixture.userId, fixture.organizationId, fixture.sessionId, {
-    cursorCodec: {},
+    cursorCodec: { encodeSessionPosition: () => createResult("detail-cursor") },
   })
   expect(snapshot.success).toBe(true)
   if (!snapshot.success) return
   expect(v.safeParse(sessionBoundedSnapshotSchema, snapshot.data).success).toBe(true)
-  expect(snapshot.data.semanticSteps).toEqual([
-    { detailId: created.data.run.id, id: created.data.run.id, kind: "run", sequence: 1, summary: "Run accepted" },
-    {
-      detailId: toolCallId,
-      id: toolCallId,
-      kind: "tool",
-      runId: created.data.run.id,
-      sequence: 2,
-      summary: "read · success",
-    },
-  ])
+  expect(snapshot.data.semanticSteps).toHaveLength(2)
+  expect(snapshot.data.semanticSteps[0]).toMatchObject({
+    detailId: created.data.run.id,
+    kind: "run",
+    summary: "Run completed",
+  })
+  expect(snapshot.data.semanticSteps[1]).toMatchObject({
+    detailId: toolCallId,
+    kind: "tool",
+    runId: created.data.run.id,
+    summary: "read · success",
+  })
   expect(JSON.stringify(snapshot.data.semanticSteps)).not.toContain("raw-prefix-")
 
   const detail = await runDetailLoad(
@@ -177,10 +205,12 @@ test.skipIf(!databaseAvailable)("loads bounded run details", async () => {
   )
   expect(detail.success).toBe(true)
   if (!detail.success) return
-  expect(detail.data.tools).toMatchObject([{ detailId: toolCallId, toolCallId, toolName: "read" }])
-  expect(detail.data.tools[0]?.output).toContain("[Earlier output truncated]")
-  expect(detail.data.tools[0]?.output).not.toContain("raw-prefix-")
-  expect(detail.data.transcript.activities).toEqual(
+  expect(detail.data.kind).toBe("finalized")
+  if (detail.data.kind !== "finalized") return
+  expect(detail.data.detail.tools).toMatchObject([{ detailId: toolCallId, toolCallId, toolName: "read" }])
+  expect(detail.data.detail.tools[0]?.output).toContain("[Earlier output truncated]")
+  expect(detail.data.detail.tools[0]?.output).not.toContain("raw-prefix-")
+  expect(detail.data.detail.transcript.activities).toEqual(
     expect.arrayContaining([
       expect.objectContaining({ kind: "tool", phase: "output", toolCallId, truncated: true }),
       expect.objectContaining({ kind: "tool", outcome: "success", phase: "result", toolCallId }),
@@ -195,7 +225,10 @@ test.skipIf(!databaseAvailable)("loads bounded run details", async () => {
     created.data.run.id,
     toolCallId,
   )
-  expect(tool).toMatchObject({ success: true, data: { tool: { detailId: toolCallId, toolCallId } } })
+  expect(tool).toMatchObject({
+    success: true,
+    data: { detail: { tool: { detailId: toolCallId, toolCallId } }, kind: "finalized" },
+  })
   const unauthorized = await runDetailLoad(
     database,
     fixture.userId,
@@ -216,7 +249,10 @@ test.skipIf(!databaseAvailable)("loads bounded run details", async () => {
     `http://run-detail.test/sessions/${fixture.sessionId}/runs/${created.data.run.id}/detail`,
   )
   expect(response.status).toBe(200)
-  expect((await response.json()) as { tools: unknown[] }).toHaveProperty("tools")
+  expect((await response.json()) as { detail: { tools: unknown[] }; kind: string }).toMatchObject({
+    detail: { tools: expect.any(Array) },
+    kind: "finalized",
+  })
 
   const unauthorizedApi = new Hono<AppEnvironment>()
   unauthorizedApi.use("*", async (context, next) => {
@@ -229,4 +265,117 @@ test.skipIf(!databaseAvailable)("loads bounded run details", async () => {
     `http://run-detail.test/sessions/${fixture.sessionId}/runs/${created.data.run.id}/detail`,
   )
   expect(unauthorizedResponse.status).toBe(404)
+})
+
+test.skipIf(!databaseAvailable)("returns typed active results and hides missing or unauthorized runs", async () => {
+  const active = await runCreate(database, fixture.userId, fixture.sessionId, {
+    budget: { maxDurationMs: 10_000 },
+    clientRunId: `${fixturePrefix}-active-client-run`,
+    snapshot: {
+      configuration: { model: "run-detail-active-model", provider: "deterministic" },
+      configurationRevision: `${fixturePrefix}-active-revision`,
+      target: { agentId: fixture.agentId, serverId: fixture.serverId },
+    },
+    streamId: `${fixturePrefix}-active-stream`,
+  })
+  expect(active.success).toBe(true)
+  if (!active.success) return
+  const activeState = await runActiveStateRepositoryUpsert(
+    database,
+    fixture.userId,
+    fixture.sessionId,
+    active.data.run.id,
+    { lastSequence: 4, partialText: "active output", status: "accepted" },
+  )
+  expect(activeState).toMatchObject({
+    success: true,
+    data: { state: { lastSequence: 4, partialText: "active output" } },
+  })
+
+  const detail = await runDetailLoad(
+    database,
+    fixture.userId,
+    fixture.organizationId,
+    fixture.sessionId,
+    active.data.run.id,
+  )
+  expect(detail).toMatchObject({
+    success: true,
+    data: {
+      detail: { failure: null, lastSequence: 4, partialText: "active output" },
+      kind: "active",
+      run: { id: active.data.run.id, sessionId: fixture.sessionId, status: "accepted" },
+    },
+  })
+
+  const tool = await runRepositoryToolDetailLoad(
+    database,
+    fixture.userId,
+    fixture.organizationId,
+    fixture.sessionId,
+    active.data.run.id,
+    `${fixturePrefix}-active-tool`,
+  )
+  expect(tool).toMatchObject({
+    success: true,
+    data: {
+      detail: { failure: null, lastSequence: 4, partialText: "active output" },
+      detailId: `${fixturePrefix}-active-tool`,
+      kind: "active",
+    },
+  })
+
+  expect(
+    await runDetailLoad(
+      database,
+      fixture.userId,
+      fixture.organizationId,
+      fixture.sessionId,
+      `${fixturePrefix}-missing-run`,
+    ),
+  ).toMatchObject({ code: "run.not-found", success: false })
+  expect(
+    await runDetailLoad(
+      database,
+      fixture.userId,
+      `${fixturePrefix}-other-organization`,
+      fixture.sessionId,
+      active.data.run.id,
+    ),
+  ).toMatchObject({ code: "run.not-found", success: false })
+  expect(
+    await runDetailLoad(
+      database,
+      `${fixturePrefix}-other-user`,
+      fixture.organizationId,
+      fixture.sessionId,
+      active.data.run.id,
+    ),
+  ).toMatchObject({ code: "run.not-found", success: false })
+
+  const terminal = await runCreate(database, fixture.userId, fixture.sessionId, {
+    budget: { maxDurationMs: 10_000 },
+    clientRunId: `${fixturePrefix}-missing-finalized-client-run`,
+    snapshot: {
+      configuration: { model: "run-detail-missing-finalized-model", provider: "deterministic" },
+      configurationRevision: `${fixturePrefix}-missing-finalized-revision`,
+      target: { agentId: fixture.agentId, serverId: fixture.serverId },
+    },
+    streamId: `${fixturePrefix}-missing-finalized-stream`,
+  })
+  expect(terminal.success).toBe(true)
+  if (!terminal.success) return
+  expect(
+    await runTransition(database, fixture.userId, fixture.sessionId, terminal.data.run.id, { status: "running" }),
+  ).toMatchObject({
+    success: true,
+  })
+  expect(
+    await runTransition(database, fixture.userId, fixture.sessionId, terminal.data.run.id, { status: "succeeded" }),
+  ).toMatchObject({
+    success: true,
+  })
+  expect(
+    await runDetailLoad(database, fixture.userId, fixture.organizationId, fixture.sessionId, terminal.data.run.id),
+  ).toMatchObject({ code: "run.detail-invalid", success: false })
 })

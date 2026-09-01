@@ -1,39 +1,38 @@
 import { createResult, createResultError, createResultErrorCode, type Result } from "@adaptive-ds/result"
-import { and, asc, desc, eq, inArray, isNotNull, lte } from "drizzle-orm"
+import { and, desc, eq, inArray, lte } from "drizzle-orm"
 import * as v from "valibot"
 import { agentTable } from "../../agents/db/agentTable.js"
 import type { DatabaseClient } from "../../database/databaseClient.js"
 import { databaseReadTransactionRun } from "../../database/databaseReadTransactionRun.js"
 import { applicationUserTable } from "../../identity/db/applicationUserTable.js"
-import { journalEventTable } from "../../journal/db/journalEventTable.js"
-import { journalSequenceCounterTable } from "../../journal/db/journalSequenceCounterTable.js"
-import { messageTable } from "../../message/db/messageTable.js"
-import { attemptTable } from "../../run/db/attemptTable.js"
+import { messageApiRecordCreate } from "../../message/api/messageApiRecordCreate.js"
+import { runActiveStateTable } from "../../run/db/runActiveStateTable.js"
 import { runTable } from "../../run/db/runTable.js"
 import { runStatusSchema } from "../../run/schema/runStatusSchema.js"
 import { serverTable } from "../../servers/db/serverTable.js"
-import { streamProducerDeltaSchema } from "../../stream/schema/streamProducerDeltaSchema.js"
 import { sessionBoundedSnapshotCreate } from "../api/sessionBoundedSnapshotCreate.js"
 import type { SessionBoundedSnapshot } from "../api/sessionBoundedSnapshotSchema.js"
 import { sessionSettledSnapshotRequestSchema } from "../api/sessionSettledSnapshotRequestSchema.js"
-import { sessionBoundedSemanticStepsCreate } from "./sessionBoundedSemanticStepsCreate.js"
-import { sessionDelegationReferencesLoad } from "./sessionDelegationReferencesLoad.js"
+import { sessionSnapshotWatermarkSchema } from "../api/sessionSnapshotWatermarkSchema.js"
+import { sessionHistoryEntrySemanticStepCreate } from "./sessionHistoryEntrySemanticStepCreate.js"
+import { sessionHistoryEntryTable } from "./sessionHistoryEntryTable.js"
 import { sessionTable } from "./sessionTable.js"
 
 type SessionBoundedSnapshotDependencies = {
   cursorCodec: {
     encodePayload?: (payload: unknown) => Result<string>
+    encodeSessionPosition?: (userId: unknown, sessionId: unknown, changePosition: unknown) => Result<string>
   }
 }
 
 const sessionBoundedSnapshotLimit = 25
 
-function sessionBoundedSnapshotHighestSequence(nextSequence: number | undefined): Result<number> {
+function sessionBoundedSnapshotThroughPosition(nextHistoryPosition: number): Result<number> {
   const op = "sessionRepositoryBoundedSnapshot"
-  if (nextSequence === undefined) return createResult(0)
-  if (!Number.isSafeInteger(nextSequence) || nextSequence < 1)
-    return createResultErrorCode(op, "The authenticated user's journal counter is invalid.", "journal_unavailable")
-  return createResult(nextSequence - 1)
+  const throughPosition = v.safeParse(sessionSnapshotWatermarkSchema, nextHistoryPosition - 1)
+  if (!throughPosition.success)
+    return createResultErrorCode(op, "The session history position counter is invalid.", "history_unavailable")
+  return createResult(throughPosition.output)
 }
 
 function sessionBoundedSnapshotSummary(content: string): string {
@@ -43,11 +42,9 @@ function sessionBoundedSnapshotSummary(content: string): string {
 function sessionBoundedSnapshotOlderCursorCreate(
   dependencies: SessionBoundedSnapshotDependencies,
   input: {
-    id: string
-    messageThroughSeq: number
-    sequence: number
+    beforePosition: number
     sessionId: string
-    throughSeq: number
+    throughPosition: number
     userId: string
   },
 ): Result<string> {
@@ -55,11 +52,10 @@ function sessionBoundedSnapshotOlderCursorCreate(
   if (dependencies.cursorCodec.encodePayload === undefined)
     return createResultError(op, "The older session cursor could not be encoded.")
   return dependencies.cursorCodec.encodePayload({
-    boundary: { id: input.id, sequence: input.sequence },
+    beforePosition: input.beforePosition,
     kind: "session-older",
-    messageThroughSeq: input.messageThroughSeq,
     sessionId: input.sessionId,
-    throughSeq: input.throughSeq,
+    throughPosition: input.throughPosition,
     userId: input.userId,
     version: 1,
   })
@@ -99,6 +95,7 @@ export async function sessionRepositoryBoundedSnapshot(
             revision: sessionTable.revision,
             title: sessionTable.title,
           },
+          nextHistoryPosition: sessionTable.nextHistoryPosition,
         })
         .from(sessionTable)
         .innerJoin(
@@ -114,84 +111,74 @@ export async function sessionRepositoryBoundedSnapshot(
       if (sessionRow === undefined)
         return createResultErrorCode(op, "The session could not be found.", "session_not_found")
 
-      const [counter] = await transaction
-        .select({ nextSequence: journalSequenceCounterTable.nextSequence })
-        .from(journalSequenceCounterTable)
-        .where(eq(journalSequenceCounterTable.userId, user.id))
-        .limit(1)
-      const highestSequence = sessionBoundedSnapshotHighestSequence(counter?.nextSequence)
-      if (!highestSequence.success) return highestSequence
+      const throughPosition = sessionBoundedSnapshotThroughPosition(sessionRow.nextHistoryPosition)
+      if (!throughPosition.success) return throughPosition
 
-      const messages = await transaction
+      const projectedEntries = await transaction
         .select()
-        .from(messageTable)
-        .where(and(eq(messageTable.sessionId, sessionRow.session.id), isNotNull(messageTable.finalizedAt)))
-        .orderBy(asc(messageTable.sequence), asc(messageTable.id))
-      const messageThroughSeq = messages.at(-1)?.sequence ?? 0
-
-      const runs = await transaction
-        .select()
-        .from(runTable)
-        .where(and(eq(runTable.userId, user.id), eq(runTable.sessionId, sessionRow.session.id)))
-        .orderBy(asc(runTable.createdAt), asc(runTable.id))
-      const runIds = runs.map((run) => run.id)
-      const attempts =
-        runIds.length === 0
-          ? []
-          : await transaction
-              .select()
-              .from(attemptTable)
-              .where(and(eq(attemptTable.userId, user.id), eq(attemptTable.sessionId, sessionRow.session.id)))
-              .orderBy(asc(attemptTable.runId), asc(attemptTable.ordinal), asc(attemptTable.id))
-      const runEvents =
-        runIds.length === 0
-          ? []
-          : await transaction
-              .select()
-              .from(journalEventTable)
-              .where(
-                and(
-                  eq(journalEventTable.userId, user.id),
-                  inArray(journalEventTable.runId, runIds),
-                  lte(journalEventTable.sequence, highestSequence.data),
-                ),
-              )
-              .orderBy(asc(journalEventTable.sequence), asc(journalEventTable.id))
-      const delegationReferences = await sessionDelegationReferencesLoad(
-        transaction,
-        user.id,
-        organizationId,
-        sessionRow.session.id,
-      )
-      if (!delegationReferences.success) return delegationReferences
-      const allSemanticSteps = sessionBoundedSemanticStepsCreate({
-        attempts,
-        delegationReferences: delegationReferences.data.byToolKey,
-        events: runEvents,
-        maxSequence: highestSequence.data,
-        messages,
-        runs,
-      })
-      if (!allSemanticSteps.success) return allSemanticSteps
-      const pageSteps = allSemanticSteps.data.slice(-sessionBoundedSnapshotLimit)
-      const semanticSteps: SessionBoundedSnapshot["semanticSteps"] = pageSteps
-
-      const [latestAnswer] = await transaction
-        .select()
-        .from(messageTable)
+        .from(sessionHistoryEntryTable)
         .where(
           and(
-            eq(messageTable.sessionId, sessionRow.session.id),
-            eq(messageTable.role, "assistant"),
-            isNotNull(messageTable.finalizedAt),
+            eq(sessionHistoryEntryTable.userId, user.id),
+            eq(sessionHistoryEntryTable.sessionId, sessionRow.session.id),
+            lte(sessionHistoryEntryTable.position, throughPosition.data),
           ),
         )
-        .orderBy(desc(messageTable.sequence), desc(messageTable.id))
-        .limit(1)
+        .orderBy(desc(sessionHistoryEntryTable.position))
+        .limit(sessionBoundedSnapshotLimit + 1)
+      const pageEntries = projectedEntries.slice(0, sessionBoundedSnapshotLimit)
+      const semanticSteps: SessionBoundedSnapshot["semanticSteps"] = []
+      for (const entry of pageEntries.toReversed()) {
+        const step = sessionHistoryEntrySemanticStepCreate(entry)
+        if (!step.success) return step
+        semanticSteps.push(step.data)
+      }
+
+      const latestAnswerEntries = await transaction
+        .select()
+        .from(sessionHistoryEntryTable)
+        .where(
+          and(
+            eq(sessionHistoryEntryTable.userId, user.id),
+            eq(sessionHistoryEntryTable.sessionId, sessionRow.session.id),
+            eq(sessionHistoryEntryTable.kind, "message"),
+            lte(sessionHistoryEntryTable.position, throughPosition.data),
+          ),
+        )
+        .orderBy(desc(sessionHistoryEntryTable.position))
+        .limit(sessionBoundedSnapshotLimit + 1)
+
+      let latestAnswer: Parameters<typeof messageApiRecordCreate>[0] | null = null
+      for (const entry of latestAnswerEntries) {
+        if (
+          entry.payload === null ||
+          typeof entry.payload !== "object" ||
+          Array.isArray(entry.payload) ||
+          entry.payload.role !== "assistant"
+        )
+          continue
+        latestAnswer = entry.payload as Parameters<typeof messageApiRecordCreate>[0]
+        break
+      }
 
       const [activeRun] = await transaction
-        .select()
+        .select({
+          activeState: {
+            lastSequence: runActiveStateTable.lastSequence,
+            partialText: runActiveStateTable.partialText,
+          },
+          runId: runTable.id,
+          runStatus: runTable.status,
+        })
         .from(runTable)
+        .leftJoin(
+          runActiveStateTable,
+          and(
+            eq(runActiveStateTable.runId, runTable.id),
+            eq(runActiveStateTable.sessionId, runTable.sessionId),
+            eq(runActiveStateTable.userId, runTable.userId),
+          ),
+        )
         .where(
           and(
             eq(runTable.userId, user.id),
@@ -206,58 +193,40 @@ export async function sessionRepositoryBoundedSnapshot(
       // In particular, tool names and active-run status are not input evidence.
       let state: SessionBoundedSnapshot["state"] = { input: null, run: null }
       if (activeRun !== undefined) {
-        const status = v.safeParse(runStatusSchema, activeRun.status)
+        const status = v.safeParse(runStatusSchema, activeRun.runStatus)
         if (!status.success) return createResultError(op, "The active run status is invalid.")
-
-        const deltas = await transaction
-          .select({ payload: journalEventTable.payload, sequence: journalEventTable.sequence })
-          .from(journalEventTable)
-          .where(
-            and(
-              eq(journalEventTable.userId, user.id),
-              eq(journalEventTable.runId, activeRun.id),
-              eq(journalEventTable.eventType, "delta"),
-              lte(journalEventTable.sequence, highestSequence.data),
-            ),
-          )
-          .orderBy(asc(journalEventTable.sequence))
-
-        let partialText = ""
-        let lastSequence = 0
-        for (const delta of deltas) {
-          const parsedDelta = v.safeParse(streamProducerDeltaSchema, delta.payload)
-          if (
-            !parsedDelta.success ||
-            parsedDelta.output.runId !== activeRun.id ||
-            parsedDelta.output.sessionId !== sessionRow.session.id
-          )
-            return createResultError(op, "The persisted run delta is invalid.")
-          lastSequence = delta.sequence
-          if (parsedDelta.output.deltaKind === "text") partialText += parsedDelta.output.delta
-        }
+        const activeState = activeRun.activeState
+        if (activeState === null || activeState === undefined)
+          return createResultError(op, "The active run state could not be found.")
 
         state = {
           input: null,
           run: {
-            lastSequence,
-            partialText: sessionBoundedSnapshotSummary(partialText),
-            runId: activeRun.id,
+            lastSequence: activeState.lastSequence,
+            partialText: sessionBoundedSnapshotSummary(activeState.partialText),
+            runId: activeRun.runId,
             sessionId: sessionRow.session.id,
             status: status.output,
           },
         }
       }
 
-      const hasMore = allSemanticSteps.data.length > sessionBoundedSnapshotLimit
+      const hasMore = projectedEntries.length > sessionBoundedSnapshotLimit
+      if (dependencies.cursorCodec.encodeSessionPosition === undefined)
+        return createResultError(op, "The selected-session cursor could not be encoded.")
+      const detailCursor = dependencies.cursorCodec.encodeSessionPosition(
+        user.id,
+        sessionRow.session.id,
+        throughPosition.data,
+      )
+      if (!detailCursor.success) return createResultError(op, detailCursor.errorMessage)
       let olderCursor: string | null = null
-      const oldestStep = pageSteps[0]
-      if (hasMore && oldestStep !== undefined) {
+      const oldestEntry = pageEntries.at(-1)
+      if (hasMore && oldestEntry !== undefined) {
         const encoded = sessionBoundedSnapshotOlderCursorCreate(dependencies, {
-          id: oldestStep.id,
-          messageThroughSeq,
-          sequence: oldestStep.sequence,
+          beforePosition: oldestEntry.position,
           sessionId: sessionRow.session.id,
-          throughSeq: highestSequence.data,
+          throughPosition: throughPosition.data,
           userId: user.id,
         })
         if (!encoded.success) return encoded
@@ -265,13 +234,14 @@ export async function sessionRepositoryBoundedSnapshot(
       }
 
       return sessionBoundedSnapshotCreate({
+        detailCursor: detailCursor.data,
         hasMore,
         latestAnswer: latestAnswer ?? null,
         olderCursor,
         semanticSteps,
         session: sessionRow.session,
         state,
-        throughSeq: highestSequence.data,
+        throughPosition: throughPosition.data,
       })
     })
   } catch (_error) {

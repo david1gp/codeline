@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
 import { createResult, createResultError } from "@adaptive-ds/result"
-import { eq } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 import { agentTable } from "../src/agents/db/agentTable.js"
 import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
 import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
@@ -13,9 +13,14 @@ import { messageTable } from "../src/message/db/messageTable.js"
 import { runCreate } from "../src/run/actions/runCreate.js"
 import { runProviderOutputCreate } from "../src/run/actions/runProviderOutputCreate.js"
 import { runTransition } from "../src/run/actions/runTransition.js"
+import { runTerminalFinalize } from "../src/run/actions/runTerminalFinalize.js"
 import { attemptTable } from "../src/run/db/attemptTable.js"
+import { runActiveStateTable } from "../src/run/db/runActiveStateTable.js"
+import { runFinalizedDetailTable } from "../src/run/db/runFinalizedDetailTable.js"
+import { runFinalizedDetailRepositoryUpsert } from "../src/run/db/runFinalizedDetailRepositoryUpsert.js"
 import { runTable } from "../src/run/db/runTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
+import { sessionHistoryEntryTable } from "../src/session/db/sessionHistoryEntryTable.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
 import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
@@ -34,7 +39,11 @@ const fixture = {
 type ProviderOverrides = Partial<
   Pick<
     Parameters<typeof runProviderOutputCreate>[0],
-    "journalEventsAppendPersist" | "journalRunDeltasDelete" | "messageAppend" | "runTransition"
+    | "journalEventsAppendPersist"
+    | "journalRunDeltasDelete"
+    | "messageAppend"
+    | "runFinalizedDetailUpsert"
+    | "runTransition"
   >
 >
 
@@ -117,6 +126,21 @@ function providerCreate(runId: string, requestId: string, overrides: ProviderOve
   })
 }
 
+async function runHistoryEntry(runId: string) {
+  const [entry] = await database
+    .select()
+    .from(sessionHistoryEntryTable)
+    .where(
+      and(
+        eq(sessionHistoryEntryTable.sessionId, fixture.sessionId),
+        eq(sessionHistoryEntryTable.sourceType, "run"),
+        eq(sessionHistoryEntryTable.sourceId, runId),
+      ),
+    )
+    .limit(1)
+  return entry
+}
+
 async function appendReplayableDelta(provider: ReturnType<typeof runProviderOutputCreate>): Promise<void> {
   const appended = await provider.append({ delta: "replayable delta", type: "TEXT_MESSAGE_CONTENT" })
   expect(appended).toMatchObject({ success: true })
@@ -149,6 +173,8 @@ async function expectFinalizationRolledBack(runId: string, requestId: string, fi
   expect(state.run).toMatchObject({ status: "running" })
   expect(state.attempt).toMatchObject({ status: "running" })
   expect(await assistantMessages(requestId)).toHaveLength(0)
+  expect(await database.select().from(runActiveStateTable).where(eq(runActiveStateTable.runId, runId))).toHaveLength(1)
+  expect(await runHistoryEntry(runId)).toMatchObject({ payload: { status: "running" } })
   expect(await runJournalEventTypes(runId)).toEqual(["delta"])
 }
 
@@ -241,3 +267,212 @@ test.skipIf(!databaseAvailable)(
     expect(publishedEventTypes).toEqual(["delta"])
   },
 )
+
+test.skipIf(!databaseAvailable)("finalizes success, failure, and cancellation with exact terminal kinds", async () => {
+  const cases = [
+    {
+      finalize: { assistantText: "completed", status: "succeeded" as const },
+      historyStatus: "succeeded",
+      label: "success",
+      terminalEvent: "run-completed",
+      terminalKind: "completed",
+    },
+    {
+      finalize: { failure: { code: "provider_failed", message: "failed" }, status: "failed" as const },
+      historyStatus: "failed",
+      label: "failure",
+      terminalEvent: "run-failed",
+      terminalKind: "failed",
+    },
+    {
+      finalize: { reason: "user-requested", status: "aborted" as const },
+      historyStatus: "aborted",
+      label: "cancelled",
+      terminalEvent: "run-cancelled",
+      terminalKind: "cancelled",
+    },
+  ]
+
+  for (const terminalCase of cases) {
+    const { requestId, runId } = await runningRun(`terminal-${terminalCase.label}`)
+    const provider = providerCreate(runId, requestId)
+    await appendReplayableDelta(provider)
+
+    expect(await provider.finalize(terminalCase.finalize)).toMatchObject({ success: true })
+    expect(await runState(runId)).toMatchObject({
+      attempt: { status: terminalCase.historyStatus },
+      run: { status: terminalCase.historyStatus },
+    })
+    expect(await database.select().from(runActiveStateTable).where(eq(runActiveStateTable.runId, runId))).toHaveLength(
+      0,
+    )
+    const historyEntry = await runHistoryEntry(runId)
+    expect(historyEntry).toMatchObject({
+      payload: { status: terminalCase.historyStatus, terminalKind: terminalCase.terminalKind },
+    })
+    expect(
+      await database.select().from(runFinalizedDetailTable).where(eq(runFinalizedDetailTable.runId, runId)),
+    ).toHaveLength(1)
+    expect(await runJournalEventTypes(runId)).toEqual([terminalCase.terminalEvent])
+    const [terminalEvent] = await database
+      .select({ payload: journalEventTable.payload })
+      .from(journalEventTable)
+      .where(and(eq(journalEventTable.runId, runId), eq(journalEventTable.eventType, terminalCase.terminalEvent)))
+      .limit(1)
+    expect(terminalEvent?.payload).toMatchObject({ changePosition: historyEntry?.changePosition })
+  }
+})
+
+test.skipIf(!databaseAvailable)("retains finalized detail and tool projection after deleting deltas", async () => {
+  const { requestId, runId } = await runningRun("detail-survival")
+  const provider = providerCreate(runId, requestId)
+  const toolCallId = "detail-survival-tool"
+  expect(await provider.append({ eventType: "tool_start", payload: { toolCallId, toolName: "bash" } })).toMatchObject({
+    success: true,
+  })
+  expect(
+    await provider.append({
+      eventType: "tool_output",
+      payload: { output: "tool output", toolCallId, truncated: false },
+    }),
+  ).toMatchObject({ success: true })
+  expect(
+    await provider.append({
+      eventType: "tool_result",
+      payload: { outcome: "success", result: "tool result", toolCallId, truncated: false },
+    }),
+  ).toMatchObject({ success: true })
+  expect(await provider.finalize({ assistantText: "completed", status: "succeeded" })).toMatchObject({ success: true })
+
+  expect(
+    await database
+      .select()
+      .from(journalEventTable)
+      .where(and(eq(journalEventTable.runId, runId), eq(journalEventTable.eventType, "delta"))),
+  ).toHaveLength(0)
+  const [detail] = await database.select().from(runFinalizedDetailTable).where(eq(runFinalizedDetailTable.runId, runId))
+  expect(detail).toMatchObject({
+    tools: [expect.objectContaining({ outcome: "success", result: "tool result", toolCallId, toolName: "bash" })],
+    transcript: { assistantText: "completed" },
+  })
+  expect(await runHistoryEntry(runId)).toMatchObject({ payload: { status: "succeeded" } })
+  expect(
+    await database
+      .select()
+      .from(sessionHistoryEntryTable)
+      .where(
+        and(
+          eq(sessionHistoryEntryTable.sourceType, "tool"),
+          eq(sessionHistoryEntryTable.sourceId, runId),
+          eq(sessionHistoryEntryTable.sourceDetailId, toolCallId),
+        ),
+      ),
+  ).toMatchObject([{ payload: { outcome: "success", resultAvailable: true, toolCallId, toolName: "bash" } }])
+})
+
+test.skipIf(!databaseAvailable)("rolls back all finalization writes when detail persistence fails", async () => {
+  const { requestId, runId } = await runningRun("detail-failure")
+  const provider = providerCreate(runId, requestId, {
+    runFinalizedDetailUpsert: async (transaction, userId, sessionId, finalizedRunId, input) => {
+      const persisted = await runFinalizedDetailRepositoryUpsert(transaction, userId, sessionId, finalizedRunId, input)
+      if (!persisted.success) return persisted
+      return createResultError("failureInjection", "detail persistence failed after insert")
+    },
+  })
+  await appendReplayableDelta(provider)
+
+  const finalized = await provider.finalize({ assistantText: "not finalized", status: "succeeded" })
+  await expectFinalizationRolledBack(runId, requestId, finalized)
+  expect(await database.select().from(runActiveStateTable).where(eq(runActiveStateTable.runId, runId))).toHaveLength(1)
+  expect(
+    await database.select().from(runFinalizedDetailTable).where(eq(runFinalizedDetailTable.runId, runId)),
+  ).toHaveLength(0)
+  expect(await runHistoryEntry(runId)).toMatchObject({ payload: { status: "running" } })
+})
+
+test.skipIf(!databaseAvailable)("finalizes terminal routes with durable details and exact journal kinds", async () => {
+  const cases = [
+    {
+      eventType: "run-completed",
+      input: { status: "succeeded" as const },
+      status: "succeeded",
+    },
+    {
+      eventType: "run-failed",
+      input: {
+        failure: { code: "terminal_route_failed", message: "The terminal route failed." },
+        status: "failed" as const,
+      },
+      status: "failed",
+    },
+    {
+      eventType: "run-cancelled",
+      input: { reason: "terminal-route-cancelled", status: "aborted" as const },
+      status: "aborted",
+    },
+  ]
+
+  for (const terminalCase of cases) {
+    const { requestId, runId } = await runningRun(`terminal-route-${terminalCase.status}`)
+    const provider = providerCreate(runId, requestId)
+    await appendReplayableDelta(provider)
+    const finalized = await runTerminalFinalize(
+      {
+        database,
+        journalPostCommitPublish: async () => createResult(undefined),
+        runId,
+        sessionId: fixture.sessionId,
+        userId: fixture.userId,
+      },
+      terminalCase.input,
+    )
+    expect(finalized).toMatchObject({ success: true, data: { run: { status: terminalCase.status } } })
+    expect(await database.select().from(runActiveStateTable).where(eq(runActiveStateTable.runId, runId))).toHaveLength(
+      0,
+    )
+    expect(
+      await database.select().from(runFinalizedDetailTable).where(eq(runFinalizedDetailTable.runId, runId)),
+    ).toHaveLength(1)
+    expect(await runHistoryEntry(runId)).toMatchObject({ payload: { status: terminalCase.status } })
+    expect(await runJournalEventTypes(runId)).toEqual([terminalCase.eventType])
+    expect(
+      await database
+        .select()
+        .from(journalEventTable)
+        .where(and(eq(journalEventTable.runId, runId), eq(journalEventTable.eventType, "delta"))),
+    ).toHaveLength(0)
+  }
+})
+
+test.skipIf(!databaseAvailable)("rolls back terminal route detail failure before deleting deltas", async () => {
+  const { requestId, runId } = await runningRun("terminal-route-detail-failure")
+  const provider = providerCreate(runId, requestId)
+  await appendReplayableDelta(provider)
+  const finalized = await runTerminalFinalize(
+    {
+      database,
+      journalPostCommitPublish: async () => createResult(undefined),
+      runId,
+      sessionId: fixture.sessionId,
+      userId: fixture.userId,
+    },
+    { status: "aborted", reason: "terminal-route-aborted" },
+    {
+      runFinalizedDetailUpsert: async (transaction, userId, sessionId, finalizedRunId, input) => {
+        const persisted = await runFinalizedDetailRepositoryUpsert(
+          transaction,
+          userId,
+          sessionId,
+          finalizedRunId,
+          input,
+        )
+        if (!persisted.success) return persisted
+        return createResultError("failureInjection", "terminal route detail persistence failed after insert")
+      },
+    },
+  )
+  await expectFinalizationRolledBack(runId, requestId, finalized)
+  expect(
+    await database.select().from(runFinalizedDetailTable).where(eq(runFinalizedDetailTable.runId, runId)),
+  ).toHaveLength(0)
+})

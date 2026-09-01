@@ -14,13 +14,16 @@ import { messageTable } from "../message/db/messageTable.js"
 import { noteTable } from "../note/db/noteTable.js"
 import { projectFolderAssignmentBackfillTable } from "../project/db/projectFolderAssignmentBackfillTable.js"
 import { projectFolderTable } from "../project/db/projectFolderTable.js"
-import { projectTable } from "../project/db/projectTable.js"
 import { projectRegistrySessionPathBackfillTable } from "../project/db/projectRegistrySessionPathBackfillTable.js"
+import { projectTable } from "../project/db/projectTable.js"
 import { attemptTable } from "../run/db/attemptTable.js"
+import { runActiveStateTable } from "../run/db/runActiveStateTable.js"
 import { runDelegationTable } from "../run/db/runDelegationTable.js"
+import { runFinalizedDetailTable } from "../run/db/runFinalizedDetailTable.js"
 import { runTable } from "../run/db/runTable.js"
 import { serverTable } from "../servers/db/serverTable.js"
 import { sessionExecutionSelectionDefaultTable } from "../session/db/sessionExecutionSelectionDefaultTable.js"
+import { sessionHistoryEntryTable } from "../session/db/sessionHistoryEntryTable.js"
 import { sessionTable } from "../session/db/sessionTable.js"
 import { sessionViewTable } from "../session/db/sessionViewTable.js"
 import { skillSelectionDefaultTable } from "../skills/db/skillSelectionDefaultTable.js"
@@ -42,11 +45,14 @@ export const databaseSchema = {
   projectTable,
   projectRegistrySessionPathBackfillTable,
   runDelegationTable,
+  runActiveStateTable,
+  runFinalizedDetailTable,
   runTable,
   serverTable,
   sessionCompactionTable,
   sessionViewTable,
   sessionTable,
+  sessionHistoryEntryTable,
   sessionExecutionSelectionDefaultTable,
   skillSelectionDefaultTable,
   oidcLoginTransactionTable,

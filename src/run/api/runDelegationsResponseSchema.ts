@@ -2,13 +2,16 @@ import * as v from "valibot"
 import { apiEtagSchema } from "../../api/schema/apiEtagSchema.js"
 import { apiPublicIdSchema } from "../../api/schema/apiPublicIdSchema.js"
 import { apiRevisionSchema } from "../../api/schema/apiRevisionSchema.js"
+import { runDelegationResultSchema } from "../schema/runDelegationResultSchema.js"
 
 const runDelegationResponseSchema = v.strictObject({
   /** Child run's immutable target agent, so the UI never has to infer it from live feed rows. */
   childAgentId: v.optional(v.string()),
   childSessionId: v.nullable(apiPublicIdSchema),
   childRunId: v.string(),
+  delegationId: v.string(),
   delegationKey: v.string(),
+  finalizedResult: v.nullable(runDelegationResultSchema),
   id: v.string(),
   parentAttemptId: v.string(),
   parentRunId: v.string(),

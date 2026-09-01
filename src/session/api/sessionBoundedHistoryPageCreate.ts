@@ -7,7 +7,7 @@ export function sessionBoundedHistoryPageCreate(input: {
   hasMore: boolean
   nextCursor: string | null
   semanticSteps: SessionBoundedHistoryPage["semanticSteps"]
-  throughSeq: number
+  throughPosition: number
 }): Result<SessionBoundedHistoryPage> {
   const op = "sessionBoundedHistoryPageCreate"
   const parsed = v.safeParse(sessionBoundedHistoryPageSchema, input)

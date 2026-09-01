@@ -2,7 +2,9 @@ import * as v from "valibot"
 import { apiPublicIdSchema } from "../../api/schema/apiPublicIdSchema.js"
 
 export const sessionChildReferenceSchema = v.strictObject({
-  childSessionId: apiPublicIdSchema,
+  childRunId: apiPublicIdSchema,
+  childSessionId: v.optional(v.nullable(apiPublicIdSchema)),
+  delegationId: apiPublicIdSchema,
   parentSessionId: apiPublicIdSchema,
 })
 

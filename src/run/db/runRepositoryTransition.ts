@@ -3,11 +3,14 @@ import { and, desc, eq } from "drizzle-orm"
 import * as v from "valibot"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { databaseExecutorTransactionRun } from "../../database/databaseExecutorTransactionRun.js"
+import { sessionHistoryEntryRepositoryUpsert } from "../../session/db/sessionHistoryEntryRepositoryUpsert.js"
 import { sessionTable } from "../../session/db/sessionTable.js"
 import { runErrorCodes } from "../errors/runErrorCodes.js"
 import { runResultCreateError } from "../errors/runResultCreateError.js"
 import { type RunTransitionInput, runTransitionInputSchema } from "../schema/runTransitionInputSchema.js"
 import { attemptTable } from "./attemptTable.js"
+import { runActiveStateRepositoryUpsert } from "./runActiveStateRepositoryUpsert.js"
+import { runHistoryEntryPayloadCreate } from "./runHistoryEntryPayloadCreate.js"
 import { runTable } from "./runTable.js"
 
 const terminalStatuses = new Set(["succeeded", "failed", "aborted"])
@@ -38,12 +41,17 @@ type RunTransitionResult = {
   attempt: typeof attemptTable.$inferSelect
 }
 
+type RunRepositoryTransitionOptions = {
+  now?: () => Date
+}
+
 export async function runRepositoryTransition(
   database: DatabaseExecutor,
   userId: string,
   sessionId: string,
   runId: string,
   input: RunTransitionInput,
+  options: RunRepositoryTransitionOptions = {},
 ): Promise<Result<RunTransitionResult>> {
   const op = "runRepositoryTransition"
   const parsedInput = v.safeParse(runTransitionInputSchema, input)
@@ -115,7 +123,9 @@ export async function runRepositoryTransition(
         return runResultCreateError(op, "The cancelled run cannot be transitioned.", runErrorCodes.transitionInvalid)
       }
 
-      const now = new Date()
+      const now = options.now?.() ?? new Date()
+      if (Number.isNaN(now.getTime()))
+        return runResultCreateError(op, "The transition clock is invalid.", runErrorCodes.clockInvalid)
       const timing = parsedInput.output.status === "running" ? { startedAt: now } : {}
       const terminalTiming = terminalStatuses.has(parsedInput.output.status) ? { finishedAt: now } : {}
       const runUpdate = await transaction
@@ -151,6 +161,22 @@ export async function runRepositoryTransition(
           "The run attempt could not be transitioned.",
           runErrorCodes.attemptPersistenceFailed,
         )
+
+      if (parsedInput.output.status === "running") {
+        const historyEntry = await sessionHistoryEntryRepositoryUpsert(transaction, userId, sessionId, {
+          id: updatedRun.id,
+          kind: "run",
+          payload: runHistoryEntryPayloadCreate({ id: updatedRun.id, status: "running" }),
+          sourceId: updatedRun.id,
+          sourceType: "run",
+        })
+        if (!historyEntry.success) return historyEntry
+
+        const activeState = await runActiveStateRepositoryUpsert(transaction, userId, sessionId, updatedRun.id, {
+          status: "running",
+        })
+        if (!activeState.success) return activeState
+      }
       return createResult<RunTransitionResult>({ changed: true, run: updatedRun, attempt: updatedAttempt })
     } catch (_error) {
       return runResultCreateError(op, "The run transition could not be persisted.", runErrorCodes.persistFailed)

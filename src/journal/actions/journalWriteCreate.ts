@@ -1,7 +1,7 @@
 import { createResult, createResultError, createResultErrorCode, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
 import { apiPublicIdSchema } from "../../api/schema/apiPublicIdSchema.js"
-import type { DatabaseClient, DatabaseTransaction } from "../../database/databaseClient.js"
+import type { DatabaseExecutor, DatabaseTransaction } from "../../database/databaseClient.js"
 import { databaseTransactionRun } from "../../database/databaseTransactionRun.js"
 import { journalEventTable } from "../db/journalEventTable.js"
 import { journalAuthorizedUserIdsSchema } from "../schema/journalAuthorizedUserIdsSchema.js"
@@ -44,7 +44,7 @@ type JournalWritePlan<T> = {
 
 type JournalWriteCreateDependencies = {
   appendPersist?: typeof journalEventsAppendPersist
-  database: DatabaseClient
+  database: DatabaseExecutor
   postCommitPublish: JournalPublicationCallback
   resolveRecipients: JournalEventRecipientResolver
 }

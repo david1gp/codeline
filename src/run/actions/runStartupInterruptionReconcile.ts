@@ -1,11 +1,19 @@
 import { createResult, type Result } from "@adaptive-ds/result"
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm"
-import type { DatabaseClient, DatabaseTransaction } from "../../database/databaseClient.js"
+import type { DatabaseExecutor, DatabaseTransaction } from "../../database/databaseClient.js"
 import type { JournalEventRecipientResolver } from "../../journal/actions/journalEventRecipientResolver.js"
+import { journalRunDeltasDelete } from "../../journal/actions/journalRunDeltasDelete.js"
 import type { journalPostCommitPublishCreate } from "../../journal/actions/journalPostCommitPublishCreate.js"
 import { journalWriteCreate } from "../../journal/actions/journalWriteCreate.js"
+import { sessionHistoryEntryRepositoryUpsert } from "../../session/db/sessionHistoryEntryRepositoryUpsert.js"
 import { sessionTable } from "../../session/db/sessionTable.js"
+import { runFinalizedDetailCreate } from "./runFinalizedDetailCreate.js"
+import { runFinalizedToolProjectionPersist } from "./runFinalizedToolProjectionPersist.js"
 import { attemptTable } from "../db/attemptTable.js"
+import { runActiveStateRepositoryDelete } from "../db/runActiveStateRepositoryDelete.js"
+import { runActiveStateTable } from "../db/runActiveStateTable.js"
+import { runFinalizedDetailRepositoryUpsert } from "../db/runFinalizedDetailRepositoryUpsert.js"
+import { runHistoryEntryPayloadCreate } from "../db/runHistoryEntryPayloadCreate.js"
 import { runTable } from "../db/runTable.js"
 import { runErrorCodes } from "../errors/runErrorCodes.js"
 import { runResultCreateError } from "../errors/runResultCreateError.js"
@@ -19,6 +27,7 @@ const interruptionFailure = {
 }
 
 type RunStartupInterruptionRecord = {
+  changePosition: number
   runId: string
   sessionId: string
   sessionRevision: number
@@ -27,6 +36,11 @@ type RunStartupInterruptionRecord = {
 
 type RunStartupInterruptionMutation = {
   runs: RunStartupInterruptionRecord[]
+}
+
+type RunStartupInterruptionOptions = {
+  now?: () => Date
+  runFinalizedDetailUpsert?: typeof runFinalizedDetailRepositoryUpsert
 }
 
 function runStartupInterruptionRecipientResolve(): JournalEventRecipientResolver {
@@ -54,7 +68,7 @@ function runStartupInterruptionRecipientResolve(): JournalEventRecipientResolver
   }
 }
 
-async function runStartupInterruptionActiveIds(database: DatabaseClient): Promise<Result<string[]>> {
+async function runStartupInterruptionActiveIds(database: DatabaseExecutor): Promise<Result<string[]>> {
   const op = "runStartupInterruptionReconcile"
   try {
     const runs = await database
@@ -71,6 +85,7 @@ async function runStartupInterruptionActiveIds(database: DatabaseClient): Promis
 async function runStartupInterruptionMutate(
   transaction: DatabaseTransaction,
   runIds: readonly string[],
+  options: RunStartupInterruptionOptions,
 ): Promise<Result<RunStartupInterruptionMutation>> {
   const op = "runStartupInterruptionReconcile"
   try {
@@ -105,9 +120,25 @@ async function runStartupInterruptionMutate(
       }
     }
 
-    const now = new Date()
+    const now = options.now?.() ?? new Date()
+    if (Number.isNaN(now.getTime()))
+      return runResultCreateError(op, "The interruption clock is invalid.", runErrorCodes.clockInvalid)
     const sessionIds = [...new Set(runs.map((run) => run.sessionId))].sort()
     const sessionRevisions = new Map<string, number>()
+    const activeStates = await transaction
+      .select({
+        lastSequence: runActiveStateTable.lastSequence,
+        partialText: runActiveStateTable.partialText,
+        runId: runActiveStateTable.runId,
+      })
+      .from(runActiveStateTable)
+      .where(
+        inArray(
+          runActiveStateTable.runId,
+          runs.map((run) => run.id),
+        ),
+      )
+    const activeStateByRunId = new Map(activeStates.map((state) => [state.runId, state]))
     for (const sessionId of sessionIds) {
       const [session] = await transaction
         .update(sessionTable)
@@ -140,7 +171,7 @@ async function runStartupInterruptionMutate(
           inArray(runTable.status, activeRunStatuses),
         ),
       )
-      .returning({ id: runTable.id })
+      .returning()
     if (updatedRuns.length !== runs.length)
       return runResultCreateError(op, "The active runs could not be interrupted.", runErrorCodes.persistFailed)
 
@@ -165,22 +196,95 @@ async function runStartupInterruptionMutate(
     if (updatedAttempts.length !== runs.length)
       return runResultCreateError(op, "The active run attempts could not be interrupted.", runErrorCodes.persistFailed)
 
-    return createResult({
-      runs: runs.map((run) => ({
-        runId: run.id,
-        sessionId: run.sessionId,
-        sessionRevision: sessionRevisions.get(run.sessionId) ?? 0,
-        userId: run.userId,
-      })),
-    })
+    const updatedRunById = new Map(updatedRuns.map((run) => [run.id, run]))
+    const finalizedDetailUpsert = options.runFinalizedDetailUpsert ?? runFinalizedDetailRepositoryUpsert
+    const records: RunStartupInterruptionRecord[] = []
+    for (const run of runs) {
+      const updatedRun = updatedRunById.get(run.id)
+      if (updatedRun === undefined)
+        return runResultCreateError(
+          op,
+          "The interrupted run could not be loaded after mutation.",
+          runErrorCodes.persistFailed,
+        )
+      const sessionRevision = sessionRevisions.get(run.sessionId) ?? 0
+      const historyEntry = await sessionHistoryEntryRepositoryUpsert(transaction, run.userId, run.sessionId, {
+        id: updatedRun.id,
+        kind: "run",
+        payload: runHistoryEntryPayloadCreate({
+          id: updatedRun.id,
+          status: "aborted",
+          terminalKind: "interrupted",
+        }),
+        sourceId: updatedRun.id,
+        sourceType: "run",
+      })
+      if (!historyEntry.success) return historyEntry
+
+      const terminalEvent = {
+        eventType: "run-interrupted" as const,
+        payload: {
+          reason: interruptionReason,
+          runId: updatedRun.id,
+          sessionId: updatedRun.sessionId,
+          sessionRevision,
+        },
+      }
+      const activeState = activeStateByRunId.get(updatedRun.id)
+      const detail = await runFinalizedDetailCreate(
+        transaction,
+        updatedRun.userId,
+        updatedRun.sessionId,
+        updatedRun.id,
+        updatedRun,
+        terminalEvent,
+        undefined,
+        activeState,
+      )
+      if (!detail.success) return detail
+      const projectedTools = await runFinalizedToolProjectionPersist(
+        transaction,
+        updatedRun.userId,
+        updatedRun.sessionId,
+        updatedRun.id,
+        detail.data.tools,
+      )
+      if (!projectedTools.success) return projectedTools
+      const persistedDetail = await finalizedDetailUpsert(
+        transaction,
+        updatedRun.userId,
+        updatedRun.sessionId,
+        updatedRun.id,
+        { tools: detail.data.tools, transcript: detail.data.transcript },
+      )
+      if (!persistedDetail.success) return persistedDetail
+      const clearedActiveState = await runActiveStateRepositoryDelete(
+        transaction,
+        updatedRun.userId,
+        updatedRun.sessionId,
+        updatedRun.id,
+      )
+      if (!clearedActiveState.success) return clearedActiveState
+      records.push({
+        changePosition: historyEntry.data.entry.changePosition,
+        runId: updatedRun.id,
+        sessionId: updatedRun.sessionId,
+        sessionRevision,
+        userId: updatedRun.userId,
+      })
+    }
+
+    return createResult({ runs: records })
   } catch (_error) {
     return runResultCreateError(op, "The active runs could not be interrupted.", runErrorCodes.persistFailed)
   }
 }
 
 export async function runStartupInterruptionReconcile(input: {
-  database: DatabaseClient
+  database: DatabaseExecutor
+  now?: () => Date
   postCommitPublish: ReturnType<typeof journalPostCommitPublishCreate>
+  runFinalizedDetailUpsert?: typeof runFinalizedDetailRepositoryUpsert
   runActiveRegistry?: ReturnType<typeof runActiveRegistryCreate>
 }): Promise<Result<{ interruptedRunIds: string[] }>> {
   const reconciliation = input.runActiveRegistry?.reconciliationBegin()
@@ -200,19 +304,25 @@ export async function runStartupInterruptionReconcile(input: {
     let mutation: RunStartupInterruptionMutation | undefined
     const reconciled = await writer.run({
       mutate: async (transaction) => {
-        const result = await runStartupInterruptionMutate(transaction, candidateRunIds)
+        const result = await runStartupInterruptionMutate(transaction, candidateRunIds, {
+          now: input.now,
+          runFinalizedDetailUpsert: input.runFinalizedDetailUpsert,
+        })
         if (result.success) mutation = result.data
         return result
       },
       resources: candidateRunIds.map((runId) => ({ resourceId: runId, resourceType: "run" as const })),
-      write: async (_transaction, journal) => {
+      write: async (transaction, journal) => {
         const op = "runStartupInterruptionReconcile"
         if (mutation === undefined)
           return runResultCreateError(op, "The interruption mutation result is missing.", runErrorCodes.mutationMissing)
         for (const run of mutation.runs) {
+          const deleted = await journalRunDeltasDelete(transaction, run.runId, [run.userId])
+          if (!deleted.success) return deleted
           const appended = await journal.append({
             eventType: "run-interrupted",
             payload: {
+              changePosition: run.changePosition,
               reason: interruptionReason,
               runId: run.runId,
               sessionId: run.sessionId,

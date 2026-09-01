@@ -87,6 +87,7 @@ function completedEvent(runId: string, sessionId = `session-${runId}`, sessionRe
   return {
     eventType: "run-completed" as const,
     payload: {
+      changePosition: sessionRevision,
       messageId: `message-${runId}`,
       runId,
       sessionId,

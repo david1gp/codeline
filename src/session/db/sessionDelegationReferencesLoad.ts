@@ -4,6 +4,7 @@ import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { runToolDetailIdCreate } from "../../run/actions/runToolDetailIdCreate.js"
 import { runDelegationTable } from "../../run/db/runDelegationTable.js"
 import { runTable } from "../../run/db/runTable.js"
+import { organizationTable } from "../../identity/db/organizationTable.js"
 import { serverTable } from "../../servers/db/serverTable.js"
 import type { SessionChildReference } from "../api/sessionChildReferenceSchema.js"
 import { sessionBoundedDelegationToolKeyCreate } from "./sessionBoundedDelegationToolKeyCreate.js"
@@ -39,6 +40,7 @@ export async function sessionDelegationReferencesLoad(
         serverTable,
         and(eq(sessionTable.serverId, serverTable.id), eq(serverTable.organizationId, organizationId)),
       )
+      .innerJoin(organizationTable, eq(serverTable.organizationId, organizationTable.id))
       .where(and(eq(sessionTable.id, sessionId), eq(sessionTable.userId, userId)))
       .limit(1)
     if (parentSession === undefined) return createResultError(op, "The session could not be found.")
@@ -46,7 +48,20 @@ export async function sessionDelegationReferencesLoad(
     const rows = await database
       .select({ childSnapshot: runTable.snapshot, delegation: runDelegationTable })
       .from(runDelegationTable)
-      .leftJoin(runTable, eq(runTable.id, runDelegationTable.childRunId))
+      .innerJoin(
+        sessionTable,
+        and(
+          eq(sessionTable.id, runDelegationTable.sessionId),
+          eq(sessionTable.userId, runDelegationTable.userId),
+          eq(sessionTable.userId, userId),
+        ),
+      )
+      .innerJoin(serverTable, eq(sessionTable.serverId, serverTable.id))
+      .innerJoin(
+        organizationTable,
+        and(eq(serverTable.organizationId, organizationTable.id), eq(organizationTable.id, organizationId)),
+      )
+      .leftJoin(runTable, and(eq(runTable.id, runDelegationTable.childRunId), eq(runTable.userId, userId)))
       .where(and(eq(runDelegationTable.sessionId, sessionId), eq(runDelegationTable.userId, userId)))
       .orderBy(asc(runDelegationTable.createdAt), asc(runDelegationTable.id))
 
@@ -76,6 +91,7 @@ export async function sessionDelegationReferencesLoad(
               serverTable,
               and(eq(sessionTable.serverId, serverTable.id), eq(serverTable.organizationId, organizationId)),
             )
+            .innerJoin(organizationTable, eq(serverTable.organizationId, organizationTable.id))
             .where(and(eq(sessionTable.userId, userId), inArray(sessionTable.id, childSessionIds)))
     const childSessionsById = new Map(childSessions.map((session) => [session.id, session]))
     const byToolKey = new Map<string, SessionChildReference | null>()
@@ -90,7 +106,17 @@ export async function sessionDelegationReferencesLoad(
         childSession.parentSessionId !== parentSession.id
           ? null
           : childSession.id
-      const childReference = childSessionId === null ? null : { childSessionId, parentSessionId: parentSession.id }
+      const childRunIsInParentSession =
+        parentRun?.sessionId === parentSession.id && childRun?.sessionId === parentSession.id
+      const childReference =
+        childRunIsInParentSession || childSessionId !== null
+          ? {
+              childRunId: delegation.childRunId,
+              ...(childSessionId === null ? {} : { childSessionId }),
+              delegationId: delegation.id,
+              parentSessionId: parentSession.id,
+            }
+          : null
       const authorizedChildSnapshot = childRun === undefined || childSession === undefined ? null : childSnapshot
       const toolKey = sessionBoundedDelegationToolKeyCreate(
         delegation.parentRunId,

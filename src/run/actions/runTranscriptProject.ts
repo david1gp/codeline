@@ -10,6 +10,7 @@ import { runStatusSchema } from "../schema/runStatusSchema.js"
 type RunTranscriptProjectInput = {
   attempts: ReadonlyArray<{ id?: string; ordinal: number; status: unknown; streamId: string }>
   events: ReadonlyArray<{ eventType: string; id: string; payload: unknown; runId: string | null; sequence: number }>
+  finalizedAssistantText?: string
   includeToolCallIds?: boolean
   run: {
     cancellationKind: unknown
@@ -87,6 +88,7 @@ export function runTranscriptProject(
     executionTranscriptProject({
       attempts,
       events,
+      ...(input.finalizedAssistantText === undefined ? {} : { finalizedAssistantText: input.finalizedAssistantText }),
       includeToolCallIds: input.includeToolCallIds,
       run: { cancellationKind: cancellationKind.output, failure: failure.output, status: status.output },
     }),

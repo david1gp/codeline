@@ -15,6 +15,7 @@ import { attemptTable } from "../src/run/db/attemptTable.js"
 import { runRepositoryActiveListLoad } from "../src/run/db/runRepositoryActiveListLoad.js"
 import { runRepositoryActiveSnapshotLoad } from "../src/run/db/runRepositoryActiveSnapshotLoad.js"
 import { runRepositorySessionSnapshotLoad } from "../src/run/db/runRepositorySessionSnapshotLoad.js"
+import { runActiveStateTable } from "../src/run/db/runActiveStateTable.js"
 import { runTable } from "../src/run/db/runTable.js"
 import { runErrorCodes } from "../src/run/errors/runErrorCodes.js"
 import { runActiveSnapshotFetch } from "../src/run/ui/runActiveSnapshotFetch.js"
@@ -256,6 +257,15 @@ const activeSnapshotRepositoryTest = async () => {
       status: "running",
       streamId: `stream-${suffix}`,
       updatedAt: now,
+      userId,
+    })
+    await database.insert(runActiveStateTable).values({
+      changePosition: 1,
+      lastSequence: 8,
+      partialText: "hello world",
+      runId,
+      sessionId,
+      status: "running",
       userId,
     })
     await database.insert(journalEventTable).values([

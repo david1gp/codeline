@@ -14,7 +14,10 @@ import { runBudgetSchema } from "../schema/runBudgetSchema.js"
 import { type RunCreateInput, runCreateInputSchema } from "../schema/runCreateInputSchema.js"
 import { runExecutionManifestSchema } from "../schema/runExecutionManifestSchema.js"
 import { attemptTable } from "./attemptTable.js"
+import { runActiveStateRepositoryUpsert } from "./runActiveStateRepositoryUpsert.js"
+import { runHistoryEntryPayloadCreate } from "./runHistoryEntryPayloadCreate.js"
 import { runTable } from "./runTable.js"
+import { sessionHistoryEntryRepositoryUpsert } from "../../session/db/sessionHistoryEntryRepositoryUpsert.js"
 
 function jsonCanonicalize(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value)
@@ -127,11 +130,18 @@ type RunCreateResult = {
   attempt: typeof attemptTable.$inferSelect
 }
 
+type RunRepositoryCreateOptions = {
+  attemptId?: string
+  id?: string
+  now?: () => Date
+}
+
 export async function runRepositoryCreate(
   database: DatabaseExecutor,
   userId: string,
   sessionId: string,
   input: RunCreateInput,
+  options: RunRepositoryCreateOptions = {},
 ): Promise<Result<RunCreateResult>> {
   const op = "runRepositoryCreate"
   const parsedInput = v.safeParse(runCreateInputSchema, input)
@@ -139,7 +149,9 @@ export async function runRepositoryCreate(
     return runResultCreateError(op, "The run creation input is invalid.", runErrorCodes.invalidInput)
   const parsedBudget = v.safeParse(runBudgetSchema, parsedInput.output.budget ?? {})
   if (!parsedBudget.success) return runResultCreateError(op, "The run budget is invalid.", runErrorCodes.invalidInput)
-  const createdAt = new Date()
+  const createdAt = options.now?.() ?? new Date()
+  if (Number.isNaN(createdAt.getTime()))
+    return runResultCreateError(op, "The run creation clock is invalid.", runErrorCodes.clockInvalid)
   const deadlineAt = new Date(createdAt.getTime() + parsedBudget.output.maxDurationMs)
 
   return databaseExecutorTransactionRun<RunCreateResult>(database, async (transaction) => {
@@ -204,7 +216,7 @@ export async function runRepositoryCreate(
         return createResult<RunCreateResult>({ created: false, run: existing, attempt })
       }
 
-      const runId = uuidv7()
+      const runId = options.id ?? uuidv7()
       const [run] = await transaction
         .insert(runTable)
         .values({
@@ -228,7 +240,7 @@ export async function runRepositoryCreate(
         .values({
           budget: parsedBudget.output,
           failure: null,
-          id: uuidv7(),
+          id: options.attemptId ?? uuidv7(),
           ordinal: 1,
           runId,
           sessionId,
@@ -243,6 +255,20 @@ export async function runRepositoryCreate(
           "The initial run attempt could not be created.",
           runErrorCodes.attemptPersistenceFailed,
         )
+
+      const historyEntry = await sessionHistoryEntryRepositoryUpsert(transaction, userId, sessionId, {
+        id: run.id,
+        kind: "run",
+        payload: runHistoryEntryPayloadCreate({ id: run.id, status: "accepted" }),
+        sourceId: run.id,
+        sourceType: "run",
+      })
+      if (!historyEntry.success) return runResultCreateError(op, historyEntry.errorMessage, runErrorCodes.createFailed)
+
+      const activeState = await runActiveStateRepositoryUpsert(transaction, userId, sessionId, run.id, {
+        status: "accepted",
+      })
+      if (!activeState.success) return runResultCreateError(op, activeState.errorMessage, runErrorCodes.createFailed)
       return createResult<RunCreateResult>({ created: true, run, attempt })
     } catch (_error) {
       return runResultCreateError(op, "The run could not be created.", runErrorCodes.createFailed)

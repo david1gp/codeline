@@ -16,6 +16,7 @@ import { runActiveRegistryCreate } from "../actions/runActiveRegistryCreate.js"
 import { runActiveSnapshotLoad } from "../actions/runActiveSnapshotLoad.js"
 import { runCancel } from "../actions/runCancel.js"
 import { runCancellationCoordinatorCreate } from "../actions/runCancellationCoordinatorCreate.js"
+import { runChildConversationLoad } from "../actions/runChildConversationLoad.js"
 import { runDetailLoad } from "../actions/runDetailLoad.js"
 import { runDelegationsLoad } from "../actions/runDelegationsLoad.js"
 import { runLoad } from "../actions/runLoad.js"
@@ -42,6 +43,7 @@ type ApiRunRoutesOptions = {
   runActiveSnapshotLoad?: typeof runActiveSnapshotLoad
   runCancel?: typeof runCancel
   runCancellationCoordinator?: RunCancellationCoordinator
+  runChildConversationLoad?: typeof runChildConversationLoad
   runDetailLoad?: typeof runDetailLoad
   runDelegationsLoad?: typeof runDelegationsLoad
   runLoad?: typeof runLoad
@@ -151,12 +153,43 @@ export function apiRunRoutesAdd(api: Hono<AppEnvironment>, options: ApiRunRoutes
     const organizationId = context.var.requestIdentity.organizationId
     if (organizationId === undefined) return notFound(context, catalog)
 
-    const result = await (options.runDetailLoad ?? runDetailLoad)(
+    const delegationId = context.req.query("delegationId")
+    const result =
+      delegationId === undefined
+        ? await (options.runDetailLoad ?? runDetailLoad)(
+            context.var.database,
+            context.var.requestIdentity.userId,
+            organizationId,
+            context.req.param("sessionId"),
+            context.req.param("runId"),
+          )
+        : await (options.runChildConversationLoad ?? runChildConversationLoad)(
+            context.var.database,
+            context.var.requestIdentity.userId,
+            organizationId,
+            context.req.param("sessionId"),
+            context.req.param("runId"),
+            delegationId,
+          )
+    if (!result.success) return errorResponse(context, result, catalog)
+    const response = v.safeParse(runDetailResponseSchema, result.data)
+    if (!response.success) return internalServerError(context, catalog)
+    context.header("Cache-Control", "private, no-cache")
+    context.header("Vary", "Cookie, Accept-Encoding")
+    return context.json(response.output)
+  })
+
+  api.get("/sessions/:sessionId/delegations/:delegationId/runs/:childRunId/detail", async (context) => {
+    const organizationId = context.var.requestIdentity.organizationId
+    if (organizationId === undefined) return notFound(context, catalog)
+
+    const result = await (options.runChildConversationLoad ?? runChildConversationLoad)(
       context.var.database,
       context.var.requestIdentity.userId,
       organizationId,
       context.req.param("sessionId"),
-      context.req.param("runId"),
+      context.req.param("childRunId"),
+      context.req.param("delegationId"),
     )
     if (!result.success) return errorResponse(context, result, catalog)
     const response = v.safeParse(runDetailResponseSchema, result.data)

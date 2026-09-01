@@ -3,8 +3,10 @@ import { and, eq, max, sql } from "drizzle-orm"
 import * as v from "valibot"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { databaseExecutorTransactionRun } from "../../database/databaseExecutorTransactionRun.js"
+import { sessionHistoryEntryRepositoryUpsert } from "../../session/db/sessionHistoryEntryRepositoryUpsert.js"
 import { sessionTable } from "../../session/db/sessionTable.js"
 import { uuidv7 } from "../../uuid/uuidv7.js"
+import { messageApiRecordCreate } from "../api/messageApiRecordCreate.js"
 import { messageMetadataSchema } from "../schema/messageMetadataSchema.js"
 import { messageTable } from "./messageTable.js"
 
@@ -50,6 +52,15 @@ export async function messageRepositoryAppend(
             existing.content === input.content &&
             JSON.stringify(existing.metadata) === JSON.stringify(metadata.output)
           ) {
+            const historyMessage = messageApiRecordCreate(existing)
+            if (!historyMessage.success) return createResultError(op, historyMessage.errorMessage)
+            const historyEntry = await sessionHistoryEntryRepositoryUpsert(executor, userId, sessionId, {
+              kind: "message",
+              payload: historyMessage.data,
+              sourceId: existing.id,
+              sourceType: "message",
+            })
+            if (!historyEntry.success) return createResultError(op, historyEntry.errorMessage)
             return createResult({ created: false, message: existing })
           }
           return createResultError(op, "The message client request ID was already used with different content.")
@@ -75,6 +86,16 @@ export async function messageRepositoryAppend(
           })
           .returning()
         if (message === undefined) return createResultError(op, "The message could not be appended.")
+
+        const historyMessage = messageApiRecordCreate(message)
+        if (!historyMessage.success) return createResultError(op, historyMessage.errorMessage)
+        const historyEntry = await sessionHistoryEntryRepositoryUpsert(executor, userId, sessionId, {
+          kind: "message",
+          payload: historyMessage.data,
+          sourceId: message.id,
+          sourceType: "message",
+        })
+        if (!historyEntry.success) return createResultError(op, historyEntry.errorMessage)
 
         const [updatedSession] = await executor
           .update(sessionTable)

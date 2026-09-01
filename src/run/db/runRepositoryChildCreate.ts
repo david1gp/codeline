@@ -6,6 +6,7 @@ import { databaseExecutorTransactionRun } from "../../database/databaseExecutorT
 import { sessionTable } from "../../session/db/sessionTable.js"
 import { uuidv7 } from "../../uuid/uuidv7.js"
 import { runChildAdmissionResolve } from "../actions/runChildAdmissionResolve.js"
+import { runDelegationHistoryToolProjectionPersist } from "../actions/runDelegationHistoryToolProjectionPersist.js"
 import { runExecutionManifestChildResolve } from "../actions/runExecutionManifestChildResolve.js"
 import { runExecutionManifestToolDefaultsResolve } from "../actions/runExecutionManifestToolDefaultsResolve.js"
 import { runErrorCodes } from "../errors/runErrorCodes.js"
@@ -29,6 +30,10 @@ type RunChildCreateResult = {
 
 type RunRepositoryChildCreateOptions = {
   beforeAdmissionCommit?: () => Promise<void>
+  attemptId?: string
+  delegationId?: string
+  id?: string
+  now?: () => Date
 }
 
 type RunRepositoryChildAdmissionState = {
@@ -416,23 +421,33 @@ export async function runRepositoryChildCreate(
           if (!requestedSnapshotPolicy.success) return requestedSnapshotPolicy
         }
         const requestedTarget = requestedSnapshot?.target
-        if (requestedTarget !== undefined)
-          return runRepositoryChildExistingLoad(
-            transaction,
-            userId,
-            sessionId,
-            existingDelegation,
-            requestedTarget,
-            parsedParentSnapshot.output,
-          )
-        return runRepositoryChildExistingLoad(
+        const existing =
+          requestedTarget !== undefined
+            ? await runRepositoryChildExistingLoad(
+                transaction,
+                userId,
+                sessionId,
+                existingDelegation,
+                requestedTarget,
+                parsedParentSnapshot.output,
+              )
+            : await runRepositoryChildExistingLoad(
+                transaction,
+                userId,
+                sessionId,
+                existingDelegation,
+                parsedParentSnapshot.output.target,
+                parsedParentSnapshot.output,
+              )
+        if (!existing.success) return existing
+        const projected = await runDelegationHistoryToolProjectionPersist(
           transaction,
           userId,
           sessionId,
-          existingDelegation,
-          parsedParentSnapshot.output.target,
-          parsedParentSnapshot.output,
+          existing.data.delegation,
         )
+        if (!projected.success) return projected
+        return createResult({ ...existing.data })
       }
 
       const [currentAttempt] = await transaction
@@ -514,7 +529,7 @@ export async function runRepositoryChildCreate(
         )
       })
       if (matchingDelegation !== undefined) {
-        return runRepositoryChildExistingLoad(
+        const existing = await runRepositoryChildExistingLoad(
           transaction,
           userId,
           sessionId,
@@ -522,7 +537,20 @@ export async function runRepositoryChildCreate(
           childSnapshot.target,
           parsedSnapshot.output,
         )
+        if (!existing.success) return existing
+        const projected = await runDelegationHistoryToolProjectionPersist(
+          transaction,
+          userId,
+          sessionId,
+          existing.data.delegation,
+        )
+        if (!projected.success) return projected
+        return existing
       }
+
+      const now = options.now?.() ?? new Date()
+      if (Number.isNaN(now.getTime()))
+        return runResultCreateError(op, "The child creation clock is invalid.", runErrorCodes.clockInvalid)
 
       const [descendantState] = await transaction
         .select({
@@ -532,7 +560,6 @@ export async function runRepositoryChildCreate(
         .from(runDelegationTable)
         .where(eq(runDelegationTable.rootRunId, root.id))
       const depth = parentDelegation?.depth ?? 0
-      const now = new Date()
       const admission = runChildAdmissionResolve({
         attemptStatus: currentAttempt.status,
         budget: parsedBudget.output,
@@ -568,7 +595,7 @@ export async function runRepositoryChildCreate(
         root.id,
         parsedBudget.output,
         depth,
-        new Date(),
+        now,
       )
       if (!boundary.success) return boundary
       if (boundary.data.admission.decision !== "admit") {
@@ -614,7 +641,7 @@ export async function runRepositoryChildCreate(
       }
 
       const rootOrdinal = (descendantState?.latestRootOrdinal ?? 0) + 1
-      const childRunId = uuidv7()
+      const childRunId = options.id ?? uuidv7()
       const childStreamId = `run-child:${childRunId}`
       const [childRun] = await transaction
         .insert(runTable)
@@ -641,7 +668,7 @@ export async function runRepositoryChildCreate(
         .values({
           budget: parsedBudget.output,
           failure: null,
-          id: uuidv7(),
+          id: options.attemptId ?? uuidv7(),
           ordinal: 1,
           runId: childRunId,
           sessionId,
@@ -667,7 +694,7 @@ export async function runRepositoryChildCreate(
           delegationKey: parsedInput.output.delegationKey,
           depth: depth + 1,
           finalizedResult: null,
-          id: uuidv7(),
+          id: options.delegationId ?? uuidv7(),
           parentAttemptId: currentAttempt.id,
           parentRunId: parent.id,
           rootOrdinal,
@@ -680,6 +707,9 @@ export async function runRepositoryChildCreate(
         .returning()
       if (delegation === undefined)
         return runResultCreateError(op, "The child delegation could not be created.", runErrorCodes.childPersistFailed)
+
+      const projected = await runDelegationHistoryToolProjectionPersist(transaction, userId, sessionId, delegation)
+      if (!projected.success) return projected
 
       const [updatedSession] = await transaction
         .update(sessionTable)

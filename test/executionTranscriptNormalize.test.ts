@@ -159,6 +159,7 @@ test("maps normalized run deltas and terminal events to stable outcome, cancella
       event({
         attemptOrdinal: 1,
         event: {
+          changePosition: 3,
           eventType: "run-cancelled",
           id: "event-id",
           reason: "user-requested",

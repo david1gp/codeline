@@ -43,6 +43,8 @@ const state = {
 test("snapshot watermarks and older cursors preserve their boundaries", () => {
   expect(v.safeParse(sessionSnapshotWatermarkSchema, 0).success).toBe(true)
   expect(v.safeParse(sessionSnapshotWatermarkSchema, 4).success).toBe(true)
+  expect(v.safeParse(sessionSnapshotWatermarkSchema, Number.MAX_SAFE_INTEGER).success).toBe(true)
+  expect(v.safeParse(sessionSnapshotWatermarkSchema, Number.MAX_SAFE_INTEGER + 1).success).toBe(false)
   expect(v.safeParse(sessionSnapshotWatermarkSchema, -1).success).toBe(false)
   expect(v.safeParse(sessionSnapshotWatermarkSchema, 1.5).success).toBe(false)
 
@@ -64,7 +66,12 @@ test("semantic steps are bounded, typed, and strict", () => {
   ).toBe(true)
   expect(
     v.safeParse(sessionSemanticStepSchema, {
-      childReference: { childSessionId: "child-1", parentSessionId: "session-1" },
+      childReference: {
+        childRunId: "child-run-1",
+        childSessionId: "child-1",
+        delegationId: "delegation-1",
+        parentSessionId: "session-1",
+      },
       detailId: "tool-1",
       id: "step-2",
       kind: "tool",
@@ -125,7 +132,11 @@ test("latest answers bound content and metadata while retaining normal content",
     }).success,
   ).toBe(false)
   expect(
-    v.safeParse(sessionChildReferenceSchema, { childSessionId: "child-1", parentSessionId: "session-1" }).success,
+    v.safeParse(sessionChildReferenceSchema, {
+      childRunId: "child-run-1",
+      delegationId: "delegation-1",
+      parentSessionId: "session-1",
+    }).success,
   ).toBe(true)
   expect(v.safeParse(sessionChildReferenceSchema, { childSessionId: "child-1" }).success).toBe(false)
 })
@@ -155,7 +166,7 @@ test("compact run/input state is nullable per active concern and rejects unbound
 })
 
 test("keeps unsupported waiting state absent from older history pages", () => {
-  const page = { hasMore: false, nextCursor: null, semanticSteps: [], throughSeq: 0 }
+  const page = { hasMore: false, nextCursor: null, semanticSteps: [], throughPosition: 0 }
   expect(v.safeParse(sessionBoundedHistoryPageSchema, page).success).toBe(true)
   expect(v.safeParse(sessionBoundedHistoryPageSchema, { ...page, state: { input: null, run: null } }).success).toBe(
     false,
@@ -164,6 +175,7 @@ test("keeps unsupported waiting state absent from older history pages", () => {
 
 test("bounded snapshots cap semantic history and allow an empty or exhausted older page", () => {
   const snapshot = {
+    detailCursor: "detail-cursor-4",
     hasMore: true,
     latestAnswer: assistantAnswer,
     olderCursor: "cursor-opaque",
@@ -173,7 +185,7 @@ test("bounded snapshots cap semantic history and allow an empty or exhausted old
     ],
     session,
     state,
-    throughSeq: 4,
+    throughPosition: 4,
   }
   expect(v.safeParse(sessionBoundedSnapshotSchema, snapshot).success).toBe(true)
   expect(

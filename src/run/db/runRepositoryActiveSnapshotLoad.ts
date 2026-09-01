@@ -1,18 +1,17 @@
 import { createResult, type Result } from "@adaptive-ds/result"
-import { and, asc, eq } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 import * as v from "valibot"
 import type { DatabaseClient } from "../../database/databaseClient.js"
 import { databaseReadTransactionRun } from "../../database/databaseReadTransactionRun.js"
-import { journalEventTable } from "../../journal/db/journalEventTable.js"
 import { serverTable } from "../../servers/db/serverTable.js"
 import { sessionTable } from "../../session/db/sessionTable.js"
-import { streamProducerDeltaSchema } from "../../stream/schema/streamProducerDeltaSchema.js"
 import {
   type RunActiveSnapshotResponse,
   runActiveSnapshotResponseSchema,
 } from "../api/runActiveSnapshotResponseSchema.js"
 import { runErrorCodes } from "../errors/runErrorCodes.js"
 import { runResultCreateError } from "../errors/runResultCreateError.js"
+import { runActiveStateTable } from "./runActiveStateTable.js"
 import { runTable } from "./runTable.js"
 
 type RunActiveSnapshotCursorEncode = (journalId: unknown, sequence: unknown) => Result<string>
@@ -33,12 +32,25 @@ export async function runRepositoryActiveSnapshotLoad(
 
   const loaded = await databaseReadTransactionRun(database, async (transaction) => {
     const [run] = await transaction
-      .select({ failure: runTable.failure, id: runTable.id, status: runTable.status })
+      .select({
+        failure: runTable.failure,
+        id: runTable.id,
+        runActiveState: runActiveStateTable,
+        status: runTable.status,
+      })
       .from(runTable)
       .innerJoin(sessionTable, and(eq(runTable.sessionId, sessionTable.id), eq(runTable.userId, sessionTable.userId)))
       .innerJoin(
         serverTable,
         and(eq(sessionTable.serverId, serverTable.id), eq(serverTable.organizationId, organizationId)),
+      )
+      .leftJoin(
+        runActiveStateTable,
+        and(
+          eq(runActiveStateTable.runId, runTable.id),
+          eq(runActiveStateTable.sessionId, runTable.sessionId),
+          eq(runActiveStateTable.userId, runTable.userId),
+        ),
       )
       .where(and(eq(runTable.id, runId), eq(runTable.sessionId, sessionId), eq(runTable.userId, userId)))
       .limit(1)
@@ -47,27 +59,13 @@ export async function runRepositoryActiveSnapshotLoad(
     const status = v.safeParse(runActiveSnapshotResponseSchema.entries.status, run.status)
     if (!status.success) return runResultCreateError(op, "The run status is invalid.", runErrorCodes.statusInvalid)
 
-    const deltas = await transaction
-      .select({ payload: journalEventTable.payload, sequence: journalEventTable.sequence })
-      .from(journalEventTable)
-      .where(
-        and(
-          eq(journalEventTable.userId, userId),
-          eq(journalEventTable.runId, run.id),
-          eq(journalEventTable.eventType, "delta"),
-        ),
-      )
-      .orderBy(asc(journalEventTable.sequence))
-
-    let partialText = ""
-    let lastSequence = 0
-    for (const delta of deltas) {
-      const parsed = v.safeParse(streamProducerDeltaSchema, delta.payload)
-      if (!parsed.success || parsed.output.runId !== run.id || parsed.output.sessionId !== sessionId)
-        return runResultCreateError(op, "The persisted run delta is invalid.", runErrorCodes.persistedDeltaInvalid)
-      lastSequence = delta.sequence
-      if (parsed.output.deltaKind === "text") partialText += parsed.output.delta
-    }
+    if (
+      (status.output === "accepted" || status.output === "running") &&
+      (run.runActiveState === null || run.runActiveState === undefined)
+    )
+      return runResultCreateError(op, "The active run state could not be found.", runErrorCodes.activeSnapshotInvalid)
+    const lastSequence = run.runActiveState?.lastSequence ?? 0
+    const partialText = run.runActiveState?.partialText ?? ""
 
     let lastCursor: string | null = null
     if (lastSequence > 0 && dependencies.cursorEncode !== undefined) {

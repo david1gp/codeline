@@ -17,13 +17,14 @@ function sessionLatestAnswerProject(message: SessionBoundedSnapshotMessageSource
 }
 
 export function sessionBoundedSnapshotCreate(input: {
+  detailCursor: string
   hasMore: boolean
   latestAnswer: SessionBoundedSnapshotMessageSource | null
   olderCursor: string | null
   semanticSteps: SessionBoundedSnapshot["semanticSteps"]
   session: SessionBoundedSnapshot["session"]
   state: SessionBoundedSnapshot["state"]
-  throughSeq: number
+  throughPosition: number
 }): Result<SessionBoundedSnapshot> {
   const op = "sessionBoundedSnapshotCreate"
 
@@ -35,13 +36,14 @@ export function sessionBoundedSnapshotCreate(input: {
   }
 
   const parsed = v.safeParse(sessionBoundedSnapshotSchema, {
+    detailCursor: input.detailCursor,
     hasMore: input.hasMore,
     latestAnswer,
     olderCursor: input.olderCursor,
     semanticSteps: input.semanticSteps,
     session: input.session,
     state: input.state,
-    throughSeq: input.throughSeq,
+    throughPosition: input.throughPosition,
   })
   if (!parsed.success) return createResultError(op, "The bounded session snapshot representation is invalid.")
   return createResult(parsed.output)

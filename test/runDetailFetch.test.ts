@@ -8,17 +8,20 @@ test("run detail client loads normalized detail only from its encoded route", as
     fetch: async (input) => {
       requests.push(String(input))
       return Response.json({
-        run: { cancellationKind: null, failure: null, id: "run/1", sessionId: "session/1", status: "succeeded" },
-        tools: [],
-        transcript: {
-          activities: [],
-          assistantText: "Done",
-          attempts: [],
-          cancellation: null,
-          failure: null,
-          invariantViolations: [],
-          terminalOutcome: { status: "completed" },
+        detail: {
+          run: { cancellationKind: null, failure: null, id: "run/1", sessionId: "session/1", status: "succeeded" },
+          tools: [],
+          transcript: {
+            activities: [],
+            assistantText: "Done",
+            attempts: [],
+            cancellation: null,
+            failure: null,
+            invariantViolations: [],
+            terminalOutcome: { status: "completed" },
+          },
         },
+        kind: "finalized",
       })
     },
   })
@@ -33,9 +36,12 @@ test("tool detail client uses the semantic step run and detail identifiers", asy
     fetch: async (input) => {
       requests.push(String(input))
       return Response.json({
-        runId: "run/1",
-        sessionId: "session-1",
-        tool: { detailId: "tool/1", sequence: 2, toolCallId: "tool/1", toolName: "read" },
+        detail: {
+          runId: "run/1",
+          sessionId: "session-1",
+          tool: { detailId: "tool/1", sequence: 2, toolCallId: "tool/1", toolName: "read" },
+        },
+        kind: "finalized",
       })
     },
   })

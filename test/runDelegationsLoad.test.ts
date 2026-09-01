@@ -6,12 +6,16 @@ import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { organizationTable } from "../src/identity/db/organizationTable.js"
 import { runChildCreate } from "../src/run/actions/runChildCreate.js"
+import { runChildConversationLoad } from "../src/run/actions/runChildConversationLoad.js"
 import { runCreate } from "../src/run/actions/runCreate.js"
+import { runDelegationFinalize } from "../src/run/actions/runDelegationFinalize.js"
 import { runDelegationsLoad } from "../src/run/actions/runDelegationsLoad.js"
 import { runTransition } from "../src/run/actions/runTransition.js"
 import { runDelegationTable } from "../src/run/db/runDelegationTable.js"
+import { runFinalizedDetailRepositoryUpsert } from "../src/run/db/runFinalizedDetailRepositoryUpsert.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
+import { sessionDelegationReferencesLoad } from "../src/session/db/sessionDelegationReferencesLoad.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
 import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
 
@@ -106,7 +110,9 @@ test.skipIf(!databaseAvailable)("loads only authorized session delegations in cr
         childAgentId: agentId,
         childSessionId: null,
         childRunId: delegation.childRunId,
+        delegationId: delegation.id,
         delegationKey: delegation.delegationKey,
+        finalizedResult: null,
         id: delegation.id,
         parentAttemptId: delegation.parentAttemptId,
         parentRunId: delegation.parentRunId,
@@ -114,6 +120,110 @@ test.skipIf(!databaseAvailable)("loads only authorized session delegations in cr
         task: delegation.task,
       }))
     expect(loaded.data.delegations).toEqual(expected)
+
+    const references = await sessionDelegationReferencesLoad(database, userId, organizationId, sessionId)
+    expect(references.success).toBe(true)
+    if (!references.success) return
+    expect(references.data.delegations[0]?.childReference).toMatchObject({
+      childRunId: successfulChildren[0]?.data.run.id,
+      delegationId: successfulChildren[0]?.data.delegation.id,
+      parentSessionId: sessionId,
+    })
+
+    const child = successfulChildren[0]
+    if (child === undefined) return
+    expect(await runTransition(database, userId, sessionId, child.data.run.id, { status: "running" })).toMatchObject({
+      success: true,
+    })
+    expect(await runTransition(database, userId, sessionId, child.data.run.id, { status: "succeeded" })).toMatchObject({
+      success: true,
+    })
+    expect(
+      await runDelegationFinalize(database, userId, sessionId, child.data.delegation.id, {
+        status: "succeeded",
+        text: "Child completed.",
+      }),
+    ).toMatchObject({ success: true })
+    expect(
+      await runFinalizedDetailRepositoryUpsert(database, userId, sessionId, child.data.run.id, {
+        tools: [],
+        transcript: {
+          activities: [],
+          assistantText: "Child completed.",
+          attempts: [{ ordinal: 1, status: "succeeded" }],
+          cancellation: null,
+          failure: null,
+          invariantViolations: [],
+          terminalOutcome: { status: "completed" },
+        },
+      }),
+    ).toMatchObject({ success: true })
+    expect(
+      await runChildConversationLoad(
+        database,
+        userId,
+        organizationId,
+        sessionId,
+        child.data.run.id,
+        child.data.delegation.id,
+      ),
+    ).toMatchObject({
+      data: {
+        detail: { run: { id: child.data.run.id, sessionId, status: "succeeded" } },
+        kind: "finalized",
+      },
+      success: true,
+    })
+    const finalizedDelegations = await runDelegationsLoad(database, userId, organizationId, sessionId)
+    expect(finalizedDelegations).toMatchObject({
+      success: true,
+      data: {
+        delegations: expect.arrayContaining([
+          expect.objectContaining({
+            delegationId: child.data.delegation.id,
+            finalizedResult: { status: "succeeded", text: "Child completed." },
+          }),
+        ]),
+      },
+    })
+    await database
+      .update(runDelegationTable)
+      .set({ finalizedResult: { status: "invalid" } as never })
+      .where(eq(runDelegationTable.id, child.data.delegation.id))
+    expect(await runDelegationsLoad(database, userId, organizationId, sessionId)).toMatchObject({
+      code: "run.delegations-load-failed",
+      success: false,
+    })
+    expect(
+      await runChildConversationLoad(
+        database,
+        userId,
+        "delegation-load-other-organization",
+        sessionId,
+        child.data.run.id,
+        child.data.delegation.id,
+      ),
+    ).toMatchObject({ code: "run.not-found", success: false })
+    expect(
+      await runChildConversationLoad(
+        database,
+        userId,
+        organizationId,
+        sessionId,
+        child.data.run.id,
+        "delegation-load-missing-delegation",
+      ),
+    ).toMatchObject({ code: "run.not-found", success: false })
+    expect(
+      await runChildConversationLoad(
+        database,
+        userId,
+        organizationId,
+        sessionId,
+        "delegation-load-missing-child",
+        child.data.delegation.id,
+      ),
+    ).toMatchObject({ code: "run.not-found", success: false })
     expect(await runDelegationsLoad(database, "delegation-load-other-user", organizationId, sessionId)).toMatchObject({
       errorMessage: "The session could not be found.",
       success: false,

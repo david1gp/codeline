@@ -1,5 +1,6 @@
 import * as v from "valibot"
 import { apiPublicIdSchema } from "../../api/schema/apiPublicIdSchema.js"
+import { runStatusSchema } from "../../run/schema/runStatusSchema.js"
 import { sessionChildReferenceSchema } from "./sessionChildReferenceSchema.js"
 
 const semanticStepSummarySchema = v.pipe(v.string(), v.maxLength(16_384))
@@ -27,6 +28,8 @@ export const sessionSemanticStepSchema = v.variant("kind", [
     ...semanticStepBaseEntries,
     detailId: apiPublicIdSchema,
     kind: v.literal("run"),
+    status: v.optional(runStatusSchema),
+    terminalKind: v.optional(v.picklist(["cancelled", "completed", "failed", "interrupted"])),
   }),
   v.strictObject({
     ...semanticStepBaseEntries,

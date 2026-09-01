@@ -218,7 +218,11 @@ const sessionDelegationReferencesTest = async () => {
 
   const normal = loaded.data.delegations.find(({ delegation }) => delegation.delegationKey === "normal-child")
   expect(normal).toMatchObject({
-    childReference: { childSessionId: fixture.childSessionId, parentSessionId: fixture.parentSessionId },
+    childReference: {
+      childRunId: child.data.run.id,
+      delegationId: `${prefix}-delegation-normal`,
+      parentSessionId: fixture.parentSessionId,
+    },
     childSessionId: fixture.childSessionId,
     parentSessionId: fixture.parentSessionId,
   })
@@ -256,7 +260,12 @@ const sessionDelegationReferencesTest = async () => {
   expect(projected.success).toBe(true)
   if (!projected.success) return
   expect(projected.data.find((step) => step.kind === "tool")).toMatchObject({
-    childReference: { childSessionId: fixture.childSessionId, parentSessionId: fixture.parentSessionId },
+    childReference: {
+      childRunId: child.data.run.id,
+      childSessionId: fixture.childSessionId,
+      delegationId: `${prefix}-delegation-normal`,
+      parentSessionId: fixture.parentSessionId,
+    },
   })
 
   const runWithoutVisibleEvents = sessionBoundedSemanticStepsCreate({
@@ -278,6 +287,7 @@ const sessionDelegationReferencesTest = async () => {
   if (!delegations.success) return
   expect(delegations.data.delegations.find(({ delegationKey }) => delegationKey === "normal-child")).toMatchObject({
     childSessionId: fixture.childSessionId,
+    delegationId: `${prefix}-delegation-normal`,
     parentSessionId: fixture.parentSessionId,
   })
   const response = runDelegationsResponseCreate({ ...delegations.data, sessionId: fixture.parentSessionId })

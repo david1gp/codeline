@@ -58,6 +58,7 @@ import { runFailureClassResolve } from "../../run/actions/runFailureClassResolve
 import { runLoad } from "../../run/actions/runLoad.js"
 import { runProviderOutputCreate } from "../../run/actions/runProviderOutputCreate.js"
 import { runRetryAttemptCreate } from "../../run/actions/runRetryAttemptCreate.js"
+import { runTerminalFinalize } from "../../run/actions/runTerminalFinalize.js"
 import { runTransition } from "../../run/actions/runTransition.js"
 import type { attemptTable } from "../../run/db/attemptTable.js"
 import type { runTable } from "../../run/db/runTable.js"
@@ -463,6 +464,23 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
   const runRetryAttemptCreateAction = options.runRetryAttemptCreate ?? runRetryAttemptCreate
   const runTransitionAction = options.runTransition ?? runTransition
   const sessionCompactionGenerateAction = options.sessionCompactionGenerate ?? sessionCompactionGenerate
+  const runTerminalFinalizeAction = (
+    userId: string,
+    sessionId: string,
+    runId: string,
+    terminal: Parameters<typeof runTerminalFinalize>[1],
+  ) =>
+    runTerminalFinalize(
+      {
+        database: options.database,
+        journalPostCommitPublish: options.journalPostCommitPublish,
+        runId,
+        sessionId,
+        userId,
+      },
+      terminal,
+      { runTransition: runTransitionAction },
+    )
 
   api.get("/sessions", async (context) => {
     const userId = context.var.requestIdentity.userId
@@ -1112,23 +1130,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
           return createResult(undefined)
         }
         if (activeRun === undefined) return createResult(undefined)
-        const transitioned = await runTransitionAction(
-          options.database,
-          userId,
-          sessionId,
-          activeRun.id,
-          input.status === "failed"
-            ? {
-                failure: input.failure ?? {
-                  code: "compaction_failed",
-                  message: "The compaction failed.",
-                },
-                status: "failed",
-              }
-            : input.status === "aborted"
-              ? { status: "aborted" }
-              : { status: "succeeded" },
-        )
+        const transitioned = await runTerminalFinalizeAction(userId, sessionId, activeRun.id, input)
         if (!transitioned.success) return transitioned
         activeRun = transitioned.data.run
         activeAttempt = transitioned.data.attempt
@@ -1342,7 +1344,18 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
             onTerminal: async (terminal) => {
               if (activeRun === undefined || currentAttempt === undefined) return
               const providerFailureFinalize = async (): Promise<void> => {
-                if (providerOutput === undefined || terminal.failure === undefined) return
+                if (providerOutput === undefined) {
+                  if (activeRun === undefined) return
+                  const finalized = await runTerminalFinalizeAction(userId, sessionId, activeRun.id, {
+                    failure: terminal.failure,
+                    status: "failed",
+                  })
+                  if (!finalized.success) throw new Error(finalized.errorMessage)
+                  activeRun = finalized.data.run
+                  activeAttempt = finalized.data.attempt
+                  return
+                }
+                if (terminal.failure === undefined) return
                 const finalized = await providerOutput.finalize({
                   failure: terminal.failure,
                   messageId: terminal.messageId,
@@ -1355,7 +1368,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
               const providerAbortFinalize = async (): Promise<void> => {
                 if (providerOutput === undefined) {
                   if (activeRun === undefined) return
-                  const transitioned = await runTransitionAction(options.database, userId, sessionId, activeRun.id, {
+                  const transitioned = await runTerminalFinalizeAction(userId, sessionId, activeRun.id, {
                     status: "aborted",
                   })
                   if (!transitioned.success) throw new Error(transitioned.errorMessage)
@@ -1459,7 +1472,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
                   return
                 }
                 if (activeRun === undefined) return
-                const transitioned = await runTransitionAction(options.database, userId, sessionId, activeRun.id, {
+                const transitioned = await runTerminalFinalizeAction(userId, sessionId, activeRun.id, {
                   failure: terminal.failure,
                   status: "failed",
                 })
@@ -1489,6 +1502,25 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
               }
               if (providerOutput !== undefined && terminal.status === "aborted") {
                 await providerAbortFinalize()
+                return
+              }
+              if (
+                providerOutput === undefined &&
+                (terminal.status !== "failed" ||
+                  terminal.failure === undefined ||
+                  runFailureClassResolve(terminal.failure) !== "retryable")
+              ) {
+                if (terminal.status === "failed") await providerFailureFinalize()
+                else if (terminal.status === "aborted") await providerAbortFinalize()
+                else {
+                  const finalized = await runTerminalFinalizeAction(userId, sessionId, activeRun.id, {
+                    messageId: terminal.messageId,
+                    status: "succeeded",
+                  })
+                  if (!finalized.success) throw new Error(finalized.errorMessage)
+                  activeRun = finalized.data.run
+                  activeAttempt = finalized.data.attempt
+                }
                 return
               }
               const transitioned = await runTransitionAction(options.database, userId, sessionId, activeRun.id, {

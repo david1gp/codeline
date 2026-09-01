@@ -1,4 +1,14 @@
-import { type AnySQLiteColumn, foreignKey, index, integer, sqliteTable, text, unique } from "drizzle-orm/sqlite-core"
+import { sql } from "drizzle-orm"
+import {
+  type AnySQLiteColumn,
+  check,
+  foreignKey,
+  index,
+  integer,
+  sqliteTable,
+  text,
+  unique,
+} from "drizzle-orm/sqlite-core"
 import { agentTable } from "../../agents/db/agentTable.js"
 import { applicationUserTable } from "../../identity/db/applicationUserTable.js"
 import type { AgentInstructionsResolvedSnapshot } from "../../instructions/schema/agentInstructionsResolvedSnapshotSchema.js"
@@ -49,6 +59,7 @@ export const sessionTable = sqliteTable(
     metadata: text("metadata", { mode: "json" }).$type<SessionMetadata>().notNull().default({}),
     pinned: integer("pinned", { mode: "boolean" }).notNull().default(true),
     revision: integer("revision").notNull().default(1),
+    nextHistoryPosition: integer("next_history_position").notNull().default(1),
     archivedAt: integer("archived_at", { mode: "timestamp_ms" }),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).defaultNow().notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" }).defaultNow().notNull(),
@@ -56,6 +67,8 @@ export const sessionTable = sqliteTable(
   (table) => [
     unique("session_user_client_request_unique").on(table.userId, table.clientRequestId),
     unique("session_user_id_unique").on(table.userId, table.id),
+    check("session_next_history_position_positive", sql`${table.nextHistoryPosition} > 0`),
+    check("session_next_history_position_safe", sql`${table.nextHistoryPosition} <= 9007199254740991`),
     foreignKey({
       name: "session_server_primary_agent_consistency_fk",
       columns: [table.serverId, table.primaryAgentId],

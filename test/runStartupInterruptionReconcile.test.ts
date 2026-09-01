@@ -2,8 +2,8 @@ import { afterAll, beforeAll, expect, test } from "bun:test"
 import { mkdtempSync, rmSync } from "node:fs"
 import os from "node:os"
 import path from "node:path"
-import { createResult } from "@adaptive-ds/result"
-import { asc, eq, inArray } from "drizzle-orm"
+import { createResult, createResultError } from "@adaptive-ds/result"
+import { and, asc, eq, inArray } from "drizzle-orm"
 import { agentTable } from "../src/agents/db/agentTable.js"
 import { appCreate } from "../src/app/appCreate.js"
 import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
@@ -16,12 +16,16 @@ import { journalEventTable } from "../src/journal/db/journalEventTable.js"
 import { journalSequenceCounterTable } from "../src/journal/db/journalSequenceCounterTable.js"
 import { runActiveRegistryCreate } from "../src/run/actions/runActiveRegistryCreate.js"
 import { runCreate } from "../src/run/actions/runCreate.js"
+import { runProviderOutputCreate } from "../src/run/actions/runProviderOutputCreate.js"
 import { runStartupInterruptionReconcile } from "../src/run/actions/runStartupInterruptionReconcile.js"
 import { runTransition } from "../src/run/actions/runTransition.js"
 import { attemptTable } from "../src/run/db/attemptTable.js"
+import { runActiveStateTable } from "../src/run/db/runActiveStateTable.js"
+import { runFinalizedDetailTable } from "../src/run/db/runFinalizedDetailTable.js"
 import { runTable } from "../src/run/db/runTable.js"
 import { serverStart } from "../src/server/serverStart.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
+import { sessionHistoryEntryTable } from "../src/session/db/sessionHistoryEntryTable.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
 
@@ -38,6 +42,10 @@ const fixture = {
   serverId: `startup-interrupt-server-${uuidv7()}`,
   sessionId: `startup-interrupt-session-${uuidv7()}`,
   userId: `startup-interrupt-user-${uuidv7()}`,
+}
+const scheduler = {
+  clearTimeout: (_handle: unknown) => undefined,
+  setTimeout: (_handler: () => void, _timeoutMs: number) => 1,
 }
 
 beforeAll(async () => {
@@ -177,6 +185,53 @@ test.skipIf(!databaseAvailable)("interrupts active runs atomically and retains t
     2, 2,
   ])
   expect(published.map((event) => event.eventType)).toEqual(["run-interrupted", "run-interrupted"])
+  expect(
+    await database
+      .select({ id: runActiveStateTable.runId })
+      .from(runActiveStateTable)
+      .where(inArray(runActiveStateTable.runId, [accepted.data.run.id, running.data.run.id])),
+  ).toHaveLength(0)
+  expect(
+    await database
+      .select({ id: runFinalizedDetailTable.runId })
+      .from(runFinalizedDetailTable)
+      .where(inArray(runFinalizedDetailTable.runId, [accepted.data.run.id, running.data.run.id])),
+  ).toHaveLength(2)
+  const interruptedHistoryEntries = await database
+    .select({
+      changePosition: sessionHistoryEntryTable.changePosition,
+      payload: sessionHistoryEntryTable.payload,
+      sourceId: sessionHistoryEntryTable.sourceId,
+    })
+    .from(sessionHistoryEntryTable)
+    .where(
+      and(
+        eq(sessionHistoryEntryTable.sessionId, fixture.sessionId),
+        inArray(sessionHistoryEntryTable.sourceId, [accepted.data.run.id, running.data.run.id]),
+        eq(sessionHistoryEntryTable.sourceType, "run"),
+      ),
+    )
+  expect(interruptedHistoryEntries).toMatchObject([
+    { payload: { status: "aborted", terminalKind: "interrupted" } },
+    { payload: { status: "aborted", terminalKind: "interrupted" } },
+  ])
+  for (const event of interruptionEvents) {
+    const entry = interruptedHistoryEntries.find((candidate) => candidate.sourceId === event.runId)
+    expect(event.payload).toMatchObject({ changePosition: entry?.changePosition })
+  }
+  expect(
+    await database
+      .select({ id: journalEventTable.id })
+      .from(journalEventTable)
+      .where(and(eq(journalEventTable.runId, running.data.run.id), eq(journalEventTable.eventType, "delta"))),
+  ).toHaveLength(0)
+  const [interruptedDetail] = await database
+    .select()
+    .from(runFinalizedDetailTable)
+    .where(eq(runFinalizedDetailTable.runId, running.data.run.id))
+  expect(interruptedDetail).toMatchObject({
+    transcript: { terminalOutcome: { reason: "The API process stopped while the run was active.", status: "aborted" } },
+  })
 
   const repeated = await runStartupInterruptionReconcile({
     database,
@@ -187,6 +242,186 @@ test.skipIf(!databaseAvailable)("interrupts active runs atomically and retains t
   })
   expect(repeated).toEqual({ success: true, data: { interruptedRunIds: [] } })
   expect(published).toHaveLength(2)
+})
+
+test.skipIf(!databaseAvailable)("finalizes interrupted tool details before deleting their deltas", async () => {
+  const sessionId = `startup-tool-session-${uuidv7()}`
+  await database.insert(sessionTable).values({
+    clientRequestId: uuidv7(),
+    id: sessionId,
+    metadata: {},
+    primaryAgentId: fixture.agentId,
+    serverId: fixture.serverId,
+    title: "Startup tool interruption",
+    userId: fixture.userId,
+  })
+
+  try {
+    const created = await runCreate(database, fixture.userId, sessionId, {
+      budget: { maxDurationMs: 10_000 },
+      clientRunId: `startup-tool-client-${uuidv7()}`,
+      snapshot: {
+        configuration: { model: "deterministic-model", provider: "deterministic" as const },
+        configurationRevision: "configuration-revision-1",
+        target: { agentId: fixture.agentId, serverId: fixture.serverId },
+      },
+      streamId: `startup-tool-stream-${uuidv7()}`,
+    })
+    expect(created.success).toBe(true)
+    if (!created.success) return
+    expect(
+      await runTransition(database, fixture.userId, sessionId, created.data.run.id, { status: "running" }),
+    ).toMatchObject({
+      success: true,
+    })
+    const provider = runProviderOutputCreate({
+      database,
+      journalPostCommitPublish: async () => createResult(undefined),
+      requestId: `startup-tool-request-${uuidv7()}`,
+      runId: created.data.run.id,
+      scheduler,
+      sessionId,
+      userId: fixture.userId,
+    })
+    const toolCallId = "startup-interrupted-tool"
+    expect(await provider.append({ eventType: "tool_start", payload: { toolCallId, toolName: "bash" } })).toMatchObject(
+      {
+        success: true,
+      },
+    )
+    await provider.flush()
+    expect(
+      await provider.append({
+        eventType: "tool_output",
+        payload: { output: "partial output", toolCallId, truncated: false },
+      }),
+    ).toMatchObject({ success: true })
+    await provider.flush()
+
+    const reconciled = await runStartupInterruptionReconcile({
+      database,
+      postCommitPublish: async () => createResult(undefined),
+    })
+    expect(reconciled).toEqual({ success: true, data: { interruptedRunIds: [created.data.run.id] } })
+    expect(
+      await database
+        .select({ id: journalEventTable.id })
+        .from(journalEventTable)
+        .where(and(eq(journalEventTable.runId, created.data.run.id), eq(journalEventTable.eventType, "delta"))),
+    ).toHaveLength(0)
+    const [detail] = await database
+      .select()
+      .from(runFinalizedDetailTable)
+      .where(eq(runFinalizedDetailTable.runId, created.data.run.id))
+    expect(detail).toMatchObject({
+      tools: [expect.objectContaining({ output: "partial output", toolCallId, toolName: "bash" })],
+      transcript: { terminalOutcome: { status: "aborted" } },
+    })
+    expect(
+      await database
+        .select()
+        .from(sessionHistoryEntryTable)
+        .where(
+          and(
+            eq(sessionHistoryEntryTable.sourceType, "tool"),
+            eq(sessionHistoryEntryTable.sourceId, created.data.run.id),
+            eq(sessionHistoryEntryTable.sourceDetailId, toolCallId),
+          ),
+        ),
+    ).toMatchObject([{ payload: { outputAvailable: true, summary: "bash · running", toolCallId } }])
+  } finally {
+    await database.delete(sessionTable).where(eq(sessionTable.id, sessionId))
+  }
+})
+
+test.skipIf(!databaseAvailable)("rolls back startup interruption when finalized detail persistence fails", async () => {
+  const sessionId = `startup-rollback-session-${uuidv7()}`
+  await database.insert(sessionTable).values({
+    clientRequestId: uuidv7(),
+    id: sessionId,
+    metadata: {},
+    primaryAgentId: fixture.agentId,
+    serverId: fixture.serverId,
+    title: "Startup interruption rollback",
+    userId: fixture.userId,
+  })
+
+  try {
+    const created = await runCreate(database, fixture.userId, sessionId, {
+      budget: { maxDurationMs: 10_000 },
+      clientRunId: `startup-rollback-client-${uuidv7()}`,
+      snapshot: {
+        configuration: { model: "deterministic-model", provider: "deterministic" as const },
+        configurationRevision: "configuration-revision-1",
+        target: { agentId: fixture.agentId, serverId: fixture.serverId },
+      },
+      streamId: `startup-rollback-stream-${uuidv7()}`,
+    })
+    expect(created.success).toBe(true)
+    if (!created.success) return
+    expect(
+      await runTransition(database, fixture.userId, sessionId, created.data.run.id, { status: "running" }),
+    ).toMatchObject({
+      success: true,
+    })
+    const provider = runProviderOutputCreate({
+      database,
+      journalPostCommitPublish: async () => createResult(undefined),
+      requestId: `startup-rollback-request-${uuidv7()}`,
+      runId: created.data.run.id,
+      scheduler,
+      sessionId,
+      userId: fixture.userId,
+    })
+    expect(await provider.append({ delta: "retain this delta", type: "TEXT_MESSAGE_CONTENT" })).toMatchObject({
+      success: true,
+    })
+    await provider.flush()
+
+    const reconciled = await runStartupInterruptionReconcile({
+      database,
+      postCommitPublish: async () => createResult(undefined),
+      runFinalizedDetailUpsert: async () => createResultError("failureInjection", "detail persistence failed"),
+    })
+    expect(reconciled).toMatchObject({ success: false })
+    expect(
+      await database.select({ status: runTable.status }).from(runTable).where(eq(runTable.id, created.data.run.id)),
+    ).toEqual([{ status: "running" }])
+    expect(
+      await database
+        .select({ status: attemptTable.status })
+        .from(attemptTable)
+        .where(eq(attemptTable.runId, created.data.run.id)),
+    ).toEqual([{ status: "running" }])
+    expect(
+      await database.select().from(runActiveStateTable).where(eq(runActiveStateTable.runId, created.data.run.id)),
+    ).toHaveLength(1)
+    expect(
+      await database
+        .select()
+        .from(runFinalizedDetailTable)
+        .where(eq(runFinalizedDetailTable.runId, created.data.run.id)),
+    ).toHaveLength(0)
+    expect(
+      await database
+        .select({ eventType: journalEventTable.eventType })
+        .from(journalEventTable)
+        .where(eq(journalEventTable.runId, created.data.run.id)),
+    ).toEqual([{ eventType: "delta" }])
+    expect(
+      await database
+        .select()
+        .from(sessionHistoryEntryTable)
+        .where(
+          and(
+            eq(sessionHistoryEntryTable.sourceType, "run"),
+            eq(sessionHistoryEntryTable.sourceId, created.data.run.id),
+          ),
+        ),
+    ).toMatchObject([{ payload: { status: "running" } }])
+  } finally {
+    await database.delete(sessionTable).where(eq(sessionTable.id, sessionId))
+  }
 })
 
 test.skipIf(!databaseAvailable)("does not reconcile a run already owned by the current process", async () => {

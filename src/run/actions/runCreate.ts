@@ -6,6 +6,7 @@ export function runCreate(
   userId: string,
   sessionId: string,
   input: Parameters<typeof runRepositoryCreate>[3],
+  options: Parameters<typeof runRepositoryCreate>[4] = {},
 ): ReturnType<typeof runRepositoryCreate> {
-  return runRepositoryCreate(database, userId, sessionId, input)
+  return runRepositoryCreate(database, userId, sessionId, input, options)
 }

@@ -7,6 +7,7 @@ export function runTransition(
   sessionId: string,
   runId: string,
   input: Parameters<typeof runRepositoryTransition>[4],
+  options: Parameters<typeof runRepositoryTransition>[5] = {},
 ): ReturnType<typeof runRepositoryTransition> {
-  return runRepositoryTransition(database, userId, sessionId, runId, input)
+  return runRepositoryTransition(database, userId, sessionId, runId, input, options)
 }
