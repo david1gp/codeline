@@ -7,7 +7,7 @@ import { signedOutCachedBrowsingResolve } from "../src/ui/signedOutCachedBrowsin
 
 const signedInOnline = {
   cacheStatus: "ready" as const,
-  hasCachedRecord: true,
+  hasCachedSnapshot: true,
   hasLiveSession: true,
   isOnline: true,
   isSignedIn: true,
@@ -27,7 +27,7 @@ test("a signed-out reader without a cached record is not granted cached browsing
   expect(
     sessionReadOnlyReasonResolve({
       ...signedInOnline,
-      hasCachedRecord: false,
+      hasCachedSnapshot: false,
       hasLiveSession: false,
       isSignedIn: false,
     }),

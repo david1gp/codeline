@@ -214,8 +214,8 @@ export function eventFeedCoordinatorStateCreate(options: EventFeedCoordinatorOpt
       }
       return options.reconciliation.resourceRevalidate(resource)
     },
-    sessionSnapshotReplace: async (snapshot) => {
-      const replaced = await options.reconciliation.sessionSnapshotReplace(snapshot)
+    sessionSnapshotReplace: async (snapshot, instruction) => {
+      const replaced = await options.reconciliation.sessionSnapshotReplace(snapshot, instruction)
       if (!replaced.success) return replaced
       dataRevisionBump()
       // A completion checkpoint replaces assembled live state with the authoritative

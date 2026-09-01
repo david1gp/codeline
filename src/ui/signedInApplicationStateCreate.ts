@@ -4,7 +4,6 @@ import { appShellStateCreate } from "./appShellStateCreate.js"
 import { eventFeedCoordinatorStateCreate } from "./eventFeedCoordinatorStateCreate.js"
 import { eventFeedReconciliationCreate } from "./eventFeedReconciliationCreate.js"
 import { protectedShellStateCreate } from "./protectedShellStateCreate.js"
-import { sessionSettledCompletionCacheRegistry } from "./sessionSettledCompletionCacheRegistry.js"
 
 type SignedInApplicationStateOptions = {
   displayName: () => string
@@ -30,10 +29,7 @@ export function signedInApplicationStateCreate(options: SignedInApplicationState
     connectionIndicator: state.events,
     eventSourceFactory: (url, eventSourceOptions) => new EventSource(url, eventSourceOptions),
     onAuthenticationError: options.sessionClear,
-    reconciliation: eventFeedReconciliationCreate({
-      fetch: fetcher,
-      settledSnapshotCacheWrite: sessionSettledCompletionCacheRegistry.write,
-    }),
+    reconciliation: eventFeedReconciliationCreate({ fetch: fetcher }),
   })
 
   onMount(() => {

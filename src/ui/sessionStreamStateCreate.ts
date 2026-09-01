@@ -1,5 +1,6 @@
-import type { EventFeedRun, EventFeedState } from "../stream/client/eventFeedStateCreate.js"
 import type { SessionCompactRunInputState } from "../session/api/sessionCompactRunInputStateSchema.js"
+import type { SessionDetailEvent } from "../session/api/sessionDetailEventSchema.js"
+import type { SessionSemanticStep } from "../session/api/sessionSemanticStepSchema.js"
 import {
   type SessionStreamDelegation,
   type SessionStreamGroup,
@@ -8,12 +9,13 @@ import {
 import { sessionStreamInFlightDerive } from "./sessionStreamInFlightDerive.js"
 import type { TransientActivity } from "./transientMessageActivitiesResolve.js"
 
+type SessionDetailEntryEvent = Extract<SessionDetailEvent, { eventType: "entry" }>
 type SessionStreamInput = Parameters<typeof sessionStreamGroupsDerive>[0]
 
 type SessionStreamStateOptions = {
   boundedState?: () => SessionCompactRunInputState | undefined
   delegations: () => ReadonlyArray<SessionStreamDelegation>
-  eventFeedState?: () => EventFeedState
+  detailEntries?: () => readonly SessionDetailEntryEvent[]
   inFlightRunId: () => string | null
   inFlightMessages: () => ReadonlyArray<{
     activities?: ReadonlyArray<TransientActivity>
@@ -22,173 +24,121 @@ type SessionStreamStateOptions = {
     role: string
   }>
   isEnabled: () => boolean
+  semanticSteps?: () => readonly SessionSemanticStep[]
   sessionId: () => string | undefined
-  throughSeq?: () => number | undefined
 }
 
-function sessionStreamRunStatusResolve(run: EventFeedRun): string {
-  if (run.terminalStatus === "succeeded") return "succeeded"
-  if (run.terminalStatus === "failed") return "failed"
-  if (run.terminalStatus === "aborted") return "aborted"
-  return run.phase
+function sessionStreamPayloadRecord(payload: unknown): Record<string, unknown> {
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) return {}
+  return payload as Record<string, unknown>
 }
 
-/**
- * A durable `tool` delta carries the serialized execution event, so its concrete
- * type has to be recovered from the payload. Collapsing every tool delta into
- * `tool_output` would erase the `tool_start` events the delegation links are
- * derived from, which is exactly what the stream view renders as a subagent link.
- */
-function sessionStreamDeltaEventResolve(delta: { delta: string; deltaKind: string }): {
-  eventType: string
-  payload: unknown
-} {
-  if (delta.deltaKind === "text") return { eventType: "text_delta", payload: { delta: delta.delta } }
-  if (delta.deltaKind === "thinking") return { eventType: "thinking_status", payload: { status: delta.delta } }
-  try {
-    const parsed: unknown = JSON.parse(delta.delta)
-    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-      const eventType = (parsed as { eventType?: unknown }).eventType
-      if (typeof eventType === "string") return { eventType, payload: parsed }
-      // The persisted payload is the event's own payload, so its shape names the phase.
-      const record = parsed as Record<string, unknown>
-      if (typeof record.toolName === "string") return { eventType: "tool_start", payload: parsed }
-      if (record.outcome !== undefined || record.result !== undefined)
-        return { eventType: "tool_result", payload: parsed }
-      return { eventType: "tool_output", payload: parsed }
-    }
-  } catch (_error: unknown) {
-    // A non-JSON tool delta is rendered as plain output below.
-  }
-  return { eventType: "tool_output", payload: { output: delta.delta } }
+function sessionStreamStatusResolve(payload: Record<string, unknown>, fallback: string): string {
+  return typeof payload.status === "string"
+    ? payload.status
+    : typeof payload.outcome === "string"
+      ? payload.outcome
+      : fallback
 }
 
-function sessionStreamFeedInputResolve(
-  state: EventFeedState | undefined,
+function sessionStreamDetailInputResolve(
   sessionId: string | undefined,
-  boundedState?: SessionCompactRunInputState,
-  throughSeq?: number,
+  boundedState: SessionCompactRunInputState | undefined,
+  detailEntries: readonly SessionDetailEntryEvent[],
+  semanticSteps: readonly SessionSemanticStep[],
 ): SessionStreamInput {
   if (sessionId === undefined) return { delegations: [], events: [], runs: [] }
-  const feedRuns = [...(state?.activeRuns.values() ?? [])].filter((run) => run.sessionId === sessionId)
-  if (throughSeq === undefined) {
-    const runs = feedRuns.map((run) => ({
-      // The feed identifies a run, not the attempt that produced an event, so the
-      // attempt is left unidentified rather than given a synthetic id that could
-      // never match a persisted delegation's parent attempt.
-      attempts: [{ ordinal: 1, status: sessionStreamRunStatusResolve(run), streamId: run.runId }],
-      clientRunId: run.runId,
+  const runs = new Map<string, SessionStreamInput["runs"][number]>()
+  const events: Array<SessionStreamInput["events"][number]> = []
+  for (const step of semanticSteps) {
+    if (step.kind !== "run") continue
+    const status = step.terminalKind ?? step.status ?? "running"
+    runs.set(step.detailId, {
+      attempts: [{ ordinal: 1, status, streamId: step.detailId }],
+      clientRunId: step.detailId,
+      createdAt: step.sequence,
+      id: step.detailId,
+      status,
+      streamId: step.detailId,
+      ...(step.terminalKind === undefined ? {} : { terminal: { id: step.id, kind: step.terminalKind } }),
+    })
+  }
+  const activeRun = boundedState?.run?.sessionId === sessionId ? boundedState.run : undefined
+  if (activeRun !== undefined) {
+    runs.set(activeRun.runId, {
+      attempts: [{ ordinal: 1, status: activeRun.status, streamId: activeRun.runId }],
+      clientRunId: activeRun.runId,
       createdAt: 0,
-      id: run.runId,
-      snapshot: undefined,
-      status: sessionStreamRunStatusResolve(run),
-      streamId: run.runId,
-    }))
-    const events = feedRuns.flatMap((run) => [
-      ...run.deltas.map((delta) => ({
+      id: activeRun.runId,
+      status: activeRun.status,
+      streamId: activeRun.runId,
+    })
+    if (activeRun.partialText.length > 0)
+      events.push({
         createdAt: 0,
-        ...sessionStreamDeltaEventResolve(delta),
-        id: `${run.runId}:${delta.sequence}`,
-        sequence: delta.sequence,
-        streamId: run.runId,
-      })),
-      ...(run.terminalStatus === null
-        ? []
-        : [
-            {
-              createdAt: 0,
-              eventType: "terminal",
-              id: `${run.runId}:terminal`,
-              payload: { status: run.terminalStatus === "aborted" ? "aborted" : run.terminalStatus },
-              sequence: run.lastSequence + 1,
-              streamId: run.runId,
-            },
-          ]),
-    ])
-    return { events, runs }
+        eventType: "text_delta",
+        id: `${activeRun.runId}:snapshot`,
+        payload: { delta: activeRun.partialText },
+        sequence: activeRun.lastSequence,
+        streamId: activeRun.runId,
+      })
   }
 
-  const snapshotRun = boundedState?.run?.sessionId === sessionId ? boundedState.run : null
-  const relevantFeedRuns = feedRuns.filter((run) => run.runId === snapshotRun?.runId || run.lastSequence > throughSeq)
-  const feedRunsById = new Map(relevantFeedRuns.map((run) => [run.runId, run]))
-  const runIds = new Set<string>()
-  if (snapshotRun !== null) runIds.add(snapshotRun.runId)
-  for (const run of relevantFeedRuns) runIds.add(run.runId)
-  const runs = [...runIds].map((runId) => {
-    const feedRun = feedRunsById.get(runId)
-    const status = feedRun === undefined ? (snapshotRun?.status ?? "running") : sessionStreamRunStatusResolve(feedRun)
-    return {
+  for (const entry of detailEntries) {
+    if (entry.sessionId !== sessionId || entry.kind === "message") continue
+    const payload = sessionStreamPayloadRecord(entry.payload)
+    const runId =
+      entry.kind === "run" ? entry.sourceId : typeof payload.runId === "string" ? payload.runId : entry.sourceId
+    const terminalKind =
+      entry.kind === "run" &&
+      typeof payload.terminalKind === "string" &&
+      ["cancelled", "completed", "failed", "interrupted"].includes(payload.terminalKind)
+        ? (payload.terminalKind as "cancelled" | "completed" | "failed" | "interrupted")
+        : undefined
+    const status = terminalKind ?? sessionStreamStatusResolve(payload, "running")
+    const existing = runs.get(runId)
+    runs.set(runId, {
       attempts: [{ ordinal: 1, status, streamId: runId }],
       clientRunId: runId,
-      createdAt: 0,
+      createdAt: existing?.createdAt ?? entry.position,
       id: runId,
-      snapshot: undefined,
       status,
       streamId: runId,
-    }
-  })
-  const events = [...runIds].flatMap((runId) => {
-    const feedRun = feedRunsById.get(runId)
-    const tail = (feedRun?.deltas ?? []).filter((delta) => delta.sequence > throughSeq)
-    const snapshotPartial = snapshotRun?.runId === runId ? snapshotRun.partialText : ""
-    const reconciledPartial =
-      feedRun !== undefined && feedRun.lastSequence > throughSeq && feedRun.deltas.length === 0
-        ? feedRun.partialText
-        : ""
-    const partialText = reconciledPartial || snapshotPartial
-    return [
-      ...(partialText.length === 0
-        ? []
-        : [
-            {
-              createdAt: 0,
-              eventType: "text_delta",
-              id: `${runId}:bounded:${throughSeq}`,
-              payload: { delta: partialText },
-              sequence: snapshotRun?.runId === runId ? snapshotRun.lastSequence : throughSeq,
-              streamId: runId,
-            },
-          ]),
-      ...tail.map((delta) => ({
-        createdAt: 0,
-        ...sessionStreamDeltaEventResolve(delta),
-        id: `${runId}:${delta.sequence}`,
-        sequence: delta.sequence,
+      ...(terminalKind !== undefined
+        ? { terminal: { id: entry.entryId, kind: terminalKind } }
+        : existing?.terminal === undefined
+          ? {}
+          : { terminal: existing.terminal }),
+    })
+    if (entry.kind === "tool") {
+      events.push({
+        createdAt: entry.position,
+        eventType: "tool_start",
+        id: entry.entryId,
+        payload: {
+          toolCallId: typeof payload.toolCallId === "string" ? payload.toolCallId : entry.sourceDetailId,
+          toolName: typeof payload.toolName === "string" ? payload.toolName : "Tool",
+        },
+        sequence: entry.changePosition,
         streamId: runId,
-      })),
-      ...(feedRun?.terminalStatus === null || feedRun === undefined
-        ? []
-        : [
-            {
-              createdAt: 0,
-              eventType: "terminal",
-              id: `${runId}:terminal`,
-              payload: { status: feedRun.terminalStatus === "aborted" ? "aborted" : feedRun.terminalStatus },
-              sequence: feedRun.lastSequence + 1,
-              streamId: runId,
-            },
-          ]),
-    ]
-  })
-  return { events, runs }
+      })
+      continue
+    }
+  }
+  return { events, runs: [...runs.values()] }
 }
 
-/**
- * Event-feed and in-flight stream content for the alternative session display.
- * Settled output is represented by finalized messages; active run deltas come
- * directly from the shared journal-backed event feed.
- */
 export function sessionStreamStateCreate(options: SessionStreamStateOptions) {
   const activeSessionId = () => (options.isEnabled() ? options.sessionId() : undefined)
-  const feedInput = () =>
-    sessionStreamFeedInputResolve(
-      options.eventFeedState?.(),
-      activeSessionId(),
-      options.boundedState?.(),
-      options.throughSeq?.(),
-    )
   const durableEntryCache: NonNullable<SessionStreamInput["entryCache"]> = new Map()
   let durableEntryCacheSessionId: string | undefined
+  const feedInput = () =>
+    sessionStreamDetailInputResolve(
+      activeSessionId(),
+      options.boundedState?.(),
+      options.detailEntries?.() ?? [],
+      options.semanticSteps?.() ?? [],
+    )
   const durableGroups = () => {
     const sessionId = activeSessionId()
     if (sessionId !== durableEntryCacheSessionId) {
@@ -204,20 +154,18 @@ export function sessionStreamStateCreate(options: SessionStreamStateOptions) {
   const inFlightScope = () => {
     if (activeSessionId() === undefined) return undefined
     const runId = options.inFlightRunId()
-    if (runId === null) return undefined
-    // The feed reports the run, not its attempt, so the delegation is matched by
-    // run identity; a delegation key is unique inside its parent run anyway.
-    return { parentRunId: runId }
+    return runId === null ? undefined : { parentRunId: runId }
   }
   const revalidate = () => undefined
 
   return {
     groups: (): ReadonlyArray<SessionStreamGroup> => {
+      const input = feedInput()
       const inFlight = sessionStreamInFlightDerive(
         options.inFlightMessages(),
         options.delegations(),
         inFlightScope(),
-        feedInput().runs,
+        input.runs,
       )
       return inFlight === undefined ? durableGroups() : [...durableGroups(), inFlight]
     },

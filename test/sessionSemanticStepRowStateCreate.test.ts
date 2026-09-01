@@ -16,9 +16,12 @@ test("semantic tool detail waits for expansion and can be retried", async () => 
         requests.push(String(input))
         if (fail) return Response.json({ error: { message: "Unavailable" } }, { status: 503 })
         return Response.json({
-          runId: "run-1",
-          sessionId: "session-1",
-          tool: { detailId: "tool-1", sequence: 2, toolCallId: "tool-1", toolName: "read" },
+          detail: {
+            runId: "run-1",
+            sessionId: "session-1",
+            tool: { detailId: "tool-1", sequence: 2, toolCallId: "tool-1", toolName: "read" },
+          },
+          kind: "finalized",
         })
       },
       sessionId: () => "session-1",
@@ -45,5 +48,8 @@ test("semantic tool detail waits for expansion and can be retried", async () => 
   state.detailRetry()
   await settle()
   expect(requests).toHaveLength(2)
-  expect(state.detail()).toMatchObject({ runId: "run-1", tool: { detailId: "tool-1" } })
+  expect(state.detail()).toMatchObject({
+    detail: { runId: "run-1", tool: { detailId: "tool-1" } },
+    kind: "finalized",
+  })
 })

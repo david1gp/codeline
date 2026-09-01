@@ -44,7 +44,7 @@ export type SelectedSessionView = {
   latestAnswer: () => SessionLatestAnswer
   compactState: () => SessionCompactRunInputState | undefined
   semanticSteps: () => ReadonlyArray<SessionSemanticStep>
-  throughSeq: () => number | undefined
+  throughPosition: () => number | undefined
   hasOlderHistory: () => boolean
   loadOlderHistory: () => void
   /** Explains why the open session is read-only, or null when it is editable. */

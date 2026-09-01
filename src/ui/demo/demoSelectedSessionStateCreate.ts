@@ -87,7 +87,7 @@ export function demoSelectedSessionStateCreate(options: DemoSelectedSessionState
     latestAnswer: () => null,
     compactState: () => undefined,
     semanticSteps: () => [],
-    throughSeq: () => undefined,
+    throughPosition: () => undefined,
     hasOlderHistory: () => false,
     loadOlderHistory: () => undefined,
     readOnlyNotice: () => undefined,

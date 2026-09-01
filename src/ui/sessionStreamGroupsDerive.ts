@@ -60,6 +60,10 @@ type SessionStreamRunRow = {
   snapshot?: unknown
   status: string
   streamId: string
+  terminal?: {
+    id: string
+    kind: "cancelled" | "completed" | "failed" | "interrupted"
+  }
 }
 
 type SessionStreamOrigin = {
@@ -433,19 +437,31 @@ export function sessionStreamGroupsDerive(input: {
     if (existing) existing.push(event)
     else byStream.set(event.streamId, [event])
   }
+  for (const run of input.runs) {
+    if (run.terminal !== undefined && !byStream.has(run.streamId)) byStream.set(run.streamId, [])
+  }
 
   const groups = [...byStream.entries()].map(([streamId, events]) => {
     const origin = origins.get(streamId)
     const ordered = [...events].sort((left, right) => left.sequence - right.sequence || left.id.localeCompare(right.id))
+    const run = input.runs.find((candidate) => candidate.streamId === streamId)
+    const entries = streamEntriesCollect(
+      ordered,
+      origin,
+      input.delegations ?? [],
+      input.runs,
+      input.entryCache,
+      entryReuseUpdates,
+    )
+    if (run?.terminal !== undefined)
+      entries.push({
+        id: run.terminal.id,
+        kind: "terminal",
+        label: "Terminal",
+        status: run.terminal.kind,
+      })
     return {
-      entries: streamEntriesCollect(
-        ordered,
-        origin,
-        input.delegations ?? [],
-        input.runs,
-        input.entryCache,
-        entryReuseUpdates,
-      ),
+      entries,
       id: streamId,
       label: origin?.label ?? "Stream",
       ...(origin?.status === undefined ? {} : { status: origin.status }),

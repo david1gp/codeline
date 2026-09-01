@@ -4,6 +4,10 @@ import { finalizedMessageCopyStateCreate } from "../message/ui/finalizedMessageC
 import type { CodelineExecution } from "../providers/schema/codelineExecutionSchema.js"
 import { sessionDelegationsFetch } from "../run/ui/sessionDelegationsFetch.js"
 import { sessionBoundedHistoryStateCreate } from "../session/client/sessionBoundedHistoryStateCreate.js"
+import { sessionDetailSemanticStepCreate } from "../session/client/sessionDetailSemanticStepCreate.js"
+import { sessionDetailStateCreate } from "../session/client/sessionDetailStateCreate.js"
+import { sessionLastActiveAccountRead } from "../session/client/sessionLastActiveAccountRead.js"
+import { sessionLastActiveAccountWrite } from "../session/client/sessionLastActiveAccountWrite.js"
 import { sessionReadOnlyNoticeResolve } from "../session/client/sessionReadOnlyNoticeResolve.js"
 import { sessionReadOnlyReasonResolve } from "../session/client/sessionReadOnlyReasonResolve.js"
 import { sessionEtagFetch } from "../session/ui/sessionEtagFetch.js"
@@ -25,8 +29,6 @@ import { sessionInitialMessageStateCreate } from "./sessionInitialMessageStateCr
 import type { SessionNavigationState } from "./sessionNavigationStateCreate.js"
 import type { SessionProjectTarget } from "./sessionProjectTarget.js"
 import { sessionPinToggleStateCreate } from "./sessionPinToggleStateCreate.js"
-import { sessionSettledCacheViewStateCreate } from "./sessionSettledCacheViewStateCreate.js"
-import { sessionSettledCompletionCacheRegistry } from "./sessionSettledCompletionCacheRegistry.js"
 import { sessionStreamStateCreate } from "./sessionStreamStateCreate.js"
 import { sessionSubagentThreadStateCreate } from "./sessionSubagentThreadStateCreate.js"
 import { sessionViewAcknowledgeStateCreate } from "./sessionViewAcknowledgeStateCreate.js"
@@ -56,26 +58,40 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
   const selectedSessionKey = () => selectedSessionId() ?? undefined
   const isSignedIn = () => (account?.userId() ?? null) !== null
   const isOnline = () => pwa?.status() !== "offline"
-  const settledCache = sessionSettledCacheViewStateCreate({
+  const cacheUserId = () => account?.userId() ?? sessionLastActiveAccountRead()
+  createEffect(() => {
+    const userId = account?.userId() ?? null
+    if (userId !== null) sessionLastActiveAccountWrite(userId)
+  })
+  const boundedHistory = sessionBoundedHistoryStateCreate({
+    enabled: () => isSignedIn() && isOnline(),
     ...(fetcher === undefined ? {} : { fetch: fetcher }),
     isOnline,
     sessionId: selectedSessionId,
-    userId: () => account?.userId() ?? null,
+    userId: cacheUserId,
   })
-  const boundedHistory = sessionBoundedHistoryStateCreate({
-    enabled: isSignedIn,
-    ...(fetcher === undefined ? {} : { fetch: fetcher }),
-    sessionId: selectedSessionId,
+  const selectedDetail = sessionDetailStateCreate({
+    enabled: () => isSignedIn() && isOnline(),
+    resnapshot: () => boundedHistory.refresh(),
+    snapshot: boundedHistory.snapshot,
   })
-  const liveSession = () => boundedHistory.snapshot()?.session
-  const cachedSession = () => settledCache.record()?.payload.session
-  const session = () => liveSession() ?? cachedSession()
+  const semanticSteps = () => {
+    const byId = new Map(boundedHistory.semanticSteps().map((step) => [step.id, step]))
+    for (const entry of selectedDetail.entries()) {
+      const step = sessionDetailSemanticStepCreate(entry)
+      if (step.success) byId.set(step.data.id, step.data)
+    }
+    return [...byId.values()].sort((left, right) => left.sequence - right.sequence || left.id.localeCompare(right.id))
+  }
+  const liveSession = () => (boundedHistory.hasOnlineSnapshot() ? boundedHistory.snapshot()?.session : undefined)
+  const session = () => boundedHistory.snapshot()?.session
   const sessionResult = () => ({
     retry: boundedHistory.retry,
     type:
       boundedHistory.isError() && boundedHistory.snapshot() === undefined
         ? ("error" as const)
-        : boundedHistory.isLoading() && boundedHistory.snapshot() === undefined
+        : (boundedHistory.isLoading() || boundedHistory.cacheStatus() === "loading") &&
+            boundedHistory.snapshot() === undefined
           ? ("unknown" as const)
           : ("complete" as const),
   })
@@ -87,7 +103,7 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
   }
   const boundedMessages = () => {
     const latestAnswer = boundedHistory.latestAnswer()
-    const messages = boundedHistory.semanticSteps().flatMap((step) => {
+    const messages = semanticSteps().flatMap((step) => {
       if (step.kind !== "message") return []
       return [
         {
@@ -103,14 +119,14 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
       (left, right) => left.sequence - right.sequence || left.id.localeCompare(right.id),
     )
   }
-  const messages = () =>
-    boundedHistory.snapshot() === undefined ? settledCache.record()?.payload.messages : boundedMessages()
+  const messages = () => (boundedHistory.snapshot() === undefined ? undefined : boundedMessages())
   const messagesResult = () => ({
     retry: boundedHistory.retry,
     type:
       boundedHistory.isError() && boundedHistory.snapshot() === undefined
         ? ("error" as const)
-        : boundedHistory.isLoading() && boundedHistory.snapshot() === undefined
+        : (boundedHistory.isLoading() || boundedHistory.cacheStatus() === "loading") &&
+            boundedHistory.snapshot() === undefined
           ? ("unknown" as const)
           : ("complete" as const),
   })
@@ -128,8 +144,8 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
     }))
   const readOnlyReason = createMemo(() =>
     sessionReadOnlyReasonResolve({
-      cacheStatus: boundedHistory.isError() ? "error" : settledCache.status(),
-      hasCachedRecord: settledCache.record() !== undefined,
+      cacheStatus: boundedHistory.cacheStatus(),
+      hasCachedSnapshot: boundedHistory.hasCachedSnapshot(),
       hasLiveSession: liveSession() !== undefined,
       isOnline: isOnline(),
       isSignedIn: isSignedIn(),
@@ -234,7 +250,7 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
   const streamState = sessionStreamStateCreate({
     boundedState: boundedHistory.state,
     delegations: streamDelegations,
-    ...(eventFeed === undefined ? {} : { eventFeedState: () => eventFeed.dataState }),
+    detailEntries: selectedDetail.entries,
     inFlightRunId: () => {
       const currentSession = session()
       return currentSession ? (chatCreate(currentSession.id).runId?.() ?? null) : null
@@ -244,8 +260,8 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
       return currentSession ? chatCreate(currentSession.id).pendingMessages() : []
     },
     isEnabled: () => displayMode.mode() === "stream" || subagentThread.selected() !== undefined,
+    semanticSteps,
     sessionId: () => session()?.id,
-    throughSeq: boundedHistory.throughSeq,
   })
   const initialMessage = sessionInitialMessageStateCreate({
     chatCreate,
@@ -259,7 +275,7 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
   const revalidate = () => {
     boundedHistory.refresh()
     delegationsQuery.refresh()
-    streamState.revalidate()
+    selectedDetail.reconnect()
   }
   const boundedRefresh = () => boundedHistory.refresh()
 
@@ -279,8 +295,6 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
       },
       sessionId: selectedSessionId,
     }),
-    eventFeed?.registerSelectedStream({ refresh: streamState.revalidate, sessionId: selectedSessionId }),
-    sessionSettledCompletionCacheRegistry.register(settledCache.completionReconcile),
   ].filter((unregister): unregister is () => void => unregister !== undefined)
   onCleanup(() => {
     for (const unregister of unregisterEventFeed) unregister()
@@ -324,8 +338,8 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
     messages: durableMessages,
     latestAnswer: boundedHistory.latestAnswer,
     compactState: boundedHistory.state,
-    semanticSteps: boundedHistory.semanticSteps,
-    throughSeq: boundedHistory.throughSeq,
+    semanticSteps,
+    throughPosition: boundedHistory.throughPosition,
     hasOlderHistory: boundedHistory.hasMore,
     isOlderHistoryError: boundedHistory.isOlderError,
     isOlderHistoryLoading: boundedHistory.isOlderLoading,
@@ -342,10 +356,7 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
     subagentThread,
     hasSelection: () => selectedSessionId() !== null,
     isSessionLoading: () =>
-      selectedSessionId() !== null &&
-      settledCache.status() === "loading" &&
-      sessionResult().type === "unknown" &&
-      session() === undefined,
+      selectedSessionId() !== null && sessionResult().type === "unknown" && session() === undefined,
     isSessionError: () => readOnlyReason() === null && sessionResult().type === "error" && session() === undefined,
     isMessagesLoading: () => session() !== undefined && messagesResult().type === "unknown" && messages() === undefined,
     isMessagesRefreshing: () => readOnlyReason() === null && boundedHistory.isRefreshing(),
