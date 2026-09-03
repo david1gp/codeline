@@ -43,8 +43,6 @@ export default defineConfig(({ mode }) => {
           replacement: resolve(dependenciesRoot, "decode-named-character-reference/index.js"),
         },
         { find: /^valibot$/, replacement: resolve(dependenciesRoot, "valibot") },
-        { find: "clsx", replacement: resolve(dependenciesRoot, "clsx") },
-        { find: "tailwind-merge", replacement: resolve(dependenciesRoot, "tailwind-merge") },
       ],
     },
     define: {
