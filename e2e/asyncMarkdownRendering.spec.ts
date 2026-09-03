@@ -42,39 +42,79 @@ test("the managed preview renders submitted Markdown with the bundled worker", a
 
     const composer = page.getByRole("form", { name: "Chat composer" })
     await composer.getByLabel("Message").fill(markdownPrompt)
+    const chatRequestPromise = page.waitForRequest(
+      (request) =>
+        request.method() === "POST" && request.url().includes("/api/sessions/") && request.url().endsWith("/chat"),
+    )
+    const submittedRunIdPromise = chatRequestPromise.then((request) => {
+      const requestBody = request.postDataJSON() as { runId?: unknown } | null
+      if (typeof requestBody?.runId !== "string") throw new Error("Expected chat POST request body to include runId")
+      return requestBody.runId
+    })
+    let releaseRunSnapshot: (() => void) | undefined
+    const runSnapshotGate = new Promise<void>((resolve) => {
+      releaseRunSnapshot = resolve
+    })
+    await page.route("**/api/sessions/*/runs/*/snapshot", async (route) => {
+      const submittedRunId = await submittedRunIdPromise
+      const snapshotPath = new URL(route.request().url()).pathname
+      const relevantSnapshot =
+        route.request().method() === "GET" && snapshotPath.endsWith(`/runs/${submittedRunId}/snapshot`)
+      if (relevantSnapshot) await runSnapshotGate
+      const response = await route.fetch()
+      await route.fulfill({ response })
+    })
     const chatResponsePromise = page.waitForResponse(
       (response) =>
         response.request().method() === "POST" &&
         response.url().includes("/api/sessions/") &&
         response.url().endsWith("/chat"),
     )
-    await composer.getByRole("button", { name: "Send" }).click()
-    const chatResponse = await chatResponsePromise
-    expect(chatResponse.ok()).toBe(true)
-
-    // The submitted message is rendered while it is still in flight and then keeps
-    // that rendering once it is finalized. A deterministic run can settle before the
-    // browser is sampled, so the message is located in whichever list currently
-    // holds it instead of racing the in-flight window.
-    const submittedMessage = page
-      .locator('[aria-label="In-flight messages"] li, [aria-label="Finalized messages"] article')
+    const inFlightMessages = page.getByRole("list", { name: "In-flight messages", exact: true })
+    const submittedInFlightMessage = inFlightMessages
+      .locator(":scope > li")
       .filter({ hasText: "Browser worker Markdown" })
       .first()
-    await expect(submittedMessage).toBeVisible({ timeout: syncTimeout })
+    try {
+      await composer.getByRole("button", { name: "Send" }).click()
+      const submittedRunId = await submittedRunIdPromise
+      const chatResponse = await chatResponsePromise
+      expect(chatResponse.ok()).toBe(true)
+      expect(submittedRunId).toEqual(expect.any(String))
 
-    // The raw fallback is a transient pre-render state, so only its replacement by
-    // worker-rendered HTML is asserted; the fallback itself may never be observed.
-    const submittedHtml = submittedMessage.locator(
-      ".markdown-content--message:not(.markdown-content--message-fallback)",
-    )
-    await expect(submittedHtml.locator("h1")).toBeVisible({ timeout: syncTimeout })
-    await expect(submittedHtml.locator("h1")).toHaveText("Browser worker Markdown")
-    await expect(submittedHtml.locator("strong")).toBeVisible({ timeout: syncTimeout })
-    await expect(submittedHtml.locator("strong")).toHaveText("bold fallback")
-    await expect(submittedMessage.locator(".markdown-content--message-fallback")).toHaveCount(0)
+      await expect(submittedInFlightMessage).toBeVisible({ timeout: syncTimeout })
 
-    const bundledWorker = await bundledWorkerPromise
-    expect(bundledWorker.url()).toContain("markdownHtmlRender.worker")
+      // The raw fallback is a transient pre-render state, so only its replacement by
+      // worker-rendered HTML is asserted; the fallback itself may never be observed.
+      const submittedHtml = submittedInFlightMessage.locator(
+        ".markdown-content--message:not(.markdown-content--message-fallback)",
+      )
+      await expect(submittedHtml.locator("h1")).toBeVisible({ timeout: syncTimeout })
+      await expect(submittedHtml.locator("h1")).toHaveText("Browser worker Markdown")
+      await expect(submittedHtml.locator("strong")).toBeVisible({ timeout: syncTimeout })
+      await expect(submittedHtml.locator("strong")).toHaveText("bold fallback")
+      await expect(submittedInFlightMessage.locator(".markdown-content--message-fallback")).toHaveCount(0)
+    } finally {
+      // Hold the request until the worker assertion above has observed the in-flight
+      // message; this synchronizes on the UI state rather than an arbitrary delay.
+      releaseRunSnapshot?.()
+
+      const bundledWorker = await bundledWorkerPromise
+      expect(bundledWorker.url()).toContain("markdownHtmlRender.worker")
+    }
+
+    const recentActivity = page.getByRole("list", { name: "Recent semantic activity", exact: true })
+    const submittedRecentMessage = recentActivity
+      .locator(':scope > li[data-session-message-role="user"]')
+      .filter({ hasText: "Browser worker Markdown" })
+      .first()
+    await expect(submittedRecentMessage).toBeVisible({ timeout: syncTimeout })
+    // Semantic history intentionally renders the lightweight summary as text, not
+    // as the full Markdown document rendered in the in-flight message body.
+    await expect(submittedRecentMessage.getByText(markdownPrompt, { exact: true })).toBeVisible({
+      timeout: syncTimeout,
+    })
+    await expect(inFlightMessages).toHaveCount(0, { timeout: syncTimeout })
   } finally {
     for (const context of contexts) {
       try {

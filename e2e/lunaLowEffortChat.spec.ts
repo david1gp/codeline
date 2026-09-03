@@ -3,6 +3,7 @@ import { e2eBrowserDiagnosticsInstall } from "./e2eBrowserDiagnosticsInstall.js"
 import { e2eMemberSessionsIssue } from "./e2eMemberSessionsIssue.js"
 import { e2eMemberSessionsPurge } from "./e2eMemberSessionsPurge.js"
 import { e2eRunIdCreate } from "./e2eRunIdCreate.js"
+import { e2eSessionCreate } from "./e2eSessionCreate.js"
 
 const baseOrigin = process.env.PUBLIC_ORIGIN ?? "https://preview.codeline.work"
 const sessionCookieName = "__Host-codeline-session"
@@ -52,18 +53,17 @@ test("Luna low-effort chat preserves the selected execution and finalizes ping p
     }
     expect(lunaServer, "Seed required: no server exposes the luna-high agent.").toBeDefined()
 
-    const sessionResponse = await context.request.post(`${baseOrigin}/api/sessions`, {
-      data: {
-        clientRequestId: `e2e-luna-low-effort-${runId}`,
-        primaryAgentId: lunaAgentId,
-        serverId: lunaServer?.id,
-        title: `Luna low effort ${runId}`,
-      },
-      headers: { origin: baseOrigin },
+    const sessionResponse = await e2eSessionCreate(context, baseOrigin, {
+      clientRequestId: `e2e-luna-low-effort-${runId}`,
+      primaryAgentId: lunaAgentId,
+      serverId: lunaServer?.id,
+      title: `Luna low effort ${runId}`,
     })
     expect(sessionResponse.ok(), await sessionResponse.text()).toBe(true)
     const sessionBody = (await sessionResponse.json()) as { session: { id: string } }
     const sessionId = sessionBody.session.id
+    const sessionDetailEventsPath = `/api/sessions/${encodeURIComponent(sessionId)}/events`
+    const delegationsPath = `/api/sessions/${encodeURIComponent(sessionId)}/delegations`
 
     const page = await context.newPage()
     diagnostics = e2eBrowserDiagnosticsInstall(page, test.info(), {
@@ -71,8 +71,19 @@ test("Luna low-effort chat preserves the selected execution and finalizes ping p
       // session finishes loading; that intentional fetch abort is not a browser error.
       expected: (event) =>
         event.kind === "requestfailed" &&
+        event.method === "GET" &&
         event.errorText === "net::ERR_ABORTED" &&
-        event.url.endsWith(`/api/sessions/${sessionId}/delegations`),
+        (() => {
+          try {
+            const url = new URL(event.url)
+            return (
+              url.origin === new URL(baseOrigin).origin &&
+              (url.pathname === sessionDetailEventsPath || url.pathname === delegationsPath)
+            )
+          } catch (_error) {
+            return false
+          }
+        })(),
     })
     await page.goto(`/sessions/${encodeURIComponent(sessionId)}`)
 
@@ -122,12 +133,12 @@ test("Luna low-effort chat preserves the selected execution and finalizes ping p
       tools: [],
     })
 
-    const finalizedMessages = page.getByRole("list", { name: "Finalized messages" })
-    const assistantMessages = finalizedMessages.locator('article[data-message-role="assistant"]')
-    const userMessages = finalizedMessages.locator('article[data-message-role="user"]')
-    await expect(assistantMessages).toHaveCount(1, { timeout: syncTimeout })
+    const recentActivity = page.getByRole("list", { name: "Recent semantic activity", exact: true })
+    const latestAnswer = page.getByRole("region", { name: "Latest agent answer", exact: true })
+    const userMessages = recentActivity.locator("li[data-session-message-role='user']")
+    await expect(latestAnswer).toHaveCount(1, { timeout: syncTimeout })
     await expect(userMessages).toHaveCount(1, { timeout: syncTimeout })
-    await expect(assistantMessages.getByText("pong", { exact: true })).toBeVisible({ timeout: syncTimeout })
+    await expect(latestAnswer.getByText("pong", { exact: true })).toBeVisible({ timeout: syncTimeout })
     await expect(userMessages.getByText(prompt, { exact: true })).toBeVisible({ timeout: syncTimeout })
     await expect(page.getByRole("list", { name: "Run failures" })).toHaveCount(0, { timeout: syncTimeout })
     await expect(page.getByRole("alert")).toHaveCount(0, { timeout: syncTimeout })

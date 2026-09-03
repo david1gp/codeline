@@ -3,6 +3,7 @@ import { oidcEnvironmentConfigurationResolve } from "../scripts/oidcEnvironmentC
 import { e2eMemberSessionsIssue } from "./e2eMemberSessionsIssue.js"
 import { e2eMemberSessionsPurge } from "./e2eMemberSessionsPurge.js"
 import { e2eRunIdCreate } from "./e2eRunIdCreate.js"
+import { e2eSessionCreate } from "./e2eSessionCreate.js"
 
 const sessionCookieName = "__Host-codeline-session"
 const baseOrigin = process.env.PUBLIC_ORIGIN ?? "https://preview.codeline.work"
@@ -75,9 +76,11 @@ test("organization members share targets while personal sessions stay private", 
     const privateTitle = `Private session ${runId}`
     const sharedTitle = `Shared target session ${runId}`
     const sessionCreate = (context: BrowserContext, title: string, clientRequestId: string) =>
-      context.request.post(`${baseOrigin}/api/sessions`, {
-        data: { clientRequestId, primaryAgentId: primaryAgent.id, serverId: firstServer.id, title },
-        headers: { origin: baseOrigin },
+      e2eSessionCreate(context, baseOrigin, {
+        clientRequestId,
+        primaryAgentId: primaryAgent.id,
+        serverId: firstServer.id,
+        title,
       })
 
     const created = await sessionCreate(contextOne, privateTitle, `e2e-one-${runId}`)

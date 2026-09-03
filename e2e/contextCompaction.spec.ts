@@ -3,6 +3,7 @@ import { e2eExampleDataSeedForMember, e2eExampleDataSeedRestore } from "./e2eExa
 import { e2eMemberSessionsIssue } from "./e2eMemberSessionsIssue.js"
 import { e2eMemberSessionsPurge } from "./e2eMemberSessionsPurge.js"
 import { e2eRunIdCreate } from "./e2eRunIdCreate.js"
+import { e2eSessionCreate } from "./e2eSessionCreate.js"
 
 const baseOrigin = process.env.PUBLIC_ORIGIN ?? "https://preview.codeline.work"
 const sessionCookieName = "__Host-codeline-session"
@@ -27,14 +28,11 @@ async function memberContextOpen(browser: Browser, token: string): Promise<Brows
 }
 
 async function sessionCreate(context: BrowserContext, runId: string): Promise<string> {
-  const response = await context.request.post(`${baseOrigin}/api/sessions`, {
-    data: {
-      clientRequestId: `e2e-compaction-${runId}`,
-      primaryAgentId: scenarioAgentId,
-      serverId,
-      title: `Context compaction ${runId}`,
-    },
-    headers: { origin: baseOrigin },
+  const response = await e2eSessionCreate(context, baseOrigin, {
+    clientRequestId: `e2e-compaction-${runId}`,
+    primaryAgentId: scenarioAgentId,
+    serverId,
+    title: `Context compaction ${runId}`,
   })
   expect(response.ok(), await response.text()).toBe(true)
   const body = (await response.json()) as { session: { id: string; primaryAgentId: string; serverId: string } }
@@ -129,19 +127,16 @@ test("manual deterministic compaction stays transient across completion and relo
     for (const [index, prompt] of historyPrompts.entries()) {
       const response = await chatSubmit(page, sessionId, prompt)
       expect(response.sessionId).toBe(sessionId)
-      const finalized = page.getByRole("list", { name: "Finalized messages" })
-      await expect(finalized.locator('article[data-message-role="user"]')).toHaveCount(index + 1, {
+      const recentActivity = page.getByRole("list", { name: "Recent semantic activity", exact: true })
+      const userRows = recentActivity.locator(':scope > li[data-session-message-role="user"]')
+      const assistantRows = recentActivity.locator(':scope > li[data-session-message-role="assistant"]')
+      await expect(userRows).toHaveCount(index + 1, {
         timeout: syncTimeout,
       })
-      await expect(finalized.locator('article[data-message-role="assistant"]')).toHaveCount(index + 1, {
+      await expect(assistantRows).toHaveCount(index + 1, {
         timeout: syncTimeout,
       })
-      await expect(finalized.locator('article[data-message-role="assistant"]').nth(index)).toContainText(
-        summaryMarker,
-        {
-          timeout: syncTimeout,
-        },
-      )
+      await expect(assistantRows.nth(index)).toContainText(summaryMarker, { timeout: syncTimeout })
       await expect(page.getByRole("list", { name: "In-flight messages" })).toHaveCount(0, { timeout: syncTimeout })
     }
 
@@ -171,27 +166,30 @@ test("manual deterministic compaction stays transient across completion and relo
     const afterManualMessages = await messagesRead(context, sessionId)
     expect(afterManualMessages).toEqual(sourceMessages)
     expect(afterManualMessages.some(({ content }) => content.trim() === "/compact")).toBe(false)
-    const finalizedAfterManual = page.getByRole("list", { name: "Finalized messages" })
-    await expect(finalizedAfterManual.locator('article[data-message-role="user"]')).toHaveCount(historyPrompts.length)
-    await expect(finalizedAfterManual.locator('article[data-message-role="assistant"]')).toHaveCount(
+    const recentActivityAfterManual = page.getByRole("list", { name: "Recent semantic activity", exact: true })
+    await expect(recentActivityAfterManual.locator(':scope > li[data-session-message-role="user"]')).toHaveCount(
+      historyPrompts.length,
+    )
+    await expect(recentActivityAfterManual.locator(':scope > li[data-session-message-role="assistant"]')).toHaveCount(
       historyPrompts.length,
     )
     await expect(page.getByText("/compact", { exact: true })).toHaveCount(0)
 
     await page.reload()
-    const reloadedFinalized = page.getByRole("list", { name: "Finalized messages" })
-    await expect(reloadedFinalized).toBeVisible({ timeout: syncTimeout })
-    await expect(reloadedFinalized.locator('article[data-message-role="user"]')).toHaveCount(historyPrompts.length, {
-      timeout: syncTimeout,
-    })
-    await expect(reloadedFinalized.locator('article[data-message-role="assistant"]')).toHaveCount(
+    const reloadedActivity = page.getByRole("list", { name: "Recent semantic activity", exact: true })
+    await expect(reloadedActivity).toBeVisible({ timeout: syncTimeout })
+    await expect(reloadedActivity.locator(':scope > li[data-session-message-role="user"]')).toHaveCount(
       historyPrompts.length,
       {
         timeout: syncTimeout,
       },
     )
+    await expect(reloadedActivity.locator(':scope > li[data-session-message-role="assistant"]')).toHaveCount(
+      historyPrompts.length,
+      { timeout: syncTimeout },
+    )
     for (const prompt of historyPrompts) {
-      await expect(reloadedFinalized.getByText(prompt.slice(0, prompt.indexOf("\n")), { exact: false })).toBeVisible({
+      await expect(reloadedActivity.getByText(prompt.slice(0, prompt.indexOf("\n")), { exact: false })).toBeVisible({
         timeout: syncTimeout,
       })
     }
@@ -201,19 +199,14 @@ test("manual deterministic compaction stays transient across completion and relo
     const followUp = `post-compaction follow-up ${runId}`
     const followUpResponse = await chatSubmit(page, sessionId, followUp)
     expect(followUpResponse.sessionId).toBe(sessionId)
-    await expect(
-      reloadedFinalized.locator('article[data-message-role="user"]').getByText(followUp, { exact: true }),
-    ).toBeVisible({ timeout: syncTimeout })
-    await expect(reloadedFinalized.locator('article[data-message-role="assistant"]')).toHaveCount(
+    await expect(reloadedActivity.getByText(followUp, { exact: true })).toBeVisible({ timeout: syncTimeout })
+    await expect(reloadedActivity.locator(':scope > li[data-session-message-role="assistant"]')).toHaveCount(
       historyPrompts.length + 1,
       { timeout: syncTimeout },
     )
-    await expect(reloadedFinalized.locator('article[data-message-role="assistant"]').last()).toContainText(
-      summaryMarker,
-      {
-        timeout: syncTimeout,
-      },
-    )
+    await expect(page.getByRole("region", { name: "Latest agent answer", exact: true })).toContainText(summaryMarker, {
+      timeout: syncTimeout,
+    })
     await expect(page.getByRole("list", { name: "In-flight messages" })).toHaveCount(0, { timeout: syncTimeout })
     await expect
       .poll(async () => (await runSnapshotRead(context as BrowserContext, sessionId, followUpResponse.runId)).status, {

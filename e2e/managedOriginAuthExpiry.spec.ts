@@ -18,6 +18,12 @@ function sessionBody(page: Page) {
   return page.getByRole("main")
 }
 
+function semanticHistory(page: Page) {
+  return sessionBody(page)
+    .getByRole("region", { name: "Recent activity", exact: true })
+    .getByRole("list", { name: "Recent semantic activity", exact: true })
+}
+
 function readOnlyNotice(page: Page) {
   return page.locator("[data-session-read-only='true']")
 }
@@ -68,8 +74,8 @@ test("an expired identity session severs the event feed and signs the workspace 
     // Authenticated baseline: the workspace renders the member's own data and
     // every mutation surface is live, so a later withdrawal is meaningful.
     await page.goto(`/sessions/${settledSessionId}`)
-    await expect(page.getByText(settledSessionTitle).first()).toBeVisible()
-    await expect(sessionBody(page).getByText(settledUserMessage)).toBeVisible()
+    await expect(page.getByText(settledSessionTitle, { exact: true }).first()).toBeVisible()
+    await expect(semanticHistory(page).getByText(settledUserMessage, { exact: true })).toBeVisible()
     await expect(readOnlyNotice(page)).toHaveCount(0)
     await expect(page.getByRole("button", { name: `Rename ${settledSessionTitle}` })).toBeVisible()
     await expect(page.getByRole("textbox", { name: "Message" })).toBeEnabled()
@@ -87,7 +93,7 @@ test("an expired identity session severs the event feed and signs the workspace 
     // A reconnect with the expired cookie is rejected, and so is every other
     // authenticated read.
     expect(await eventFeedStatusRead(page)).toBe(401)
-    const snapshot = await context.request.get(`${baseOrigin}/api/sessions/${settledSessionId}/snapshot`)
+    const snapshot = await context.request.get(`${baseOrigin}/api/sessions/${settledSessionId}/bounded-snapshot`)
     expect(snapshot.status()).toBe(401)
 
     // Sever and recycle the live feed through the application's own offline and
@@ -110,9 +116,11 @@ test("an expired identity session severs the event feed and signs the workspace 
     // No authenticated shell survives anywhere: an account-agnostic route falls
     // back to the provider selection page rather than any retained identity.
     await page.goto("/")
-    await expect(page.getByRole("heading", { name: "Sign in to Codeline" })).toBeVisible()
-    await expect(page.getByRole("link", { name: /Continue with .* SSO/ })).toBeVisible()
-    await expect(page.getByRole("heading", { name: "Dashboard" })).toHaveCount(0)
+    const login = page.getByRole("main")
+    await expect(login.getByRole("heading", { name: "Sign in to Codeline", exact: true })).toBeVisible()
+    await expect(login.getByRole("link", { name: "Continue with Authworks SSO", exact: true })).toBeVisible()
+    await expect(login.getByRole("link", { name: "Continue with Zitadel SSO", exact: true })).toBeVisible()
+    await expect(login.getByRole("heading", { name: "Dashboard", exact: true })).toHaveCount(0)
 
     await page.close()
   } finally {

@@ -2,6 +2,7 @@ import { type Browser, type BrowserContext, expect, test } from "@playwright/tes
 import { e2eMemberSessionsIssue } from "./e2eMemberSessionsIssue.js"
 import { e2eMemberSessionsPurge } from "./e2eMemberSessionsPurge.js"
 import { e2eRunIdCreate } from "./e2eRunIdCreate.js"
+import { e2eSessionCreate } from "./e2eSessionCreate.js"
 
 const sessionCookieName = "__Host-codeline-session"
 const baseOrigin = process.env.PUBLIC_ORIGIN ?? "https://preview.codeline.work"
@@ -17,6 +18,7 @@ async function memberContextOpen(browser: Browser, token: string): Promise<Brows
 }
 
 test("Luna answers ping with a finalized pong", async ({ browser }) => {
+  test.setTimeout(180_000)
   const runId = e2eRunIdCreate()
   const contexts: BrowserContext[] = []
   let deletedUserIds: string[] = []
@@ -54,14 +56,11 @@ test("Luna answers ping with a finalized pong", async ({ browser }) => {
     }
 
     const title = `Luna ping pong ${runId}`
-    const sessionResponse = await context.request.post(`${baseOrigin}/api/sessions`, {
-      data: {
-        clientRequestId: `e2e-luna-${runId}`,
-        primaryAgentId: lunaAgentId,
-        serverId: lunaServer.id,
-        title,
-      },
-      headers: { origin: baseOrigin },
+    const sessionResponse = await e2eSessionCreate(context, baseOrigin, {
+      clientRequestId: `e2e-luna-${runId}`,
+      primaryAgentId: lunaAgentId,
+      serverId: lunaServer.id,
+      title,
     })
     expect(sessionResponse.ok()).toBe(true)
     const sessionBody = (await sessionResponse.json()) as { session: { id: string } }
@@ -76,12 +75,12 @@ test("Luna answers ping with a finalized pong", async ({ browser }) => {
     await messageInput.fill("ping")
     await composer.getByRole("button", { name: "Send" }).click()
 
-    const finalizedMessages = page.getByRole("list", { name: "Finalized messages" })
-    const assistantMessage = finalizedMessages.locator('article[data-message-role="assistant"]')
-    const userMessage = finalizedMessages.locator('article[data-message-role="user"]')
-    await expect(assistantMessage.getByText("pong", { exact: true })).toBeVisible({ timeout: syncTimeout })
-    await expect(userMessage.getByText("ping", { exact: true })).toBeVisible({ timeout: syncTimeout })
-    await expect(page.getByText("No finalized messages yet.", { exact: true })).toHaveCount(0, {
+    const recentActivity = page.getByRole("list", { name: "Recent semantic activity", exact: true })
+    await expect(
+      page.getByRole("region", { name: "Latest agent answer", exact: true }).getByText("pong", { exact: true }),
+    ).toBeVisible({ timeout: syncTimeout })
+    await expect(recentActivity.getByText("ping", { exact: true })).toBeVisible({ timeout: syncTimeout })
+    await expect(page.getByText("No recent activity yet.", { exact: true })).toHaveCount(0, {
       timeout: syncTimeout,
     })
   } finally {

@@ -3,6 +3,7 @@ import { e2eMemberSessionsIssue } from "./e2eMemberSessionsIssue.js"
 import { e2eMemberSessionsPurge } from "./e2eMemberSessionsPurge.js"
 import { e2eRepositoryRoot } from "./e2eRepositoryRoot.js"
 import { e2eRunIdCreate } from "./e2eRunIdCreate.js"
+import { e2eSessionCreate } from "./e2eSessionCreate.js"
 
 const baseOrigin = process.env.PUBLIC_ORIGIN ?? "https://preview.codeline.work"
 const sessionCookieName = "__Host-codeline-session"
@@ -49,10 +50,7 @@ async function sessionCreate(
   context: BrowserContext,
   body: Record<string, unknown>,
 ): Promise<SessionCreateResponse["session"]> {
-  const response = await context.request.post(`${baseOrigin}/api/sessions`, {
-    data: { projectPath: e2eRepositoryRoot, serverId, ...body },
-    headers: { origin: baseOrigin },
-  })
+  const response = await e2eSessionCreate(context, baseOrigin, { serverId, ...body })
   expect(response.ok(), await response.text()).toBe(true)
   return ((await response.json()) as SessionCreateResponse).session
 }
@@ -200,13 +198,11 @@ test("the composer discovers, previews, and submits project slash commands", asy
     await draftSet(input, "/review src/index.ts naming")
     await send.click()
 
-    const finalized = page.getByRole("list", { name: "Finalized messages" })
-    await expect(
-      finalized.locator('article[data-message-role="user"]').getByText("Review src/index.ts with a focus on naming.", {
-        exact: true,
-      }),
-    ).toBeVisible({ timeout: syncTimeout })
-    await expect(finalized.locator('article[data-message-role="assistant"]').getByText(scenarioText)).toBeVisible({
+    const recentActivity = page.getByRole("list", { name: "Recent semantic activity", exact: true })
+    await expect(recentActivity.getByText("Review src/index.ts with a focus on naming.", { exact: true })).toBeVisible({
+      timeout: syncTimeout,
+    })
+    await expect(page.getByRole("region", { name: "Latest agent answer", exact: true })).toContainText(scenarioText, {
       timeout: syncTimeout,
     })
     // The composer is cleared, so the expansion is not resubmitted.
@@ -277,23 +273,23 @@ test("enabled bash interpolation, subtask, and model overrides expand into the p
     await expect(send).toBeEnabled()
     await send.click()
 
-    const finalized = page.getByRole("list", { name: "Finalized messages" })
-    const userMessages = finalized.locator('article[data-message-role="user"]')
+    const recentActivity = page.getByRole("list", { name: "Recent semantic activity", exact: true })
+    const activityEntryWithMessage = (message: string) => recentActivity.getByText(message, { exact: true })
     await expect(
-      userMessages.getByText(`The interpolated marker is ${bashInterpolationMarker} for now.`, { exact: true }),
+      activityEntryWithMessage(`The interpolated marker is ${bashInterpolationMarker} for now.`),
     ).toBeVisible({ timeout: syncTimeout })
 
     // A subtask command runs through delegation and still persists its identity.
     await draftSet(input, "/subtask check the marker")
     await send.click()
-    await expect(
-      userMessages.getByText("Handle check the marker as a delegated subtask.", { exact: true }),
-    ).toBeVisible({ timeout: syncTimeout })
+    await expect(activityEntryWithMessage("Handle check the marker as a delegated subtask.")).toBeVisible({
+      timeout: syncTimeout,
+    })
 
     // A model override is validated against the session agent before it runs.
     await draftSet(input, "/simulate the model override")
     await send.click()
-    await expect(userMessages.getByText("Simulate the model override.", { exact: true })).toBeVisible({
+    await expect(activityEntryWithMessage("Simulate the model override.")).toBeVisible({
       timeout: syncTimeout,
     })
 
@@ -363,12 +359,10 @@ test("a pre-session command creates its session and submits the expansion once",
 
     // Creation, readiness, and submission all happen from the one action.
     await expect(page).toHaveURL(/\/sessions\/(?!new)[^/?]+/, { timeout: syncTimeout })
-    const finalized = page.getByRole("list", { name: "Finalized messages" })
-    await expect(
-      finalized.locator('article[data-message-role="user"]').getByText("Review src/index.ts with a focus on naming.", {
-        exact: true,
-      }),
-    ).toBeVisible({ timeout: syncTimeout })
+    const recentActivity = page.getByRole("list", { name: "Recent semantic activity", exact: true })
+    await expect(recentActivity.getByText("Review src/index.ts with a focus on naming.", { exact: true })).toBeVisible({
+      timeout: syncTimeout,
+    })
 
     const sessionId = new URL(page.url()).pathname.split("/").filter((segment) => segment.length > 0)[1] ?? ""
     expect(sessionId.length).toBeGreaterThan(0)

@@ -11,9 +11,18 @@ const execFileAsync = promisify(execFile)
  * which keeps the settled-session assertions stable across runs.
  */
 export async function e2eExampleDataSeedForMember(input: { subject: string; userId: string }): Promise<void> {
+  // The empty roots value selects fixture-only seed mode for this child process. It
+  // does not configure the already-running managed API; project registration for
+  // direct session creation goes through its API in e2eSessionCreate.
+  const fixtureEnvironment = {
+    ...process.env,
+    CODELINE_PROJECT_ROOTS: "[]",
+    EXAMPLE_DATA_SUBJECT: input.subject,
+    EXAMPLE_DATA_USER_ID: input.userId,
+  }
   await execFileAsync("bun", ["run", "db:seed"], {
     cwd: e2eRepositoryRoot,
-    env: { ...process.env, EXAMPLE_DATA_SUBJECT: input.subject, EXAMPLE_DATA_USER_ID: input.userId },
+    env: fixtureEnvironment,
   })
 }
 

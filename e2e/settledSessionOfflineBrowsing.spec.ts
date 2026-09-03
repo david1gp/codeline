@@ -8,6 +8,8 @@ import { e2eRunIdCreate } from "./e2eRunIdCreate.js"
 const sessionCookieName = "__Host-codeline-session"
 const baseOrigin = process.env.PUBLIC_ORIGIN ?? "https://preview.codeline.work"
 const lastActiveAccountStorageKey = "codeline-last-active-account"
+const serviceWorkerScriptUrl = new URL("/service-worker.js", baseOrigin).href
+const serviceWorkerControllerChangeStorageKey = "codeline-e2e-service-worker-controller-change"
 
 const cachedSessionId = "example-session-active-1"
 const cachedSessionTitle = "Build the workspace shell"
@@ -52,14 +54,84 @@ function sessionBody(page: Page) {
   return page.getByRole("main")
 }
 
+function semanticHistory(page: Page) {
+  return sessionBody(page)
+    .getByRole("region", { name: "Recent activity", exact: true })
+    .getByRole("list", { name: "Recent semantic activity", exact: true })
+}
+
 function readOnlyNotice(page: Page) {
   return page.locator("[data-session-read-only='true']")
 }
 
+async function serviceWorkerCurrentShellEnsure(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const registration = await navigator.serviceWorker.ready
+    await registration.update()
+  })
+
+  const waiting = await page.evaluate(async () => {
+    const registration = await navigator.serviceWorker.ready
+    return registration.waiting !== null
+  })
+
+  if (waiting) {
+    // Exercise the same visible update action as production. It posts the
+    // repository's skip-waiting message and reloads from controllerchange.
+    await page.evaluate((storageKey) => {
+      sessionStorage.removeItem(storageKey)
+      navigator.serviceWorker.addEventListener(
+        "controllerchange",
+        () => sessionStorage.setItem(storageKey, "changed"),
+        { once: true },
+      )
+    }, serviceWorkerControllerChangeStorageKey)
+
+    const updateReload = page.getByRole("button", { name: "Reload to update", exact: true })
+    await expect(updateReload).toBeVisible()
+    const navigation = page.waitForEvent("framenavigated", (frame) => frame === page.mainFrame())
+    await updateReload.click()
+    await navigation
+    await page.waitForLoadState("load")
+    await expect
+      .poll(() =>
+        page.evaluate((storageKey) => sessionStorage.getItem(storageKey), serviceWorkerControllerChangeStorageKey),
+      )
+      .toBe("changed")
+  }
+
+  await expect
+    .poll(
+      async () =>
+        page.evaluate(async (scriptUrl) => {
+          const registration = await navigator.serviceWorker.ready
+          return (
+            registration.active?.state === "activated" &&
+            registration.waiting === null &&
+            navigator.serviceWorker.controller?.scriptURL === scriptUrl
+          )
+        }, serviceWorkerScriptUrl),
+      { timeout: 30_000 },
+    )
+    .toBe(true)
+
+  const currentAssetUrl = await page.evaluate(() => {
+    const script = document.querySelector<HTMLScriptElement>('script[type="module"][src]')
+    return script === null ? undefined : new URL(script.src, window.location.href).href
+  })
+  if (currentAssetUrl === undefined) throw new Error("The current application asset was not loaded.")
+  expect(new URL(currentAssetUrl).pathname.startsWith("/assets/")).toBe(true)
+
+  const currentAssetResponse = await page.context().request.get(currentAssetUrl, {
+    headers: { "Cache-Control": "no-cache" },
+  })
+  expect(currentAssetResponse.ok(), await currentAssetResponse.text()).toBe(true)
+}
+
 async function cachedSessionExpectRendered(page: Page): Promise<void> {
-  await expect(page.getByText(cachedSessionTitle).first()).toBeVisible()
-  await expect(sessionBody(page).getByText(cachedUserMessage)).toBeVisible()
-  await expect(sessionBody(page).getByText(cachedAssistantMessage)).toBeVisible()
+  await expect(page.getByText(cachedSessionTitle, { exact: true }).first()).toBeVisible()
+  await expect(semanticHistory(page).getByText(cachedUserMessage, { exact: true })).toBeVisible()
+  await expect(semanticHistory(page).getByText(cachedAssistantMessage, { exact: true })).toBeVisible()
 }
 
 test("a settled session cached while signed in stays readable signed out and offline", async ({ browser }) => {
@@ -83,6 +155,10 @@ test("a settled session cached while signed in stays readable signed out and off
     // Seed the device-local cache purely through public application behavior:
     // signing in and opening the settled session writes the record and the
     // last-active-account preference.
+    // Establish the current shell before any offline cache records are written;
+    // otherwise a waiting worker could leave the reload on an older shell.
+    await page.goto("/")
+    await serviceWorkerCurrentShellEnsure(page)
     await page.goto(`/sessions/${cachedSessionId}`)
     await cachedSessionExpectRendered(page)
     await expect(readOnlyNotice(page)).toHaveCount(0)
@@ -120,13 +196,15 @@ test("a settled session cached while signed in stays readable signed out and off
       .getByRole("button", { name: new RegExp(otherSessionTitle) })
       .first()
       .click()
-    await expect(sessionBody(page).getByText(otherSessionTitle).first()).toBeVisible()
+    await expect(sessionBody(page).getByText(otherSessionTitle, { exact: true }).first()).toBeVisible()
 
     await context.setOffline(true)
     await conversations
       .getByRole("button", { name: new RegExp(cachedSessionTitle) })
       .first()
       .click()
+    await cachedSessionExpectRendered(page)
+    await page.reload()
     await cachedSessionExpectRendered(page)
 
     // Offline is read-only: the notice renders and every mutation surface is
@@ -198,8 +276,8 @@ test("a settled session cached while signed in stays readable signed out and off
     // A different account on the same device never sees the cached records.
     await sessionCookieSet(context, otherAccount.token)
     await page.goto(`/sessions/${cachedSessionId}`)
-    await expect(sessionBody(page).getByText(cachedUserMessage)).toHaveCount(0)
-    await expect(sessionBody(page).getByText(cachedAssistantMessage)).toHaveCount(0)
+    await expect(semanticHistory(page).getByText(cachedUserMessage, { exact: true })).toHaveCount(0)
+    await expect(semanticHistory(page).getByText(cachedAssistantMessage, { exact: true })).toHaveCount(0)
 
     const isolatedRecords = await sessionSnapshotRecordsRead(page, sessionCacheDatabaseConfig.name)
     expect(isolatedRecords.every((record) => record.userId !== otherAccount.userId)).toBe(true)

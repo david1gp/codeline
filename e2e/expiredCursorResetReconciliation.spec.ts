@@ -11,7 +11,15 @@ const sessionCookieName = "__Host-codeline-session"
 const cachedSessionId = "example-session-active-1"
 const cachedSessionTitle = "Build the workspace shell"
 
-type FeedRequest = { after: string | null; index: number }
+type FeedRequest = { after: string | null; status?: number }
+
+type HttpRequest = {
+  method: string
+  path: string
+  requestOrder: number
+  status?: number
+  finishedOrder?: number
+}
 
 declare global {
   interface Window {
@@ -62,6 +70,52 @@ async function sessionSnapshotRecordsRead(page: Page): Promise<Array<Record<stri
   }, sessionCacheDatabaseConfig.name)
 }
 
+async function selectedEventSourceClosedUrlsRead(page: Page, sessionId: string): Promise<string[]> {
+  const path = `/api/sessions/${sessionId}/events`
+  return page.evaluate((selectedPath) => {
+    return (window.__codelineEventFeedClosedUrls ?? [])
+      .map((url) => new URL(url, window.location.origin))
+      .filter((url) => url.pathname === selectedPath)
+      .map((url) => url.href)
+  }, path)
+}
+
+async function selectedEventSourceLiveUrlsRead(page: Page, sessionId: string): Promise<string[]> {
+  const path = `/api/sessions/${sessionId}/events`
+  return page.evaluate((selectedPath) => {
+    const normalize = (url: string) => new URL(url, window.location.origin)
+    const created = (window.__codelineEventFeedUrls ?? [])
+      .map(normalize)
+      .filter((url) => url.pathname === selectedPath)
+      .map((url) => url.href)
+    const closedCounts = new Map<string, number>()
+    for (const rawUrl of window.__codelineEventFeedClosedUrls ?? []) {
+      const url = normalize(rawUrl)
+      if (url.pathname !== selectedPath) continue
+      closedCounts.set(url.href, (closedCounts.get(url.href) ?? 0) + 1)
+    }
+    const live: string[] = []
+    for (const url of created) {
+      const closedCount = closedCounts.get(url) ?? 0
+      if (closedCount > 0) {
+        closedCounts.set(url, closedCount - 1)
+        continue
+      }
+      live.push(url)
+    }
+    return live
+  }, path)
+}
+
+async function globalEventSourceClosedCountRead(page: Page): Promise<number> {
+  return page.evaluate(
+    () =>
+      (window.__codelineEventFeedClosedUrls ?? []).filter(
+        (url) => new URL(url, window.location.origin).pathname === "/api/events",
+      ).length,
+  )
+}
+
 test("an expired SSE cursor resets the feed and reconciles without discarding cached sessions", async ({ browser }) => {
   // A full reconciliation cycle plus deterministic re-seeding exceeds the default budget.
   test.setTimeout(180_000)
@@ -108,15 +162,36 @@ test("an expired SSE cursor resets the feed and reconciles without discarding ca
 
     const page = await context.newPage()
     const feedRequests: FeedRequest[] = []
-    const httpRequests: string[] = []
+    const httpRequests: HttpRequest[] = []
+    const trackedFeedRequests = new WeakMap<object, FeedRequest>()
+    const trackedHttpRequests = new WeakMap<object, HttpRequest>()
+    let requestOrder = 0
     page.on("request", (request) => {
       const url = new URL(request.url())
       if (url.origin !== baseOrigin || !url.pathname.startsWith("/api/")) return
       if (url.pathname === "/api/events") {
-        feedRequests.push({ after: url.searchParams.get("after"), index: httpRequests.length })
+        const tracked: FeedRequest = { after: url.searchParams.get("after") }
+        feedRequests.push(tracked)
+        trackedFeedRequests.set(request, tracked)
         return
       }
-      httpRequests.push(`${request.method()} ${url.pathname}${url.search}`)
+      const tracked: HttpRequest = {
+        method: request.method(),
+        path: `${url.pathname}${url.search}`,
+        requestOrder: ++requestOrder,
+      }
+      httpRequests.push(tracked)
+      trackedHttpRequests.set(request, tracked)
+    })
+    page.on("response", (response) => {
+      const trackedFeed = trackedFeedRequests.get(response.request())
+      if (trackedFeed !== undefined) trackedFeed.status = response.status()
+      const tracked = trackedHttpRequests.get(response.request())
+      if (tracked !== undefined) tracked.status = response.status()
+    })
+    page.on("requestfinished", (request) => {
+      const tracked = trackedHttpRequests.get(request)
+      if (tracked !== undefined) tracked.finishedOrder = ++requestOrder
     })
 
     await page.goto(`/sessions/${cachedSessionId}`)
@@ -133,6 +208,14 @@ test("an expired SSE cursor resets the feed and reconciles without discarding ca
     // The tab opens exactly one feed, and it bootstraps fresh without a cursor.
     await expect.poll(() => feedRequests.length, { timeout: 15_000 }).toBe(1)
     expect(feedRequests[0]?.after).toBeNull()
+    await expect
+      .poll(async () => (await selectedEventSourceLiveUrlsRead(page, cachedSessionId)).length, { timeout: 15_000 })
+      .toBe(1)
+    const initialSelectedSource = (await selectedEventSourceLiveUrlsRead(page, cachedSessionId))[0]
+    if (initialSelectedSource === undefined) throw new Error("The selected-session stream did not attach.")
+    const initialSelectedSourceUrl = new URL(initialSelectedSource, baseOrigin)
+    const retainedSelectedCursor = initialSelectedSourceUrl.searchParams.get("after")
+    if (retainedSelectedCursor === null) throw new Error("The selected-session stream did not retain a cursor.")
 
     // One live invalidation moves the tab's in-memory cursor onto a real
     // journal sequence, which is the cursor the server later cannot recover.
@@ -144,9 +227,11 @@ test("an expired SSE cursor resets the feed and reconciles without discarding ca
     // through the repository-owned retention action, so the tab's cursor falls
     // behind the durable replay boundary.
     await context.setOffline(true)
+    await expect.poll(() => globalEventSourceClosedCountRead(page), { timeout: 15_000 }).toBe(1)
     await expect
-      .poll(() => page.evaluate(() => window.__codelineEventFeedClosedUrls?.length ?? 0), { timeout: 15_000 })
+      .poll(async () => (await selectedEventSourceClosedUrlsRead(page, cachedSessionId)).length, { timeout: 15_000 })
       .toBe(1)
+    expect(await selectedEventSourceClosedUrlsRead(page, cachedSessionId)).toContain(initialSelectedSourceUrl.href)
     const expiredTitle = `${cachedSessionTitle} ${runId} expired`
     await sessionRename(api, `${cachedSessionTitle} ${runId} gap`)
     await sessionRename(api, expiredTitle)
@@ -154,6 +239,8 @@ test("an expired SSE cursor resets the feed and reconciles without discarding ca
     const memberPrune = pruned.find((entry) => entry.userId === member.userId)
     expect(memberPrune?.prunedEventCount ?? 0).toBeGreaterThan(0)
     expect(memberPrune?.prunedThroughSequence ?? 0).toBeGreaterThan(0)
+    const postResetTitle = `${cachedSessionTitle} ${runId} postReset`
+    await sessionRename(api, postResetTitle)
 
     const reconnectIndex = feedRequests.length
     const reconciliationStart = httpRequests.length
@@ -161,32 +248,109 @@ test("an expired SSE cursor resets the feed and reconciles without discarding ca
 
     // The retained cursor first receives the server's reset. Only after
     // reconciliation does a fresh feed attach at the new authoritative cursor.
-    await expect.poll(() => feedRequests.length, { timeout: 60_000 }).toBeGreaterThanOrEqual(reconnectIndex + 2)
-    const resetAttach = feedRequests[reconnectIndex]
-    const freshAttach = feedRequests[reconnectIndex + 1]
+    const recoveryFeedRequests = () => feedRequests.slice(reconnectIndex)
+    await expect
+      .poll(
+        () => {
+          const [reset, fresh] = recoveryFeedRequests()
+          return (
+            reset?.status === 400 &&
+            typeof reset.after === "string" &&
+            typeof fresh?.after === "string" &&
+            reset.after !== fresh.after
+          )
+        },
+        { timeout: 60_000 },
+      )
+      .toBe(true)
+    const resetAttach = recoveryFeedRequests()[0]
+    const freshAttach = recoveryFeedRequests()[1]
+    expect(resetAttach?.status).toBe(400)
     expect(resetAttach?.after).toEqual(expect.any(String))
     expect(freshAttach?.after).toEqual(expect.any(String))
     expect(freshAttach?.after).not.toBe(resetAttach?.after)
 
     const reconciliation = () => httpRequests.slice(reconciliationStart)
-    // A consistent shell/list snapshot supplies the new `asOfSequence`.
+    const selectedSessionPath = `/api/sessions/${cachedSessionId}`
+    const selectedSnapshotPath = `${selectedSessionPath}/bounded-snapshot`
+    // Reset reconciliation must obtain a shell/list snapshot before the
+    // selected stream attaches with its fresh opaque cursor.
     await expect
-      .poll(() => reconciliation().some((entry) => entry.startsWith("GET /api/sessions?")), { timeout: 60_000 })
+      .poll(
+        () =>
+          reconciliation().some(
+            (entry) =>
+              entry.method === "GET" &&
+              entry.path.startsWith("/api/sessions?") &&
+              entry.status !== undefined &&
+              entry.finishedOrder !== undefined,
+          ),
+        { timeout: 60_000 },
+      )
       .toBe(true)
-    // The visible session and its messages are revalidated over HTTP.
+    const listResponse = reconciliation().find(
+      (entry) =>
+        entry.method === "GET" &&
+        entry.path.startsWith("/api/sessions?") &&
+        entry.status !== undefined &&
+        entry.finishedOrder !== undefined,
+    )
+    expect(listResponse).toBeDefined()
+    expect([200, 304]).toContain(listResponse?.status)
+
     await expect
-      .poll(() => reconciliation().some((entry) => entry === `GET /api/sessions/${cachedSessionId}`), {
-        timeout: 60_000,
-      })
+      .poll(
+        () =>
+          reconciliation().some(
+            (entry) =>
+              entry.method === "GET" &&
+              entry.path === selectedSnapshotPath &&
+              entry.status !== undefined &&
+              entry.finishedOrder !== undefined,
+          ),
+        { timeout: 60_000 },
+      )
       .toBe(true)
-    await expect
-      .poll(() => reconciliation().some((entry) => entry === `GET /api/sessions/${cachedSessionId}/bounded-snapshot`), {
-        timeout: 60_000,
-      })
-      .toBe(true)
+    const selectedSnapshotRequest = reconciliation().find(
+      (entry) =>
+        entry.method === "GET" &&
+        entry.path === selectedSnapshotPath &&
+        entry.status !== undefined &&
+        entry.finishedOrder !== undefined,
+    )
+    expect(selectedSnapshotRequest).toBeDefined()
+    if (selectedSnapshotRequest === undefined || selectedSnapshotRequest.finishedOrder === undefined)
+      throw new Error("The selected-session snapshot request did not complete.")
+    expect(selectedSnapshotRequest.status).toBe(200)
 
     // Reconciliation catches the tab up to the state it missed while expired.
-    await expect(page.getByText(expiredTitle).first()).toBeVisible({ timeout: 60_000 })
+    await expect(page.getByText(postResetTitle).first()).toBeVisible({ timeout: 60_000 })
+
+    await expect
+      .poll(
+        async () => {
+          const sources = await selectedEventSourceLiveUrlsRead(page, cachedSessionId)
+          return sources.length
+        },
+        { timeout: 60_000 },
+      )
+      .toBe(1)
+    const currentSelectedSource = (await selectedEventSourceLiveUrlsRead(page, cachedSessionId))[0]
+    if (currentSelectedSource === undefined) throw new Error("The selected-session stream did not remain attached.")
+    const selectedClosedAfterSnapshot = (await selectedEventSourceClosedUrlsRead(page, cachedSessionId)).length
+    const currentSelectedSourceUrl = new URL(currentSelectedSource, baseOrigin)
+    const freshSelectedRequest = reconciliation().find(
+      (entry) =>
+        entry.method === "GET" &&
+        entry.path === `${currentSelectedSourceUrl.pathname}${currentSelectedSourceUrl.search}`,
+    )
+    expect(freshSelectedRequest).toBeDefined()
+    if (freshSelectedRequest === undefined)
+      throw new Error("The fresh selected-session stream request was not tracked.")
+    const freshSelectedCursor = new URL(freshSelectedRequest.path, baseOrigin).searchParams.get("after")
+    expect(freshSelectedCursor).not.toBeNull()
+    expect(freshSelectedCursor).not.toBe(retainedSelectedCursor)
+    expect(selectedSnapshotRequest.finishedOrder).toBeLessThan(freshSelectedRequest.requestOrder)
 
     // An expired replay cursor never discards durable device-local data.
     const recordsAfter = await sessionSnapshotRecordsRead(page)
@@ -202,6 +366,8 @@ test("an expired SSE cursor resets the feed and reconciles without discarding ca
     const finalFeed = feedRequests.length
     await page.waitForTimeout(2_000)
     expect(feedRequests.length).toBe(finalFeed)
+    expect(await selectedEventSourceClosedUrlsRead(page, cachedSessionId)).toHaveLength(selectedClosedAfterSnapshot)
+    expect(await selectedEventSourceLiveUrlsRead(page, cachedSessionId)).toEqual([currentSelectedSource])
 
     await page.close()
   } finally {

@@ -1,8 +1,8 @@
 import { type Browser, type BrowserContext, expect, type Page, test } from "@playwright/test"
 import { e2eMemberSessionsIssue } from "./e2eMemberSessionsIssue.js"
 import { e2eMemberSessionsPurge } from "./e2eMemberSessionsPurge.js"
-import { e2eRepositoryRoot } from "./e2eRepositoryRoot.js"
 import { e2eRunIdCreate } from "./e2eRunIdCreate.js"
+import { e2eSessionCreate } from "./e2eSessionCreate.js"
 
 const baseOrigin = process.env.PUBLIC_ORIGIN ?? "https://preview.codeline.work"
 const sessionCookieName = "__Host-codeline-session"
@@ -55,10 +55,7 @@ async function memberContextOpen(browser: Browser, token: string): Promise<Brows
 }
 
 async function sessionCreate(context: BrowserContext, body: Record<string, unknown>): Promise<string> {
-  const response = await context.request.post(`${baseOrigin}/api/sessions`, {
-    data: { projectPath: e2eRepositoryRoot, serverId, ...body },
-    headers: { origin: baseOrigin },
-  })
+  const response = await e2eSessionCreate(context, baseOrigin, { serverId, ...body })
   expect(response.ok(), await response.text()).toBe(true)
   return ((await response.json()) as { session: { id: string } }).session.id
 }
@@ -148,14 +145,13 @@ test("a retryable attempt is replaced across a reload and only the authoritative
     expect(afterReload.runs.map((run) => run.runId)).toEqual([detachedRunId])
     expect(afterReload.runs[0]?.status).toBe("running")
 
-    const finalized = page.getByRole("list", { name: "Finalized messages" })
-    await expect(
-      finalized.locator('article[data-message-role="assistant"]').getByText(retryScenario.finalText),
-    ).toBeVisible({ timeout: syncTimeout })
-    await expect(finalized.getByText(retryScenario.discardedText)).toHaveCount(0)
-    await expect(finalized.locator('article[data-message-role="user"]').getByText(prompt, { exact: true })).toBeVisible(
+    const recentActivity = page.getByRole("list", { name: "Recent semantic activity", exact: true })
+    await expect(page.getByRole("region", { name: "Latest agent answer", exact: true })).toContainText(
+      retryScenario.finalText,
       { timeout: syncTimeout },
     )
+    await expect(recentActivity.getByText(retryScenario.discardedText)).toHaveCount(0)
+    await expect(recentActivity.getByText(prompt, { exact: true })).toBeVisible({ timeout: syncTimeout })
 
     // One run, two attempts: the failed attempt stays recorded while the second
     // attempt is the authoritative, succeeded one.
@@ -237,11 +233,11 @@ test("a run cancelled from a reloaded tab settles as aborted without a finalized
 
     // The cancelled run produced no assistant turn, and the delayed fragment that
     // the abort preempted never reaches the conversation.
-    const finalized = page.getByRole("list", { name: "Finalized messages" })
-    await expect(finalized.locator('article[data-message-role="user"]').getByText(prompt, { exact: true })).toBeVisible(
-      { timeout: syncTimeout },
-    )
-    await expect(finalized.locator('article[data-message-role="assistant"]')).toHaveCount(0)
+    const recentActivity = page.getByRole("list", { name: "Recent semantic activity", exact: true })
+    await expect(recentActivity.getByText(prompt, { exact: true })).toBeVisible({ timeout: syncTimeout })
+    await expect(page.getByRole("region", { name: "Latest agent answer", exact: true })).toHaveCount(0, {
+      timeout: syncTimeout,
+    })
     await expect(page.getByText(cancellationScenario.delayedText)).toHaveCount(0)
   } finally {
     await context?.close()

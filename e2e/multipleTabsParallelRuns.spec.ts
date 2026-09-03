@@ -3,6 +3,7 @@ import { e2eExampleDataSeedForMember, e2eExampleDataSeedRestore } from "./e2eExa
 import { e2eMemberSessionsIssue } from "./e2eMemberSessionsIssue.js"
 import { e2eMemberSessionsPurge } from "./e2eMemberSessionsPurge.js"
 import { e2eRunIdCreate } from "./e2eRunIdCreate.js"
+import { e2eSessionCreate } from "./e2eSessionCreate.js"
 
 const baseOrigin = process.env.PUBLIC_ORIGIN ?? "https://preview.codeline.work"
 const sessionCookieName = "__Host-codeline-session"
@@ -66,14 +67,11 @@ async function sessionCreate(
   context: BrowserContext,
   input: { agentId: string; clientRequestId: string; serverId: string; title: string },
 ): Promise<string> {
-  const response = await context.request.post(`${baseOrigin}/api/sessions`, {
-    data: {
-      clientRequestId: input.clientRequestId,
-      primaryAgentId: input.agentId,
-      serverId: input.serverId,
-      title: input.title,
-    },
-    headers: { origin: baseOrigin },
+  const response = await e2eSessionCreate(context, baseOrigin, {
+    clientRequestId: input.clientRequestId,
+    primaryAgentId: input.agentId,
+    serverId: input.serverId,
+    title: input.title,
   })
   expect(response.ok(), await response.text()).toBe(true)
   const body = (await response.json()) as { session: { id: string } }
@@ -135,11 +133,10 @@ test("two tabs run parallel deterministic runs over one event feed each without 
     await Promise.all(tabs.map((tab) => promptSubmit(tab)))
 
     for (const tab of tabs) {
-      const finalized = tab.page.getByRole("list", { name: "Finalized messages" })
-      const assistantMessage = finalized.locator('article[data-message-role="assistant"]')
-      const userMessage = finalized.locator('article[data-message-role="user"]')
-      await expect(assistantMessage.getByText(tab.assistantText)).toBeVisible({ timeout: syncTimeout })
-      await expect(userMessage.getByText(tab.prompt, { exact: true })).toBeVisible({ timeout: syncTimeout })
+      const recentActivity = tab.page.getByRole("list", { name: "Recent semantic activity", exact: true })
+      const latestAnswer = tab.page.getByRole("region", { name: "Latest agent answer", exact: true })
+      await expect(latestAnswer).toContainText(tab.assistantText, { timeout: syncTimeout })
+      await expect(recentActivity.getByText(tab.prompt, { exact: true })).toBeVisible({ timeout: syncTimeout })
     }
 
     for (const tab of tabs) {
@@ -171,10 +168,9 @@ test("two tabs run parallel deterministic runs over one event feed each without 
     const first = tabs[0]
     if (first === undefined) throw new Error("The parallel tab fixture requires two tabs.")
     await first.page.reload()
-    const reloadedFinalized = first.page.getByRole("list", { name: "Finalized messages" })
-    await expect(
-      reloadedFinalized.locator('article[data-message-role="assistant"]').getByText(first.assistantText),
-    ).toBeVisible({ timeout: syncTimeout })
+    const reloadedLatestAnswer = first.page.getByRole("region", { name: "Latest agent answer", exact: true })
+    await expect(reloadedLatestAnswer).toHaveCount(1, { timeout: syncTimeout })
+    await expect(reloadedLatestAnswer).toContainText(first.assistantText)
     expect(await eventFeedSourceUrlsRead(first.page)).toHaveLength(1)
   } finally {
     await context?.close()
@@ -259,16 +255,14 @@ test("two tabs on the same session converge on one authoritative transcript for 
 
     // Both tabs settle on the same authoritative transcript, each exactly once.
     for (const page of [first, second]) {
-      const finalized = page.getByRole("list", { name: "Finalized messages" })
-      await expect(
-        finalized.locator('article[data-message-role="assistant"]').getByText(convergenceScenario.finalText),
-      ).toHaveCount(1, { timeout: syncTimeout })
-      await expect(
-        finalized.locator('article[data-message-role="user"]').getByText(prompt, { exact: true }),
-      ).toHaveCount(1, { timeout: syncTimeout })
+      const recentActivity = page.getByRole("list", { name: "Recent semantic activity", exact: true })
+      const latestAnswer = page.getByRole("region", { name: "Latest agent answer", exact: true })
+      await expect(latestAnswer).toHaveCount(1, { timeout: syncTimeout })
+      await expect(latestAnswer).toContainText(convergenceScenario.finalText)
+      await expect(recentActivity.getByText(prompt, { exact: true })).toHaveCount(1, { timeout: syncTimeout })
       await expect(page.getByRole("list", { name: "In-flight messages" })).toHaveCount(0, { timeout: syncTimeout })
       // Neither tab replayed the partial fragment as a second, separate message.
-      await expect(finalized.getByText(convergenceScenario.firstText)).toHaveCount(1)
+      await expect(latestAnswer.getByText(convergenceScenario.firstText)).toHaveCount(1)
       // Each tab owns one feed at a time. The tab that joined mid-run additionally
       // reattaches once, after the run snapshot's cursor, rather than replaying blindly.
       const feedUrls = await eventFeedSourceUrlsRead(page)
