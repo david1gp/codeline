@@ -234,11 +234,10 @@ test("session responses expose only resolvable registry IDs for historical path 
         },
       })
 
-      const snapshot = await app.request(`/sessions/${session.id}/snapshot`)
-      expect(await snapshot.json()).toMatchObject({
+      const boundedSnapshot = await app.request(`/sessions/${session.id}/bounded-snapshot`)
+      expect(await boundedSnapshot.json()).toMatchObject({
         session: {
           id: session.id,
-          ...(session.projectPath === registeredPath ? { projectId: registered.data.id } : {}),
           projectPath: session.projectPath,
         },
       })

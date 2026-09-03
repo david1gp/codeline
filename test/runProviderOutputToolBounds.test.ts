@@ -1,22 +1,17 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
-import { randomBytes } from "node:crypto"
+import { createResult } from "@adaptive-ds/result"
 import { asc, eq } from "drizzle-orm"
 import { agentTable } from "../src/agents/db/agentTable.js"
 import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
 import { databaseReadyCheck } from "../src/database/databaseReadyCheck.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { organizationTable } from "../src/identity/db/organizationTable.js"
-import { journalBacklogRead } from "../src/journal/actions/journalBacklogRead.js"
-import { journalCursorCodecCreate } from "../src/journal/actions/journalCursorCodecCreate.js"
-import { journalPostCommitPublishCreate } from "../src/journal/actions/journalPostCommitPublishCreate.js"
 import { journalEventTable } from "../src/journal/db/journalEventTable.js"
 import { runCreate } from "../src/run/actions/runCreate.js"
 import { runProviderOutputCreate } from "../src/run/actions/runProviderOutputCreate.js"
 import { runTransition } from "../src/run/actions/runTransition.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
-import type { StreamSseFrame } from "../src/stream/api/streamSseFrameSchema.js"
-import { streamSseFrameSerialize } from "../src/stream/api/streamSseFrameSerialize.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
 import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
 
@@ -43,10 +38,6 @@ const fixture = {
   sessionId: `tool-bounds-session-${uuidv7()}`,
   userId: `tool-bounds-user-${uuidv7()}`,
 }
-const cursorCodecResult = journalCursorCodecCreate({
-  randomBytes,
-  secret: `tool-bounds-secret-${uuidv7()}`,
-})
 
 const scheduler: TestScheduler = {
   clearTimeout: () => undefined,
@@ -121,18 +112,14 @@ async function runningRun(label: string): Promise<string> {
   return created.data.run.id
 }
 
-function publisherCreate(frames: StreamSseFrame[]) {
-  if (!cursorCodecResult.success) throw new Error(cursorCodecResult.errorMessage)
-  return journalPostCommitPublishCreate({
-    cursorCodec: cursorCodecResult.data,
-    liveSubscription: { publish: (_userId, frame) => frames.push(frame) },
-  })
+async function postCommitPublish() {
+  return createResult(undefined)
 }
 
-function providerCreate(runId: string, frames: StreamSseFrame[]) {
+function providerCreate(runId: string) {
   return runProviderOutputCreate({
     database,
-    journalPostCommitPublish: publisherCreate(frames),
+    journalPostCommitPublish: postCommitPublish,
     requestId: `request-${runId}`,
     runId,
     scheduler,
@@ -155,32 +142,9 @@ async function runDeltas(runId: string): Promise<JournalDeltaRow[]> {
   return rows as unknown as JournalDeltaRow[]
 }
 
-function frameRunId(frame: StreamSseFrame): string | undefined {
-  const runId = (frame.data as Record<string, unknown>).runId
-  return typeof runId === "string" ? runId : undefined
-}
-
-function comparableFrame(frame: StreamSseFrame): { data: Record<string, unknown>; event: string } {
-  const { id: _id, ...data } = frame.data as Record<string, unknown>
-  return { data, event: frame.event }
-}
-
-async function replayFrames(): Promise<StreamSseFrame[]> {
-  if (!cursorCodecResult.success) throw new Error(cursorCodecResult.errorMessage)
-  const replay = await journalBacklogRead({ cursorCodec: cursorCodecResult.data, database }, { userId: fixture.userId })
-  if (!replay.success) throw new Error(replay.errorMessage)
-  const frames: StreamSseFrame[] = []
-  for await (const page of replay.data.pages) {
-    if (!page.success) throw new Error(page.errorMessage)
-    frames.push(...page.data)
-  }
-  return frames
-}
-
-test.skipIf(!databaseAvailable)("bounds ordinary provider tool output before journal and SSE publication", async () => {
+test.skipIf(!databaseAvailable)("bounds ordinary provider tool output before journal persistence", async () => {
   const runId = await runningRun("ordinary")
-  const published: StreamSseFrame[] = []
-  const provider = providerCreate(runId, published)
+  const provider = providerCreate(runId)
   const oversizedNestedText = `${"discarded-".repeat(2_000)}final-tail`
 
   expect(
@@ -213,9 +177,7 @@ test.skipIf(!databaseAvailable)("bounds ordinary provider tool output before jou
   expect(provider.pendingCount()).toBe(0)
 
   const persisted = await runDeltas(runId)
-  const deltaFrames = published.filter((frame) => frame.event === "delta")
   expect(persisted).toHaveLength(3)
-  expect(deltaFrames).toHaveLength(3)
   expect(persisted.map((row) => row.eventType)).toEqual(["delta", "delta", "delta"])
   expect(persisted.map((row) => row.serializedBytes)).toEqual(
     expect.arrayContaining([expect.any(Number), expect.any(Number), expect.any(Number)]),
@@ -240,14 +202,11 @@ test.skipIf(!databaseAvailable)("bounds ordinary provider tool output before jou
   expect(resultDelta).toMatchObject({ truncated: false, workingDirectory: "/tmp/project" })
   expect(result).toEqual({ raw: { result: "ordinary result" }, status: "ok" })
   for (const row of persisted) expect(encoder.encode(JSON.stringify(row.payload)).byteLength).toBeLessThan(128 * 1024)
-  for (const frame of deltaFrames)
-    expect(encoder.encode(streamSseFrameSerialize(frame)).byteLength).toBeLessThanOrEqual(128 * 1024)
 })
 
-test.skipIf(!databaseAvailable)("replays bounded tool deltas and keeps cumulative amplification bounded", async () => {
+test.skipIf(!databaseAvailable)("persists bounded tool deltas and keeps cumulative amplification bounded", async () => {
   const runId = await runningRun("amplification")
-  const published: StreamSseFrame[] = []
-  const provider = providerCreate(runId, published)
+  const provider = providerCreate(runId)
   const toolCallId = "call-amplification"
   const repeatedPrefix = "P".repeat(20_000)
   let cumulative = repeatedPrefix
@@ -263,32 +222,18 @@ test.skipIf(!databaseAvailable)("replays bounded tool deltas and keeps cumulativ
   expect(await provider.flush()).toMatchObject({ success: true })
 
   const persisted = await runDeltas(runId)
-  const deltaFrames = published.filter((frame) => frame.event === "delta" && frameRunId(frame) === runId)
-  const replayed = (await replayFrames()).filter((frame) => frame.event === "delta" && frameRunId(frame) === runId)
   const persistedBytes = persisted.reduce((total, row) => total + row.serializedBytes, 0)
-  const publishedBytes = deltaFrames.reduce(
-    (total, frame) => total + encoder.encode(streamSseFrameSerialize(frame)).byteLength,
-    0,
-  )
 
   expect(notificationBytes).toBeGreaterThan(20_000_000)
-  expect(persisted.length).toBe(deltaFrames.length)
-  expect(replayed.length).toBe(deltaFrames.length)
-  expect(deltaFrames.length).toBeGreaterThan(1)
-  expect(deltaFrames.length).toBeLessThan(120)
+  expect(persisted.length).toBeGreaterThan(1)
+  expect(persisted.length).toBeLessThan(120)
   expect(persistedBytes).toBeLessThan(notificationBytes / 10)
-  expect(publishedBytes).toBeLessThan(notificationBytes / 10)
-  expect(replayed.map(comparableFrame)).toEqual(deltaFrames.map(comparableFrame))
 
   for (const row of persisted) {
     expect(row.serializedBytes).toBeGreaterThan(0)
     expect(encoder.encode(JSON.stringify(row.payload)).byteLength).toBeLessThan(128 * 1024)
     expect(row.payload.delta).toContain("truncated")
     expect(row.payload.delta).toContain("[Earlier output truncated]")
-  }
-  for (const frame of deltaFrames) {
-    expect(encoder.encode(streamSseFrameSerialize(frame)).byteLength).toBeLessThanOrEqual(128 * 1024)
-    expect(JSON.stringify(frame.data)).toContain("truncated")
   }
 })
 
@@ -310,8 +255,7 @@ test.skipIf(!databaseAvailable)("flushes pending tool deltas before success and 
 
   for (const terminalCase of terminalCases) {
     const runId = await runningRun(`terminal-${terminalCase.label}`)
-    const published: StreamSseFrame[] = []
-    const provider = providerCreate(runId, published)
+    const provider = providerCreate(runId)
     const common = {
       deltaKind: "tool" as const,
       messageId: "tool-output",
@@ -338,13 +282,6 @@ test.skipIf(!databaseAvailable)("flushes pending tool deltas before success and 
     )
     expect(finalized).toMatchObject({ success: true })
     expect(provider.pendingCount()).toBe(0)
-
-    const runFrames = published.filter((frame) => frameRunId(frame) === runId)
-    expect(runFrames.map((frame) => frame.event)).toEqual(["delta", "delta", terminalCase.terminalEvent])
-    expect(runFrames[0]?.data).toMatchObject({ deltaKind: "tool", runId })
-    expect(runFrames[1]?.data).toMatchObject({ deltaKind: "tool", runId })
-    expect(runFrames[2]?.data).toMatchObject({ eventType: terminalCase.terminalEvent, runId })
-    if (terminalCase.failure !== undefined) expect(runFrames[2]?.data).toMatchObject({ failure: terminalCase.failure })
 
     const persisted = await runDeltas(runId)
     expect(persisted.map((row) => row.eventType)).toEqual([terminalCase.terminalEvent])

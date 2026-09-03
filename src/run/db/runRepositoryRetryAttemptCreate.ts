@@ -13,6 +13,9 @@ import type { RunRetryAdmission } from "../schema/runRetryAdmissionSchema.js"
 import type { RunRetryExecutionEvidence } from "../schema/runRetryExecutionEvidenceSchema.js"
 import { attemptTable } from "./attemptTable.js"
 import { runTable } from "./runTable.js"
+import { runActiveStateRepositoryUpsert } from "./runActiveStateRepositoryUpsert.js"
+import { runHistoryEntryPayloadCreate } from "./runHistoryEntryPayloadCreate.js"
+import { sessionHistoryEntryRepositoryUpsert } from "../../session/db/sessionHistoryEntryRepositoryUpsert.js"
 
 function jsonCanonicalize(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value)
@@ -226,6 +229,23 @@ export async function runRepositoryRetryAttemptCreate(
 
       const runReopened = await (options.runReopen ?? runRetryRunReopen)(transaction, { now, runId: run.id })
       if (!runReopened.success) return runReopened
+
+      const historyEntry = await sessionHistoryEntryRepositoryUpsert(transaction, userId, sessionId, {
+        id: runReopened.data.id,
+        kind: "run",
+        payload: runHistoryEntryPayloadCreate({ id: runReopened.data.id, status: "accepted" }),
+        sourceId: runReopened.data.id,
+        sourceType: "run",
+      })
+      if (!historyEntry.success) return historyEntry
+
+      const activeState = await runActiveStateRepositoryUpsert(transaction, userId, sessionId, runReopened.data.id, {
+        failure: null,
+        lastSequence: 0,
+        partialText: "",
+        status: "accepted",
+      })
+      if (!activeState.success) return activeState
 
       return createResult({
         admission: admission.data,

@@ -12,7 +12,7 @@ import { runStatusSchema } from "../../run/schema/runStatusSchema.js"
 import { serverTable } from "../../servers/db/serverTable.js"
 import { sessionBoundedSnapshotCreate } from "../api/sessionBoundedSnapshotCreate.js"
 import type { SessionBoundedSnapshot } from "../api/sessionBoundedSnapshotSchema.js"
-import { sessionSettledSnapshotRequestSchema } from "../api/sessionSettledSnapshotRequestSchema.js"
+import { sessionBoundedSnapshotRequestSchema } from "../api/sessionBoundedSnapshotRequestSchema.js"
 import { sessionSnapshotWatermarkSchema } from "../api/sessionSnapshotWatermarkSchema.js"
 import { sessionHistoryEntrySemanticStepCreate } from "./sessionHistoryEntrySemanticStepCreate.js"
 import { sessionHistoryEntryTable } from "./sessionHistoryEntryTable.js"
@@ -69,7 +69,7 @@ export async function sessionRepositoryBoundedSnapshot(
   dependencies: SessionBoundedSnapshotDependencies,
 ): Promise<Result<SessionBoundedSnapshot>> {
   const op = "sessionRepositoryBoundedSnapshot"
-  const parsedRequest = v.safeParse(sessionSettledSnapshotRequestSchema, { sessionId })
+  const parsedRequest = v.safeParse(sessionBoundedSnapshotRequestSchema, { sessionId })
   if (!parsedRequest.success) return createResultError(op, "The bounded session snapshot request is invalid.")
 
   try {
@@ -142,24 +142,22 @@ export async function sessionRepositoryBoundedSnapshot(
             eq(sessionHistoryEntryTable.userId, user.id),
             eq(sessionHistoryEntryTable.sessionId, sessionRow.session.id),
             eq(sessionHistoryEntryTable.kind, "message"),
+            eq(sessionHistoryEntryTable.messageRole, "assistant"),
             lte(sessionHistoryEntryTable.position, throughPosition.data),
           ),
         )
         .orderBy(desc(sessionHistoryEntryTable.position))
-        .limit(sessionBoundedSnapshotLimit + 1)
+        .limit(1)
 
       let latestAnswer: Parameters<typeof messageApiRecordCreate>[0] | null = null
-      for (const entry of latestAnswerEntries) {
-        if (
-          entry.payload === null ||
-          typeof entry.payload !== "object" ||
-          Array.isArray(entry.payload) ||
-          entry.payload.role !== "assistant"
-        )
-          continue
-        latestAnswer = entry.payload as Parameters<typeof messageApiRecordCreate>[0]
-        break
-      }
+      const latestAnswerEntry = latestAnswerEntries[0]
+      if (
+        latestAnswerEntry?.payload !== null &&
+        typeof latestAnswerEntry?.payload === "object" &&
+        !Array.isArray(latestAnswerEntry.payload) &&
+        latestAnswerEntry.payload.role === "assistant"
+      )
+        latestAnswer = latestAnswerEntry.payload as Parameters<typeof messageApiRecordCreate>[0]
 
       const [activeRun] = await transaction
         .select({

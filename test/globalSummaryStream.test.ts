@@ -5,10 +5,10 @@ import { eq } from "drizzle-orm"
 import * as v from "valibot"
 import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
+import { journalCursorCodecCreate } from "../src/journal/actions/journalCursorCodecCreate.js"
 import { journalGlobalSummaryBacklogRead } from "../src/journal/actions/journalGlobalSummaryBacklogRead.js"
 import { journalGlobalSummaryEventFrameCreate } from "../src/journal/actions/journalGlobalSummaryEventFrameCreate.js"
 import { journalGlobalSummaryPostCommitPublishCreate } from "../src/journal/actions/journalGlobalSummaryPostCommitPublishCreate.js"
-import { journalCursorCodecCreate } from "../src/journal/actions/journalCursorCodecCreate.js"
 import { journalEventTable } from "../src/journal/db/journalEventTable.js"
 import { journalReplayBoundaryTable } from "../src/journal/db/journalReplayBoundaryTable.js"
 import { journalSequenceCounterTable } from "../src/journal/db/journalSequenceCounterTable.js"
@@ -20,7 +20,9 @@ import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
 const connection = databaseTestConnectionCreate()
 const database = connection.db
 const userId = `global-summary-${crypto.randomUUID()}`
-const cursorCodec = {
+const prohibitedPayloadUserId = `${userId}-prohibited`
+const boundaryUserId = `${userId}-boundary`
+const testGlobalCursorCodecCreate = (ownerId: string) => ({
   encode: (_journalId: unknown, sequence: unknown) => createResult(`global-cursor-${String(sequence)}`),
   encodeGlobalSequence: (_journalId: unknown, globalSequence: unknown) =>
     createResult(`global-cursor-${String(globalSequence)}`),
@@ -28,7 +30,7 @@ const cursorCodec = {
     const prefix = `global-cursor-`
     if (typeof cursor !== "string" || !cursor.startsWith(prefix))
       return createResultErrorCode("globalCursorValidate", "The global cursor is invalid.", "cursor_invalid")
-    if (journalId !== userId)
+    if (journalId !== ownerId)
       return createResultErrorCode(
         "globalCursorValidate",
         "The global cursor belongs to another user.",
@@ -40,7 +42,7 @@ const cursorCodec = {
     const prefix = "global-cursor-"
     if (typeof cursor !== "string" || !cursor.startsWith(prefix))
       return createResultErrorCode("globalCursorValidate", "The global cursor is invalid.", "cursor_invalid")
-    if (journalId !== userId)
+    if (journalId !== ownerId)
       return createResultErrorCode(
         "globalCursorValidate",
         "The global cursor belongs to another user.",
@@ -48,7 +50,8 @@ const cursorCodec = {
       )
     return createResult({ journalId, globalSequence: Number(cursor.slice(prefix.length)), version: 1 })
   },
-}
+})
+const cursorCodec = testGlobalCursorCodecCreate(userId)
 
 beforeAll(async () => {
   await database.insert(applicationUserTable).values({ displayName: userId, id: userId })
@@ -88,10 +91,125 @@ beforeAll(async () => {
       userId,
     },
   ])
+  await database
+    .insert(applicationUserTable)
+    .values({ displayName: prohibitedPayloadUserId, id: prohibitedPayloadUserId })
+  await database.insert(journalSequenceCounterTable).values({ nextSequence: 8, userId: prohibitedPayloadUserId })
+  await database
+    .insert(journalReplayBoundaryTable)
+    .values({ prunedThroughSequence: 0, userId: prohibitedPayloadUserId })
+  await database.insert(journalEventTable).values([
+    {
+      eventType: "transcript",
+      id: `${prohibitedPayloadUserId}-transcript`,
+      payload: { transcript: "must-not-cross-global-feed" },
+      sequence: 1,
+      serializedBytes: 1,
+      userId: prohibitedPayloadUserId,
+    },
+    {
+      eventType: "tool",
+      id: `${prohibitedPayloadUserId}-tool`,
+      payload: { tool: "must-not-cross-global-feed" },
+      sequence: 2,
+      serializedBytes: 1,
+      userId: prohibitedPayloadUserId,
+    },
+    {
+      eventType: "thinking",
+      id: `${prohibitedPayloadUserId}-thinking`,
+      payload: { thinking: "must-not-cross-global-feed" },
+      sequence: 3,
+      serializedBytes: 1,
+      userId: prohibitedPayloadUserId,
+    },
+    {
+      eventType: "provider-event",
+      id: `${prohibitedPayloadUserId}-provider`,
+      payload: { provider: "must-not-cross-global-feed" },
+      sequence: 4,
+      serializedBytes: 1,
+      userId: prohibitedPayloadUserId,
+    },
+    {
+      eventType: "generic-delta",
+      id: `${prohibitedPayloadUserId}-generic-delta`,
+      payload: { delta: "must-not-cross-global-feed" },
+      sequence: 5,
+      serializedBytes: 1,
+      userId: prohibitedPayloadUserId,
+    },
+    {
+      eventType: "run-started",
+      id: `${prohibitedPayloadUserId}-invalid-summary`,
+      payload: { runId: "run-1", sessionId: "session-1", transcript: "must-not-cross-global-feed" },
+      sequence: 6,
+      serializedBytes: 1,
+      userId: prohibitedPayloadUserId,
+    },
+    {
+      eventType: "run-started",
+      id: `${prohibitedPayloadUserId}-valid-summary`,
+      payload: { runId: "run-1", sessionId: "session-1" },
+      sequence: 7,
+      serializedBytes: 1,
+      userId: prohibitedPayloadUserId,
+    },
+  ])
+  await database.insert(applicationUserTable).values({ displayName: boundaryUserId, id: boundaryUserId })
+  await database.insert(journalSequenceCounterTable).values({ nextSequence: 131, userId: boundaryUserId })
+  await database.insert(journalReplayBoundaryTable).values({ prunedThroughSequence: 0, userId: boundaryUserId })
+  await database.insert(journalEventTable).values([
+    ...Array.from({ length: 127 }, (_, index) => {
+      const sequence = index + 1
+      return {
+        eventType: "run-started" as const,
+        id: `${boundaryUserId}-invalid-${sequence}`,
+        payload: {
+          runId: `${boundaryUserId}-run`,
+          sessionId: `${boundaryUserId}-session`,
+          transcript: "must-not-cross-global-feed",
+        },
+        sequence,
+        serializedBytes: 1,
+        userId: boundaryUserId,
+      }
+    }),
+    {
+      eventType: "transcript" as const,
+      id: `${boundaryUserId}-prohibited`,
+      payload: { transcript: "must-not-cross-global-feed" },
+      sequence: 128,
+      serializedBytes: 1,
+      userId: boundaryUserId,
+    },
+    {
+      eventType: "run-started" as const,
+      id: `${boundaryUserId}-invalid-129`,
+      payload: {
+        runId: `${boundaryUserId}-run`,
+        sessionId: `${boundaryUserId}-session`,
+        transcript: "must-not-cross-global-feed",
+      },
+      sequence: 129,
+      serializedBytes: 1,
+      userId: boundaryUserId,
+    },
+    {
+      eventType: "run-started" as const,
+      id: `${boundaryUserId}-valid-130`,
+      payload: { runId: `${boundaryUserId}-run`, sessionId: `${boundaryUserId}-session` },
+      sequence: 130,
+      serializedBytes: 1,
+      userId: boundaryUserId,
+    },
+  ])
 })
 
 afterAll(async () => {
   await database.delete(applicationUserTable).where(eq(applicationUserTable.id, userId))
+  await database.delete(applicationUserTable).where(eq(applicationUserTable.id, prohibitedPayloadUserId))
+  await database.delete(applicationUserTable).where(eq(applicationUserTable.id, boundaryUserId))
   await databaseConnectionClose(connection)
 })
 
@@ -189,9 +307,9 @@ test("bounds global summary payloads before the complete-frame limit", () => {
     expect(new TextEncoder().encode(streamSseFrameSerialize(valid.data)).byteLength).toBeLessThan(128 * 1024)
 })
 
-test("replays only permitted global summaries in global sequence order", async () => {
+test("starts a fresh global feed at the authoritative current sequence", async () => {
   const result = await journalGlobalSummaryBacklogRead({ cursorCodec, database }, { userId })
-  expect(result).toMatchObject({ data: { afterGlobalSequence: 0, replayUpperBound: 4, mode: "replay" }, success: true })
+  expect(result).toMatchObject({ data: { afterGlobalSequence: 4, replayUpperBound: 4, mode: "replay" }, success: true })
   if (!result.success) return
 
   const frames = []
@@ -199,8 +317,57 @@ test("replays only permitted global summaries in global sequence order", async (
     expect(page.success).toBe(true)
     if (page.success) frames.push(...page.data)
   }
-  expect(frames.map((frame) => frame.data.globalSequence)).toEqual([2, 4])
-  expect(frames.every((frame) => !Object.hasOwn(frame.data, "sequence"))).toBe(true)
+  expect(frames).toHaveLength(0)
+})
+
+test("excludes prohibited transcript, tool, thinking, provider, and generic-delta backlog payloads", async () => {
+  const prohibitedCursorCodec = testGlobalCursorCodecCreate(prohibitedPayloadUserId)
+  const after = prohibitedCursorCodec.encodeGlobalSequence(prohibitedPayloadUserId, 0)
+  expect(after.success).toBe(true)
+  if (!after.success) return
+
+  const result = await journalGlobalSummaryBacklogRead(
+    { cursorCodec: prohibitedCursorCodec, database },
+    { after: after.data, userId: prohibitedPayloadUserId },
+  )
+  expect(result.success).toBe(true)
+  if (!result.success) return
+
+  const frames = []
+  for await (const page of result.data.pages) {
+    expect(page.success).toBe(true)
+    if (page.success) frames.push(...page.data)
+  }
+
+  expect(frames.map((frame) => frame.data.globalSequence)).toEqual([7])
+  expect(JSON.stringify(frames)).not.toContain("must-not-cross-global-feed")
+})
+
+test("continues global backlog after invalid and prohibited rows cross the 128-row page boundary", async () => {
+  const boundaryCursorCodec = testGlobalCursorCodecCreate(boundaryUserId)
+  const after = boundaryCursorCodec.encodeGlobalSequence(boundaryUserId, 0)
+  expect(after.success).toBe(true)
+  if (!after.success) return
+
+  const result = await journalGlobalSummaryBacklogRead(
+    { cursorCodec: boundaryCursorCodec, database },
+    { after: after.data, userId: boundaryUserId },
+  )
+  expect(result).toMatchObject({ data: { mode: "replay", replayUpperBound: 130 }, success: true })
+  if (!result.success) return
+
+  const pageLengths: number[] = []
+  const frames = []
+  for await (const page of result.data.pages) {
+    expect(page.success).toBe(true)
+    if (!page.success) continue
+    pageLengths.push(page.data.length)
+    frames.push(...page.data)
+  }
+
+  expect(pageLengths).toEqual([0, 1])
+  expect(frames.map((frame) => frame.data.globalSequence)).toEqual([130])
+  expect(JSON.stringify(frames)).not.toContain("must-not-cross-global-feed")
 })
 
 test("replays and resets with authenticated globalSequence cursors", async () => {

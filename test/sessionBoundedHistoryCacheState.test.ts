@@ -7,6 +7,8 @@ import type { RunDetailResponse } from "../src/run/api/runDetailResponseSchema.j
 import type { RunToolDetailResponse } from "../src/run/api/runToolDetailResponseSchema.js"
 import type { SessionBoundedHistoryPage } from "../src/session/api/sessionBoundedHistoryPageSchema.js"
 import type { SessionBoundedSnapshot } from "../src/session/api/sessionBoundedSnapshotSchema.js"
+import { sessionLastActiveAccountRead } from "../src/session/client/sessionLastActiveAccountRead.js"
+import { sessionLastActiveAccountWrite } from "../src/session/client/sessionLastActiveAccountWrite.js"
 import { sessionCacheDatabaseOpen } from "../src/session/storage/sessionCacheDatabaseOpen.js"
 import type { SessionCacheDatabaseSchema } from "../src/session/storage/sessionCacheDatabaseSchema.js"
 import { sessionCacheHistoryPageRead } from "../src/session/storage/sessionCacheHistoryPageRead.js"
@@ -153,6 +155,53 @@ test("renders a cached bounded snapshot while online revalidation is pending and
   database.close()
 })
 
+test("ignores a stale online revalidation after switching accounts", async () => {
+  const database = await databaseCreate()
+  const accountA = snapshotCreate("session-1", [1], { title: "Account A" })
+  const accountB = snapshotCreate("session-1", [9], { title: "Account B", throughPosition: 9 })
+  await sessionCacheSnapshotReplace(database, { snapshot: accountA, storedAt: 1, userId: "user-a" })
+  await sessionCacheSnapshotReplace(database, { snapshot: accountB, storedAt: 2, userId: "user-b" })
+
+  let releaseA: (() => void) | undefined
+  let releaseB: (() => void) | undefined
+  const responseA = new Promise<Response>((resolve) => {
+    releaseA = () => resolve(Response.json(accountA))
+  })
+  const responseB = new Promise<Response>((resolve) => {
+    releaseB = () => resolve(Response.json(accountB))
+  })
+  let requestCount = 0
+  const [userId, userIdSet] = createSignal("user-a")
+  const root = createRoot((dispose) => ({
+    dispose,
+    state: sessionBoundedHistoryStateCreate({
+      database,
+      fetch: async () => {
+        requestCount += 1
+        return requestCount === 1 ? responseA : responseB
+      },
+      isOnline: () => true,
+      sessionId: () => "session-1",
+      userId,
+    }),
+  }))
+
+  await settle()
+  expect(root.state.snapshot()?.session.title).toBe("Account A")
+  userIdSet("user-b")
+  await settle()
+  expect(root.state.snapshot()?.session.title).toBe("Account B")
+
+  releaseA?.()
+  await settle()
+  expect(root.state.snapshot()?.session.title).toBe("Account B")
+  releaseB?.()
+  await settle()
+  expect(root.state.snapshot()?.session.title).toBe("Account B")
+  root.dispose()
+  database.close()
+})
+
 test("retains offline records across sign-out and isolates the same session id when accounts switch", async () => {
   const database = await databaseCreate()
   const accountA = snapshotCreate("session-1", [1], { title: "Account A" })
@@ -195,6 +244,71 @@ test("retains offline records across sign-out and isolates the same session id w
     success: true,
     data: accountB,
   })
+  root.dispose()
+  database.close()
+})
+
+test("renders the last active account cache while signed out without deleting retained records", async () => {
+  const database = await databaseCreate()
+  const snapshot = snapshotCreate("session-1", [1], { title: "Retained after sign-out" })
+  await sessionCacheSnapshotReplace(database, { snapshot, storedAt: 1, userId: "user-a" })
+
+  let storedAccount: string | null = null
+  const storage = {
+    getItem: () => storedAccount,
+    setItem: (_key: string, value: string) => {
+      storedAccount = value
+    },
+  }
+  sessionLastActiveAccountWrite("user-a", storage)
+  await settle()
+  expect(sessionLastActiveAccountRead(storage)).toBe("user-a")
+
+  const root = createRoot((dispose) => ({
+    dispose,
+    state: sessionBoundedHistoryStateCreate({
+      database,
+      enabled: () => false,
+      isOnline: () => false,
+      sessionId: () => "session-1",
+      userId: () => sessionLastActiveAccountRead(storage),
+    }),
+  }))
+  await settle()
+  expect(root.state.snapshot()?.session.title).toBe("Retained after sign-out")
+  expect(root.state.cacheStatus()).toBe("offline")
+  expect(await sessionCacheSnapshotRead(database, { sessionId: "session-1", userId: "user-a" })).toEqual({
+    success: true,
+    data: snapshot,
+  })
+  root.dispose()
+  database.close()
+})
+
+test("offline cache rendering stays empty without an account or matching cache", async () => {
+  const database = await databaseCreate()
+  const accountB = snapshotCreate("session-1", [2], { title: "Account B", throughPosition: 2 })
+  await sessionCacheSnapshotReplace(database, { snapshot: accountB, storedAt: 1, userId: "user-b" })
+  const [userId, userIdSet] = createSignal<string | null>(null)
+  const root = createRoot((dispose) => ({
+    dispose,
+    state: sessionBoundedHistoryStateCreate({
+      database,
+      enabled: () => false,
+      isOnline: () => false,
+      sessionId: () => "session-1",
+      userId,
+    }),
+  }))
+
+  await settle()
+  expect(root.state.snapshot()).toBeUndefined()
+  userIdSet("user-a")
+  await settle()
+  expect(root.state.snapshot()).toBeUndefined()
+  userIdSet("user-b")
+  await settle()
+  expect(root.state.snapshot()?.session.title).toBe("Account B")
   root.dispose()
   database.close()
 })

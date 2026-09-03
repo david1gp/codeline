@@ -2,6 +2,7 @@ import { expect, mock, test } from "bun:test"
 import * as solidRuntime from "solid-js/dist/solid.js"
 import { createRoot, createSignal } from "solid-js/dist/solid.js"
 import type { SessionDetailEvent } from "../src/session/api/sessionDetailEventSchema.js"
+import type { SessionStreamDelegation } from "../src/ui/sessionStreamGroupsDerive.js"
 
 mock.module("solid-js", () => solidRuntime)
 const { sessionStreamStateCreate } = await import("../src/ui/sessionStreamStateCreate.js")
@@ -28,6 +29,21 @@ function toolEntry(changePosition = 2): DetailEntry {
     sourceDetailId: "tool-call-1",
     sourceId: "run-1",
     sourceType: "tool",
+  }
+}
+
+function delegationToolEntry(): DetailEntry {
+  return {
+    ...toolEntry(),
+    payload: {
+      detailId: "delegate-detail-1",
+      kind: "tool",
+      runId: "run-1",
+      summary: "delegate_task · running",
+      toolCallId: "delegate-call",
+      toolName: "delegate_task",
+    },
+    sourceDetailId: "delegate-call",
   }
 }
 
@@ -149,6 +165,40 @@ test("stream state excludes retained detail from another selected session", () =
 
   expect(root.state.groups()).toEqual([])
   expect(root.state.isLoading()).toBe(false)
+  root.dispose()
+})
+
+test("stream state exposes a newly available delegation through its reactive seam", () => {
+  const [delegations, delegationsSet] = createSignal<ReadonlyArray<SessionStreamDelegation>>([])
+  const root = createRoot((dispose) => ({
+    dispose,
+    state: sessionStreamStateCreate({
+      delegations,
+      detailEntries: () => [delegationToolEntry()],
+      inFlightMessages: () => [],
+      inFlightRunId: () => null,
+      isEnabled: () => true,
+      sessionId: () => "session-1",
+    }),
+  }))
+
+  expect(root.state.groups()[0]?.entries[0]?.delegation).toBeUndefined()
+  delegationsSet([
+    {
+      childRunId: "child-run",
+      delegationKey: "delegate-call",
+      id: "delegation-1",
+      parentAttemptId: "parent-attempt",
+      parentRunId: "run-1",
+      task: "Inspect the project.",
+    },
+  ])
+
+  expect(root.state.groups()[0]?.entries[0]?.delegation).toMatchObject({
+    childRunId: "child-run",
+    childStreamId: "run-child:child-run",
+    id: "delegation-1",
+  })
   root.dispose()
 })
 

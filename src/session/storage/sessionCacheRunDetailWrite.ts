@@ -1,6 +1,7 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import type { IDBPDatabase } from "idb"
 import * as v from "valibot"
+import { apiPublicIdSchema } from "../../api/schema/apiPublicIdSchema.js"
 import type { RunDetailResponse } from "../../run/api/runDetailResponseSchema.js"
 import { runDetailResponseSchema } from "../../run/api/runDetailResponseSchema.js"
 import { sessionCacheRunDetailRecordSchema } from "../schema/sessionCacheRunDetailRecordSchema.js"
@@ -12,6 +13,7 @@ import { sessionCacheWrite } from "./sessionCacheWrite.js"
 export async function sessionCacheRunDetailWrite(
   database: IDBPDatabase<SessionCacheDatabaseSchema>,
   input: {
+    delegationId?: string
     detail: RunDetailResponse
     limits?: SessionCacheLimits
     runId: string
@@ -25,7 +27,14 @@ export async function sessionCacheRunDetailWrite(
   if (!parsedDetail.success || parsedDetail.output.kind !== "finalized") {
     return createResultError(op, "Only finalized run detail may be cached.")
   }
+  let delegationId: string | undefined
+  if (input.delegationId !== undefined) {
+    const parsedDelegationId = v.safeParse(apiPublicIdSchema, input.delegationId)
+    if (!parsedDelegationId.success) return createResultError(op, "The delegation identifier is invalid.")
+    delegationId = parsedDelegationId.output
+  }
   const withoutSize = {
+    ...(delegationId === undefined ? {} : { delegationId }),
     payload: parsedDetail.output,
     runId: input.runId,
     schemaVersion: sessionCacheDatabaseConfig.recordSchemaVersion,
@@ -46,8 +55,11 @@ export async function sessionCacheRunDetailWrite(
     database,
     { sessionId: input.sessionId, userId: input.userId },
     async (transaction) => {
-      const snapshot = await transaction.objectStore("sessionSnapshots").get([input.userId, input.sessionId])
-      if (snapshot === undefined) throw new DOMException("A session snapshot is required.", "DataError")
+      // Delegated child details use the parent session key without inventing a child snapshot.
+      if (input.delegationId === undefined) {
+        const snapshot = await transaction.objectStore("sessionSnapshots").get([input.userId, input.sessionId])
+        if (snapshot === undefined) throw new DOMException("A session snapshot is required.", "DataError")
+      }
       await transaction.objectStore("runDetails").put(record.output)
     },
     limits,

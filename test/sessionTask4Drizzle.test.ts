@@ -12,7 +12,6 @@ import { databaseTransactionRun } from "../src/database/databaseTransactionRun.j
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
 import { organizationTable } from "../src/identity/db/organizationTable.js"
-import { journalBacklogRead } from "../src/journal/actions/journalBacklogRead.js"
 import { journalCursorCodecCreate } from "../src/journal/actions/journalCursorCodecCreate.js"
 import { journalEventTable } from "../src/journal/db/journalEventTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
@@ -679,18 +678,4 @@ test.skipIf(!databaseAvailable)("journals an authorized session mutation after c
     requestHash: apiIdempotencyRequestHashCreate({ ifMatch: representation.data.etag, title: "Changed payload" }),
   })
   expect(changedPayload).toMatchObject({ code: "idempotency_conflict", success: false })
-
-  const cursor = codec.data.encode(userId, baselineSequence)
-  expect(cursor.success).toBe(true)
-  if (!cursor.success) return
-  const backlog = await journalBacklogRead({ cursorCodec: codec.data, database }, { after: cursor.data, userId })
-  expect(backlog.success).toBe(true)
-  if (!backlog.success) return
-  const frames: unknown[] = []
-  for await (const page of backlog.data.pages) {
-    expect(page.success).toBe(true)
-    if (page.success) frames.push(...page.data)
-  }
-  expect(frames).toHaveLength(1)
-  expect(frames[0]).toMatchObject({ data: { eventType: "invalidate", resourceId: sessionId, revision: 2 } })
 })

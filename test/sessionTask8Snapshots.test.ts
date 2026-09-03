@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
 import { randomBytes } from "node:crypto"
 import { createResult } from "@adaptive-ds/result"
-import { eq, inArray } from "drizzle-orm"
+import { inArray } from "drizzle-orm"
 import { Hono } from "hono"
 import * as v from "valibot"
 import { agentTable } from "../src/agents/db/agentTable.js"
@@ -16,12 +16,13 @@ import { messageTable } from "../src/message/db/messageTable.js"
 import { metricsCollectorCreate } from "../src/metrics/metricsCollectorCreate.js"
 import { runCreate } from "../src/run/actions/runCreate.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
+import { sessionBoundedSnapshot } from "../src/session/actions/sessionBoundedSnapshot.js"
 import { sessionListSnapshot } from "../src/session/actions/sessionListSnapshot.js"
-import { sessionSettledSnapshot } from "../src/session/actions/sessionSettledSnapshot.js"
 import { apiSessionRoutesAdd } from "../src/session/api/apiSessionRoutesAdd.js"
+import { sessionBoundedSnapshotSchema } from "../src/session/api/sessionBoundedSnapshotSchema.js"
 import { sessionRepresentationEtagCreate } from "../src/session/api/sessionRepresentationEtagCreate.js"
 import { sessionRepresentationSchemaVersion } from "../src/session/api/sessionRepresentationSchemaVersion.js"
-import { sessionSettledSnapshotResponseSchema } from "../src/session/api/sessionSettledSnapshotResponseSchema.js"
+import { sessionListCursorCodecCreate } from "../src/session/db/sessionListCursorCodecCreate.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
 import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
@@ -76,8 +77,12 @@ if (codecResult.success) {
 
 const snapshotDependencies = () => {
   if (!codecResult.success) throw new Error(codecResult.errorMessage)
+  const encodeGlobalSequence = codecResult.data.encodeGlobalSequence
+  if (encodeGlobalSequence === undefined) throw new Error("The global cursor encoder is required.")
+  const sessionListCursorCodec = sessionListCursorCodecCreate(codecResult.data)
+  if (!sessionListCursorCodec.success) throw new Error(sessionListCursorCodec.errorMessage)
   return {
-    cursorCodec: codecResult.data,
+    cursorCodec: { ...codecResult.data, encodeGlobalSequence, sessionList: sessionListCursorCodec.data },
     etagCreate: sessionRepresentationEtagCreate,
     schemaVersion: sessionRepresentationSchemaVersion,
   }
@@ -290,6 +295,75 @@ test("paginates tied updatedAt values without duplicates", async () => {
   expect(new Set([...first.data.sessions, ...second.data.sessions].map((session) => session.id)).size).toBe(3)
 })
 
+test("rejects tampered and request-mismatched session list cursors", async () => {
+  const first = await sessionListSnapshot(
+    database,
+    userId,
+    organizationId,
+    { limit: 2, search: "Tied" },
+    snapshotDependencies(),
+  )
+  expect(first.success).toBe(true)
+  if (!first.success || first.data.nextCursor === null) return
+  expect(first.data.nextCursor).not.toContain(userId)
+
+  const cursorParts = first.data.nextCursor.split(".")
+  const ciphertext = cursorParts[2] ?? ""
+  const replacement = ciphertext.startsWith("A") ? "B" : "A"
+  const tampered = [cursorParts[0], cursorParts[1], `${replacement}${ciphertext.slice(1)}`].join(".")
+  const tamperedResult = await sessionListSnapshot(
+    database,
+    userId,
+    organizationId,
+    { cursor: tampered, limit: 2, search: "Tied" },
+    snapshotDependencies(),
+  )
+  expect(tamperedResult).toMatchObject({ code: "cursor_invalid", success: false })
+
+  const mismatchedRequests = [
+    {
+      expectedCode: "cursor_owner_mismatch",
+      organizationId,
+      userId: otherUserId,
+      options: { cursor: first.data.nextCursor, limit: 2, search: "Tied" },
+    },
+    {
+      expectedCode: "cursor_owner_mismatch",
+      organizationId: otherOrganizationId,
+      userId,
+      options: { cursor: first.data.nextCursor, limit: 2, search: "Tied" },
+    },
+    {
+      expectedCode: "cursor_invalid",
+      organizationId,
+      userId,
+      options: { cursor: first.data.nextCursor, limit: 2, search: "Older" },
+    },
+    {
+      expectedCode: "cursor_invalid",
+      organizationId,
+      userId,
+      options: { cursor: first.data.nextCursor, includeArchived: true, limit: 2, search: "Tied" },
+    },
+    {
+      expectedCode: "cursor_invalid",
+      organizationId,
+      userId,
+      options: { cursor: first.data.nextCursor, limit: 1, search: "Tied" },
+    },
+  ]
+  for (const request of mismatchedRequests) {
+    const result = await sessionListSnapshot(
+      database,
+      request.userId,
+      request.organizationId,
+      request.options,
+      snapshotDependencies(),
+    )
+    expect(result).toMatchObject({ code: request.expectedCode, success: false })
+  }
+})
+
 test("isolates authenticated accounts and organizations", async () => {
   const organization = await sessionListSnapshot(database, userId, organizationId, {}, snapshotDependencies())
   expect(organization.success).toBe(true)
@@ -308,66 +382,21 @@ test("isolates authenticated accounts and organizations", async () => {
   expect(otherAccount.data.sessions.map((session) => session.id)).toEqual([listSessionIds.otherUser])
 })
 
-test("returns the authenticated journal boundary as an opaque cursor", async () => {
+test("returns the authenticated global journal boundary as a global cursor", async () => {
   const snapshot = await sessionListSnapshot(database, userId, organizationId, {}, snapshotDependencies())
   expect(snapshot.success).toBe(true)
   if (!snapshot.success || !codecResult.success) return
   if (!("asOfCursor" in snapshot.data)) return
-  const decoded = codecResult.data.validate(snapshot.data.asOfCursor, userId)
-  expect(decoded).toMatchObject({ success: true, data: { journalId: userId, sequence: 41, version: 1 } })
+  if (codecResult.data.decodeGlobalSequence === undefined) return
+  const decoded = codecResult.data.decodeGlobalSequence(snapshot.data.asOfCursor)
+  expect(decoded).toMatchObject({
+    success: true,
+    data: { globalSequence: 41, journalId: userId, version: 1 },
+  })
   expect(snapshot.data.asOfCursor).not.toContain(userId)
 })
 
-test("keeps session/message data and the cursor in one consistent snapshot", async () => {
-  let releaseWriter: (() => void) | undefined
-  let writerReadyResolve: (() => void) | undefined
-  const writerReady = new Promise<void>((resolve) => {
-    writerReadyResolve = resolve
-  })
-  const writer = database.transaction(async (transaction) => {
-    await transaction
-      .update(sessionTable)
-      .set({ revision: 8, title: "Uncommitted title", updatedAt: new Date("2026-08-22T13:00:00.000Z") })
-      .where(eq(sessionTable.id, settledSessionId))
-    await transaction
-      .update(journalSequenceCounterTable)
-      .set({ nextSequence: 100 })
-      .where(eq(journalSequenceCounterTable.userId, userId))
-    writerReadyResolve?.()
-    await new Promise<void>((resolve) => {
-      releaseWriter = resolve
-    })
-  })
-
-  await writerReady
-  const snapshot = await sessionSettledSnapshot(
-    database,
-    userId,
-    organizationId,
-    settledSessionId,
-    snapshotDependencies(),
-  )
-  releaseWriter?.()
-  await writer
-
-  expect(snapshot.success).toBe(true)
-  if (!snapshot.success || !codecResult.success) return
-  expect(snapshot.data.asOfCursor).toEqual(expect.any(String))
-  expect(snapshot.data.revision).toBe(7)
-  expect(snapshot.data.session.title).toBe("Settled session")
-  const decoded = codecResult.data.validate(snapshot.data.asOfCursor, userId)
-  expect(decoded).toMatchObject({ success: true, data: { sequence: 41 } })
-  await database
-    .update(sessionTable)
-    .set({ revision: 7, title: "Settled session", updatedAt: tiedUpdatedAt })
-    .where(eq(sessionTable.id, settledSessionId))
-  await database
-    .update(journalSequenceCounterTable)
-    .set({ nextSequence: 42 })
-    .where(eq(journalSequenceCounterTable.userId, userId))
-})
-
-test("rejects active sessions as settled snapshots", async () => {
+test("returns durable active state in the bounded snapshot", async () => {
   const created = await runCreate(database, userId, activeSessionId, {
     budget: { maxDurationMs: 10_000 },
     clientRunId: `${fixturePrefix}-active-run`,
@@ -381,18 +410,21 @@ test("rejects active sessions as settled snapshots", async () => {
   expect(created.success).toBe(true)
   if (!created.success) return
 
-  const snapshot = await sessionSettledSnapshot(
+  const snapshot = await sessionBoundedSnapshot(
     database,
     userId,
     organizationId,
     activeSessionId,
     snapshotDependencies(),
   )
-  expect(snapshot).toMatchObject({ code: "session_active", success: false })
+  expect(snapshot).toMatchObject({
+    success: true,
+    data: { session: { id: activeSessionId }, state: { run: { sessionId: activeSessionId, status: "accepted" } } },
+  })
 })
 
-test("returns a complete ordered settled payload with representation inputs", async () => {
-  const snapshot = await sessionSettledSnapshot(
+test("returns a bounded payload with a selected-session cursor", async () => {
+  const snapshot = await sessionBoundedSnapshot(
     database,
     userId,
     organizationId,
@@ -401,16 +433,15 @@ test("returns a complete ordered settled payload with representation inputs", as
   )
   expect(snapshot.success).toBe(true)
   if (!snapshot.success) return
-  expect(v.safeParse(sessionSettledSnapshotResponseSchema, snapshot.data).success).toBe(true)
-  expect(snapshot.data.settled).toBe(true)
-  expect(snapshot.data.session.revision).toBe(snapshot.data.revision)
-  expect(snapshot.data.etag).toBe(sessionRepresentationEtagCreate(settledSessionId, 7))
-  expect(snapshot.data.schemaVersion).toBe(sessionRepresentationSchemaVersion)
-  expect(snapshot.data.messages.map((message) => message.sequence)).toEqual([1, 2, 3])
-  expect(snapshot.data.messages.map((message) => message.content)).toEqual(["first", "second", "third"])
+  expect(v.safeParse(sessionBoundedSnapshotSchema, snapshot.data).success).toBe(true)
+  expect(snapshot.data.session.id).toBe(settledSessionId)
+  expect(snapshot.data.detailCursor).toEqual(expect.any(String))
+  expect(snapshot.data.throughPosition).toBe(0)
+  expect(snapshot.data.semanticSteps).toEqual([])
+  expect(snapshot.data.latestAnswer).toBeNull()
 })
 
-test("serves authenticated Drizzle shell/list snapshots with keysets and 304", async () => {
+test("serves authenticated Drizzle shell/list snapshots with keysets and global cursors", async () => {
   const firstResponse = await httpApi.request("http://codeline.test/sessions?limit=2&search=Tied", {
     headers: { "Accept-Encoding": "gzip" },
   })
@@ -432,15 +463,11 @@ test("serves authenticated Drizzle shell/list snapshots with keysets and 304", a
     headers: { "Accept-Encoding": "gzip" },
   })
   expect(repeatedBodyResponse.status).toBe(200)
-  const repeatedBody = await responseJsonRead(repeatedBodyResponse)
-  expect(repeatedBody).toEqual(first)
-  expect(repeatedBodyResponse.headers.get("ETag")).toBe(first.etag)
-
-  const repeated = await httpApi.request("http://codeline.test/sessions?limit=2&search=Tied", {
-    headers: { "If-None-Match": first.etag },
-  })
-  expect(repeated.status).toBe(304)
-  expect(repeated.headers.get("ETag")).toBe(first.etag)
+  const repeatedBody = (await responseJsonRead(repeatedBodyResponse)) as typeof first
+  expect(repeatedBody.sessions).toEqual(first.sessions)
+  expect(repeatedBody.nextCursor).not.toBe(first.nextCursor)
+  expect(repeatedBody.asOfCursor).not.toBe(first.asOfCursor)
+  expect(repeatedBodyResponse.headers.get("ETag")).not.toBe(first.etag)
 
   const secondResponse = await httpApi.request(
     `http://codeline.test/sessions?cursor=${encodeURIComponent(first.nextCursor ?? "")}&limit=2&search=Tied`,
@@ -448,6 +475,23 @@ test("serves authenticated Drizzle shell/list snapshots with keysets and 304", a
   expect(secondResponse.status).toBe(200)
   const second = (await secondResponse.json()) as { sessions: Array<{ id: string }> }
   expect(second.sessions.map((session) => session.id)).toEqual([listSessionIds.low])
+
+  const cursorParts = (first.nextCursor ?? "").split(".")
+  const ciphertext = cursorParts[2] ?? ""
+  const replacement = ciphertext.startsWith("A") ? "B" : "A"
+  const tamperedCursor = [cursorParts[0], cursorParts[1], `${replacement}${ciphertext.slice(1)}`].join(".")
+  const tamperedResponse = await httpApi.request(
+    `http://codeline.test/sessions?cursor=${encodeURIComponent(tamperedCursor)}&limit=2&search=Tied`,
+  )
+  expect(tamperedResponse.status).toBe(400)
+  for (const query of [
+    `limit=2&search=Older&cursor=${encodeURIComponent(first.nextCursor ?? "")}`,
+    `includeArchived=1&limit=2&search=Tied&cursor=${encodeURIComponent(first.nextCursor ?? "")}`,
+    `limit=1&search=Tied&cursor=${encodeURIComponent(first.nextCursor ?? "")}`,
+  ]) {
+    const response = await httpApi.request(`http://codeline.test/sessions?${query}`)
+    expect(response.status).toBe(400)
+  }
 
   const detail = await httpApi.request(`http://codeline.test/sessions/${settledSessionId}`)
   expect(detail.status).toBe(200)
@@ -460,7 +504,7 @@ test("serves authenticated Drizzle shell/list snapshots with keysets and 304", a
   expect(detail304.status).toBe(304)
 })
 
-test("serves ordered message pages and complete conditional snapshots", async () => {
+test("serves ordered message pages and bounded snapshots", async () => {
   const firstMessages = await httpApi.request(`http://codeline.test/sessions/${settledSessionId}/messages?limit=2`, {
     headers: { "Accept-Encoding": "gzip" },
   })
@@ -479,7 +523,7 @@ test("serves ordered message pages and complete conditional snapshots", async ()
   expect(secondMessages.status).toBe(200)
   expect((await secondMessages.json()).messages.map((message: { sequence: number }) => message.sequence)).toEqual([3])
 
-  const snapshot = await httpApi.request(`http://codeline.test/sessions/${settledSessionId}/snapshot`, {
+  const snapshot = await httpApi.request(`http://codeline.test/sessions/${settledSessionId}/bounded-snapshot`, {
     headers: { "Accept-Encoding": "gzip" },
   })
   expect(snapshot.status).toBe(200)
@@ -487,28 +531,20 @@ test("serves ordered message pages and complete conditional snapshots", async ()
   expect(snapshot.headers.get("Vary")).toBe("Cookie, Accept-Encoding")
   expect(snapshot.headers.get("Content-Encoding")).toBe("gzip")
   const body = (await responseJsonRead(snapshot)) as {
-    asOfCursor: string
-    etag: string
-    messages: Array<{ sequence: number }>
+    detailCursor: string
+    latestAnswer: unknown
+    semanticSteps: unknown[]
+    session: { id: string }
+    throughPosition: number
   }
-  expect(body.messages.map((message) => message.sequence)).toEqual([1, 2, 3])
-  expect(snapshot.headers.get("ETag")).toBe(body.etag)
+  expect(body.session.id).toBe(settledSessionId)
+  expect(body.detailCursor).toEqual(expect.any(String))
+  expect(body.throughPosition).toBe(0)
+  expect(body.semanticSteps).toEqual([])
+  expect(body.latestAnswer).toBeNull()
 
-  const notModified = await httpApi.request(`http://codeline.test/sessions/${settledSessionId}/snapshot`, {
-    headers: { "If-None-Match": body.etag },
-  })
-  expect(notModified.status).toBe(304)
-  expect(notModified.headers.get("ETag")).toBe(body.etag)
-  expect(metricsCollector.snapshot().metrics).toEqual(
-    expect.arrayContaining([
-      { labels: { status: "200" }, name: "snapshot_response_total", value: 1 },
-      { labels: { status: "304" }, name: "snapshot_response_total", value: 1 },
-      { labels: { outcome: "gzip" }, name: "snapshot_compression_total", value: expect.any(Number) },
-    ]),
-  )
-
-  const active = await httpApi.request(`http://codeline.test/sessions/${activeSessionId}/snapshot`)
-  expect(active.status).toBe(409)
+  const active = await httpApi.request(`http://codeline.test/sessions/${activeSessionId}/bounded-snapshot`)
+  expect(active.status).toBe(200)
 })
 
 test("does not serve a session or messages across organization scope", async () => {
@@ -516,6 +552,12 @@ test("does not serve a session or messages across organization scope", async () 
   otherOrganizationApi.use("*", async (context, next) => {
     context.set("database", database)
     context.set("requestIdentity", { organizationId: otherOrganizationId, userId })
+    await next()
+  })
+  const otherUserApi = new Hono<AppEnvironment>()
+  otherUserApi.use("*", async (context, next) => {
+    context.set("database", database)
+    context.set("requestIdentity", { organizationId, userId: otherUserId })
     await next()
   })
   if (codecResult.success) {
@@ -528,14 +570,29 @@ test("does not serve a session or messages across organization scope", async () 
       journalCursorCodec: codecResult.data,
       journalPostCommitPublish: async () => createResult(undefined),
     })
+    apiSessionRoutesAdd(otherUserApi, {
+      database,
+      journalCursorCodec: codecResult.data,
+      journalPostCommitPublish: async () => createResult(undefined),
+    })
   }
 
+  const firstResponse = await httpApi.request("http://codeline.test/sessions?limit=2&search=Tied")
+  const first = (await firstResponse.json()) as { nextCursor: string | null }
+  const reusedCursor = await otherOrganizationApi.request(
+    `http://codeline.test/sessions?cursor=${encodeURIComponent(first.nextCursor ?? "")}&limit=2&search=Tied`,
+  )
+  expect(reusedCursor.status).toBe(400)
+  const reusedByOtherUser = await otherUserApi.request(
+    `http://codeline.test/sessions?cursor=${encodeURIComponent(first.nextCursor ?? "")}&limit=2&search=Tied`,
+  )
+  expect(reusedByOtherUser.status).toBe(400)
   expect((await otherOrganizationApi.request("http://codeline.test/sessions")).status).toBe(200)
   expect((await otherOrganizationApi.request(`http://codeline.test/sessions/${settledSessionId}`)).status).toBe(404)
   expect(
     (await otherOrganizationApi.request(`http://codeline.test/sessions/${settledSessionId}/messages`)).status,
   ).toBe(404)
   expect(
-    (await otherOrganizationApi.request(`http://codeline.test/sessions/${settledSessionId}/snapshot`)).status,
+    (await otherOrganizationApi.request(`http://codeline.test/sessions/${settledSessionId}/bounded-snapshot`)).status,
   ).toBe(404)
 })

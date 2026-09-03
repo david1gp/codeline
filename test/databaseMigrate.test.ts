@@ -31,6 +31,9 @@ test("database migrations apply the checked-in SQLite baseline", async () => {
     const sessionColumns = await client.execute("PRAGMA table_info('session')")
     const executionSelection = sessionColumns.rows.find((row) => row.name === "execution_selection")
     expect(executionSelection).toMatchObject({ name: "execution_selection", notnull: 0, type: "TEXT" })
+
+    const historyColumns = await client.execute("PRAGMA table_info('session_history_entry')")
+    expect(historyColumns.rows.map((row) => row.name)).toContain("message_role")
   } finally {
     client.close()
     await rm(directoryPath, { recursive: true, force: true })
@@ -57,6 +60,7 @@ test("the bounded history migration creates position and ownership indexes", asy
         .sort(),
     ).toEqual([
       "session_history_entry_session_change_position_idx",
+      "session_history_entry_session_kind_message_role_position_idx",
       "session_history_entry_session_position_unique",
       "session_history_entry_session_source_unique",
     ])

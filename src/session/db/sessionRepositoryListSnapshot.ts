@@ -8,13 +8,15 @@ import { applicationUserTable } from "../../identity/db/applicationUserTable.js"
 import { journalSequenceCounterTable } from "../../journal/db/journalSequenceCounterTable.js"
 import { projectTable } from "../../project/db/projectTable.js"
 import { serverTable } from "../../servers/db/serverTable.js"
-import { type SessionListCursor, sessionListCursorSchema } from "../api/sessionListCursorSchema.js"
+import type { SessionListCursor } from "../api/sessionListCursorSchema.js"
 import { sessionListRequestSchema } from "../api/sessionListRequestSchema.js"
+import type { SessionListCursorCodec } from "./sessionListCursorCodecCreate.js"
 import { sessionTable } from "./sessionTable.js"
 
 type SessionListSnapshotDependencies = {
   cursorCodec: {
-    encodeDeterministic: (journalId: unknown, sequence: unknown) => Result<string>
+    encodeGlobalSequence: (journalId: unknown, globalSequence: unknown) => Result<string>
+    sessionList: SessionListCursorCodec
   }
 }
 
@@ -27,22 +29,26 @@ type SessionListSnapshotRow = {
   session: typeof sessionTable.$inferSelect
 }
 
-function sessionListCursorDecode(cursor: string | undefined): Result<SessionListCursor | undefined> {
-  const op = "sessionListCursorDecode"
-  if (cursor === undefined) return createResult(undefined)
-
-  try {
-    const decoded = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as unknown
-    const parsed = v.safeParse(sessionListCursorSchema, decoded)
-    if (!parsed.success) return createResultErrorCode(op, "The session list cursor is invalid.", "cursor_invalid")
-    return createResult(parsed.output)
-  } catch (_error) {
-    return createResultErrorCode(op, "The session list cursor is invalid.", "cursor_invalid")
-  }
-}
-
-function sessionListCursorEncode(cursor: SessionListCursor): string {
-  return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url")
+function sessionListCursorRequestValidate(
+  cursor: SessionListCursor,
+  userId: string,
+  organizationId: string,
+  options: v.InferOutput<typeof sessionListRequestSchema>,
+): Result<SessionListCursor> {
+  const op = "sessionListCursorRequestValidate"
+  if (cursor.userId !== userId || cursor.organizationId !== organizationId)
+    return createResultErrorCode(
+      op,
+      "The session list cursor does not belong to the authenticated request.",
+      "cursor_owner_mismatch",
+    )
+  if (
+    cursor.includeArchived !== options.includeArchived ||
+    cursor.limit !== options.limit ||
+    cursor.search !== (options.search ?? null)
+  )
+    return createResultErrorCode(op, "The session list cursor does not match the request.", "cursor_invalid")
+  return createResult(cursor)
 }
 
 function sessionListHighestSequence(nextSequence: number | undefined): Result<number> {
@@ -88,8 +94,13 @@ export async function sessionRepositoryListSnapshot(
   const op = "sessionRepositoryListSnapshot"
   const parsedOptions = v.safeParse(sessionListRequestSchema, options)
   if (!parsedOptions.success) return createResultError(op, "The session list request is invalid.")
-  const decodedCursor = sessionListCursorDecode(parsedOptions.output.cursor)
+  const decodedCursor = dependencies.cursorCodec.sessionList.decode(parsedOptions.output.cursor)
   if (!decodedCursor.success) return decodedCursor
+  const validatedCursor =
+    decodedCursor.data === undefined
+      ? createResult<SessionListCursor | undefined>(undefined)
+      : sessionListCursorRequestValidate(decodedCursor.data, userId, organizationId, parsedOptions.output)
+  if (!validatedCursor.success) return validatedCursor
 
   try {
     return await database.transaction(
@@ -113,7 +124,7 @@ export async function sessionRepositoryListSnapshot(
           .limit(1)
         const highestSequence = sessionListHighestSequence(counter?.nextSequence)
         if (!highestSequence.success) return highestSequence
-        const asOfCursor = dependencies.cursorCodec.encodeDeterministic(user.id, highestSequence.data)
+        const asOfCursor = dependencies.cursorCodec.encodeGlobalSequence(user.id, highestSequence.data)
         if (!asOfCursor.success) return createResultError(op, asOfCursor.errorMessage)
 
         const conditions = [
@@ -122,11 +133,11 @@ export async function sessionRepositoryListSnapshot(
           eq(agentTable.serverId, sessionTable.serverId),
         ]
         if (!parsedOptions.output.includeArchived) conditions.push(isNull(sessionTable.archivedAt))
-        if (decodedCursor.data !== undefined) {
-          const cursorTimestamp = new Date(decodedCursor.data.updatedAt)
+        if (validatedCursor.data !== undefined) {
+          const cursorTimestamp = new Date(validatedCursor.data.updatedAt)
           const cursorCondition = or(
             lt(sessionTable.updatedAt, cursorTimestamp),
-            and(eq(sessionTable.updatedAt, cursorTimestamp), lt(sessionTable.id, decodedCursor.data.id)),
+            and(eq(sessionTable.updatedAt, cursorTimestamp), lt(sessionTable.id, validatedCursor.data.id)),
           )
           if (cursorCondition !== undefined) conditions.push(cursorCondition)
         }
@@ -158,20 +169,22 @@ export async function sessionRepositoryListSnapshot(
 
         const page = rows.slice(0, parsedOptions.output.limit)
         const last = page.at(-1)
-        const nextCursor =
-          rows.length > parsedOptions.output.limit && last !== undefined
-            ? sessionListCursorEncode({
-                id: last.session.id,
-                includeArchived: parsedOptions.output.includeArchived,
-                kind: "session-list",
-                limit: parsedOptions.output.limit,
-                organizationId,
-                search: parsedOptions.output.search ?? null,
-                updatedAt: last.session.updatedAt.toISOString(),
-                userId,
-                version: 1,
-              })
-            : null
+        let nextCursor: string | null = null
+        if (rows.length > parsedOptions.output.limit && last !== undefined) {
+          const encoded = dependencies.cursorCodec.sessionList.encode({
+            id: last.session.id,
+            includeArchived: parsedOptions.output.includeArchived,
+            kind: "session-list",
+            limit: parsedOptions.output.limit,
+            organizationId,
+            search: parsedOptions.output.search ?? null,
+            updatedAt: last.session.updatedAt.toISOString(),
+            userId,
+            version: 1,
+          })
+          if (!encoded.success) return createResultError(op, encoded.errorMessage)
+          nextCursor = encoded.data
+        }
 
         return createResult({
           asOfCursor: asOfCursor.data,

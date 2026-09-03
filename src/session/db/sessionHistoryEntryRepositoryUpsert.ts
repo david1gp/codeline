@@ -22,6 +22,15 @@ type SessionHistoryEntryRepositoryUpsertResult = {
   entry: typeof sessionHistoryEntryTable.$inferSelect
 }
 
+function sessionHistoryEntryMessageRoleResolve(
+  kind: "message" | "run" | "tool",
+  payload: JournalJsonValue,
+): "assistant" | "user" | null {
+  if (kind !== "message" || payload === null || typeof payload !== "object" || Array.isArray(payload)) return null
+  const role = payload.role
+  return role === "assistant" || role === "user" ? role : null
+}
+
 function sessionHistoryEntryPayloadCanonicalize(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value)
   if (Array.isArray(value)) return `[${value.map(sessionHistoryEntryPayloadCanonicalize).join(",")}]`
@@ -45,9 +54,16 @@ export async function sessionHistoryEntryRepositoryUpsert(
   if (!parsedInput.success) return createResultError(op, "The session history entry input is invalid.")
   if (parsedInput.output.kind !== parsedInput.output.sourceType)
     return createResultError(op, "The session history entry kind and source type must match.")
+  if (
+    parsedInput.output.kind !== "tool" &&
+    parsedInput.output.sourceDetailId !== undefined &&
+    parsedInput.output.sourceDetailId !== ""
+  )
+    return createResultError(op, "Only tool history entries may have a source detail identity.")
 
   const sourceDetailId = parsedInput.output.sourceDetailId ?? ""
   const payload = parsedInput.output.payload as JournalJsonValue
+  const messageRole = sessionHistoryEntryMessageRoleResolve(parsedInput.output.kind, payload)
   try {
     const [existing] = await database
       .select()
@@ -79,6 +95,7 @@ export async function sessionHistoryEntryRepositoryUpsert(
         .update(sessionHistoryEntryTable)
         .set({
           changePosition: position.data,
+          messageRole,
           payload,
           updatedAt: new Date(),
         })
@@ -101,6 +118,7 @@ export async function sessionHistoryEntryRepositoryUpsert(
       .values({
         id: parsedInput.output.id ?? uuidv7(),
         kind: parsedInput.output.kind,
+        messageRole,
         payload,
         position: position.data,
         sourceDetailId,

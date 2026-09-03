@@ -5,6 +5,7 @@ import { signalObjectCreate } from "../../ui/signalObjectCreate.js"
 import type { SessionBoundedHistoryPage } from "../api/sessionBoundedHistoryPageSchema.js"
 import type { SessionBoundedSnapshot } from "../api/sessionBoundedSnapshotSchema.js"
 import type { SessionSemanticStep } from "../api/sessionSemanticStepSchema.js"
+import { sessionCacheDatabaseConfig } from "../storage/sessionCacheDatabaseConfig.js"
 import { sessionCacheDatabaseOpen } from "../storage/sessionCacheDatabaseOpen.js"
 import type { SessionCacheDatabaseSchema } from "../storage/sessionCacheDatabaseSchema.js"
 import { sessionCacheHistoryPageRead } from "../storage/sessionCacheHistoryPageRead.js"
@@ -20,6 +21,8 @@ type SessionBoundedHistoryStateOptions = {
   enabled?: () => boolean
   fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
   isOnline?: () => boolean
+  maximumBytes?: number
+  maximumEntries?: number
   now?: () => number
   sessionId: () => string | null
   userId?: () => string | null
@@ -27,32 +30,83 @@ type SessionBoundedHistoryStateOptions = {
 
 type OlderHistoryStatus = "error" | "idle" | "loading"
 
+/**
+ * The public semantic-step schema still calls this field `sequence`. Within
+ * bounded history state it is the immutable session-local timeline position.
+ * Keeping that distinction here avoids renaming the existing wire schema.
+ */
+type SessionHistoryStateStep = {
+  readonly id: SessionSemanticStep["id"]
+  readonly position: SessionSemanticStep["sequence"]
+  readonly value: SessionSemanticStep
+}
+
+const sessionBoundedHistoryDefaultMaximumEntries = sessionCacheDatabaseConfig.limits.maxHistoryEntriesPerSession
+const sessionBoundedHistoryDefaultMaximumBytes =
+  sessionCacheDatabaseConfig.limits.maxHistoryEntriesPerSession * sessionCacheDatabaseConfig.limits.maxHistoryEntryBytes
+const sessionSemanticStepTextEncoder = new TextEncoder()
+
 function sessionSemanticStepKey(step: SessionSemanticStep): string {
-  return `${step.sequence}:${step.id}`
+  return step.id
 }
 
-function sessionSemanticStepsPrepend(
-  current: readonly SessionSemanticStep[],
-  older: readonly SessionSemanticStep[],
-): readonly SessionSemanticStep[] {
-  const seen = new Set(current.map(sessionSemanticStepKey))
-  const prepend: SessionSemanticStep[] = []
-  for (const step of older) {
-    const key = sessionSemanticStepKey(step)
-    if (seen.has(key)) continue
-    seen.add(key)
-    prepend.push(step)
+function sessionHistoryStateStepCreate(step: SessionSemanticStep, position = step.sequence): SessionHistoryStateStep {
+  return {
+    id: sessionSemanticStepKey(step),
+    position,
+    value: position === step.sequence ? step : { ...step, sequence: position },
   }
-  return [...prepend, ...current]
 }
 
-function sessionSemanticStepsReplace(
-  current: readonly SessionSemanticStep[],
-  replacement: readonly SessionSemanticStep[],
-): readonly SessionSemanticStep[] {
+function sessionHistoryStateStepCompare(left: SessionHistoryStateStep, right: SessionHistoryStateStep): number {
+  return left.position - right.position || left.id.localeCompare(right.id)
+}
+
+function sessionHistoryStateStepsCreate(steps: readonly SessionSemanticStep[]): readonly SessionHistoryStateStep[] {
+  const byId = new Map<string, SessionHistoryStateStep>()
+  for (const step of steps) {
+    const id = sessionSemanticStepKey(step)
+    const existing = byId.get(id)
+    byId.set(id, sessionHistoryStateStepCreate(step, existing?.position ?? step.sequence))
+  }
+  return [...byId.values()].sort(sessionHistoryStateStepCompare)
+}
+
+function sessionHistoryStateStepsReplace(
+  current: readonly SessionHistoryStateStep[],
+  replacement: readonly SessionHistoryStateStep[],
+): readonly SessionHistoryStateStep[] {
   const byId = new Map(current.map((step) => [step.id, step]))
-  for (const step of replacement) byId.set(step.id, step)
-  return [...byId.values()].sort((left, right) => left.sequence - right.sequence || left.id.localeCompare(right.id))
+  for (const step of replacement) {
+    const existing = byId.get(step.id)
+    byId.set(step.id, existing === undefined ? step : sessionHistoryStateStepCreate(step.value, existing.position))
+  }
+  return [...byId.values()].sort(sessionHistoryStateStepCompare)
+}
+
+function sessionHistoryStateStepsUnion(
+  current: readonly SessionHistoryStateStep[],
+  additions: readonly SessionHistoryStateStep[],
+): readonly SessionHistoryStateStep[] {
+  const byId = new Map(current.map((step) => [step.id, step]))
+  for (const step of additions) {
+    if (!byId.has(step.id)) byId.set(step.id, step)
+  }
+  return [...byId.values()].sort(sessionHistoryStateStepCompare)
+}
+
+function sessionHistoryStateStepsWithinBounds(
+  steps: readonly SessionHistoryStateStep[],
+  maximumEntries: number,
+  maximumBytes: number,
+): boolean {
+  let serializedBytes = 0
+  for (const step of steps) {
+    // Match session cache accounting: serialized JSON UTF-8 bytes only.
+    serializedBytes += sessionSemanticStepTextEncoder.encode(JSON.stringify(step.value)).byteLength
+    if (serializedBytes > maximumBytes) return false
+  }
+  return steps.length <= maximumEntries
 }
 
 /**
@@ -61,6 +115,16 @@ function sessionSemanticStepsReplace(
  * falls back to a new authoritative bounded snapshot rather than mixing views.
  */
 export function sessionBoundedHistoryStateCreate(options: SessionBoundedHistoryStateOptions) {
+  const maximumBytesCandidate = options.maximumBytes ?? sessionBoundedHistoryDefaultMaximumBytes
+  const maximumEntriesCandidate = options.maximumEntries ?? sessionBoundedHistoryDefaultMaximumEntries
+  const maximumBytes =
+    Number.isSafeInteger(maximumBytesCandidate) && maximumBytesCandidate > 0
+      ? maximumBytesCandidate
+      : sessionBoundedHistoryDefaultMaximumBytes
+  const maximumEntries =
+    Number.isSafeInteger(maximumEntriesCandidate) && maximumEntriesCandidate > 0
+      ? maximumEntriesCandidate
+      : sessionBoundedHistoryDefaultMaximumEntries
   const selectedSessionKey = () => {
     const sessionId = options.sessionId()
     if (sessionId === null) return undefined
@@ -79,7 +143,7 @@ export function sessionBoundedHistoryStateCreate(options: SessionBoundedHistoryS
   })
   const cachedSnapshot = signalObjectCreate<SessionBoundedSnapshot | undefined>(undefined)
   const cacheReadStatus = signalObjectCreate<"error" | "loading" | "ready">("loading")
-  const olderSteps = signalObjectCreate<readonly SessionSemanticStep[]>([])
+  const olderSteps = signalObjectCreate<readonly SessionHistoryStateStep[]>([])
   const nextCursor = signalObjectCreate<string | null>(null)
   const olderStatus = signalObjectCreate<OlderHistoryStatus>("idle")
   const olderErrorMessage = signalObjectCreate<string | undefined>(undefined)
@@ -92,6 +156,9 @@ export function sessionBoundedHistoryStateCreate(options: SessionBoundedHistoryS
   let cacheGeneration = 0
   let databaseOpen: ReturnType<typeof sessionCacheDatabaseOpen> | undefined
   let snapshotPersistence: Promise<void> | undefined
+  let authoritativeRefresh: Promise<void> | undefined
+  let authoritativeRefreshTrailing: "active" | "pending" | undefined
+  let disposed = false
 
   const databaseResolve = async (): Promise<IDBPDatabase<SessionCacheDatabaseSchema> | undefined> => {
     if (options.database !== undefined) return options.database
@@ -190,12 +257,19 @@ export function sessionBoundedHistoryStateCreate(options: SessionBoundedHistoryS
   })
 
   onCleanup(() => {
+    disposed = true
     cacheGeneration += 1
+    authoritativeRefreshTrailing = undefined
     pageController?.abort()
     if (options.database === undefined) void databaseOpen?.then((opened) => opened.success && opened.data.close())
   })
 
-  const authoritativeResnapshot = (message?: string): void => {
+  const authoritativeResnapshot = (message?: string): Promise<void> => {
+    if (disposed) return Promise.resolve()
+    if (authoritativeRefresh !== undefined) {
+      if (authoritativeRefreshTrailing === undefined) authoritativeRefreshTrailing = "pending"
+      return authoritativeRefresh
+    }
     pagesReset()
     if (message === undefined) {
       olderStatus.set("idle")
@@ -206,7 +280,45 @@ export function sessionBoundedHistoryStateCreate(options: SessionBoundedHistoryS
       olderErrorMessage.set(message)
       resnapshotRequired.set(true)
     }
-    query.refresh()
+    const refresh = (async () => {
+      await query.refresh()
+      if (disposed) return
+      if (authoritativeRefreshTrailing !== "pending") return
+      authoritativeRefreshTrailing = "active"
+      await query.refresh()
+    })()
+    authoritativeRefresh = refresh
+    void refresh.then(
+      () => {
+        if (authoritativeRefresh !== refresh) return
+        authoritativeRefresh = undefined
+        authoritativeRefreshTrailing = undefined
+      },
+      () => {
+        if (authoritativeRefresh !== refresh) return
+        authoritativeRefresh = undefined
+        authoritativeRefreshTrailing = undefined
+      },
+    )
+    return refresh
+  }
+
+  const olderPageApply = (page: Pick<SessionBoundedHistoryPage, "nextCursor" | "semanticSteps">): boolean => {
+    const nextOlderSteps = sessionHistoryStateStepsReplace(
+      olderSteps.get(),
+      sessionHistoryStateStepsCreate(page.semanticSteps),
+    )
+    const visibleSteps = sessionHistoryStateStepsUnion(
+      sessionHistoryStateStepsCreate(selectedSnapshot()?.semanticSteps ?? []),
+      nextOlderSteps,
+    )
+    if (!sessionHistoryStateStepsWithinBounds(visibleSteps, maximumEntries, maximumBytes)) {
+      authoritativeResnapshot("The bounded history retention limit was reached. It is being reloaded.")
+      return false
+    }
+    olderSteps.set(nextOlderSteps)
+    nextCursor.set(page.nextCursor)
+    return true
   }
 
   const loadOlder = async (): Promise<void> => {
@@ -239,8 +351,7 @@ export function sessionBoundedHistoryStateCreate(options: SessionBoundedHistoryS
           selectedSnapshot() === snapshot
         ) {
           cachedPage = read.data
-          olderSteps.set((current) => sessionSemanticStepsReplace(current, read.data?.semanticSteps ?? []))
-          nextCursor.set(read.data.nextCursor)
+          if (!olderPageApply(read.data)) return
           loadedCursors.add(cursor)
           olderStatus.set("idle")
         }
@@ -280,9 +391,8 @@ export function sessionBoundedHistoryStateCreate(options: SessionBoundedHistoryS
       return
     }
 
+    if (!olderPageApply(result.data)) return
     loadedCursors.add(cursor)
-    olderSteps.set((current) => sessionSemanticStepsReplace(current, result.data.semanticSteps))
-    nextCursor.set(result.data.nextCursor)
     olderStatus.set("idle")
     olderErrorMessage.set(undefined)
     if (userId !== null) {
@@ -301,8 +411,8 @@ export function sessionBoundedHistoryStateCreate(options: SessionBoundedHistoryS
   }
 
   const semanticSteps = (): readonly SessionSemanticStep[] => {
-    const recent = selectedSnapshot()?.semanticSteps ?? []
-    return sessionSemanticStepsPrepend(recent, olderSteps.get())
+    const recent = sessionHistoryStateStepsCreate(selectedSnapshot()?.semanticSteps ?? [])
+    return sessionHistoryStateStepsUnion(recent, olderSteps.get()).map((step) => step.value)
   }
 
   const cacheStatus = (): SessionCacheStatus => {

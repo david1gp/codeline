@@ -8,9 +8,15 @@ import { runErrorCodes } from "../errors/runErrorCodes.js"
 import { runResultCreateError } from "../errors/runResultCreateError.js"
 import { type RunDelegationResult, runDelegationResultSchema } from "../schema/runDelegationResultSchema.js"
 import { runDelegationHistoryToolProjectionPersist } from "../actions/runDelegationHistoryToolProjectionPersist.js"
+import { runFinalizedDetailCreate } from "../actions/runFinalizedDetailCreate.js"
 import { attemptTable } from "./attemptTable.js"
+import { runActiveStateRepositoryDelete } from "./runActiveStateRepositoryDelete.js"
 import { runDelegationTable } from "./runDelegationTable.js"
+import { runFinalizedDetailRepositoryUpsert } from "./runFinalizedDetailRepositoryUpsert.js"
+import { runFinalizedDetailTable } from "./runFinalizedDetailTable.js"
 import { runTable } from "./runTable.js"
+import { sessionHistoryEntryRepositoryUpsert } from "../../session/db/sessionHistoryEntryRepositoryUpsert.js"
+import { runHistoryEntryPayloadCreate } from "./runHistoryEntryPayloadCreate.js"
 
 type RunDelegationFinalizeResult = {
   attempt: typeof attemptTable.$inferSelect
@@ -47,6 +53,7 @@ type RunRepositoryDelegationFinalizeOptions = {
     input: RunRepositoryDelegationFinalizeDelegationUpdateInput,
   ) => Promise<Result<typeof runDelegationTable.$inferSelect>>
   now?: () => Date
+  runFinalizedDetailUpsert?: typeof runFinalizedDetailRepositoryUpsert
   runUpdate?: (
     transaction: DatabaseExecutor,
     input: RunRepositoryDelegationFinalizeRunUpdateInput,
@@ -74,6 +81,126 @@ function lifecycleAllowsFinalization(status: string, resultStatus: RunDelegation
   if (status === "running") return true
   if (status === "accepted") return resultStatus === "aborted"
   return status === resultStatus
+}
+
+function runDelegationHistoryTerminalKind(status: RunDelegationResult["status"]): "cancelled" | "completed" | "failed" {
+  if (status === "succeeded") return "completed"
+  if (status === "failed") return "failed"
+  return "cancelled"
+}
+
+function runDelegationTerminalEventCreate(
+  run: typeof runTable.$inferSelect,
+  sessionRevision: number,
+  result: RunDelegationResult,
+): {
+  eventType: "run-cancelled" | "run-completed" | "run-failed"
+  payload: Record<string, unknown>
+} {
+  if (result.status === "succeeded")
+    return {
+      eventType: "run-completed",
+      payload: { messageId: null, runId: run.id, sessionId: run.sessionId, sessionRevision },
+    }
+  if (result.status === "failed")
+    return {
+      eventType: "run-failed",
+      payload: { failure: result.failure, runId: run.id, sessionId: run.sessionId, sessionRevision },
+    }
+  return {
+    eventType: "run-cancelled",
+    payload: {
+      reason: result.failure.message.slice(0, 200),
+      runId: run.id,
+      sessionId: run.sessionId,
+      sessionRevision,
+    },
+  }
+}
+
+async function runDelegationFinalizedDetailPersist(
+  transaction: DatabaseExecutor,
+  userId: string,
+  parentSessionId: string,
+  childRunId: string,
+  delegationId: string,
+  run: typeof runTable.$inferSelect,
+  sessionRevision: number,
+  result: RunDelegationResult,
+  options: RunRepositoryDelegationFinalizeOptions,
+): Promise<Result<void>> {
+  try {
+    const [existing] = await transaction
+      .select({ runId: runFinalizedDetailTable.runId })
+      .from(runFinalizedDetailTable)
+      .innerJoin(
+        runDelegationTable,
+        and(
+          eq(runDelegationTable.id, delegationId),
+          eq(runDelegationTable.childRunId, runFinalizedDetailTable.runId),
+          eq(runDelegationTable.sessionId, parentSessionId),
+          eq(runDelegationTable.userId, userId),
+        ),
+      )
+      .where(
+        and(
+          eq(runFinalizedDetailTable.runId, childRunId),
+          eq(runFinalizedDetailTable.sessionId, parentSessionId),
+          eq(runFinalizedDetailTable.userId, userId),
+        ),
+      )
+      .limit(1)
+    if (existing !== undefined) return runActiveStateRepositoryDelete(transaction, userId, parentSessionId, childRunId)
+
+    const detail = await runFinalizedDetailCreate(
+      transaction,
+      userId,
+      parentSessionId,
+      run.id,
+      run,
+      runDelegationTerminalEventCreate(run, sessionRevision, result),
+      result.status === "succeeded" ? result.text : undefined,
+    )
+    if (!detail.success) return detail
+    const persisted = await (options.runFinalizedDetailUpsert ?? runFinalizedDetailRepositoryUpsert)(
+      transaction,
+      userId,
+      parentSessionId,
+      run.id,
+      detail.data,
+    )
+    if (!persisted.success) return persisted
+
+    return runActiveStateRepositoryDelete(transaction, userId, parentSessionId, childRunId)
+  } catch (_error) {
+    return runResultCreateError(
+      "runRepositoryDelegationFinalize",
+      "The delegated child detail could not be persisted.",
+      runErrorCodes.persistFailed,
+    )
+  }
+}
+
+async function runDelegationHistoryRunProjectionPersist(
+  transaction: DatabaseExecutor,
+  userId: string,
+  sessionId: string,
+  run: typeof runTable.$inferSelect,
+  status: RunDelegationResult["status"],
+): Promise<Result<void>> {
+  const projected = await sessionHistoryEntryRepositoryUpsert(transaction, userId, sessionId, {
+    id: run.id,
+    kind: "run",
+    payload: runHistoryEntryPayloadCreate({
+      id: run.id,
+      status,
+      terminalKind: runDelegationHistoryTerminalKind(status),
+    }),
+    sourceId: run.id,
+    sourceType: "run",
+  })
+  if (!projected.success) return projected
+  return createResult(undefined)
 }
 
 async function runRepositoryDelegationRunUpdatePersist(
@@ -167,7 +294,7 @@ export async function runRepositoryDelegationFinalize(
   return databaseExecutorTransactionRun<RunDelegationFinalizeResult>(database, async (transaction) => {
     try {
       const [session] = await transaction
-        .select({ id: sessionTable.id })
+        .select({ id: sessionTable.id, revision: sessionTable.revision })
         .from(sessionTable)
         .where(and(eq(sessionTable.id, sessionId), eq(sessionTable.userId, userId)))
         .limit(1)
@@ -246,6 +373,26 @@ export async function runRepositoryDelegationFinalize(
             runErrorCodes.stateInconsistent,
           )
         }
+        const projectedRun = await runDelegationHistoryRunProjectionPersist(
+          transaction,
+          userId,
+          sessionId,
+          run,
+          result.status,
+        )
+        if (!projectedRun.success) return projectedRun
+        const persistedDetail = await runDelegationFinalizedDetailPersist(
+          transaction,
+          userId,
+          sessionId,
+          delegation.childRunId,
+          delegation.id,
+          run,
+          session.revision,
+          result,
+          options,
+        )
+        if (!persistedDetail.success) return persistedDetail
         const projected = await runDelegationHistoryToolProjectionPersist(transaction, userId, sessionId, delegation)
         if (!projected.success) return projected
         return createResult({ attempt, changed: false, delegation, run })
@@ -297,6 +444,28 @@ export async function runRepositoryDelegationFinalize(
         result,
       })
       if (!updatedDelegation.success) return updatedDelegation
+
+      const projectedRun = await runDelegationHistoryRunProjectionPersist(
+        transaction,
+        userId,
+        sessionId,
+        updatedRun.data,
+        result.status,
+      )
+      if (!projectedRun.success) return projectedRun
+
+      const persistedDetail = await runDelegationFinalizedDetailPersist(
+        transaction,
+        userId,
+        sessionId,
+        delegation.childRunId,
+        delegation.id,
+        updatedRun.data,
+        session.revision,
+        result,
+        options,
+      )
+      if (!persistedDetail.success) return persistedDetail
 
       const projected = await runDelegationHistoryToolProjectionPersist(
         transaction,

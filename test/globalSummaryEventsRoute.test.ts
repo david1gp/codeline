@@ -9,17 +9,16 @@ import { metricsCollectorCreate } from "../src/metrics/metricsCollectorCreate.js
 import { streamLiveSubscriptionCreate } from "../src/stream/actions/streamLiveSubscriptionCreate.js"
 import { streamSseConnectionWriterCreate } from "../src/stream/actions/streamSseConnectionWriterCreate.js"
 import type { GlobalSummarySseFrame } from "../src/stream/api/globalSummarySseFrameSchema.js"
-import type { StreamSseFrame } from "../src/stream/api/streamSseFrameSchema.js"
 
 const userId = "global-events-user"
 const cursorCodec = {
-  encode: (_journalId: unknown, sequence: unknown) => createResult(`global-cursor-${String(sequence)}`),
+  encode: (_journalId: unknown, sequence: unknown) => createResult(`journal-cursor-${String(sequence)}`),
   encodeGlobalSequence: (_journalId: unknown, globalSequence: unknown) =>
     createResult(`global-cursor-${String(globalSequence)}`),
   validate: (cursor: unknown, journalId: unknown) => {
-    if (journalId !== userId || typeof cursor !== "string" || !cursor.startsWith("global-cursor-"))
+    if (journalId !== userId || typeof cursor !== "string" || !cursor.startsWith("journal-cursor-"))
       return createResultErrorCode("globalCursorValidate", "The global cursor is invalid.", "cursor_invalid")
-    return createResult({ journalId: userId, sequence: Number(cursor.slice("global-cursor-".length)), version: 1 })
+    return createResult({ journalId: userId, sequence: Number(cursor.slice("journal-cursor-".length)), version: 1 })
   },
   validateGlobalSequence: (cursor: unknown, journalId: unknown) => {
     if (journalId !== userId || typeof cursor !== "string" || !cursor.startsWith("global-cursor-"))
@@ -62,31 +61,13 @@ class TestScheduler {
 }
 
 function globalFrame(sequence: number): GlobalSummarySseFrame {
-  const result = journalGlobalSummaryEventFrameCreate({ cursorEncode: cursorCodec.encode }, userId, {
+  const result = journalGlobalSummaryEventFrameCreate({ cursorEncode: cursorCodec.encodeGlobalSequence }, userId, {
     eventType: "run-started",
     payload: { runId: "run-1", sessionId: "session-1" },
     sequence,
   })
   if (!result.success) throw new Error(result.errorMessage)
   return result.data
-}
-
-function legacyDelta(sequence: number): StreamSseFrame {
-  const id = `legacy-${sequence}`
-  return {
-    data: {
-      delta: "must-not-cross-global-feed",
-      deltaKind: "text",
-      eventType: "delta",
-      id,
-      messageId: null,
-      runId: "run-1",
-      sequence,
-      sessionId: "session-1",
-    },
-    event: "delta",
-    id,
-  }
 }
 
 function backlogPages(
@@ -127,7 +108,6 @@ function appCreate(backlogRead: Parameters<typeof apiEventsRoutesAdd>[1]["backlo
     connectionWriterCreate: streamSseConnectionWriterCreate,
     cursorCodec: cursorCodec as never,
     globalSummaryLiveSubscription: liveSubscription,
-    liveSubscription,
     metricsCollector: metricsCollectorCreate(),
     now: () => scheduler.currentTime,
     scheduler,
@@ -148,7 +128,7 @@ async function flush(): Promise<void> {
   for (let index = 0; index < 20; index += 1) await Promise.resolve()
 }
 
-test("replays global summaries and excludes a legacy delta from live output", async () => {
+test("replays global summaries in order", async () => {
   const scheduler = new TestScheduler()
   const first = globalFrame(1)
   const { app, liveSubscription } = appCreate(
@@ -170,7 +150,6 @@ test("replays global summaries and excludes a legacy delta from live output", as
   expect(reader).toBeDefined()
   if (reader === undefined) return
 
-  liveSubscription.publish(userId, legacyDelta(2))
   liveSubscription.globalSummaryPublish(userId, globalFrame(2))
   const received: Array<ReturnType<typeof parseFrame>> = []
   while (received.length < 2) {
@@ -204,7 +183,7 @@ test("rejects a non-summary publication injected into the global channel", async
   expect(reader).toBeDefined()
   if (reader === undefined) return
 
-  liveSubscription.globalSummaryPublish(userId, legacyDelta(1) as never)
+  liveSubscription.globalSummaryPublish(userId, { data: {}, event: "delta", id: "invalid" } as never)
   await flush()
   expect(liveSubscription.globalSummarySubscriberCount(userId)).toBe(1)
   await reader.cancel().catch(() => undefined)
@@ -212,9 +191,9 @@ test("rejects a non-summary publication injected into the global channel", async
   expect(liveSubscription.globalSummarySubscriberCount(userId)).toBe(0)
 })
 
-test("replays a reset frame with the global watermark and validates the global cursor", async () => {
+test("rejects an expired global cursor before returning a reset stream", async () => {
   const scheduler = new TestScheduler()
-  const reset = journalGlobalSummaryEventFrameCreate({ cursorEncode: cursorCodec.encode }, userId, {
+  const reset = journalGlobalSummaryEventFrameCreate({ cursorEncode: cursorCodec.encodeGlobalSequence }, userId, {
     eventType: "reset",
     payload: { asOfGlobalSequence: 4, reason: "cursor-expired" },
     sequence: 4,
@@ -235,15 +214,7 @@ test("replays a reset frame with the global watermark and validates the global c
   const response = await app.request("https://global-events.test/api/events", {
     headers: { Cookie: "__Host-codeline-session=session-token", "Last-Event-ID": "global-cursor-0" },
   })
-  expect(response.status).toBe(200)
-  const resetReader = response.body?.getReader()
-  const resetRead = await resetReader?.read()
-  expect(resetRead?.value === undefined ? undefined : parseFrame(resetRead.value).data).toMatchObject({
-    asOfGlobalSequence: 4,
-    eventType: "reset",
-    globalSequence: 4,
-  })
-  await resetReader?.cancel()
+  expect(response.status).toBe(400)
 
   const invalid = await app.request("https://global-events.test/api/events", {
     headers: { Cookie: "__Host-codeline-session=session-token", "Last-Event-ID": "not-a-global-cursor" },

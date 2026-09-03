@@ -19,6 +19,21 @@ function sessionDetailSummaryResolve(payload: Record<string, unknown>, event: Se
   return ""
 }
 
+function sessionDetailChildReferenceCreate(payload: Record<string, unknown>): unknown {
+  const candidate =
+    payload.childReference !== null &&
+    typeof payload.childReference === "object" &&
+    !Array.isArray(payload.childReference)
+      ? payload.childReference
+      : {
+          childRunId: payload.childRunId,
+          childSessionId: payload.childSessionId,
+          delegationId: payload.delegationId,
+          parentSessionId: payload.parentSessionId,
+        }
+  return v.safeParse(sessionChildReferenceSchema, candidate).success ? candidate : undefined
+}
+
 export function sessionDetailSemanticStepCreate(event: SessionDetailEntryEvent): Result<SessionSemanticStep> {
   const op = "sessionDetailSemanticStepCreate"
   const payload = sessionDetailPayloadRecord(event.payload)
@@ -40,15 +55,10 @@ export function sessionDetailSemanticStepCreate(event: SessionDetailEntryEvent):
       ...(typeof payload.terminalKind === "string" ? { terminalKind: payload.terminalKind } : {}),
     }
   } else {
-    const childReferenceCandidate = {
-      childRunId: payload.childRunId,
-      delegationId: payload.delegationId,
-      parentSessionId: payload.parentSessionId,
-    }
-    const childReference = v.safeParse(sessionChildReferenceSchema, childReferenceCandidate)
+    const childReference = sessionDetailChildReferenceCreate(payload)
     step = {
       ...base,
-      ...(childReference.success ? { childReference: childReference.output } : {}),
+      ...(childReference === undefined ? {} : { childReference }),
       detailId: typeof payload.detailId === "string" ? payload.detailId : event.sourceDetailId,
       kind: "tool",
       runId: typeof payload.runId === "string" ? payload.runId : event.sourceId,

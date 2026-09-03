@@ -119,47 +119,60 @@ async function sessionCacheAccountBoundsEnforce(
   limits: SessionCacheLimits,
 ) {
   const snapshotStore = transaction.objectStore("sessionSnapshots")
-  let snapshots = await snapshotStore.getAll()
-  const accountIds = [...new Set(snapshots.map((snapshot) => snapshot.userId))]
+  const targets = new Map<string, SessionCacheTarget & { storedAt: number }>()
+  const targetAdd = (candidate: SessionCacheTarget & { storedAt: number }) => {
+    const key = `${candidate.userId}\u0000${candidate.sessionId}`
+    const existing = targets.get(key)
+    if (existing === undefined || candidate.storedAt > existing.storedAt) targets.set(key, candidate)
+  }
+  for (const snapshot of await snapshotStore.getAll()) targetAdd(snapshot)
+  for (const storeName of ["historyEntries", "historyPages", "runDetails", "toolDetails"] as const) {
+    for (const record of await transaction.objectStore(storeName).getAll()) targetAdd(record)
+  }
+
+  let cachedTargets = [...targets.values()]
+  const accountIds = [...new Set(cachedTargets.map((candidate) => candidate.userId))]
   if (accountIds.length > limits.maxAccounts) {
     const accountCandidates = accountIds
       .filter((userId) => userId !== target.userId)
       .map((userId) => ({
         storedAt: Math.max(
-          ...snapshots.filter((snapshot) => snapshot.userId === userId).map((snapshot) => snapshot.storedAt),
+          ...cachedTargets.filter((candidate) => candidate.userId === userId).map((candidate) => candidate.storedAt),
         ),
         userId,
       }))
       .sort((first, second) => first.storedAt - second.storedAt || first.userId.localeCompare(second.userId))
     for (const account of accountCandidates.slice(0, accountIds.length - limits.maxAccounts)) {
-      for (const snapshot of snapshots.filter((candidate) => candidate.userId === account.userId)) {
-        await sessionCacheSessionDelete(transaction, snapshot)
-      }
+      const accountSessions = cachedTargets.filter((candidate) => candidate.userId === account.userId)
+      for (const session of accountSessions) await sessionCacheSessionDelete(transaction, session)
     }
-    snapshots = await snapshotStore.getAll()
+    const evictedAccounts = new Set(
+      accountCandidates.slice(0, accountIds.length - limits.maxAccounts).map((item) => item.userId),
+    )
+    cachedTargets = [...targets.values()].filter((candidate) => !evictedAccounts.has(candidate.userId))
   }
 
-  const ownSnapshots = snapshots
-    .filter((snapshot) => snapshot.userId === target.userId)
+  const ownSessions = cachedTargets
+    .filter((candidate) => candidate.userId === target.userId)
     .sort((first, second) => first.storedAt - second.storedAt || first.sessionId.localeCompare(second.sessionId))
-  const excessSessionCount = ownSnapshots.length - limits.maxSessionsPerAccount
+  const excessSessionCount = ownSessions.length - limits.maxSessionsPerAccount
   if (excessSessionCount > 0) {
-    const candidates = ownSnapshots.filter((snapshot) => snapshot.sessionId !== target.sessionId)
+    const candidates = ownSessions.filter((candidate) => candidate.sessionId !== target.sessionId)
     if (candidates.length < excessSessionCount) {
       throw new DOMException("The session cache account limit is invalid.", "QuotaExceededError")
     }
-    for (const snapshot of candidates.slice(0, excessSessionCount))
-      await sessionCacheSessionDelete(transaction, snapshot)
+    for (const candidate of candidates.slice(0, excessSessionCount))
+      await sessionCacheSessionDelete(transaction, candidate)
   }
 
   let accountBytes = await sessionCacheAccountByteSize(transaction, target.userId)
   if (accountBytes <= limits.maxAccountBytes) return
 
-  const byteCandidates = (await snapshotStore.index("by-user").getAll(target.userId))
-    .filter((snapshot) => snapshot.sessionId !== target.sessionId)
+  const byteCandidates = cachedTargets
+    .filter((candidate) => candidate.userId === target.userId && candidate.sessionId !== target.sessionId)
     .sort((first, second) => first.storedAt - second.storedAt || first.sessionId.localeCompare(second.sessionId))
-  for (const snapshot of byteCandidates) {
-    await sessionCacheSessionDelete(transaction, snapshot)
+  for (const candidate of byteCandidates) {
+    await sessionCacheSessionDelete(transaction, candidate)
     accountBytes = await sessionCacheAccountByteSize(transaction, target.userId)
     if (accountBytes <= limits.maxAccountBytes) return
   }
@@ -199,10 +212,19 @@ async function sessionCacheEvictionCandidatesRead(
   database: IDBPDatabase<SessionCacheDatabaseSchema>,
   target: SessionCacheTarget,
 ): Promise<SessionCacheEvictionCandidate[]> {
-  const snapshots = await database.getAll("sessionSnapshots")
-  return snapshots
-    .filter((snapshot) => snapshot.userId !== target.userId || snapshot.sessionId !== target.sessionId)
-    .map((snapshot) => ({ sessionId: snapshot.sessionId, storedAt: snapshot.storedAt, userId: snapshot.userId }))
+  const transaction = database.transaction(sessionCacheStoreNames, "readonly")
+  const targets = new Map<string, SessionCacheEvictionCandidate>()
+  const targetAdd = (candidate: SessionCacheEvictionCandidate) => {
+    const key = `${candidate.userId}\u0000${candidate.sessionId}`
+    const existing = targets.get(key)
+    if (existing === undefined || candidate.storedAt > existing.storedAt) targets.set(key, candidate)
+  }
+  for (const storeName of sessionCacheStoreNames) {
+    for (const record of await transaction.objectStore(storeName).getAll()) targetAdd(record)
+  }
+  await transaction.done
+  return [...targets.values()]
+    .filter((candidate) => candidate.userId !== target.userId || candidate.sessionId !== target.sessionId)
     .sort((first, second) => {
       const accountOrder = Number(first.userId !== target.userId) - Number(second.userId !== target.userId)
       if (accountOrder !== 0) return accountOrder

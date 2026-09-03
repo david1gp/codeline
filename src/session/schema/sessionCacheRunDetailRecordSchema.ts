@@ -5,6 +5,7 @@ import { runDetailResponseSchema } from "../../run/api/runDetailResponseSchema.j
 export const sessionCacheRunDetailRecordSchema = v.pipe(
   v.strictObject({
     byteSize: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(Number.MAX_SAFE_INTEGER)),
+    delegationId: v.optional(apiPublicIdSchema),
     payload: runDetailResponseSchema,
     runId: apiPublicIdSchema,
     schemaVersion: v.literal("session-cache.v1"),

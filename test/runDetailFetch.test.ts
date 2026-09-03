@@ -61,3 +61,26 @@ test("lazy detail UI has disclosure-triggered loading and accessible retry state
   expect(history).toContain("compactState()?.input")
   expect(history).toContain("retryOlderHistory")
 })
+
+test("semantic step rows expose stable kind and message role attributes", async () => {
+  const row = await Bun.file(new URL("../src/ui/SessionSemanticStepRow.tsx", import.meta.url)).text()
+
+  expect(row).toContain("data-session-semantic-kind={props.step.kind}")
+  expect(row).toContain('data-session-message-role={props.step.kind === "message" ? props.step.role : undefined}')
+})
+
+test("child conversation control stays outside the detail expansion wrapper", async () => {
+  const row = await Bun.file(new URL("../src/ui/SessionSemanticStepRow.tsx", import.meta.url)).text()
+  const detailIdentity = row.indexOf("data-session-history-entry-id")
+  const detailsEnd = row.indexOf("</Details>", detailIdentity)
+  const detailWrapperEnd = row.indexOf("</div>", detailsEnd)
+  const childControl = row.indexOf('<Show when={props.step.kind === "tool" && props.step.childReference != null}>')
+
+  expect(detailIdentity).toBeGreaterThanOrEqual(0)
+  expect(detailsEnd).toBeGreaterThan(detailIdentity)
+  expect(detailWrapperEnd).toBeGreaterThan(detailsEnd)
+  expect(childControl).toBeGreaterThan(detailWrapperEnd)
+  expect(row).toContain("data-child-run-id")
+  expect(row).toContain("data-child-session-id")
+  expect(row).toContain("Open child conversation")
+})

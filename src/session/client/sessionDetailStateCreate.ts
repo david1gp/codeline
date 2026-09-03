@@ -1,31 +1,30 @@
 import { createEffect, onCleanup, untrack } from "solid-js"
+import type { StreamEventSourceError } from "../../stream/client/streamEventSourceError.js"
+import type { StreamEventSourceEvent } from "../../stream/client/streamEventSourceEvent.js"
+import { signalObjectCreate } from "../../ui/signalObjectCreate.js"
 import type { SessionBoundedSnapshot } from "../api/sessionBoundedSnapshotSchema.js"
 import type { SessionDetailEvent } from "../api/sessionDetailEventSchema.js"
 import { sessionDetailEventParse } from "./sessionDetailEventParse.js"
-import { signalObjectCreate } from "../../ui/signalObjectCreate.js"
+import type { SessionDetailSource } from "./sessionDetailSource.js"
+import type { SessionDetailSourceFactory } from "./sessionDetailSourceFactory.js"
 
 type SessionDetailEntryEvent = Extract<SessionDetailEvent, { eventType: "entry" }>
-type SessionDetailSource = {
-  readonly readyState?: number
-  addEventListener: (type: string, listener: EventListener) => void
-  close: () => void
-  onerror: ((event: Event) => void) | null
-  onopen: ((event: Event) => void) | null
-  removeEventListener: (type: string, listener: EventListener) => void
-}
-type SessionDetailSourceFactory = (url: string, options: { withCredentials: boolean }) => SessionDetailSource
 
 type SessionDetailStateOptions = {
   enabled?: () => boolean
-  eventSourceFactory?: SessionDetailSourceFactory
+  eventSourceFactory: SessionDetailSourceFactory
   maximumBytes?: number
   maximumEntries?: number
-  resnapshot: (reason: "eviction" | "invalid-event" | "reset" | "terminal") => void
+  onAuthenticationError?: () => void
+  resnapshot: (reason: "eviction" | "invalid-event" | "reset" | "terminal") => unknown
   snapshot: () => SessionBoundedSnapshot | undefined
 }
 
 const sessionDetailMaximumBytes = 4 * 1024 * 1024
 const sessionDetailMaximumEntries = 512
+const sessionDetailClosedReadyState = 2
+const sessionDetailCursorFailureStatus = 400
+const sessionDetailUnauthorizedStatuses = new Set([401, 403])
 
 function sessionDetailEventBytes(event: SessionDetailEntryEvent): number {
   return new TextEncoder().encode(JSON.stringify(event)).byteLength
@@ -69,9 +68,10 @@ export function sessionDetailStateCreate(options: SessionDetailStateOptions) {
   const status = signalObjectCreate<"idle" | "connecting" | "open" | "reconnecting" | "resnapshotting">("idle")
   const entriesById = new Map<string, SessionDetailEntryEvent>()
   const entryBytesById = new Map<string, number>()
+  const terminalChangePositionByEntryId = new Map<string, number>()
   let retainedBytes = 0
   let source: SessionDetailSource | undefined
-  let listeners = new Map<string, EventListener>()
+  let listeners = new Map<string, (event: StreamEventSourceEvent) => void>()
   let generation = 0
   let currentCursor: string | undefined
   let currentSessionId: string | undefined
@@ -87,18 +87,44 @@ export function sessionDetailStateCreate(options: SessionDetailStateOptions) {
   const entriesClear = (): void => {
     entriesById.clear()
     entryBytesById.clear()
+    terminalChangePositionByEntryId.clear()
     retainedBytes = 0
     changed()
+  }
+  const snapshotTerminalStatesInstall = (snapshot: SessionBoundedSnapshot | undefined): void => {
+    if (snapshot === undefined) return
+    for (const step of snapshot.semanticSteps) {
+      if (step.kind === "run" && step.terminalKind !== undefined)
+        terminalChangePositionByEntryId.set(step.id, snapshot.throughPosition)
+    }
   }
   const sourceClose = (): void => {
     const active = source
     if (active === undefined) return
     source = undefined
-    active.onopen = null
-    active.onerror = null
-    for (const [eventType, listener] of listeners) active.removeEventListener(eventType, listener)
+    try {
+      active.onopen = null
+    } catch (_error) {
+      // Continue detaching an injected source when its handler cannot be cleared.
+    }
+    try {
+      active.onerror = null
+    } catch (_error) {
+      // Continue detaching an injected source when its handler cannot be cleared.
+    }
+    for (const [eventType, listener] of listeners) {
+      try {
+        active.removeEventListener(eventType, listener)
+      } catch (_error) {
+        // Continue closing an injected source when listener removal fails.
+      }
+    }
     listeners = new Map()
-    active.close()
+    try {
+      active.close()
+    } catch (_error) {
+      // A source that is already closed needs no further transport action.
+    }
   }
   const resnapshot = (
     reason: "eviction" | "invalid-event" | "reset" | "terminal",
@@ -114,6 +140,7 @@ export function sessionDetailStateCreate(options: SessionDetailStateOptions) {
   }
   const entryApply = (event: SessionDetailEntryEvent): void => {
     if (event.changePosition <= throughPosition || event.changePosition <= lastChangePosition) return
+    if (terminalChangePositionByEntryId.has(event.entryId)) return
     const previous = entriesById.get(event.entryId)
     if (previous !== undefined && event.changePosition <= previous.changePosition) return
 
@@ -132,11 +159,25 @@ export function sessionDetailStateCreate(options: SessionDetailStateOptions) {
     lastChangePosition = event.changePosition
     currentCursor = event.id
     changed()
-    if (sessionDetailTerminalKind(event) !== undefined) resnapshot("terminal", event.changePosition)
+    if (sessionDetailTerminalKind(event) !== undefined) {
+      terminalChangePositionByEntryId.set(event.entryId, event.changePosition)
+      resnapshot("terminal", event.changePosition)
+    }
   }
-  const eventHandle = (activeGeneration: number, activeSource: SessionDetailSource, input: Event): void => {
-    if (activeGeneration !== generation || source !== activeSource || resnapshotRequested) return
-    const parsed = sessionDetailEventParse(input)
+  const eventHandle = (
+    activeGeneration: number,
+    activeSource: SessionDetailSource,
+    eventType: "entry" | "reset",
+    input: StreamEventSourceEvent,
+  ): void => {
+    if (
+      options.enabled?.() === false ||
+      activeGeneration !== generation ||
+      source !== activeSource ||
+      resnapshotRequested
+    )
+      return
+    const parsed = sessionDetailEventParse({ ...input, event: eventType, id: input.lastEventId })
     if (!parsed.success) {
       resnapshot("invalid-event")
       return
@@ -156,13 +197,10 @@ export function sessionDetailStateCreate(options: SessionDetailStateOptions) {
   }
   const sourceOpen = (): void => {
     const url = urlCreate()
-    if (url === undefined || resnapshotRequested || source !== undefined) return
-    const factory =
-      options.eventSourceFactory ??
-      ((sourceUrl: string, sourceOptions: { withCredentials: boolean }) => new EventSource(sourceUrl, sourceOptions))
+    if (options.enabled?.() === false || url === undefined || resnapshotRequested || source !== undefined) return
     let created: SessionDetailSource
     try {
-      created = factory(url, { withCredentials: true })
+      created = options.eventSourceFactory(url, { withCredentials: true })
     } catch (_error) {
       status.set("reconnecting")
       return
@@ -174,14 +212,30 @@ export function sessionDetailStateCreate(options: SessionDetailStateOptions) {
       if (activeGeneration !== generation || source !== created) return
       status.set("open")
     }
-    created.onerror = () => {
+    created.onerror = (error: StreamEventSourceError = {}) => {
       if (activeGeneration !== generation || source !== created) return
+      if (error.status !== undefined && sessionDetailUnauthorizedStatuses.has(error.status)) {
+        sourceClose()
+        status.set("idle")
+        options.onAuthenticationError?.()
+        return
+      }
+      if (error.status === sessionDetailCursorFailureStatus || created.readyState === sessionDetailClosedReadyState) {
+        sourceClose()
+        resnapshot("reset")
+        return
+      }
       status.set("reconnecting")
     }
-    for (const eventType of ["entry", "reset"] as const) {
-      const listener: EventListener = (event) => eventHandle(activeGeneration, created, event)
-      listeners.set(eventType, listener)
-      created.addEventListener(eventType, listener)
+    try {
+      for (const eventType of ["entry", "reset"] as const) {
+        const listener = (event: StreamEventSourceEvent) => eventHandle(activeGeneration, created, eventType, event)
+        listeners.set(eventType, listener)
+        created.addEventListener(eventType, listener)
+      }
+    } catch (_error) {
+      sourceClose()
+      status.set("reconnecting")
     }
   }
 
@@ -211,6 +265,7 @@ export function sessionDetailStateCreate(options: SessionDetailStateOptions) {
     currentSessionId = snapshot?.session.id
     throughPosition = snapshot?.throughPosition ?? 0
     lastChangePosition = throughPosition
+    snapshotTerminalStatesInstall(snapshot)
     status.set(snapshot === undefined ? "idle" : "connecting")
     if (snapshot !== undefined) sourceOpen()
   })
@@ -221,7 +276,13 @@ export function sessionDetailStateCreate(options: SessionDetailStateOptions) {
   })
 
   const reconnect = (): void => {
-    if (currentSessionId === undefined || currentCursor === undefined || resnapshotRequested) return
+    if (
+      options.enabled?.() === false ||
+      currentSessionId === undefined ||
+      currentCursor === undefined ||
+      resnapshotRequested
+    )
+      return
     generation += 1
     sourceClose()
     status.set("reconnecting")

@@ -11,7 +11,6 @@ import { databaseConnectionClose } from "../src/database/databaseConnectionClose
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
 import { organizationTable } from "../src/identity/db/organizationTable.js"
-import { journalBacklogRead } from "../src/journal/actions/journalBacklogRead.js"
 import { journalCursorCodecCreate } from "../src/journal/actions/journalCursorCodecCreate.js"
 import { journalWriteCreate } from "../src/journal/actions/journalWriteCreate.js"
 import { journalEventTable } from "../src/journal/db/journalEventTable.js"
@@ -171,17 +170,6 @@ test("writes validated messages transactionally and publishes one replayable inv
   expect(events).toHaveLength(1)
   expect(events[0]).toMatchObject({ eventType: "invalidate", sequence: 1, payload: { resourceId: sessionId } })
   expect(published).toHaveLength(1)
-  const after = codecResult.data.encodeDeterministic(userId, 0)
-  if (!after.success) throw new Error(after.errorMessage)
-  const replay = await journalBacklogRead({ cursorCodec: codecResult.data, database }, { after: after.data, userId })
-  expect(replay.success).toBe(true)
-  if (!replay.success) return
-  const replayedFrames = []
-  for await (const page of replay.data.pages) {
-    if (page.success) replayedFrames.push(...page.data)
-  }
-  expect(replayedFrames).toHaveLength(1)
-  expect(replayedFrames[0]).toMatchObject({ data: { sequence: 1 }, event: "invalidate" })
 })
 
 test("isolates message writes and serves opaque consistent page cursors with correct ETags", async () => {

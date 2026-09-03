@@ -6,10 +6,14 @@ import { databaseConnectionClose } from "../src/database/databaseConnectionClose
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { journalCursorCodecCreate } from "../src/journal/actions/journalCursorCodecCreate.js"
 import type { JournalEventRecipientResolver } from "../src/journal/actions/journalEventRecipientResolver.js"
+import { journalEventsPruneDefaultLimits } from "../src/journal/actions/journalEventsPruneDefaultLimits.js"
+import { journalEventsPruneSchedulerCreate } from "../src/journal/actions/journalEventsPruneSchedulerCreate.js"
+import { journalPostCommitPublishCreate } from "../src/journal/actions/journalPostCommitPublishCreate.js"
 import { journalWriteCreate } from "../src/journal/actions/journalWriteCreate.js"
 import { journalEventTable } from "../src/journal/db/journalEventTable.js"
 import { journalSequenceCounterTable } from "../src/journal/db/journalSequenceCounterTable.js"
 import type { JournalEventAppendInput } from "../src/journal/schema/journalEventAppendInputSchema.js"
+import { metricsCollectorCreate } from "../src/metrics/metricsCollectorCreate.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
 import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
 
@@ -23,6 +27,8 @@ const cursorUserId = `${fixturePrefix}-cursor`
 const rollbackUserId = `${fixturePrefix}-rollback`
 const publicationUserId = `${fixturePrefix}-publication`
 const publicationFailureUserId = `${fixturePrefix}-publication-failure`
+const pruneUserAId = `${fixturePrefix}-prune-a`
+const pruneUserBId = `${fixturePrefix}-prune-b`
 const fixtureUserIds = [
   orderingUserId,
   fanoutUserAId,
@@ -31,6 +37,8 @@ const fixtureUserIds = [
   rollbackUserId,
   publicationUserId,
   publicationFailureUserId,
+  pruneUserAId,
+  pruneUserBId,
 ]
 const recipientsByResourceId = new Map<string, readonly string[]>()
 
@@ -340,4 +348,157 @@ test("enforces resolver, mutation, and journal-write phases in transaction order
 
   expect(result).toMatchObject({ success: true, data: "domain-result" })
   expect(phaseOrder).toEqual([`resolve:${resourceId}`, "mutate", "write"])
+})
+
+test("reaches post-commit pruning through the production publisher without isolating failures", async () => {
+  const pruneCalls: string[] = []
+  const logMessages: string[] = []
+  const publicationCalls: string[] = []
+  const metrics = metricsCollectorCreate()
+  let committedBeforePrune = false
+  let receivedLimits: unknown
+  const scheduler = journalEventsPruneSchedulerCreate({
+    clock: () => new Date("2026-08-22T12:00:00.000Z"),
+    cooldownMs: 0,
+    database,
+    logError: (message) => logMessages.push(message),
+    metricsCollector: metrics,
+    prune: async (pruneDependencies, input) => {
+      receivedLimits = pruneDependencies.limits
+      pruneCalls.push(input.userId)
+      if (
+        (
+          await pruneDependencies.database
+            .select({ id: journalEventTable.id })
+            .from(journalEventTable)
+            .where(eq(journalEventTable.userId, input.userId))
+        ).length > 0
+      )
+        committedBeforePrune = true
+      return createResultError("journalTask5Prune", "The test prune failed after the write committed.")
+    },
+  })
+  const publisher = journalPostCommitPublishCreate({
+    globalSummaryPostCommitPublish: async () => {
+      publicationCalls.push("global")
+      return createResult(undefined)
+    },
+    pruneScheduler: scheduler,
+    selectedSessionDetailPostCommitPublish: async () => {
+      publicationCalls.push("selected")
+      return createResult(undefined)
+    },
+  })
+  const writer = journalWriteCreate({
+    database,
+    postCommitPublish: publisher,
+    resolveRecipients: journalRecipientsResolve,
+  })
+  const rollbackResource = journalResource("production-prune-rollback-resource", [pruneUserAId])
+  const rolledBack = await writer.run({
+    resources: [rollbackResource],
+    write: async (_transaction, journal) => {
+      const appended = await journal.append({
+        eventType: "invalidate",
+        payload: { resourceId: rollbackResource.resourceId },
+        resource: rollbackResource,
+      })
+      return appended.success
+        ? createResultError("journalTask5PruneRollback", "The test transaction must roll back.")
+        : appended
+    },
+  })
+  expect(rolledBack).toMatchObject({ success: false })
+  await scheduler.flush()
+  expect(pruneCalls).toHaveLength(0)
+
+  const resource = journalResource("production-prune-resource", [pruneUserBId, pruneUserAId])
+  const result = await journalAppend(writer, {
+    eventType: "invalidate",
+    payload: { resourceId: resource.resourceId },
+    resource,
+  })
+
+  expect(result).toMatchObject({ success: true })
+  await scheduler.flush()
+  expect(pruneCalls).toEqual([pruneUserAId, pruneUserBId])
+  expect(committedBeforePrune).toBe(true)
+  expect(publicationCalls).toEqual(["selected", "global"])
+  expect(logMessages).toHaveLength(2)
+  expect(metrics.snapshot().metrics.filter((metric) => metric.name === "journal_events_prune_total")).toContainEqual({
+    labels: { outcome: "failure" },
+    name: "journal_events_prune_total",
+    value: 2,
+  })
+  expect(
+    await database.select().from(journalEventTable).where(eq(journalEventTable.userId, pruneUserAId)),
+  ).toHaveLength(1)
+  expect(receivedLimits).toEqual(journalEventsPruneDefaultLimits)
+})
+
+test("deduplicates and serializes concurrent pruning requests per user", async () => {
+  const calls: string[] = []
+  const activeByUserId = new Map<string, number>()
+  const maximumActiveByUserId = new Map<string, number>()
+  let releaseFirstBatch!: () => void
+  const firstBatchReleased = new Promise<void>((resolve) => {
+    releaseFirstBatch = resolve
+  })
+  let firstBatchStarted!: () => void
+  const firstBatchStartedPromise = new Promise<void>((resolve) => {
+    firstBatchStarted = resolve
+  })
+  const scheduler = journalEventsPruneSchedulerCreate({
+    cooldownMs: 0,
+    database,
+    logError: () => undefined,
+    prune: async (_pruneDependencies, input) => {
+      calls.push(input.userId)
+      const active = (activeByUserId.get(input.userId) ?? 0) + 1
+      activeByUserId.set(input.userId, active)
+      maximumActiveByUserId.set(input.userId, Math.max(maximumActiveByUserId.get(input.userId) ?? 0, active))
+      if (calls.length === 2) firstBatchStarted()
+      if (calls.length <= 2) await firstBatchReleased
+      activeByUserId.set(input.userId, active - 1)
+      return createResultError("journalTask5Prune", "The test prune failed.")
+    },
+  })
+
+  scheduler.schedule([pruneUserAId, pruneUserAId, pruneUserBId, pruneUserAId])
+  await firstBatchStartedPromise
+  scheduler.schedule([pruneUserAId, pruneUserBId, pruneUserAId])
+  expect(calls).toHaveLength(2)
+  releaseFirstBatch()
+  await scheduler.flush()
+
+  expect(calls.filter((userId) => userId === pruneUserAId)).toHaveLength(2)
+  expect(calls.filter((userId) => userId === pruneUserBId)).toHaveLength(2)
+  expect([...maximumActiveByUserId.values()].every((maximum) => maximum === 1)).toBe(true)
+})
+
+test("uses cooldown coalescing without retaining an event-sized queue", async () => {
+  let now = 0
+  let calls = 0
+  const scheduler = journalEventsPruneSchedulerCreate({
+    clock: () => new Date(now),
+    database,
+    cooldownMs: 100,
+    logError: () => undefined,
+    prune: async () => {
+      calls += 1
+      return createResultError("journalTask5Prune", "The test prune failed.")
+    },
+  })
+
+  scheduler.schedule([pruneUserAId])
+  await scheduler.flush()
+  scheduler.schedule([pruneUserAId])
+  await scheduler.flush()
+  expect(calls).toBe(1)
+
+  now = 100
+  scheduler.schedule([pruneUserAId])
+  await scheduler.flush()
+  expect(calls).toBe(2)
+  await scheduler.drain()
 })

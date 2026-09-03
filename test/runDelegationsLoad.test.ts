@@ -12,7 +12,6 @@ import { runDelegationFinalize } from "../src/run/actions/runDelegationFinalize.
 import { runDelegationsLoad } from "../src/run/actions/runDelegationsLoad.js"
 import { runTransition } from "../src/run/actions/runTransition.js"
 import { runDelegationTable } from "../src/run/db/runDelegationTable.js"
-import { runFinalizedDetailRepositoryUpsert } from "../src/run/db/runFinalizedDetailRepositoryUpsert.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
 import { sessionDelegationReferencesLoad } from "../src/session/db/sessionDelegationReferencesLoad.js"
@@ -145,20 +144,6 @@ test.skipIf(!databaseAvailable)("loads only authorized session delegations in cr
       }),
     ).toMatchObject({ success: true })
     expect(
-      await runFinalizedDetailRepositoryUpsert(database, userId, sessionId, child.data.run.id, {
-        tools: [],
-        transcript: {
-          activities: [],
-          assistantText: "Child completed.",
-          attempts: [{ ordinal: 1, status: "succeeded" }],
-          cancellation: null,
-          failure: null,
-          invariantViolations: [],
-          terminalOutcome: { status: "completed" },
-        },
-      }),
-    ).toMatchObject({ success: true })
-    expect(
       await runChildConversationLoad(
         database,
         userId,
@@ -174,6 +159,16 @@ test.skipIf(!databaseAvailable)("loads only authorized session delegations in cr
       },
       success: true,
     })
+    expect(
+      await runChildConversationLoad(
+        database,
+        userId,
+        organizationId,
+        sessionId,
+        child.data.run.id,
+        successfulChildren[1]?.data.delegation.id ?? "delegation-load-missing-delegation",
+      ),
+    ).toMatchObject({ code: "run.not-found", success: false })
     const finalizedDelegations = await runDelegationsLoad(database, userId, organizationId, sessionId)
     expect(finalizedDelegations).toMatchObject({
       success: true,

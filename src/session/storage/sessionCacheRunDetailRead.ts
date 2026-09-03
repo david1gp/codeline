@@ -9,7 +9,7 @@ import { sessionCacheStorageFailureDescribe } from "./sessionCacheStorageFailure
 
 export async function sessionCacheRunDetailRead(
   database: IDBPDatabase<SessionCacheDatabaseSchema>,
-  key: { runId: string; sessionId: string; userId: string },
+  key: { delegationId?: string; runId: string; sessionId: string; userId: string },
 ): Promise<Result<RunDetailResponse | undefined>> {
   const op = "sessionCacheRunDetailRead"
   try {
@@ -25,6 +25,13 @@ export async function sessionCacheRunDetailRead(
       await transaction.store.delete([key.userId, key.sessionId, key.runId])
       await transaction.done
       return createResultError(op, "The cached finalized run detail is corrupt.")
+    }
+    if (
+      (key.delegationId === undefined && parsed.output.delegationId !== undefined) ||
+      (key.delegationId !== undefined && parsed.output.delegationId !== key.delegationId)
+    ) {
+      await transaction.done
+      return createResult(undefined)
     }
     await transaction.done
     return createResult(parsed.output.payload)

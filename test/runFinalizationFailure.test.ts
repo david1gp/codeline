@@ -370,6 +370,43 @@ test.skipIf(!databaseAvailable)("retains finalized detail and tool projection af
   ).toMatchObject([{ payload: { outcome: "success", resultAvailable: true, toolCallId, toolName: "bash" } }])
 })
 
+test.skipIf(!databaseAvailable)("rejects finalized detail assistant text changes", async () => {
+  const { runId } = await runningRun("detail-assistant-text-conflict")
+  const initial = {
+    tools: [],
+    transcript: {
+      activities: [],
+      assistantText: "",
+      authoritativeAttemptOrdinal: 1,
+      attempts: [{ ordinal: 1, status: "succeeded" as const }],
+      cancellation: null,
+      failure: null,
+      invariantViolations: [],
+      terminalOutcome: { status: "completed" as const },
+    },
+  }
+  const changedTranscript = { ...initial.transcript, assistantText: "The completed answer." }
+
+  expect(
+    await runFinalizedDetailRepositoryUpsert(database, fixture.userId, fixture.sessionId, runId, initial),
+  ).toMatchObject({ success: true })
+
+  expect(
+    await runFinalizedDetailRepositoryUpsert(database, fixture.userId, fixture.sessionId, runId, {
+      tools: initial.tools,
+      transcript: changedTranscript,
+    }),
+  ).toMatchObject({
+    errorMessage: "The finalized run detail conflicts with the existing detail.",
+    success: false,
+  })
+  const [afterAssistantTextConflict] = await database
+    .select()
+    .from(runFinalizedDetailTable)
+    .where(eq(runFinalizedDetailTable.runId, runId))
+  expect(afterAssistantTextConflict).toMatchObject(initial)
+})
+
 test.skipIf(!databaseAvailable)("rolls back all finalization writes when detail persistence fails", async () => {
   const { requestId, runId } = await runningRun("detail-failure")
   const provider = providerCreate(runId, requestId, {
@@ -396,6 +433,7 @@ test.skipIf(!databaseAvailable)("finalizes terminal routes with durable details 
       eventType: "run-completed",
       input: { status: "succeeded" as const },
       status: "succeeded",
+      terminalKind: "completed",
     },
     {
       eventType: "run-failed",
@@ -404,11 +442,13 @@ test.skipIf(!databaseAvailable)("finalizes terminal routes with durable details 
         status: "failed" as const,
       },
       status: "failed",
+      terminalKind: "failed",
     },
     {
       eventType: "run-cancelled",
       input: { reason: "terminal-route-cancelled", status: "aborted" as const },
       status: "aborted",
+      terminalKind: "cancelled",
     },
   ]
 
@@ -433,7 +473,9 @@ test.skipIf(!databaseAvailable)("finalizes terminal routes with durable details 
     expect(
       await database.select().from(runFinalizedDetailTable).where(eq(runFinalizedDetailTable.runId, runId)),
     ).toHaveLength(1)
-    expect(await runHistoryEntry(runId)).toMatchObject({ payload: { status: terminalCase.status } })
+    expect(await runHistoryEntry(runId)).toMatchObject({
+      payload: { status: terminalCase.status, terminalKind: terminalCase.terminalKind },
+    })
     expect(await runJournalEventTypes(runId)).toEqual([terminalCase.eventType])
     expect(
       await database

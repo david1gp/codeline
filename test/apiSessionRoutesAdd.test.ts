@@ -1162,6 +1162,72 @@ test.skipIf(!databaseAvailable)(
 )
 
 test.skipIf(!databaseAvailable)(
+  "session chat executes delegate_task for a fresh deterministic run and continues the parent",
+  async () => {
+    const created = await runApp.request("http://codeline.test/api/sessions", {
+      body: JSON.stringify({
+        clientRequestId: `session-chat-fresh-delegation-${uuidv7()}`,
+        metadata: {},
+        primaryAgentId: agentId,
+        serverId,
+        title: "Fresh delegation",
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+    expect(created.status).toBe(201)
+    const sessionId = ((await created.json()) as { session: { id: string } }).session.id
+    const runId = `session-chat-fresh-delegation-run-${uuidv7()}`
+    const response = await runApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+      body: JSON.stringify({
+        forwardedProps: { codelineExecution: { model: "simulation-streaming", provider: "deterministic" } },
+        messages: [{ content: "delegate:Fresh child", id: `prompt-${runId}`, role: "user" }],
+        runId,
+        threadId: sessionId,
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+    expect(response.status).toBe(200)
+
+    let [rootRun] = await database.select().from(runTable).where(eq(runTable.clientRunId, runId))
+    let delegations = await database
+      .select()
+      .from(runDelegationTable)
+      .where(eq(runDelegationTable.sessionId, sessionId))
+    for (
+      let attempt = 0;
+      attempt < 100 && (rootRun?.status !== "succeeded" || delegations.length !== 1);
+      attempt += 1
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      const latestRuns = await database.select().from(runTable).where(eq(runTable.clientRunId, runId))
+      rootRun = latestRuns[0]
+      delegations = await database.select().from(runDelegationTable).where(eq(runDelegationTable.sessionId, sessionId))
+    }
+
+    expect(rootRun).toMatchObject({ sessionId, status: "succeeded" })
+    expect(delegations).toHaveLength(1)
+    const delegation = delegations[0]
+    expect(delegation).toMatchObject({ parentRunId: rootRun?.id, task: "Fresh child" })
+
+    const [childRun] = await database
+      .select()
+      .from(runTable)
+      .where(eq(runTable.id, delegation?.childRunId ?? ""))
+    expect(childRun).toMatchObject({ sessionId, status: "succeeded" })
+    expect(delegation?.finalizedResult).toMatchObject({ status: "succeeded" })
+
+    const messages = await database
+      .select({ content: messageTable.content, role: messageTable.role })
+      .from(messageTable)
+      .where(eq(messageTable.sessionId, sessionId))
+      .orderBy(asc(messageTable.sequence))
+    expect(messages.filter((message) => message.role === "assistant").map((message) => message.content)).toEqual(["ok"])
+  },
+)
+
+test.skipIf(!databaseAvailable)(
   "session chat HTTP deduplicates concurrent prompt retries into one typed command and durable run",
   async () => {
     const created = await runApp.request("http://codeline.test/api/sessions", {

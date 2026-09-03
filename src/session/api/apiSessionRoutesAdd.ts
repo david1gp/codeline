@@ -90,10 +90,10 @@ import { sessionExecutionSelectionCanonicalize } from "../actions/sessionExecuti
 import { sessionListSnapshot } from "../actions/sessionListSnapshot.js"
 import { sessionLoad } from "../actions/sessionLoad.js"
 import { sessionPin } from "../actions/sessionPin.js"
-import { sessionSettledSnapshot } from "../actions/sessionSettledSnapshot.js"
 import { sessionShellSnapshot } from "../actions/sessionShellSnapshot.js"
 import { sessionViewAcknowledge } from "../actions/sessionViewAcknowledge.js"
 import { sessionJournalRecipientResolverCreate } from "../db/sessionJournalRecipientResolverCreate.js"
+import { sessionListCursorCodecCreate } from "../db/sessionListCursorCodecCreate.js"
 import { sessionBoundedHistoryQuerySchema } from "../schema/sessionBoundedHistoryQuerySchema.js"
 import { sessionChatRequestSchema } from "../schema/sessionChatRequestSchema.js"
 import { sessionCreateRequestSchema } from "../schema/sessionCreateRequestSchema.js"
@@ -464,6 +464,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
   const runRetryAttemptCreateAction = options.runRetryAttemptCreate ?? runRetryAttemptCreate
   const runTransitionAction = options.runTransition ?? runTransition
   const sessionCompactionGenerateAction = options.sessionCompactionGenerate ?? sessionCompactionGenerate
+  const sessionListCursorCodec = sessionListCursorCodecCreate(options.journalCursorCodec)
   const runTerminalFinalizeAction = (
     userId: string,
     sessionId: string,
@@ -495,8 +496,11 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
       limit: parsed.data.limit,
       search: parsed.data.search === "" ? undefined : parsed.data.search,
     }
+    const encodeGlobalSequence = options.journalCursorCodec.encodeGlobalSequence
+    if (typeof encodeGlobalSequence !== "function" || !sessionListCursorCodec.success)
+      return internalServerError(context)
     const result = await sessionListSnapshot(options.database, userId, organizationId, listOptions, {
-      cursorCodec: options.journalCursorCodec,
+      cursorCodec: { encodeGlobalSequence, sessionList: sessionListCursorCodec.data },
     })
     if (!result.success) {
       if (result.errorMessage.includes("cursor")) return badRequest(context, "The session list cursor is invalid.")
@@ -1019,7 +1023,8 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
         runtimeModelContextLimitTokens,
       )
       adapter =
-        activeRun !== undefined && deterministicScenario === null
+        deterministicScenario === null ||
+        ("delegation" in deterministicScenario && deterministicScenario.delegation !== undefined)
           ? providerDelegationAdapterCreate({
               adapter: resolved.data,
               bash: { projectRoot: sessionInstructionProjectRootResolve(loaded.data.session.projectPath) },
@@ -1602,37 +1607,6 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
 
     void execute().catch(() => undefined)
     return context.json(commandResponse.data)
-  })
-
-  api.get("/sessions/:sessionId/snapshot", async (context) => {
-    const organizationId = context.var.requestIdentity.organizationId
-    if (organizationId === undefined) return notFound(context)
-    const result = await sessionSettledSnapshot(
-      options.database,
-      context.var.requestIdentity.userId,
-      organizationId,
-      context.req.param("sessionId"),
-      {
-        cursorCodec: options.journalCursorCodec,
-        etagCreate: sessionRepresentationEtagCreate,
-        schemaVersion: sessionRepresentationSchemaVersion,
-      },
-    )
-    if (!result.success) {
-      if (result.code === "session_active") return conflict(context, result.errorMessage, result.code)
-      if (result.code === "session_not_found" || result.errorMessage.includes("could not be found"))
-        return notFound(context)
-      return internalServerError(context)
-    }
-
-    const headers = apiRepresentationHeadersCreate(result.data.etag)
-    if (apiIfNoneMatchMatches(context.req.header("If-None-Match"), result.data.etag)) {
-      options.metricsCollector?.increment("snapshot_response_total", 1, { status: "304" })
-      return new Response(null, { headers, status: 304 })
-    }
-    const response = await completeJsonResponse(context, result.data, headers, options.metricsCollector)
-    if (response.status === 200) options.metricsCollector?.increment("snapshot_response_total", 1, { status: "200" })
-    return response
   })
 
   api.get("/sessions/:sessionId/bounded-snapshot", async (context) => {

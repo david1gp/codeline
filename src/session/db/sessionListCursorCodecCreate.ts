@@ -1,4 +1,4 @@
-import { createResult, createResultError, type Result } from "@adaptive-ds/result"
+import { createResult, createResultError, createResultErrorCode, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
 import type { JournalCursorCodec } from "../../journal/actions/journalCursorCodecCreate.js"
 import { type SessionListCursor, sessionListCursorSchema } from "../api/sessionListCursorSchema.js"
@@ -26,11 +26,11 @@ export function sessionListCursorCodecCreate(codec: JournalCursorCodec): Result<
   const decode = (cursor: string | undefined): Result<SessionListCursor | undefined> => {
     if (cursor === undefined) return createResult(undefined)
     const decoded = decodePayload(cursor)
-    if (!decoded.success) return createResultError(op, "The session list cursor is invalid.")
-    const payload = v.safeParse(v.strictObject({ kind: v.literal("session-list") }), decoded.data)
-    if (!payload.success) return createResultError(op, "The session list cursor is invalid.")
+    if (!decoded.success) return createResultErrorCode(op, "The session list cursor is invalid.", "cursor_invalid")
+    const payload = v.safeParse(v.object({ kind: v.literal("session-list") }), decoded.data)
+    if (!payload.success) return createResultErrorCode(op, "The session list cursor is invalid.", "cursor_invalid")
     const parsed = v.safeParse(sessionListCursorSchema, decoded.data)
-    if (!parsed.success) return createResultError(op, "The session list cursor is invalid.")
+    if (!parsed.success) return createResultErrorCode(op, "The session list cursor is invalid.", "cursor_invalid")
     return createResult(parsed.output)
   }
 

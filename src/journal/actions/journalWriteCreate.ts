@@ -13,7 +13,9 @@ import { journalEventsAppendPersist } from "./journalEventsAppendPersist.js"
 import { journalSequenceLocksAcquire } from "./journalSequenceLocksAcquire.js"
 
 type JournalEvent = typeof journalEventTable.$inferSelect
-type JournalPublicationCallback = (events: readonly JournalEvent[]) => Result<void> | Promise<Result<void>>
+type JournalPublicationCallback = ((events: readonly JournalEvent[]) => Result<void> | Promise<Result<void>>) & {
+  schedulePrune?: (userIds: readonly string[]) => void
+}
 type JournalPreparedRecipients = {
   resource: JournalEventResource
   userIds: string[]
@@ -52,6 +54,7 @@ type JournalWriteCreateDependencies = {
 type JournalPublicationReservation = {
   cancel: () => void
   publish: (callback: JournalPublicationCallback) => Promise<Result<void>>
+  userIds: readonly string[]
 }
 
 const journalPublicationQueueByUserId = new Map<string, Promise<void>>()
@@ -114,6 +117,7 @@ function journalPublicationReserve(events: readonly JournalEvent[]): JournalPubl
       release()
       return published
     },
+    userIds,
   }
 }
 
@@ -193,6 +197,12 @@ export function journalWriteCreate(dependencies: JournalWriteCreateDependencies)
 
     if (reservation !== undefined) {
       const published = await reservation.publish(dependencies.postCommitPublish)
+      try {
+        dependencies.postCommitPublish.schedulePrune?.(reservation.userIds)
+      } catch (error) {
+        // Post-commit maintenance must not change the outcome of a committed write or publication.
+        console.error("Journal event pruning could not be scheduled.", error)
+      }
       if (!published.success) return journalPublicationFailure(published.errorMessage)
     }
     return createResult(committed.data)

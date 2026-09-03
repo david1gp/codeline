@@ -11,13 +11,62 @@ const sessionCacheDatabaseOpenInputSchema = v.strictObject({
   version: v.literal(sessionCacheDatabaseConfig.version),
 })
 
-const sessionCacheDatabaseStoreIndexes = [
-  ["historyEntries", ["by-session", "by-session-position", "by-user-stored-at"]],
-  ["historyPages", ["by-session", "by-user-stored-at"]],
-  ["runDetails", ["by-session", "by-user-stored-at"]],
-  ["sessionSnapshots", ["by-stored-at", "by-user", "by-user-stored-at"]],
-  ["toolDetails", ["by-run", "by-session", "by-user-stored-at"]],
+const sessionCacheDatabaseSchemaContracts = [
+  {
+    indexes: [
+      { keyPath: ["userId", "sessionId"], name: "by-session", unique: false },
+      { keyPath: ["userId", "sessionId", "position"], name: "by-session-position", unique: true },
+      { keyPath: ["userId", "storedAt"], name: "by-user-stored-at", unique: false },
+    ],
+    keyPath: ["userId", "sessionId", "entryId"],
+    name: "historyEntries",
+  },
+  {
+    indexes: [
+      { keyPath: ["userId", "sessionId"], name: "by-session", unique: false },
+      { keyPath: ["userId", "storedAt"], name: "by-user-stored-at", unique: false },
+    ],
+    keyPath: ["userId", "sessionId", "requestCursor"],
+    name: "historyPages",
+  },
+  {
+    indexes: [
+      { keyPath: ["userId", "sessionId"], name: "by-session", unique: false },
+      { keyPath: ["userId", "storedAt"], name: "by-user-stored-at", unique: false },
+    ],
+    keyPath: ["userId", "sessionId", "runId"],
+    name: "runDetails",
+  },
+  {
+    indexes: [
+      { keyPath: "storedAt", name: "by-stored-at", unique: false },
+      { keyPath: "userId", name: "by-user", unique: false },
+      { keyPath: ["userId", "storedAt"], name: "by-user-stored-at", unique: false },
+    ],
+    keyPath: ["userId", "sessionId"],
+    name: "sessionSnapshots",
+  },
+  {
+    indexes: [
+      { keyPath: ["userId", "sessionId", "runId"], name: "by-run", unique: false },
+      { keyPath: ["userId", "sessionId"], name: "by-session", unique: false },
+      { keyPath: ["userId", "storedAt"], name: "by-user-stored-at", unique: false },
+    ],
+    keyPath: ["userId", "sessionId", "runId", "detailId"],
+    name: "toolDetails",
+  },
 ] as const
+
+function sessionCacheDatabaseNamesMatch(actualNames: readonly string[], expectedNames: readonly string[]): boolean {
+  return actualNames.length === expectedNames.length && expectedNames.every((name) => actualNames.includes(name))
+}
+
+function sessionCacheDatabaseKeyPathsMatch(
+  actualKeyPath: string | string[] | null,
+  expectedKeyPath: string | readonly string[],
+): boolean {
+  return JSON.stringify(actualKeyPath) === JSON.stringify(expectedKeyPath)
+}
 
 export async function sessionCacheDatabaseOpen(
   options: { name: string; version: number } = {
@@ -66,48 +115,32 @@ export async function sessionCacheDatabaseOpen(
       },
     })
 
-    for (const [storeName] of sessionCacheDatabaseStoreIndexes) {
-      if (!database.objectStoreNames.contains(storeName)) {
-        database.close()
-        return createResultError(op, "The session cache database schema is invalid.")
-      }
+    const expectedStoreNames = sessionCacheDatabaseSchemaContracts.map(({ name }) => name)
+    const actualStoreNames = Array.from(database.objectStoreNames)
+    if (!sessionCacheDatabaseNamesMatch(actualStoreNames, expectedStoreNames)) {
+      database.close()
+      return createResultError(op, "The session cache database schema is invalid.")
     }
 
-    const transaction = database.transaction(
-      ["sessionSnapshots", "historyEntries", "historyPages", "runDetails", "toolDetails"],
-      "readonly",
-    )
-    const snapshots = transaction.objectStore("sessionSnapshots")
-    const entries = transaction.objectStore("historyEntries")
-    const pages = transaction.objectStore("historyPages")
-    const runs = transaction.objectStore("runDetails")
-    const tools = transaction.objectStore("toolDetails")
-    const expectedIndexesPresent = sessionCacheDatabaseStoreIndexes.every(([storeName, indexNames]) => {
-      const actualIndexNames: readonly string[] = Array.from(transaction.objectStore(storeName).indexNames)
-      return indexNames.every((indexName) => actualIndexNames.includes(indexName))
+    const transaction = database.transaction(expectedStoreNames, "readonly")
+    const schemaIsValid = sessionCacheDatabaseSchemaContracts.every((storeContract) => {
+      const store = transaction.objectStore(storeContract.name)
+      const expectedIndexNames = storeContract.indexes.map(({ name }) => name)
+      const actualIndexNames = Array.from(store.indexNames)
+      if (
+        !sessionCacheDatabaseKeyPathsMatch(store.keyPath, storeContract.keyPath) ||
+        !sessionCacheDatabaseNamesMatch(actualIndexNames, expectedIndexNames)
+      )
+        return false
+
+      return storeContract.indexes.every((indexContract) => {
+        const index = store.index(indexContract.name as never)
+        return (
+          sessionCacheDatabaseKeyPathsMatch(index.keyPath, indexContract.keyPath) &&
+          index.unique === indexContract.unique
+        )
+      })
     })
-    const schemaIsValid =
-      expectedIndexesPresent &&
-      JSON.stringify(snapshots.keyPath) === JSON.stringify(["userId", "sessionId"]) &&
-      JSON.stringify(entries.keyPath) === JSON.stringify(["userId", "sessionId", "entryId"]) &&
-      JSON.stringify(pages.keyPath) === JSON.stringify(["userId", "sessionId", "requestCursor"]) &&
-      JSON.stringify(runs.keyPath) === JSON.stringify(["userId", "sessionId", "runId"]) &&
-      JSON.stringify(tools.keyPath) === JSON.stringify(["userId", "sessionId", "runId", "detailId"]) &&
-      JSON.stringify(snapshots.index("by-user").keyPath) === JSON.stringify("userId") &&
-      JSON.stringify(snapshots.index("by-user-stored-at").keyPath) === JSON.stringify(["userId", "storedAt"]) &&
-      JSON.stringify(snapshots.index("by-stored-at").keyPath) === JSON.stringify("storedAt") &&
-      JSON.stringify(entries.index("by-session").keyPath) === JSON.stringify(["userId", "sessionId"]) &&
-      JSON.stringify(entries.index("by-session-position").keyPath) ===
-        JSON.stringify(["userId", "sessionId", "position"]) &&
-      entries.index("by-session-position").unique &&
-      JSON.stringify(entries.index("by-user-stored-at").keyPath) === JSON.stringify(["userId", "storedAt"]) &&
-      JSON.stringify(pages.index("by-session").keyPath) === JSON.stringify(["userId", "sessionId"]) &&
-      JSON.stringify(pages.index("by-user-stored-at").keyPath) === JSON.stringify(["userId", "storedAt"]) &&
-      JSON.stringify(runs.index("by-session").keyPath) === JSON.stringify(["userId", "sessionId"]) &&
-      JSON.stringify(runs.index("by-user-stored-at").keyPath) === JSON.stringify(["userId", "storedAt"]) &&
-      JSON.stringify(tools.index("by-session").keyPath) === JSON.stringify(["userId", "sessionId"]) &&
-      JSON.stringify(tools.index("by-run").keyPath) === JSON.stringify(["userId", "sessionId", "runId"]) &&
-      JSON.stringify(tools.index("by-user-stored-at").keyPath) === JSON.stringify(["userId", "storedAt"])
     await transaction.done
     if (!schemaIsValid) {
       database.close()

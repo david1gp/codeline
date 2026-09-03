@@ -3,14 +3,15 @@ import { createResult, createResultErrorCode } from "@adaptive-ds/result"
 import { Hono } from "hono"
 import * as v from "valibot"
 import type { AppEnvironment } from "../src/api/appEnvironment.js"
-import { apiSessionDetailEventsRoutesAdd } from "../src/session/api/apiSessionDetailEventsRoutesAdd.js"
-import { sessionDetailPostCommitPublishCreate } from "../src/session/actions/sessionDetailPostCommitPublishCreate.js"
-import { sessionDetailSseFrameSchema } from "../src/session/api/sessionDetailSseFrameSchema.js"
 import type { JournalCursorCodec } from "../src/journal/actions/journalCursorCodecCreate.js"
 import { metricsCollectorCreate } from "../src/metrics/metricsCollectorCreate.js"
+import { sessionDetailPostCommitPublishCreate } from "../src/session/actions/sessionDetailPostCommitPublishCreate.js"
+import { apiSessionDetailEventsRoutesAdd } from "../src/session/api/apiSessionDetailEventsRoutesAdd.js"
+import type { SessionDetailSseFrame } from "../src/session/api/sessionDetailSseFrameSchema.js"
+import { sessionDetailSseFrameSchema } from "../src/session/api/sessionDetailSseFrameSchema.js"
 import { streamLiveSubscriptionCreate } from "../src/stream/actions/streamLiveSubscriptionCreate.js"
 import { streamSseConnectionWriterCreate } from "../src/stream/actions/streamSseConnectionWriterCreate.js"
-import type { SessionDetailSseFrame } from "../src/session/api/sessionDetailSseFrameSchema.js"
+import type { StreamSseConnectionWriterSinkFactory } from "../src/stream/actions/streamSseConnectionWriterSinkFactory.js"
 
 const userId = "session-detail-events-user"
 const organizationId = "session-detail-events-organization"
@@ -106,6 +107,7 @@ function pages(
 function appCreate(
   backlogRead: Parameters<typeof apiSessionDetailEventsRoutesAdd>[1]["backlogRead"],
   liveSubscription = streamLiveSubscriptionCreate(),
+  sinkCreate?: StreamSseConnectionWriterSinkFactory,
 ) {
   const app = new Hono<AppEnvironment>()
   const api = new Hono<AppEnvironment>()
@@ -127,6 +129,7 @@ function appCreate(
     metricsCollector: metricsCollectorCreate(),
     now: () => scheduler.currentTime,
     scheduler,
+    sinkCreate,
   })
   app.route("/api", api)
   return { app, liveSubscription }
@@ -178,6 +181,39 @@ test("requires authentication and isolates one selected-session channel from ano
   expect(liveSubscription.selectedSessionDetailSubscriberCount(userId, sessionId)).toBe(0)
 })
 
+test("uses the injected sink factory at the selected-session route boundary", async () => {
+  let sinkFactoryCalls = 0
+  const liveSubscription = streamLiveSubscriptionCreate()
+  const { app } = appCreate(
+    async () =>
+      createResult({
+        afterChangePosition: 0,
+        mode: "replay" as const,
+        pages: pages(),
+        replayUpperBound: 0,
+        selectedCursor: undefined,
+      }),
+    liveSubscription,
+    (outputWriter) => {
+      sinkFactoryCalls += 1
+      return {
+        abort: (reason) => outputWriter.abort(reason),
+        close: () => outputWriter.close(),
+        write: (chunk) => outputWriter.write(chunk),
+      }
+    },
+  )
+
+  const response = await app.request(`https://session-detail.test/api/sessions/${sessionId}/events`, {
+    headers: { Cookie: "session-token" },
+  })
+  expect(response.status).toBe(200)
+  expect(sinkFactoryCalls).toBe(1)
+  await response.body?.cancel()
+  await flush()
+  expect(liveSubscription.selectedSessionDetailSubscriberCount(userId, sessionId)).toBe(0)
+})
+
 test("replays selected projection changes in session changePosition order and preserves stable entry IDs", async () => {
   let input: unknown
   const first = frame(1, "stable-entry")
@@ -211,6 +247,40 @@ test("replays selected projection changes in session changePosition order and pr
   await reader.cancel()
 })
 
+test("hands off selected backlog to live delivery without duplicating a publication during the read", async () => {
+  const liveSubscription = streamLiveSubscriptionCreate()
+  const duringBacklog = frame(1, "during-backlog")
+  const afterBacklog = frame(2, "after-backlog")
+  const { app } = appCreate(async () => {
+    liveSubscription.selectedSessionDetailPublish(userId, sessionId, duringBacklog)
+    return createResult({
+      afterChangePosition: 0,
+      mode: "replay" as const,
+      pages: pages([duringBacklog]),
+      replayUpperBound: 1,
+      selectedCursor: undefined,
+    })
+  }, liveSubscription)
+  const response = await app.request(`https://session-detail.test/api/sessions/${sessionId}/events`, {
+    headers: { Cookie: "session-token" },
+  })
+  const reader = response.body?.getReader()
+  expect(reader).toBeDefined()
+  if (reader === undefined) return
+  liveSubscription.selectedSessionDetailPublish(userId, sessionId, afterBacklog)
+
+  const received: Array<ReturnType<typeof parseFrame>> = []
+  while (received.length < 2) {
+    const next = await reader.read()
+    expect(next.done).toBe(false)
+    if (next.done || next.value === undefined) break
+    received.push(parseFrame(next.value))
+  }
+  expect(received.map((event) => event.data.changePosition)).toEqual([1, 2])
+  expect(new Set(received.map((event) => event.data.entryId)).size).toBe(2)
+  await reader.cancel()
+})
+
 test("uses a separate selected cursor and emits a reset for a future position", async () => {
   const { app } = appCreate(async () =>
     createResult({
@@ -236,6 +306,57 @@ test("uses a separate selected cursor and emits a reset for a future position", 
     sessionId,
   })
   await resetReader?.cancel()
+})
+
+test("reconnects after a selected reset from the reset cursor without replaying the old boundary", async () => {
+  const futureCursor = cursorCodec.encodeSessionPosition?.(userId, sessionId, 99)
+  expect(futureCursor?.success).toBe(true)
+  if (futureCursor === undefined || !futureCursor.success) return
+
+  const reset = resetFrame(4)
+  const afterReset = frame(5)
+  const backlogInputs: Array<{ lastEventId?: unknown }> = []
+  const { app } = appCreate(async (_database, input) => {
+    backlogInputs.push({ lastEventId: input.lastEventId })
+    if (input.lastEventId === futureCursor.data)
+      return createResult({
+        afterChangePosition: 99,
+        mode: "reset" as const,
+        pages: pages([reset]),
+        replayUpperBound: 4,
+        selectedCursor: futureCursor.data,
+      })
+    return createResult({
+      afterChangePosition: 4,
+      mode: "replay" as const,
+      pages: pages([afterReset]),
+      replayUpperBound: 5,
+      selectedCursor: input.lastEventId as string | undefined,
+    })
+  })
+
+  const resetResponse = await app.request(`https://session-detail.test/api/sessions/${sessionId}/events`, {
+    headers: { Cookie: "session-token", "Last-Event-ID": futureCursor.data },
+  })
+  const resetReader = resetResponse.body?.getReader()
+  expect(resetReader).toBeDefined()
+  if (resetReader === undefined) return
+  const resetRead = await resetReader.read()
+  const resetFrameRead = parseFrame(resetRead.value as Uint8Array)
+  expect(resetFrameRead.data).toMatchObject({ asOfPosition: 4, eventType: "reset" })
+  await resetReader.cancel()
+  await flush()
+
+  const reconnectResponse = await app.request(`https://session-detail.test/api/sessions/${sessionId}/events`, {
+    headers: { Cookie: "session-token", "Last-Event-ID": resetFrameRead.id },
+  })
+  const reconnectReader = reconnectResponse.body?.getReader()
+  expect(reconnectReader).toBeDefined()
+  if (reconnectReader === undefined) return
+  const replayRead = await reconnectReader.read()
+  expect(parseFrame(replayRead.value as Uint8Array).data).toMatchObject({ changePosition: 5, eventType: "entry" })
+  expect(backlogInputs).toEqual([{ lastEventId: futureCursor.data }, { lastEventId: resetFrameRead.id }])
+  await reconnectReader.cancel()
 })
 
 test("reconnects from the selected cursor and suppresses overlap by stable entry and change position", async () => {
@@ -288,6 +409,39 @@ test("rejects a cursor belonging to another session before opening a selected st
     headers: { Cookie: "session-token", "Last-Event-ID": "session-cursor-session-detail-events-user-other-session-1" },
   })
   expect(response.status).toBe(400)
+  expect(liveSubscription.selectedSessionDetailSubscriberCount(userId, sessionId)).toBe(0)
+})
+
+test("rejects malformed, wrong-kind/version, nonnumeric, and other-account selected cursors", async () => {
+  const liveSubscription = streamLiveSubscriptionCreate()
+  const { app } = appCreate(async () => {
+    throw new Error("backlog must not be read")
+  }, liveSubscription)
+  const requests = [
+    {
+      headers: { Cookie: "session-token", "Last-Event-ID": "not-a-selected-cursor" },
+    },
+    {
+      headers: { Cookie: "session-token", "Last-Event-ID": "p1.invalid.cursor" },
+    },
+    {
+      headers: { Cookie: "session-token", "Last-Event-ID": "s0.invalid.cursor" },
+    },
+    {
+      headers: { Cookie: "session-token", "Last-Event-ID": `session-cursor-${userId}-${sessionId}-not-a-number` },
+    },
+    {
+      headers: { Cookie: "session-token", "Last-Event-ID": `session-cursor-other-user-${sessionId}-1` },
+    },
+    {
+      headers: { Cookie: "session-token", "Last-Event-ID": `session-cursor-${userId}-other-session-1` },
+    },
+  ]
+
+  for (const init of requests) {
+    const response = await app.request(`https://session-detail.test/api/sessions/${sessionId}/events`, init)
+    expect(response.status).toBe(400)
+  }
   expect(liveSubscription.selectedSessionDetailSubscriberCount(userId, sessionId)).toBe(0)
 })
 

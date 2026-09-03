@@ -67,6 +67,204 @@ test("bounded client reads use typed snapshot and opaque-cursor endpoints", asyn
   root.dispose()
 })
 
+test("supersedes a concurrent authoritative snapshot refresh with one trailing replacement", async () => {
+  let snapshotReads = 0
+  const releaseRefreshes: Array<(response: Response) => void> = []
+  const fetch = async (input: RequestInfo | URL) => {
+    if (!String(input).endsWith("bounded-snapshot")) return Response.json({})
+    snapshotReads += 1
+    if (snapshotReads === 1) return Response.json(snapshotCreate([messageStepCreate("initial", 1)]))
+    return new Promise<Response>((resolve) => {
+      releaseRefreshes.push(resolve)
+    })
+  }
+  const root = createRoot((dispose) => ({
+    dispose,
+    state: sessionBoundedHistoryStateCreate({ fetch, sessionId: () => "session-1" }),
+  }))
+
+  await settle()
+  const firstRefresh = root.state.refresh()
+  const secondRefresh = root.state.refresh()
+  const thirdRefresh = root.state.refresh()
+
+  expect(firstRefresh).toBe(secondRefresh)
+  expect(firstRefresh).toBe(thirdRefresh)
+  expect(snapshotReads).toBe(2)
+  releaseRefreshes[0]?.(Response.json(snapshotCreate([messageStepCreate("running", 2)])))
+  await settle()
+
+  expect(snapshotReads).toBe(3)
+  const fourthRefresh = root.state.refresh()
+  expect(fourthRefresh).toBe(firstRefresh)
+  releaseRefreshes[1]?.(Response.json(snapshotCreate([messageStepCreate("terminal", 3)])))
+  await firstRefresh
+
+  expect(snapshotReads).toBe(3)
+  expect(root.state.semanticSteps().map((step) => step.id)).toEqual(["terminal"])
+  root.dispose()
+})
+
+test("disposal settles a queued authoritative refresh without applying its late response", async () => {
+  let snapshotReads = 0
+  let releaseRefresh: ((response: Response) => void) | undefined
+  const fetch = async (input: RequestInfo | URL) => {
+    if (!String(input).endsWith("bounded-snapshot")) return Response.json({})
+    snapshotReads += 1
+    if (snapshotReads === 1) return Response.json(snapshotCreate([messageStepCreate("initial", 1)]))
+    return new Promise<Response>((resolve) => {
+      releaseRefresh = resolve
+    })
+  }
+  const root = createRoot((dispose) => ({
+    dispose,
+    state: sessionBoundedHistoryStateCreate({ fetch, sessionId: () => "session-1" }),
+  }))
+
+  await settle()
+  const activeRefresh = root.state.refresh()
+  const queuedRefresh = root.state.refresh()
+  root.dispose()
+
+  let refreshesSettled = false
+  void Promise.all([activeRefresh, queuedRefresh]).then(() => {
+    refreshesSettled = true
+  })
+  await settle()
+  expect(refreshesSettled).toBe(true)
+  expect(snapshotReads).toBe(2)
+
+  let postDisposeRefreshSettled = false
+  void root.state.refresh().then(() => {
+    postDisposeRefreshSettled = true
+  })
+  await settle()
+  expect(postDisposeRefreshSettled).toBe(true)
+  expect(snapshotReads).toBe(2)
+
+  releaseRefresh?.(Response.json(snapshotCreate([messageStepCreate("stale", 2)])))
+  await settle()
+  expect(root.state.semanticSteps().map((step) => step.id)).toEqual(["initial"])
+})
+
+test("deduplicates page overlap by stable identity and keeps the snapshot position immutable", async () => {
+  const fetch = async (input: RequestInfo | URL) => {
+    const url = String(input)
+    if (url.endsWith("bounded-snapshot")) return Response.json(snapshotCreate([messageStepCreate("shared", 5)]))
+    return Response.json({
+      hasMore: false,
+      nextCursor: null,
+      semanticSteps: [messageStepCreate("older", 3), messageStepCreate("shared", 4)],
+      throughPosition: 10,
+    })
+  }
+  const root = createRoot((dispose) => ({
+    dispose,
+    state: sessionBoundedHistoryStateCreate({ fetch, sessionId: () => "session-1" }),
+  }))
+
+  await settle()
+  await root.state.loadOlder()
+
+  const steps = root.state.semanticSteps()
+  expect(steps.map((step) => step.id)).toEqual(["older", "shared"])
+  expect(new Set(steps.map((step) => step.id)).size).toBe(steps.length)
+  expect(steps.find((step) => step.id === "shared")?.sequence).toBe(5)
+  root.dispose()
+})
+
+test("resnapshots instead of disabling pagination when entry retention overflows", async () => {
+  const historyRequests: string[] = []
+  let snapshotReads = 0
+  let releaseResnapshot: ((response: Response) => void) | undefined
+  const fetch = async (input: RequestInfo | URL) => {
+    const url = String(input)
+    if (url.endsWith("bounded-snapshot")) {
+      snapshotReads += 1
+      if (snapshotReads === 1) return Response.json(snapshotCreate([messageStepCreate("message-5", 5)]))
+      return new Promise<Response>((resolve) => (releaseResnapshot = resolve))
+    }
+    historyRequests.push(url)
+    return Response.json({
+      hasMore: true,
+      nextCursor: "cursor-older-2",
+      semanticSteps: [messageStepCreate("message-3", 3), messageStepCreate("message-4", 4)],
+      throughPosition: 10,
+    })
+  }
+  const root = createRoot((dispose) => ({
+    dispose,
+    state: sessionBoundedHistoryStateCreate({
+      fetch,
+      maximumEntries: 2,
+      sessionId: () => "session-1",
+    }),
+  }))
+
+  await settle()
+  await root.state.loadOlder()
+  await settle()
+  expect(snapshotReads).toBe(2)
+  expect(historyRequests).toHaveLength(1)
+  expect(root.state.hasMore()).toBe(true)
+  expect(root.state.isOlderError()).toBe(true)
+
+  releaseResnapshot?.(
+    Response.json(snapshotCreate([messageStepCreate("message-new", 6)], { cursor: null, throughPosition: 12 })),
+  )
+  await settle()
+  expect(root.state.semanticSteps().map((step) => step.id)).toEqual(["message-new"])
+  expect(root.state.hasMore()).toBe(false)
+  root.dispose()
+})
+
+test("uses serialized UTF-8 bytes when retention overflows", async () => {
+  const snapshotStep = messageStepCreate("message-3", 3)
+  const overflowingStep = { ...messageStepCreate("message-2", 2), summary: "😀" }
+  const maximumBytes = JSON.stringify(snapshotStep).length + JSON.stringify(overflowingStep).length
+  expect(
+    new TextEncoder().encode(JSON.stringify(snapshotStep)).byteLength +
+      new TextEncoder().encode(JSON.stringify(overflowingStep)).byteLength,
+  ).toBeGreaterThan(maximumBytes)
+  const historyRequests: string[] = []
+  let snapshotReads = 0
+  const fetch = async (input: RequestInfo | URL) => {
+    const url = String(input)
+    if (url.endsWith("bounded-snapshot")) {
+      snapshotReads += 1
+      return Response.json(
+        snapshotReads === 1
+          ? snapshotCreate([snapshotStep])
+          : snapshotCreate([messageStepCreate("message-new", 5)], { cursor: null, throughPosition: 12 }),
+      )
+    }
+    historyRequests.push(url)
+    return Response.json({
+      hasMore: true,
+      nextCursor: "cursor-older-2",
+      semanticSteps: [overflowingStep],
+      throughPosition: 10,
+    })
+  }
+  const root = createRoot((dispose) => ({
+    dispose,
+    state: sessionBoundedHistoryStateCreate({
+      fetch,
+      maximumBytes,
+      sessionId: () => "session-1",
+    }),
+  }))
+
+  await settle()
+  await root.state.loadOlder()
+  await settle()
+  expect(snapshotReads).toBe(2)
+  expect(historyRequests).toHaveLength(1)
+  expect(root.state.semanticSteps().map((step) => step.id)).toEqual(["message-new"])
+  expect(root.state.hasMore()).toBe(false)
+  root.dispose()
+})
+
 test("older pages prepend stably, deduplicate overlaps, and retain a failed cursor for retry", async () => {
   let secondPageAttempts = 0
   const recent = messageStepCreate("message-3", 3)
@@ -178,5 +376,34 @@ test("changing selection clears the previous bounded snapshot before the next re
   sessionTwoResolve?.(Response.json(snapshotCreate([], { cursor: null, sessionId: "session-2" })))
   await settle()
   expect(root.state.snapshot()?.session.id).toBe("session-2")
+  root.dispose()
+})
+
+test("ignores late snapshot responses across an account-session switch and switch-back", async () => {
+  const [userId, userIdSet] = createSignal("user-a")
+  const responses: Array<(response: Response) => void> = []
+  const fetch = async () => new Promise<Response>((resolve) => responses.push(resolve))
+  const root = createRoot((dispose) => ({
+    dispose,
+    state: sessionBoundedHistoryStateCreate({ fetch, sessionId: () => "session-1", userId }),
+  }))
+
+  await settle()
+  expect(responses).toHaveLength(1)
+  userIdSet("user-b")
+  await settle()
+  expect(responses).toHaveLength(2)
+  userIdSet("user-a")
+  await settle()
+  expect(responses).toHaveLength(3)
+
+  responses[1]?.(Response.json(snapshotCreate([messageStepCreate("account-b", 2)], { sessionId: "session-1" })))
+  responses[0]?.(Response.json(snapshotCreate([messageStepCreate("account-a-old", 1)])))
+  await settle()
+  expect(root.state.snapshot()).toBeUndefined()
+
+  responses[2]?.(Response.json(snapshotCreate([messageStepCreate("account-a-current", 3)])))
+  await settle()
+  expect(root.state.snapshot()?.semanticSteps.map((step) => step.id)).toEqual(["account-a-current"])
   root.dispose()
 })

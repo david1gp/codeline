@@ -9,8 +9,9 @@ import { applicationUserTable } from "../identity/db/applicationUserTable.js"
 import { externalIdentityUpsert } from "../identity/db/externalIdentityUpsert.js"
 import { organizationMemberTable } from "../identity/db/organizationMemberTable.js"
 import { organizationTable } from "../identity/db/organizationTable.js"
-import { messageTable } from "../message/db/messageTable.js"
+import { journalEventTable } from "../journal/db/journalEventTable.js"
 import { messageApiRecordCreate } from "../message/api/messageApiRecordCreate.js"
+import { messageTable } from "../message/db/messageTable.js"
 import { projectConfiguredRootsReconcile } from "../project/db/projectConfiguredRootsReconcile.js"
 import { projectFolderBootstrapEnsure } from "../project/db/projectFolderBootstrapEnsure.js"
 import { projectFolderBootstrapIdLoad } from "../project/db/projectFolderBootstrapIdLoad.js"
@@ -22,20 +23,20 @@ import type { ProviderCatalog } from "../providers/schema/providerCatalogSchema.
 import { runCancel } from "../run/actions/runCancel.js"
 import { runChildCreate } from "../run/actions/runChildCreate.js"
 import { runCreate } from "../run/actions/runCreate.js"
+import { runDelegationFinalize } from "../run/actions/runDelegationFinalize.js"
 import { runProviderOutputCreate } from "../run/actions/runProviderOutputCreate.js"
 import { runStartupInterruptionReconcile } from "../run/actions/runStartupInterruptionReconcile.js"
 import { runTransition } from "../run/actions/runTransition.js"
-import { runDelegationFinalize } from "../run/actions/runDelegationFinalize.js"
 import { attemptTable } from "../run/db/attemptTable.js"
 import { runActiveStateTable } from "../run/db/runActiveStateTable.js"
 import { runDelegationTable } from "../run/db/runDelegationTable.js"
 import { runFinalizedDetailTable } from "../run/db/runFinalizedDetailTable.js"
+import { runHistoryEntryPayloadCreate } from "../run/db/runHistoryEntryPayloadCreate.js"
 import { runTable } from "../run/db/runTable.js"
-import { journalEventTable } from "../journal/db/journalEventTable.js"
 import { serverTable } from "../servers/db/serverTable.js"
-import { sessionTable } from "../session/db/sessionTable.js"
 import { sessionHistoryEntryRepositoryUpsert } from "../session/db/sessionHistoryEntryRepositoryUpsert.js"
 import { sessionHistoryEntryTable } from "../session/db/sessionHistoryEntryTable.js"
+import { sessionTable } from "../session/db/sessionTable.js"
 import { sessionViewTable } from "../session/db/sessionViewTable.js"
 import { uuidv7 } from "../uuid/uuidv7.js"
 import type { DatabaseClient, DatabaseExecutor } from "./databaseClient.js"
@@ -50,6 +51,15 @@ function date(value: string): Date {
 function catalogAgentMode(configuration: AgentConfiguration): "primary" | "subagent" {
   if (configuration.provider === "deterministic") return "subagent"
   return configuration.catalogAgent?.mode ?? "subagent"
+}
+
+function exampleDataJsonCanonicalize(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value)
+  if (Array.isArray(value)) return `[${value.map(exampleDataJsonCanonicalize).join(",")}]`
+  return `{${Object.keys(value as Record<string, unknown>)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${exampleDataJsonCanonicalize((value as Record<string, unknown>)[key])}`)
+    .join(",")}}`
 }
 
 async function exampleDataMessagesDelete(database: DatabaseExecutor): Promise<void> {
@@ -146,9 +156,12 @@ async function exampleDataRunRowsAlreadySeeded(database: DatabaseExecutor, userI
 
     const entries = await database
       .select({
+        kind: sessionHistoryEntryTable.kind,
+        payload: sessionHistoryEntryTable.payload,
         sourceDetailId: sessionHistoryEntryTable.sourceDetailId,
         sourceId: sessionHistoryEntryTable.sourceId,
         sourceType: sessionHistoryEntryTable.sourceType,
+        sessionId: sessionHistoryEntryTable.sessionId,
       })
       .from(sessionHistoryEntryTable)
       .where(
@@ -160,20 +173,50 @@ async function exampleDataRunRowsAlreadySeeded(database: DatabaseExecutor, userI
           ),
         ),
       )
-    const runEntryIds = new Set(entries.filter((entry) => entry.sourceType === "run").map((entry) => entry.sourceId))
-    if (runIds.some((runId) => !runEntryIds.has(runId))) return false
-    const toolEntryKeys = new Set(
-      entries
-        .filter((entry) => entry.sourceType === "tool")
-        .map((entry) => `${entry.sourceId}\u0000${entry.sourceDetailId}`),
+    const entryBySource = new Map(
+      entries.map(
+        (entry) =>
+          [
+            `${entry.sessionId}\u0000${entry.sourceType}\u0000${entry.sourceId}\u0000${entry.sourceDetailId}`,
+            entry,
+          ] as const,
+      ),
     )
-    if (
-      exampleDataFixture.tools.some((tool) => !toolEntryKeys.has(`${tool.runId}\u0000${tool.toolCallId}`)) ||
-      exampleDataFixture.delegations.some(
-        (delegation) => !toolEntryKeys.has(`${delegation.parentRunId}\u0000${delegation.delegationKey}`),
+    for (const fixtureRun of exampleDataFixture.runs) {
+      const entry = entryBySource.get(`${fixtureRun.sessionId}\u0000run\u0000${fixtureRun.id}\u0000`)
+      if (
+        entry === undefined ||
+        entry.kind !== "run" ||
+        exampleDataJsonCanonicalize(entry.payload) !==
+          exampleDataJsonCanonicalize(
+            runHistoryEntryPayloadCreate({
+              id: fixtureRun.id,
+              status: fixtureRun.status,
+              terminalKind: fixtureRun.outcome,
+            }),
+          )
       )
-    )
-      return false
+        return false
+    }
+    for (const fixtureTool of exampleDataFixture.tools) {
+      const fixtureRun = exampleDataFixture.runs.find((run) => run.id === fixtureTool.runId)
+      if (
+        fixtureRun === undefined ||
+        entryBySource.get(`${fixtureRun.sessionId}\u0000tool\u0000${fixtureTool.runId}\u0000${fixtureTool.toolCallId}`)
+          ?.kind !== "tool"
+      )
+        return false
+    }
+    for (const delegation of exampleDataFixture.delegations) {
+      const parentRun = exampleDataFixture.runs.find((run) => run.id === delegation.parentRunId)
+      if (
+        parentRun === undefined ||
+        entryBySource.get(
+          `${parentRun.sessionId}\u0000tool\u0000${delegation.parentRunId}\u0000${delegation.delegationKey}`,
+        )?.kind !== "tool"
+      )
+        return false
+    }
     return true
   } catch (_error) {
     return false
@@ -398,8 +441,7 @@ async function exampleDataDelegatedChildReconcile(
 
   const childStarted = await exampleDataRunStartAndTools(database, userId, child)
   if (!childStarted.success) return childStarted
-  const childFinalized = await exampleDataRunFinalize(childStarted.data, userId, child, database)
-  if (!childFinalized.success) return childFinalized
+  // Delegation finalization is the authoritative child terminal write; keep the deltas available for its first detail.
   const finalized = await runDelegationFinalize(
     database,
     userId,

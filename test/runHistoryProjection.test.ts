@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { randomBytes } from "node:crypto"
 import os from "node:os"
 import path from "node:path"
+import { createResult } from "@adaptive-ds/result"
 import { and, asc, eq } from "drizzle-orm"
 import { agentTable } from "../src/agents/db/agentTable.js"
 import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
@@ -12,7 +13,6 @@ import { databaseTransactionRun } from "../src/database/databaseTransactionRun.j
 import { applicationUserTable } from "../src/identity/db/applicationUserTable.js"
 import { organizationTable } from "../src/identity/db/organizationTable.js"
 import { journalCursorCodecCreate } from "../src/journal/actions/journalCursorCodecCreate.js"
-import { journalPostCommitPublishCreate } from "../src/journal/actions/journalPostCommitPublishCreate.js"
 import { journalEventTable } from "../src/journal/db/journalEventTable.js"
 import { runChildCreate } from "../src/run/actions/runChildCreate.js"
 import { runDelegationFinalize } from "../src/run/actions/runDelegationFinalize.js"
@@ -22,6 +22,7 @@ import { runTransition } from "../src/run/actions/runTransition.js"
 import { runRepositoryActiveSnapshotLoad } from "../src/run/db/runRepositoryActiveSnapshotLoad.js"
 import { runActiveStateTable } from "../src/run/db/runActiveStateTable.js"
 import { runDelegationTable } from "../src/run/db/runDelegationTable.js"
+import { runFinalizedDetailTable } from "../src/run/db/runFinalizedDetailTable.js"
 import { runTable } from "../src/run/db/runTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionHistoryEntryRepositoryUpsert } from "../src/session/db/sessionHistoryEntryRepositoryUpsert.js"
@@ -104,10 +105,7 @@ function runInput(label: string) {
 }
 
 function providerCreate(runId: string, sessionId: string) {
-  const postCommitPublish = journalPostCommitPublishCreate({
-    cursorCodec,
-    liveSubscription: { publish: () => undefined },
-  })
+  const postCommitPublish = async () => createResult(undefined)
   return runProviderOutputCreate({
     database,
     journalPostCommitPublish: postCommitPublish,
@@ -250,6 +248,48 @@ test("updates one stable tool projection from repeated tool deltas", async () =>
   expect(new Set(toolEntries.map((entry) => entry.id)).size).toBe(1)
 })
 
+test("rolls back a tool delta projection and active-state update together", async () => {
+  const { runId, sessionId } = await createRun("tool-rollback")
+  const provider = providerCreate(runId, sessionId)
+  expect(await provider.start()).toMatchObject({ success: true })
+  const [beforeActiveState] = await database
+    .select()
+    .from(runActiveStateTable)
+    .where(eq(runActiveStateTable.runId, runId))
+  if (beforeActiveState === undefined) return
+  await database
+    .update(sessionTable)
+    .set({ nextHistoryPosition: Number.MAX_SAFE_INTEGER - 1 })
+    .where(eq(sessionTable.id, sessionId))
+
+  expect(
+    await provider.append({ eventType: "tool_start", payload: { toolCallId: "tool-rollback-call", toolName: "bash" } }),
+  ).toMatchObject({ success: false })
+  expect(
+    await database
+      .select()
+      .from(journalEventTable)
+      .where(and(eq(journalEventTable.runId, runId), eq(journalEventTable.eventType, "delta"))),
+  ).toHaveLength(0)
+  expect(
+    await database
+      .select()
+      .from(sessionHistoryEntryTable)
+      .where(
+        and(
+          eq(sessionHistoryEntryTable.sessionId, sessionId),
+          eq(sessionHistoryEntryTable.sourceType, "tool"),
+          eq(sessionHistoryEntryTable.sourceId, runId),
+        ),
+      ),
+  ).toHaveLength(0)
+  expect(await database.select().from(runActiveStateTable).where(eq(runActiveStateTable.runId, runId))).toEqual([
+    beforeActiveState,
+  ])
+  const [session] = await database.select().from(sessionTable).where(eq(sessionTable.id, sessionId))
+  expect(session?.nextHistoryPosition).toBe(Number.MAX_SAFE_INTEGER - 1)
+})
+
 test("keeps active state bounded and loads it without folding deltas", async () => {
   const { runId, sessionId } = await createRun("active")
   const provider = providerCreate(runId, sessionId)
@@ -336,6 +376,16 @@ test("attaches child delegation identity to an existing stable tool entry", asyn
     .orderBy(asc(sessionHistoryEntryTable.position))
   const toolEntries = entries.filter((entry) => entry.sourceType === "tool")
   expect(toolEntries).toHaveLength(1)
+  expect(entries.filter((entry) => entry.sourceType === "run")).toContainEqual(
+    expect.objectContaining({
+      payload: expect.objectContaining({ status: "accepted" }),
+      sourceId: child.data.run.id,
+      sourceType: "run",
+    }),
+  )
+  expect(
+    await database.select().from(runActiveStateTable).where(eq(runActiveStateTable.runId, child.data.run.id)),
+  ).toMatchObject([{ status: "accepted" }])
   expect(toolEntries[0]).toMatchObject({
     id: seeded.data.entry.id,
     payload: {
@@ -485,6 +535,18 @@ test("updates the stable delegation tool entry on child finalization and leaves 
     },
     position: before.position,
   })
+  expect(
+    await database
+      .select({ payload: sessionHistoryEntryTable.payload })
+      .from(sessionHistoryEntryTable)
+      .where(
+        and(
+          eq(sessionHistoryEntryTable.sessionId, parent.sessionId),
+          eq(sessionHistoryEntryTable.sourceType, "run"),
+          eq(sessionHistoryEntryTable.sourceId, child.data.run.id),
+        ),
+      ),
+  ).toMatchObject([{ payload: { status: "succeeded", terminalKind: "completed" } }])
   expect(after.changePosition).toBeGreaterThan(before.changePosition)
 
   expect(
@@ -501,7 +563,7 @@ test("rolls back child delegation creation when its stable tool entry cannot be 
   const parent = await createDelegatableParent("delegation-creation-rollback")
   await database
     .update(sessionTable)
-    .set({ nextHistoryPosition: Number.MAX_SAFE_INTEGER })
+    .set({ nextHistoryPosition: Number.MAX_SAFE_INTEGER - 2 })
     .where(eq(sessionTable.id, parent.sessionId))
 
   const created = await runChildCreate(database, fixture.userId, parent.sessionId, {
@@ -515,6 +577,10 @@ test("rolls back child delegation creation when its stable tool entry cannot be 
     await database.select().from(runDelegationTable).where(eq(runDelegationTable.sessionId, parent.sessionId)),
   ).toHaveLength(0)
   expect(await database.select().from(runTable).where(eq(runTable.sessionId, parent.sessionId))).toHaveLength(1)
+  expect(await database.select().from(attemptTable).where(eq(attemptTable.sessionId, parent.sessionId))).toHaveLength(1)
+  expect(
+    await database.select().from(runActiveStateTable).where(eq(runActiveStateTable.sessionId, parent.sessionId)),
+  ).toHaveLength(1)
   expect(
     await database
       .select()
@@ -522,7 +588,7 @@ test("rolls back child delegation creation when its stable tool entry cannot be 
       .where(eq(sessionHistoryEntryTable.sessionId, parent.sessionId)),
   ).toHaveLength(1)
   const [session] = await database.select().from(sessionTable).where(eq(sessionTable.id, parent.sessionId))
-  expect(session?.nextHistoryPosition).toBe(Number.MAX_SAFE_INTEGER)
+  expect(session?.nextHistoryPosition).toBe(Number.MAX_SAFE_INTEGER - 2)
 })
 
 test("rolls back child finalization when its stable tool entry update cannot be allocated", async () => {
@@ -544,9 +610,24 @@ test("rolls back child finalization when its stable tool entry update cannot be 
     .select()
     .from(sessionHistoryEntryTable)
     .where(eq(sessionHistoryEntryTable.sourceDetailId, "delegation-finalization-rollback-call"))
+  const [beforeRun] = await database
+    .select()
+    .from(sessionHistoryEntryTable)
+    .where(
+      and(
+        eq(sessionHistoryEntryTable.sessionId, parent.sessionId),
+        eq(sessionHistoryEntryTable.sourceType, "run"),
+        eq(sessionHistoryEntryTable.sourceId, child.data.run.id),
+      ),
+    )
+  const [beforeActiveState] = await database
+    .select()
+    .from(runActiveStateTable)
+    .where(eq(runActiveStateTable.runId, child.data.run.id))
+  if (beforeRun === undefined || beforeActiveState === undefined) return
   await database
     .update(sessionTable)
-    .set({ nextHistoryPosition: Number.MAX_SAFE_INTEGER })
+    .set({ nextHistoryPosition: Number.MAX_SAFE_INTEGER - 1 })
     .where(eq(sessionTable.id, parent.sessionId))
 
   const finalized = await runDelegationFinalize(database, fixture.userId, parent.sessionId, child.data.delegation.id, {
@@ -568,8 +649,19 @@ test("rolls back child finalization when its stable tool entry update cannot be 
   expect(attempt).toMatchObject({ status: "running", failure: null, finishedAt: null })
   expect(delegation?.finalizedResult).toBeNull()
   expect(tool).toEqual(beforeTool)
+  const [runHistory] = await database
+    .select()
+    .from(sessionHistoryEntryTable)
+    .where(eq(sessionHistoryEntryTable.id, beforeRun?.id ?? ""))
+  expect(runHistory).toEqual(beforeRun)
+  expect(
+    await database.select().from(runActiveStateTable).where(eq(runActiveStateTable.runId, child.data.run.id)),
+  ).toEqual([beforeActiveState])
+  expect(
+    await database.select().from(runFinalizedDetailTable).where(eq(runFinalizedDetailTable.runId, child.data.run.id)),
+  ).toHaveLength(0)
   const [session] = await database.select().from(sessionTable).where(eq(sessionTable.id, parent.sessionId))
-  expect(session?.nextHistoryPosition).toBe(Number.MAX_SAFE_INTEGER)
+  expect(session?.nextHistoryPosition).toBe(Number.MAX_SAFE_INTEGER - 1)
 })
 
 test("rolls back canonical run, projection, and active state writes together", async () => {

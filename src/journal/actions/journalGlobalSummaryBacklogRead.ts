@@ -14,9 +14,7 @@ import { journalGlobalSummaryEventFrameCreate } from "./journalGlobalSummaryEven
 
 type JournalGlobalSummaryBacklogReadDependencies = {
   cursorCodec: {
-    encode: (journalId: unknown, sequence: unknown) => Result<string>
     encodeGlobalSequence?: (journalId: unknown, globalSequence: unknown) => Result<string>
-    validate: (cursor: unknown, journalId: unknown) => Result<{ sequence: number }>
     validateGlobalSequence?: (cursor: unknown, journalId: unknown) => Result<{ globalSequence: number }>
   }
   database: DatabaseClient
@@ -96,8 +94,9 @@ function journalGlobalSummaryCursorEncode(
   userId: unknown,
   globalSequence: unknown,
 ): Result<string> {
-  if (cursorCodec.encodeGlobalSequence !== undefined) return cursorCodec.encodeGlobalSequence(userId, globalSequence)
-  return cursorCodec.encode(userId, globalSequence)
+  if (typeof cursorCodec.encodeGlobalSequence !== "function")
+    return createResultError("journalGlobalSummaryBacklogRead", "The global summary cursor codec is required.")
+  return cursorCodec.encodeGlobalSequence(userId, globalSequence)
 }
 
 function journalGlobalSummaryCursorValidate(
@@ -105,10 +104,9 @@ function journalGlobalSummaryCursorValidate(
   cursor: unknown,
   userId: string,
 ): Result<{ globalSequence: number }> {
-  if (cursorCodec.validateGlobalSequence !== undefined) return cursorCodec.validateGlobalSequence(cursor, userId)
-  const validated = cursorCodec.validate(cursor, userId)
-  if (!validated.success) return validated
-  return createResult({ globalSequence: validated.data.sequence })
+  if (typeof cursorCodec.validateGlobalSequence !== "function")
+    return createResultError("journalGlobalSummaryBacklogRead", "The global summary cursor codec is required.")
+  return cursorCodec.validateGlobalSequence(cursor, userId)
 }
 
 async function journalGlobalSummaryBacklogPageRead(
@@ -179,6 +177,7 @@ async function* journalGlobalSummaryBacklogPagesCreate(
         row,
       )
       if (!frame.success) {
+        if (frame.code === "global_summary_payload_invalid") continue
         yield createResultError("journalGlobalSummaryBacklogRead", frame.errorMessage)
         return
       }
@@ -220,6 +219,9 @@ export async function journalGlobalSummaryBacklogRead(
           "authenticated_user_invalid",
         )
 
+      // A fresh browser has no prior global state to reconcile. Its resource
+      // snapshots are authoritative, so begin the live handoff at the current
+      // sequence instead of replaying every historical lifecycle summary.
       let afterGlobalSequence = 0
       if (selected.data.cursor !== undefined) {
         const validated = journalGlobalSummaryCursorValidate(dependencies.cursorCodec, selected.data.cursor, user.id)
@@ -248,6 +250,10 @@ export async function journalGlobalSummaryBacklogRead(
       const replayBoundary = journalGlobalSummaryBoundaryValidate(boundary?.prunedThroughSequence ?? 0)
       if (!replayBoundary.success) return replayBoundary
 
+      if (selected.data.cursor === undefined) afterGlobalSequence = highestSequence.data
+
+      // A cursor below the durable deletion boundary cannot replay every
+      // summary after it, even when an older compact event remains retained.
       if (
         selected.data.cursor !== undefined &&
         (afterGlobalSequence < replayBoundary.data || afterGlobalSequence > highestSequence.data)

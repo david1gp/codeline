@@ -14,7 +14,6 @@ import { runDelegationsResponseSchema } from "../src/run/api/runDelegationsRespo
 import { runDelegationTable } from "../src/run/db/runDelegationTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionChildReferenceSchema } from "../src/session/api/sessionChildReferenceSchema.js"
-import { sessionBoundedSemanticStepsCreate } from "../src/session/db/sessionBoundedSemanticStepsCreate.js"
 import { sessionDelegationReferencesLoad } from "../src/session/db/sessionDelegationReferencesLoad.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
@@ -232,50 +231,6 @@ const sessionDelegationReferencesTest = async () => {
     const reference = loaded.data.delegations.find(({ delegation }) => delegation.delegationKey === key)
     expect(reference).toMatchObject({ childReference: null, childSessionId: null })
   }
-
-  const projected = sessionBoundedSemanticStepsCreate({
-    attempts: [parent.data.attempt],
-    delegationReferences: loaded.data.byToolKey,
-    events: [
-      {
-        createdAt: new Date(),
-        eventType: "delta",
-        id: uuidv7(),
-        payload: {
-          delta: JSON.stringify({ toolCallId: "normal-child", toolName: "delegate_task" }),
-          deltaKind: "tool",
-          messageId: null,
-          runId: parent.data.run.id,
-          sessionId: fixture.parentSessionId,
-        },
-        runId: parent.data.run.id,
-        sequence: 1,
-        serializedBytes: 1,
-        userId: fixture.userId,
-      },
-    ],
-    messages: [],
-    runs: [parent.data.run],
-  })
-  expect(projected.success).toBe(true)
-  if (!projected.success) return
-  expect(projected.data.find((step) => step.kind === "tool")).toMatchObject({
-    childReference: {
-      childRunId: child.data.run.id,
-      childSessionId: fixture.childSessionId,
-      delegationId: `${prefix}-delegation-normal`,
-      parentSessionId: fixture.parentSessionId,
-    },
-  })
-
-  const runWithoutVisibleEvents = sessionBoundedSemanticStepsCreate({
-    attempts: [parent.data.attempt],
-    delegationReferences: loaded.data.byToolKey,
-    events: [],
-    messages: [],
-    runs: [parent.data.run],
-  })
-  expect(runWithoutVisibleEvents).toMatchObject({ data: [], success: true })
 
   const delegations = await runDelegationsLoad(
     database,

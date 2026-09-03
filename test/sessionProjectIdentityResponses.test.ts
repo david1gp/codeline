@@ -2,7 +2,6 @@ import { expect, test } from "bun:test"
 import { sessionCreateMutationResponseCreate } from "../src/session/api/sessionCreateMutationResponseCreate.js"
 import { sessionDetailResponseCreate } from "../src/session/api/sessionDetailResponseCreate.js"
 import { sessionListSnapshotResponseCreate } from "../src/session/api/sessionListSnapshotResponseCreate.js"
-import { sessionSettledSnapshotResponseCreate } from "../src/session/api/sessionSettledSnapshotResponseCreate.js"
 
 const userId = "session-project-identity-user"
 const projectPath = "/workspace/codeline"
@@ -21,19 +20,6 @@ const session = {
   title: "Project identity",
   updatedAt: "2026-08-28T12:00:00.000Z",
 }
-const message = {
-  agentId: session.primaryAgentId,
-  clientRequestId: "message-project-identity",
-  content: "Settled message",
-  createdAt: "2026-08-28T12:01:00.000Z",
-  finalizedAt: "2026-08-28T12:01:00.000Z",
-  id: "message-project-identity",
-  metadata: {},
-  role: "user",
-  sequence: 1,
-  sessionId: session.id,
-}
-
 test("authenticated session response builders include the owning project's persisted ID", () => {
   const list = sessionListSnapshotResponseCreate({
     asOfCursor: "cursor-project-identity",
@@ -56,21 +42,9 @@ test("authenticated session response builders include the owning project's persi
     session: { ...session, userId: "row-user" },
     userId,
   })
-  const settled = sessionSettledSnapshotResponseCreate({
-    asOfCursor: "cursor-project-identity",
-    etag: '"session-project-identity-1"',
-    messages: [message],
-    projectId,
-    revision: 1,
-    schemaVersion: "session-snapshot-v1",
-    session: { ...session, userId: "row-user" },
-    userId,
-  })
-
   expect(list).toMatchObject({ success: true, data: { sessions: [{ projectId }] } })
   expect(detail).toMatchObject({ success: true, data: { session: { projectId } } })
   expect(mutation).toMatchObject({ success: true, data: { session: { projectId } } })
-  expect(settled).toMatchObject({ success: true, data: { session: { projectId } } })
 })
 
 test("authenticated response builders preserve Home as the project-less historical snapshot", () => {
@@ -90,20 +64,9 @@ test("authenticated response builders preserve Home as the project-less historic
     userId,
   })
   const mutation = sessionCreateMutationResponseCreate({ created: true, session: homeSession, userId })
-  const settled = sessionSettledSnapshotResponseCreate({
-    asOfCursor: "cursor-home",
-    etag: '"session-project-identity-1"',
-    messages: [],
-    revision: 1,
-    schemaVersion: "session-snapshot-v1",
-    session: homeSession,
-    userId,
-  })
-
   expect(list.success && list.data.sessions[0]?.projectId).toBeUndefined()
   expect(detail.success && detail.data.session.projectId).toBeUndefined()
   expect(mutation.success && mutation.data.session.projectId).toBeUndefined()
-  expect(settled.success && settled.data.session.projectId).toBeUndefined()
 })
 
 test("authenticated response builders keep unregistered and noncanonical historical paths project-less", () => {
@@ -126,23 +89,11 @@ test("authenticated response builders keep unregistered and noncanonical histori
       userId,
     })
     const mutation = sessionCreateMutationResponseCreate({ created: true, session: historicalSession, userId })
-    const settled = sessionSettledSnapshotResponseCreate({
-      asOfCursor: `cursor-${historicalPath}`,
-      etag: '"session-project-identity-1"',
-      messages: [],
-      revision: 1,
-      schemaVersion: "session-snapshot-v1",
-      session: historicalSession,
-      userId,
-    })
-
     expect(list.success && list.data.sessions[0]).toMatchObject({ projectPath: historicalPath })
     expect(detail.success && detail.data.session).toMatchObject({ projectPath: historicalPath })
     expect(mutation.success && mutation.data.session).toMatchObject({ projectPath: historicalPath })
-    expect(settled.success && settled.data.session).toMatchObject({ projectPath: historicalPath })
     expect(list.success && list.data.sessions[0]?.projectId).toBeUndefined()
     expect(detail.success && detail.data.session.projectId).toBeUndefined()
     expect(mutation.success && mutation.data.session.projectId).toBeUndefined()
-    expect(settled.success && settled.data.session.projectId).toBeUndefined()
   }
 })

@@ -1,6 +1,6 @@
 import { createResult, type Result } from "@adaptive-ds/result"
 import { and, asc, eq } from "drizzle-orm"
-import type { DatabaseTransaction } from "../../database/databaseClient.js"
+import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { journalEventTable } from "../../journal/db/journalEventTable.js"
 import type { RunTranscript } from "../api/runTranscriptSchema.js"
 import { attemptTable } from "../db/attemptTable.js"
@@ -22,7 +22,7 @@ type RunFinalizedDetailActiveSnapshot = {
 }
 
 export async function runFinalizedDetailCreate(
-  transaction: DatabaseTransaction,
+  transaction: DatabaseExecutor,
   userId: string,
   sessionId: string,
   runId: string,

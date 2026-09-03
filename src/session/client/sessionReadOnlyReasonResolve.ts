@@ -18,8 +18,8 @@ type SessionReadOnlyReasonInput = {
  * offline mutation queue, and a signed-out reader may only browse.
  */
 export function sessionReadOnlyReasonResolve(input: SessionReadOnlyReasonInput): SessionReadOnlyReason | null {
-  if (!input.isSignedIn) return input.hasCachedSnapshot ? "signed-out" : null
   if (!input.isOnline) return "offline"
+  if (!input.isSignedIn) return input.hasCachedSnapshot ? "signed-out" : null
   if (input.hasLiveSession) return null
   if (input.hasCachedSnapshot && (input.cacheStatus === "error" || input.cacheStatus === "revalidating")) return "stale"
   return null

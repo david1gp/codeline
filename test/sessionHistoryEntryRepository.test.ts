@@ -171,3 +171,62 @@ test("caller transaction rollback removes the entry and counter allocation", asy
   const [session] = await database.select().from(sessionTable).where(eq(sessionTable.id, fixture.sessionId))
   expect(session?.nextHistoryPosition).toBe(6)
 })
+
+test("schema constraints reject invalid projection rows and ownership", async () => {
+  const base = {
+    changePosition: 20,
+    id: "session-history-entry-invalid-row",
+    kind: "message",
+    payload: { content: "invalid", role: "user" },
+    position: 20,
+    sessionId: fixture.sessionId,
+    sourceDetailId: "",
+    sourceId: "session-history-entry-invalid-source",
+    sourceType: "message",
+    userId: fixture.userId,
+  }
+  const invalidInsert = async (overrides: Record<string, unknown>) =>
+    await database.insert(sessionHistoryEntryTable).values({ ...base, ...overrides } as never)
+
+  await expect(invalidInsert({ id: "invalid-kind", kind: "invalid" })).rejects.toThrow()
+  await expect(invalidInsert({ id: "invalid-source-type", sourceType: "invalid" })).rejects.toThrow()
+  await expect(invalidInsert({ id: "invalid-source-id", sourceId: "x".repeat(257) })).rejects.toThrow()
+  await expect(invalidInsert({ id: "invalid-detail-id", sourceDetailId: "x".repeat(257) })).rejects.toThrow()
+  await expect(invalidInsert({ id: "invalid-position", position: 0 })).rejects.toThrow()
+  await expect(invalidInsert({ id: "invalid-position-safe", position: Number.MAX_SAFE_INTEGER + 1 })).rejects.toThrow()
+  await expect(invalidInsert({ changePosition: 19, id: "invalid-change-order" })).rejects.toThrow()
+  await expect(
+    invalidInsert({ changePosition: Number.MAX_SAFE_INTEGER + 1, id: "invalid-change-safe" }),
+  ).rejects.toThrow()
+  await expect(invalidInsert({ id: "missing-user", userId: "session-history-entry-missing-user" })).rejects.toThrow()
+  await expect(
+    invalidInsert({ id: "missing-session", sessionId: "session-history-entry-missing-session" }),
+  ).rejects.toThrow()
+})
+
+test("allocates distinct consecutive positions across concurrent transactions", async () => {
+  const [before] = await database
+    .select({ nextHistoryPosition: sessionTable.nextHistoryPosition })
+    .from(sessionTable)
+    .where(eq(sessionTable.id, fixture.sessionId))
+  const allocationCount = 8
+  const allocated = await Promise.all(
+    Array.from({ length: allocationCount }, () =>
+      databaseTransactionRun(database, (transaction) =>
+        sessionHistoryEntryPositionAllocate(transaction, fixture.userId, fixture.sessionId),
+      ),
+    ),
+  )
+
+  expect(allocated.every((result) => result.success)).toBe(true)
+  const positions = allocated.flatMap((result) => (result.success ? [result.data] : []))
+  expect(new Set(positions).size).toBe(allocationCount)
+  expect(positions.sort((left, right) => left - right)).toEqual(
+    Array.from({ length: allocationCount }, (_, index) => (before?.nextHistoryPosition ?? 1) + index),
+  )
+  const [after] = await database
+    .select({ nextHistoryPosition: sessionTable.nextHistoryPosition })
+    .from(sessionTable)
+    .where(eq(sessionTable.id, fixture.sessionId))
+  expect(after?.nextHistoryPosition).toBe((before?.nextHistoryPosition ?? 1) + allocationCount)
+})

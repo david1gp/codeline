@@ -17,11 +17,15 @@ import { runRetryAttemptCreate } from "../src/run/actions/runRetryAttemptCreate.
 import { runTransition } from "../src/run/actions/runTransition.js"
 import { attemptTable } from "../src/run/db/attemptTable.js"
 import { runDelegationTable } from "../src/run/db/runDelegationTable.js"
+import { runActiveStateTable } from "../src/run/db/runActiveStateTable.js"
+import { runFinalizedDetailRepositoryUpsert } from "../src/run/db/runFinalizedDetailRepositoryUpsert.js"
+import { runFinalizedDetailTable } from "../src/run/db/runFinalizedDetailTable.js"
 import { runRepositoryChildCreate } from "../src/run/db/runRepositoryChildCreate.js"
 import { runTable } from "../src/run/db/runTable.js"
 import { runErrorCodes } from "../src/run/errors/runErrorCodes.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
 import { sessionTable } from "../src/session/db/sessionTable.js"
+import { sessionHistoryEntryTable } from "../src/session/db/sessionHistoryEntryTable.js"
 import type { SessionExecutionSelection } from "../src/session/schema/sessionExecutionSelectionSchema.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
 import { databaseTestConnectionCreate } from "./databaseTestConnectionCreate.js"
@@ -690,6 +694,24 @@ test.skipIf(!databaseAvailable)(
       run: { failure: null, status: "accepted", startedAt: null, finishedAt: null },
     })
     expect(admitted.data.run.deadlineAt).toEqual(created.data.run.deadlineAt)
+    expect(
+      await database
+        .select({ payload: sessionHistoryEntryTable.payload })
+        .from(sessionHistoryEntryTable)
+        .where(
+          and(
+            eq(sessionHistoryEntryTable.sessionId, fixture.sessionId),
+            eq(sessionHistoryEntryTable.sourceType, "run"),
+            eq(sessionHistoryEntryTable.sourceId, runId),
+          ),
+        ),
+    ).toMatchObject([{ payload: { status: "accepted" } }])
+    expect(
+      await database
+        .select({ status: runActiveStateTable.status })
+        .from(runActiveStateTable)
+        .where(eq(runActiveStateTable.runId, runId)),
+    ).toEqual([{ status: "accepted" }])
 
     const loadedRetry = await runLoad(database, userId, fixture.sessionId, created.data.run.clientRunId)
     expect(loadedRetry).toMatchObject({
@@ -777,6 +799,77 @@ test.skipIf(!databaseAvailable)("retry attempt insertion rolls back without a ph
   expect(await database.select().from(attemptTable).where(eq(attemptTable.runId, runId))).toHaveLength(1)
   const [runAfterFailure] = await database.select().from(runTable).where(eq(runTable.id, runId))
   expect(runAfterFailure).toMatchObject({ failure: { code: "provider_timeout" }, status: "failed" })
+})
+
+test.skipIf(!databaseAvailable)("retry projection and active-state writes roll back together", async () => {
+  if (userId === undefined) return
+  const created = await runCreate(database, userId, fixture.sessionId, {
+    ...input,
+    budget: { maxAttempts: 3, maxDurationMs: 10_000 },
+    clientRunId: `client-run-retry-projection-failure-${uuidv7()}`,
+    streamId: `run-retry-projection-failure-${uuidv7()}`,
+  })
+  if (!created.success) return
+  const runId = created.data.run.id
+  expect(await runTransition(database, userId, fixture.sessionId, runId, { status: "running" })).toMatchObject({
+    success: true,
+  })
+  expect(
+    await runTransition(database, userId, fixture.sessionId, runId, {
+      failure: { code: "provider_timeout", message: "The provider timed out." },
+      status: "failed",
+    }),
+  ).toMatchObject({ success: true })
+
+  const [beforeHistory] = await database
+    .select()
+    .from(sessionHistoryEntryTable)
+    .where(
+      and(
+        eq(sessionHistoryEntryTable.sessionId, fixture.sessionId),
+        eq(sessionHistoryEntryTable.sourceType, "run"),
+        eq(sessionHistoryEntryTable.sourceId, runId),
+      ),
+    )
+  const [beforeActiveState] = await database
+    .select()
+    .from(runActiveStateTable)
+    .where(eq(runActiveStateTable.runId, runId))
+  const [beforeSession] = await database
+    .select({ nextHistoryPosition: sessionTable.nextHistoryPosition })
+    .from(sessionTable)
+    .where(eq(sessionTable.id, fixture.sessionId))
+  if (beforeHistory === undefined || beforeActiveState === undefined || beforeSession === undefined) return
+  await database
+    .update(sessionTable)
+    .set({ nextHistoryPosition: Number.MAX_SAFE_INTEGER - 1 })
+    .where(eq(sessionTable.id, fixture.sessionId))
+
+  const retry = await runRetryAttemptCreate(database, userId, fixture.sessionId, runId, {
+    now: () => new Date(created.data.run.deadlineAt.getTime() - 1),
+  })
+  expect(retry).toMatchObject({
+    errorMessage: "The session could not be found or has exhausted history positions.",
+    success: false,
+  })
+  expect(await database.select().from(attemptTable).where(eq(attemptTable.runId, runId))).toHaveLength(1)
+  const [runAfterFailure] = await database.select().from(runTable).where(eq(runTable.id, runId))
+  expect(runAfterFailure).toMatchObject({ failure: { code: "provider_timeout" }, status: "failed" })
+  const [historyAfterFailure] = await database
+    .select()
+    .from(sessionHistoryEntryTable)
+    .where(eq(sessionHistoryEntryTable.id, beforeHistory?.id ?? ""))
+  expect(historyAfterFailure).toEqual(beforeHistory)
+  expect(await database.select().from(runActiveStateTable).where(eq(runActiveStateTable.runId, runId))).toEqual([
+    beforeActiveState,
+  ])
+  const [session] = await database.select().from(sessionTable).where(eq(sessionTable.id, fixture.sessionId))
+  expect(session?.nextHistoryPosition).toBe(Number.MAX_SAFE_INTEGER - 1)
+  if (beforeSession !== undefined)
+    await database
+      .update(sessionTable)
+      .set({ nextHistoryPosition: beforeSession.nextHistoryPosition })
+      .where(eq(sessionTable.id, fixture.sessionId))
 })
 
 test.skipIf(!databaseAvailable)("retry attempt creation rejects observed tool execution", async () => {
@@ -1989,6 +2082,25 @@ test.skipIf(!databaseAvailable)(
       success: true,
     })
 
+    const [beforeChildHistory] = await database
+      .select()
+      .from(sessionHistoryEntryTable)
+      .where(
+        and(
+          eq(sessionHistoryEntryTable.sessionId, fixture.sessionId),
+          eq(sessionHistoryEntryTable.sourceType, "run"),
+          eq(sessionHistoryEntryTable.sourceId, child.data.run.id),
+        ),
+      )
+    const [beforeChildActiveState] = await database
+      .select()
+      .from(runActiveStateTable)
+      .where(eq(runActiveStateTable.runId, child.data.run.id))
+    const [beforeSession] = await database
+      .select({ nextHistoryPosition: sessionTable.nextHistoryPosition })
+      .from(sessionTable)
+      .where(eq(sessionTable.id, fixture.sessionId))
+    if (beforeChildHistory === undefined || beforeChildActiveState === undefined || beforeSession === undefined) return
     const result = { status: "succeeded" as const, text: "The child completed successfully." }
     expect(
       await runDelegationFinalize(database, userId, fixture.sessionId, child.data.delegation.id, result, {
@@ -2011,6 +2123,59 @@ test.skipIf(!databaseAvailable)(
     expect(rolledBackAttempt).toMatchObject({ failure: null, finishedAt: null, status: "running" })
     expect(rolledBackDelegation?.finalizedResult).toBeNull()
 
+    const detailFailure = await runDelegationFinalize(
+      database,
+      userId,
+      fixture.sessionId,
+      child.data.delegation.id,
+      result,
+      {
+        runFinalizedDetailUpsert: async (transaction, detailUserId, detailSessionId, detailRunId, input) => {
+          const persisted = await runFinalizedDetailRepositoryUpsert(
+            transaction,
+            detailUserId,
+            detailSessionId,
+            detailRunId,
+            input,
+          )
+          if (!persisted.success) return persisted
+          return createResultError("failureInjection", "The child finalized detail update failed.")
+        },
+      },
+    )
+    expect(detailFailure).toMatchObject({
+      errorMessage: "The child finalized detail update failed.",
+      success: false,
+    })
+    const [detailRolledBackRun] = await database.select().from(runTable).where(eq(runTable.id, child.data.run.id))
+    const [detailRolledBackAttempt] = await database
+      .select()
+      .from(attemptTable)
+      .where(eq(attemptTable.id, child.data.attempt.id))
+    const [detailRolledBackDelegation] = await database
+      .select()
+      .from(runDelegationTable)
+      .where(eq(runDelegationTable.id, child.data.delegation.id))
+    expect(detailRolledBackRun).toMatchObject({ failure: null, finishedAt: null, status: "running" })
+    expect(detailRolledBackAttempt).toMatchObject({ failure: null, finishedAt: null, status: "running" })
+    expect(detailRolledBackDelegation?.finalizedResult).toBeNull()
+    expect(
+      await database.select().from(runFinalizedDetailTable).where(eq(runFinalizedDetailTable.runId, child.data.run.id)),
+    ).toHaveLength(0)
+    const [afterChildHistory] = await database
+      .select()
+      .from(sessionHistoryEntryTable)
+      .where(eq(sessionHistoryEntryTable.id, beforeChildHistory?.id ?? ""))
+    expect(afterChildHistory).toEqual(beforeChildHistory)
+    expect(
+      await database.select().from(runActiveStateTable).where(eq(runActiveStateTable.runId, child.data.run.id)),
+    ).toEqual([beforeChildActiveState])
+    const [afterSession] = await database
+      .select({ nextHistoryPosition: sessionTable.nextHistoryPosition })
+      .from(sessionTable)
+      .where(eq(sessionTable.id, fixture.sessionId))
+    expect(afterSession).toEqual(beforeSession)
+
     const finalized = await runDelegationFinalize(database, userId, fixture.sessionId, child.data.delegation.id, result)
     expect(finalized).toMatchObject({
       success: true,
@@ -2021,6 +2186,12 @@ test.skipIf(!databaseAvailable)(
         attempt: { failure: null, status: "succeeded" },
       },
     })
+    expect(
+      await database.select().from(runFinalizedDetailTable).where(eq(runFinalizedDetailTable.runId, child.data.run.id)),
+    ).toHaveLength(1)
+    expect(
+      await database.select().from(runActiveStateTable).where(eq(runActiveStateTable.runId, child.data.run.id)),
+    ).toHaveLength(0)
 
     expect(
       await runDelegationFinalize(database, userId, fixture.sessionId, child.data.delegation.id, result),

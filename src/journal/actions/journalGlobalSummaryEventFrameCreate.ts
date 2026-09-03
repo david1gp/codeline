@@ -1,4 +1,4 @@
-import { createResult, createResultError, type Result } from "@adaptive-ds/result"
+import { createResult, createResultError, createResultErrorCode, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
 import type { GlobalSummarySseFrame } from "../../stream/api/globalSummarySseFrameSchema.js"
 import { globalSummarySseFrameSchema } from "../../stream/api/globalSummarySseFrameSchema.js"
@@ -61,6 +61,11 @@ export function journalGlobalSummaryEventFrameCreate(
     id: encoded.data,
   }
   const parsed = v.safeParse(globalSummarySseFrameSchema, frame)
-  if (!parsed.success) return createResultError(op, "The journal event does not form a valid global summary SSE frame.")
+  if (!parsed.success)
+    return createResultErrorCode(
+      op,
+      "The journal event does not form a valid global summary SSE frame.",
+      "global_summary_payload_invalid",
+    )
   return createResult(parsed.output)
 }

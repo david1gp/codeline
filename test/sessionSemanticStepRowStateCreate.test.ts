@@ -53,3 +53,44 @@ test("semantic tool detail waits for expansion and can be retried", async () => 
     kind: "finalized",
   })
 })
+
+test("child conversation action stops bubbling and preserves its identity", () => {
+  let stopped = false
+  let received: unknown
+  const state = createRoot(() =>
+    sessionSemanticStepRowStateCreate({
+      onChildConversation: (link) => {
+        received = link
+      },
+      sessionId: () => "parent-session-1",
+      step: () => ({
+        childReference: {
+          childRunId: "child-run-1",
+          childSessionId: null,
+          delegationId: "delegation-1",
+          parentSessionId: "parent-session-1",
+        },
+        detailId: "tool-1",
+        id: "tool-1",
+        kind: "tool" as const,
+        runId: "run-1",
+        sequence: 2,
+        summary: "delegate_task · success",
+      }),
+    }),
+  )
+
+  state.childConversationOpen({
+    stopPropagation: () => {
+      stopped = true
+    },
+  } as Event)
+
+  expect(stopped).toBe(true)
+  expect(received).toEqual({
+    childRunId: "child-run-1",
+    delegationId: "delegation-1",
+    parentSessionId: "parent-session-1",
+    task: "delegate_task · success",
+  })
+})

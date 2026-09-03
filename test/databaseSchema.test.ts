@@ -172,6 +172,7 @@ test("SQLite bounded history records enforce session ownership and idempotent or
     "session_history_entry_session_source_unique",
     "session_history_entry_session_position_unique",
     "session_history_entry_session_change_position_idx",
+    "session_history_entry_session_kind_message_role_position_idx",
   ])
   expect(historyConfig.foreignKeys.map((foreignKey) => foreignKey.getName())).toEqual([
     "session_history_entry_user_id_identity_user_id_fk",

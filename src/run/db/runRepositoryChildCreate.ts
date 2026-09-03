@@ -18,7 +18,10 @@ import type { RunExecutionSnapshot } from "../schema/runExecutionSnapshotSchema.
 import { runExecutionSnapshotSchema } from "../schema/runExecutionSnapshotSchema.js"
 import { attemptTable } from "./attemptTable.js"
 import { runDelegationTable } from "./runDelegationTable.js"
+import { runActiveStateRepositoryUpsert } from "./runActiveStateRepositoryUpsert.js"
+import { runHistoryEntryPayloadCreate } from "./runHistoryEntryPayloadCreate.js"
 import { runTable } from "./runTable.js"
+import { sessionHistoryEntryRepositoryUpsert } from "../../session/db/sessionHistoryEntryRepositoryUpsert.js"
 
 type RunChildCreateResult = {
   admission: RunChildAdmission | null
@@ -685,6 +688,20 @@ export async function runRepositoryChildCreate(
           "The initial child attempt could not be created.",
           runErrorCodes.childPersistFailed,
         )
+
+      const childHistoryEntry = await sessionHistoryEntryRepositoryUpsert(transaction, userId, sessionId, {
+        id: childRun.id,
+        kind: "run",
+        payload: runHistoryEntryPayloadCreate({ id: childRun.id, status: "accepted" }),
+        sourceId: childRun.id,
+        sourceType: "run",
+      })
+      if (!childHistoryEntry.success) return childHistoryEntry
+
+      const childActiveState = await runActiveStateRepositoryUpsert(transaction, userId, sessionId, childRun.id, {
+        status: "accepted",
+      })
+      if (!childActiveState.success) return childActiveState
 
       const [delegation] = await transaction
         .insert(runDelegationTable)

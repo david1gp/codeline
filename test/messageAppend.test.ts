@@ -375,6 +375,11 @@ test("branch prefix copy rolls back copied messages when projection allocation f
     .where(eq(sessionHistoryEntryTable.sessionId, target.data.session.id))
   expect(messages).toHaveLength(0)
   expect(historyEntries).toHaveLength(0)
+  const [targetSession] = await database
+    .select({ nextHistoryPosition: sessionTable.nextHistoryPosition })
+    .from(sessionTable)
+    .where(eq(sessionTable.id, target.data.session.id))
+  expect(targetSession?.nextHistoryPosition).toBe(Number.MAX_SAFE_INTEGER)
 })
 
 test("message preparation deduplicates and returns ordered durable history", async () => {

@@ -16,9 +16,9 @@ import { applicationUserTable } from "../src/identity/db/applicationUserTable.js
 import { identitySessionTable } from "../src/identity/db/identitySessionTable.js"
 import { organizationMemberTable } from "../src/identity/db/organizationMemberTable.js"
 import { organizationTable } from "../src/identity/db/organizationTable.js"
-import { journalBacklogRead } from "../src/journal/actions/journalBacklogRead.js"
 import { journalCursorCodecCreate } from "../src/journal/actions/journalCursorCodecCreate.js"
-import { journalPostCommitPublishCreate } from "../src/journal/actions/journalPostCommitPublishCreate.js"
+import { journalGlobalSummaryBacklogRead } from "../src/journal/actions/journalGlobalSummaryBacklogRead.js"
+import { journalGlobalSummaryPostCommitPublishCreate } from "../src/journal/actions/journalGlobalSummaryPostCommitPublishCreate.js"
 import { journalWriteCreate } from "../src/journal/actions/journalWriteCreate.js"
 import { journalEventTable } from "../src/journal/db/journalEventTable.js"
 import { journalSequenceCounterTable } from "../src/journal/db/journalSequenceCounterTable.js"
@@ -52,7 +52,7 @@ const cursorCodecResult = journalCursorCodecCreate({
 if (!cursorCodecResult.success) throw new Error(cursorCodecResult.errorMessage)
 const cursorCodec = cursorCodecResult.data
 const liveSubscription = streamLiveSubscriptionCreate()
-const postCommitPublish = journalPostCommitPublishCreate({
+const postCommitPublish = journalGlobalSummaryPostCommitPublishCreate({
   cursorCodec,
   liveSubscription,
 })
@@ -73,10 +73,10 @@ apiSessionRoutesAdd(api, {
   journalPostCommitPublish: postCommitPublish,
 })
 apiEventsRoutesAdd(api, {
-  backlogRead: journalBacklogRead,
+  backlogRead: journalGlobalSummaryBacklogRead,
   connectionWriterCreate: streamSseConnectionWriterCreate,
   cursorCodec,
-  liveSubscription,
+  globalSummaryLiveSubscription: liveSubscription,
   metricsCollector: metricsCollectorCreate(),
   now: Date.now,
   scheduler: streamSseSchedulerCreate(),
@@ -152,10 +152,11 @@ test.skipIf(!databaseAvailable)(
     if (!snapshotParsed.success) return
 
     const asOfCursor = snapshotParsed.output.asOfCursor
-    const asOf = cursorCodec.validate(asOfCursor, fixture.userId)
-    expect(asOf).toMatchObject({ success: true, data: { sequence: 0 } })
+    if (cursorCodec.decodeGlobalSequence === undefined) return
+    const asOf = cursorCodec.decodeGlobalSequence(asOfCursor)
+    expect(asOf).toMatchObject({ success: true, data: { globalSequence: 0, journalId: fixture.userId, version: 1 } })
     if (!asOf.success) return
-    const asOfSequence = asOf.data.sequence
+    const asOfSequence = asOf.data.globalSequence
 
     const journalWrite = journalWriteCreate({
       database,
@@ -203,19 +204,19 @@ test.skipIf(!databaseAvailable)(
       resourceId?: string
       resourceType?: string
       revision?: number
-      sequence?: number
+      globalSequence?: number
     }
     expect(frame).toMatchObject({
       eventType: "invalidate",
       resourceId: fixture.sessionId,
       resourceType: "session",
       revision: 2,
-      sequence: asOfSequence + 1,
+      globalSequence: asOfSequence + 1,
     })
     expect(frame.id).toEqual(expect.any(String))
     expect((text.match(/^id: /gm) ?? []).length).toBe(1)
     await reader.cancel()
-    expect(liveSubscription.subscriberCount(fixture.userId)).toBe(0)
+    expect(liveSubscription.globalSummarySubscriberCount(fixture.userId)).toBe(0)
 
     const journalEvents = await database
       .select({ sequence: journalEventTable.sequence })

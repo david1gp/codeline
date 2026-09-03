@@ -11,9 +11,9 @@ import {
 } from "../src/session/storage/sessionCacheDatabaseConfig.js"
 import { sessionCacheDatabaseOpen } from "../src/session/storage/sessionCacheDatabaseOpen.js"
 import type { SessionCacheDatabaseSchema } from "../src/session/storage/sessionCacheDatabaseSchema.js"
-import { sessionCacheObsoleteDatabaseName } from "../src/session/storage/sessionCacheObsoleteDatabaseName.js"
 import { sessionCacheHistoryPageRead } from "../src/session/storage/sessionCacheHistoryPageRead.js"
 import { sessionCacheHistoryPageWrite } from "../src/session/storage/sessionCacheHistoryPageWrite.js"
+import { sessionCacheObsoleteDatabaseName } from "../src/session/storage/sessionCacheObsoleteDatabaseName.js"
 import { sessionCacheRunDetailRead } from "../src/session/storage/sessionCacheRunDetailRead.js"
 import { sessionCacheRunDetailWrite } from "../src/session/storage/sessionCacheRunDetailWrite.js"
 import { sessionCacheSnapshotRead } from "../src/session/storage/sessionCacheSnapshotRead.js"
@@ -33,6 +33,127 @@ async function databaseCreate(): Promise<IDBPDatabase<SessionCacheDatabaseSchema
   const opened = await sessionCacheDatabaseOpen({ name, version: 1 })
   if (!opened.success) throw new Error(opened.errorMessage)
   return opened.data
+}
+
+type SessionCacheSchemaMutation =
+  | { kind: "extra-index"; storeName: string }
+  | { kind: "extra-store" }
+  | { kind: "missing-store"; storeName: string }
+  | { kind: "missing-store-key-path"; storeName: string }
+  | { kind: "wrong-store-key-path"; storeName: string }
+  | { kind: "missing-index"; indexName: string; storeName: string }
+  | { kind: "wrong-index-key-path"; indexName: string; storeName: string }
+  | { kind: "wrong-index-unique"; indexName: string; storeName: string }
+
+type SessionCacheSchemaContract = {
+  indexes: Array<{ keyPath: string | string[]; name: string; unique: boolean }>
+  keyPath: string | string[]
+  name: string
+}
+
+const sessionCacheSchemaContracts: SessionCacheSchemaContract[] = [
+  {
+    indexes: [
+      { keyPath: ["userId", "sessionId"], name: "by-session", unique: false },
+      { keyPath: ["userId", "sessionId", "position"], name: "by-session-position", unique: true },
+      { keyPath: ["userId", "storedAt"], name: "by-user-stored-at", unique: false },
+    ],
+    keyPath: ["userId", "sessionId", "entryId"],
+    name: "historyEntries",
+  },
+  {
+    indexes: [
+      { keyPath: ["userId", "sessionId"], name: "by-session", unique: false },
+      { keyPath: ["userId", "storedAt"], name: "by-user-stored-at", unique: false },
+    ],
+    keyPath: ["userId", "sessionId", "requestCursor"],
+    name: "historyPages",
+  },
+  {
+    indexes: [
+      { keyPath: ["userId", "sessionId"], name: "by-session", unique: false },
+      { keyPath: ["userId", "storedAt"], name: "by-user-stored-at", unique: false },
+    ],
+    keyPath: ["userId", "sessionId", "runId"],
+    name: "runDetails",
+  },
+  {
+    indexes: [
+      { keyPath: "storedAt", name: "by-stored-at", unique: false },
+      { keyPath: "userId", name: "by-user", unique: false },
+      { keyPath: ["userId", "storedAt"], name: "by-user-stored-at", unique: false },
+    ],
+    keyPath: ["userId", "sessionId"],
+    name: "sessionSnapshots",
+  },
+  {
+    indexes: [
+      { keyPath: ["userId", "sessionId", "runId"], name: "by-run", unique: false },
+      { keyPath: ["userId", "sessionId"], name: "by-session", unique: false },
+      { keyPath: ["userId", "storedAt"], name: "by-user-stored-at", unique: false },
+    ],
+    keyPath: ["userId", "sessionId", "runId", "detailId"],
+    name: "toolDetails",
+  },
+]
+
+async function malformedDatabaseCreate(mutation: SessionCacheSchemaMutation): Promise<string> {
+  const name = `session-cache-malformed-${crypto.randomUUID()}`
+  databaseNames.push(name)
+  const database = await openDB(name, 1, {
+    upgrade(database) {
+      for (const storeContract of sessionCacheSchemaContracts) {
+        if (mutation.kind === "missing-store" && mutation.storeName === storeContract.name) continue
+
+        const missingKeyPath = mutation.kind === "missing-store-key-path" && mutation.storeName === storeContract.name
+        const keyPath =
+          mutation.kind === "wrong-store-key-path" && mutation.storeName === storeContract.name
+            ? ["unexpectedStoreKeyPath"]
+            : storeContract.keyPath
+        const store = missingKeyPath
+          ? database.createObjectStore(storeContract.name)
+          : database.createObjectStore(storeContract.name, { keyPath })
+
+        for (const indexContract of storeContract.indexes) {
+          if (
+            mutation.kind === "missing-index" &&
+            mutation.storeName === storeContract.name &&
+            mutation.indexName === indexContract.name
+          )
+            continue
+
+          const keyPath =
+            mutation.kind === "wrong-index-key-path" &&
+            mutation.storeName === storeContract.name &&
+            mutation.indexName === indexContract.name
+              ? ["unexpectedIndexKeyPath"]
+              : indexContract.keyPath
+          const unique =
+            mutation.kind === "wrong-index-unique" &&
+            mutation.storeName === storeContract.name &&
+            mutation.indexName === indexContract.name
+              ? !indexContract.unique
+              : indexContract.unique
+          store.createIndex(indexContract.name, keyPath, { unique })
+        }
+
+        if (mutation.kind === "extra-index" && mutation.storeName === storeContract.name)
+          store.createIndex("unexpected-index", "unexpectedIndexKeyPath")
+      }
+
+      if (mutation.kind === "extra-store") database.createObjectStore("unexpected-store")
+    },
+  })
+  database.close()
+  return name
+}
+
+async function malformedSchemaAssertRejected(mutation: SessionCacheSchemaMutation): Promise<void> {
+  const name = await malformedDatabaseCreate(mutation)
+  const opened = await sessionCacheDatabaseOpen({ name, version: 1 })
+  expect(opened.success).toBe(false)
+  if (!opened.success) expect(opened.errorMessage).toBe("The session cache database schema is invalid.")
+  if (opened.success) opened.data.close()
 }
 
 function stepCreate(sequence: number) {
@@ -97,7 +218,11 @@ function runDetailCreate(sessionId: string, runId: string): RunDetailResponse {
   }
 }
 
-function toolDetailCreate(sessionId: string, runId: string, detailId: string): RunToolDetailResponse {
+function toolDetailCreate(
+  sessionId: string,
+  runId: string,
+  detailId: string,
+): Extract<RunToolDetailResponse, { kind: "finalized" }> {
   return {
     detail: {
       runId,
@@ -138,6 +263,54 @@ test("creates the new schema generation with account and session compound keys a
   await transaction.done
   database.close()
 })
+
+test("rejects a schema with an extra object store", async () => {
+  await malformedSchemaAssertRejected({ kind: "extra-store" })
+})
+
+for (const storeContract of sessionCacheSchemaContracts) {
+  test(`rejects a schema with an extra ${storeContract.name} index`, async () => {
+    await malformedSchemaAssertRejected({ kind: "extra-index", storeName: storeContract.name })
+  })
+
+  test(`rejects a schema missing the ${storeContract.name} store`, async () => {
+    await malformedSchemaAssertRejected({ kind: "missing-store", storeName: storeContract.name })
+  })
+
+  test(`rejects a schema missing the ${storeContract.name} store key path`, async () => {
+    await malformedSchemaAssertRejected({ kind: "missing-store-key-path", storeName: storeContract.name })
+  })
+
+  test(`rejects a schema with the wrong ${storeContract.name} store key path`, async () => {
+    await malformedSchemaAssertRejected({ kind: "wrong-store-key-path", storeName: storeContract.name })
+  })
+
+  for (const indexContract of storeContract.indexes) {
+    test(`rejects a schema missing the ${storeContract.name}.${indexContract.name} index`, async () => {
+      await malformedSchemaAssertRejected({
+        indexName: indexContract.name,
+        kind: "missing-index",
+        storeName: storeContract.name,
+      })
+    })
+
+    test(`rejects a schema with the wrong ${storeContract.name}.${indexContract.name} index key path`, async () => {
+      await malformedSchemaAssertRejected({
+        indexName: indexContract.name,
+        kind: "wrong-index-key-path",
+        storeName: storeContract.name,
+      })
+    })
+
+    test(`rejects a schema with the wrong ${storeContract.name}.${indexContract.name} unique flag`, async () => {
+      await malformedSchemaAssertRejected({
+        indexName: indexContract.name,
+        kind: "wrong-index-unique",
+        storeName: storeContract.name,
+      })
+    })
+  }
+}
 
 test("deletes the obsolete full-message database without migrating its records", async () => {
   databaseNames.push(sessionCacheObsoleteDatabaseName)
@@ -210,6 +383,52 @@ test("atomically replaces normalized snapshots and invalidates pages from the pr
   database.close()
 })
 
+test("rolls back snapshot deletion and replacement writes when an entry write fails", async () => {
+  const database = await databaseCreate()
+  const initial = snapshotCreate("session-a", [3, 4, 5], { olderCursor: "cursor-a", title: "Initial" })
+  const page = pageCreate([1, 2], null, 5)
+  await sessionCacheSnapshotReplace(database, { snapshot: initial, storedAt: 1, userId: "user-a" })
+  await sessionCacheHistoryPageWrite(database, {
+    page,
+    requestCursor: "cursor-a",
+    sessionId: "session-a",
+    storedAt: 2,
+    userId: "user-a",
+  })
+
+  const originalPut = IDBObjectStore.prototype.put
+  IDBObjectStore.prototype.put = function (...args) {
+    if (this.name === "historyEntries")
+      throw new DOMException("The replacement entry could not be written.", "DataError")
+    return originalPut.apply(this, args)
+  }
+  let replaced: Awaited<ReturnType<typeof sessionCacheSnapshotReplace>> | undefined
+  try {
+    replaced = await sessionCacheSnapshotReplace(database, {
+      snapshot: snapshotCreate("session-a", [6], { title: "Replacement" }),
+      storedAt: 3,
+      userId: "user-a",
+    })
+  } finally {
+    IDBObjectStore.prototype.put = originalPut
+  }
+
+  expect(replaced?.success).toBe(false)
+  expect(await sessionCacheSnapshotRead(database, { sessionId: "session-a", userId: "user-a" })).toEqual({
+    success: true,
+    data: initial,
+  })
+  expect(
+    await sessionCacheHistoryPageRead(database, {
+      requestCursor: "cursor-a",
+      sessionId: "session-a",
+      userId: "user-a",
+    }),
+  ).toEqual({ success: true, data: page })
+  expect(await database.count("historyEntries")).toBe(5)
+  database.close()
+})
+
 test("rejects a page that would overwrite an authoritative snapshot entry", async () => {
   const database = await databaseCreate()
   const snapshot = snapshotCreate("session-a", [5], { olderCursor: "cursor-a" })
@@ -244,6 +463,107 @@ test("validates serialization on reads and removes corrupt records", async () =>
     success: true,
     data: undefined,
   })
+  database.close()
+})
+
+test("removes corrupt page, history-entry, run-detail, and tool-detail records on read", async () => {
+  const database = await databaseCreate()
+
+  await sessionCacheSnapshotReplace(database, {
+    snapshot: snapshotCreate("corrupt-entry", [1]),
+    storedAt: 1,
+    userId: "user-a",
+  })
+  const rawEntry = await database.get("historyEntries", ["user-a", "corrupt-entry", "entry-1"])
+  if (rawEntry === undefined) throw new Error("missing corrupt entry fixture")
+  await database.put("historyEntries", { ...rawEntry, byteSize: rawEntry.byteSize + 1 })
+  expect(await sessionCacheSnapshotRead(database, { sessionId: "corrupt-entry", userId: "user-a" })).toMatchObject({
+    success: false,
+  })
+  expect(await sessionCacheSnapshotRead(database, { sessionId: "corrupt-entry", userId: "user-a" })).toEqual({
+    success: true,
+    data: undefined,
+  })
+
+  const page = pageCreate([1, 2], null, 3)
+  await sessionCacheSnapshotReplace(database, {
+    snapshot: snapshotCreate("corrupt-page", [3], { olderCursor: "cursor-a" }),
+    storedAt: 2,
+    userId: "user-a",
+  })
+  await sessionCacheHistoryPageWrite(database, {
+    page,
+    requestCursor: "cursor-a",
+    sessionId: "corrupt-page",
+    storedAt: 3,
+    userId: "user-a",
+  })
+  const rawPage = await database.get("historyPages", ["user-a", "corrupt-page", "cursor-a"])
+  if (rawPage === undefined) throw new Error("missing corrupt page fixture")
+  await database.put("historyPages", { ...rawPage, byteSize: rawPage.byteSize + 1 })
+  expect(
+    await sessionCacheHistoryPageRead(database, {
+      requestCursor: "cursor-a",
+      sessionId: "corrupt-page",
+      userId: "user-a",
+    }),
+  ).toMatchObject({ success: false })
+  expect(
+    await sessionCacheHistoryPageRead(database, {
+      requestCursor: "cursor-a",
+      sessionId: "corrupt-page",
+      userId: "user-a",
+    }),
+  ).toEqual({ success: true, data: undefined })
+
+  await sessionCacheSnapshotReplace(database, {
+    snapshot: snapshotCreate("corrupt-details", [1]),
+    storedAt: 4,
+    userId: "user-a",
+  })
+  await sessionCacheRunDetailWrite(database, {
+    detail: runDetailCreate("corrupt-details", "run-a"),
+    runId: "run-a",
+    sessionId: "corrupt-details",
+    storedAt: 5,
+    userId: "user-a",
+  })
+  await sessionCacheToolDetailWrite(database, {
+    detail: toolDetailCreate("corrupt-details", "run-a", "tool-a"),
+    detailId: "tool-a",
+    runId: "run-a",
+    sessionId: "corrupt-details",
+    storedAt: 6,
+    userId: "user-a",
+  })
+  const rawRun = await database.get("runDetails", ["user-a", "corrupt-details", "run-a"])
+  const rawTool = await database.get("toolDetails", ["user-a", "corrupt-details", "run-a", "tool-a"])
+  if (rawRun === undefined || rawTool === undefined) throw new Error("missing corrupt detail fixture")
+  await database.put("runDetails", { ...rawRun, byteSize: rawRun.byteSize + 1 })
+  await database.put("toolDetails", { ...rawTool, byteSize: rawTool.byteSize + 1 })
+
+  expect(
+    await sessionCacheRunDetailRead(database, { runId: "run-a", sessionId: "corrupt-details", userId: "user-a" }),
+  ).toMatchObject({ success: false })
+  expect(
+    await sessionCacheToolDetailRead(database, {
+      detailId: "tool-a",
+      runId: "run-a",
+      sessionId: "corrupt-details",
+      userId: "user-a",
+    }),
+  ).toMatchObject({ success: false })
+  expect(
+    await sessionCacheRunDetailRead(database, { runId: "run-a", sessionId: "corrupt-details", userId: "user-a" }),
+  ).toEqual({ success: true, data: undefined })
+  expect(
+    await sessionCacheToolDetailRead(database, {
+      detailId: "tool-a",
+      runId: "run-a",
+      sessionId: "corrupt-details",
+      userId: "user-a",
+    }),
+  ).toEqual({ success: true, data: undefined })
   database.close()
 })
 
@@ -346,6 +666,104 @@ test("enforces session, account, and per-record byte limits oldest first", async
   database.close()
 })
 
+test("enforces history-entry, page-metadata, and durable-detail byte limits without replacing prior records", async () => {
+  const database = await databaseCreate()
+  const snapshot = snapshotCreate("session-a", [3], { olderCursor: "cursor-a" })
+  await sessionCacheSnapshotReplace(database, { snapshot, storedAt: 1, userId: "user-a" })
+  const entryRejected = await sessionCacheSnapshotReplace(database, {
+    limits: limitsCreate({ maxHistoryEntryBytes: 1 }),
+    snapshot: snapshotCreate("session-a", [4], { title: "Entry rejected" }),
+    storedAt: 2,
+    userId: "user-a",
+  })
+  expect(entryRejected.success).toBe(false)
+  expect(await sessionCacheSnapshotRead(database, { sessionId: "session-a", userId: "user-a" })).toEqual({
+    success: true,
+    data: snapshot,
+  })
+
+  const page = pageCreate([1, 2], null, 3)
+  await sessionCacheHistoryPageWrite(database, {
+    page,
+    requestCursor: "cursor-a",
+    sessionId: "session-a",
+    storedAt: 3,
+    userId: "user-a",
+  })
+  const pageRecord = await database.get("historyPages", ["user-a", "session-a", "cursor-a"])
+  if (pageRecord === undefined) throw new Error("missing page fixture")
+  const pageRejected = await sessionCacheHistoryPageWrite(database, {
+    limits: limitsCreate({ maxPageMetadataBytes: pageRecord.byteSize - 1 }),
+    page,
+    requestCursor: "cursor-a",
+    sessionId: "session-a",
+    storedAt: 4,
+    userId: "user-a",
+  })
+  expect(pageRejected.success).toBe(false)
+  expect(
+    await sessionCacheHistoryPageRead(database, {
+      requestCursor: "cursor-a",
+      sessionId: "session-a",
+      userId: "user-a",
+    }),
+  ).toEqual({ success: true, data: page })
+
+  const runDetail = runDetailCreate("session-a", "run-a")
+  await sessionCacheRunDetailWrite(database, {
+    detail: runDetail,
+    runId: "run-a",
+    sessionId: "session-a",
+    storedAt: 5,
+    userId: "user-a",
+  })
+  const runRecord = await database.get("runDetails", ["user-a", "session-a", "run-a"])
+  if (runRecord === undefined) throw new Error("missing run detail fixture")
+  const runRejected = await sessionCacheRunDetailWrite(database, {
+    detail: runDetail,
+    limits: limitsCreate({ maxDetailBytes: runRecord.byteSize - 1 }),
+    runId: "run-a",
+    sessionId: "session-a",
+    storedAt: 6,
+    userId: "user-a",
+  })
+  expect(runRejected.success).toBe(false)
+  expect(
+    await sessionCacheRunDetailRead(database, { runId: "run-a", sessionId: "session-a", userId: "user-a" }),
+  ).toEqual({ success: true, data: runDetail })
+
+  const toolDetail = toolDetailCreate("session-a", "run-a", "tool-a")
+  await sessionCacheToolDetailWrite(database, {
+    detail: toolDetail,
+    detailId: "tool-a",
+    runId: "run-a",
+    sessionId: "session-a",
+    storedAt: 7,
+    userId: "user-a",
+  })
+  const toolRecord = await database.get("toolDetails", ["user-a", "session-a", "run-a", "tool-a"])
+  if (toolRecord === undefined) throw new Error("missing tool detail fixture")
+  const toolRejected = await sessionCacheToolDetailWrite(database, {
+    detail: toolDetail,
+    detailId: "tool-a",
+    limits: limitsCreate({ maxDetailBytes: toolRecord.byteSize - 1 }),
+    runId: "run-a",
+    sessionId: "session-a",
+    storedAt: 8,
+    userId: "user-a",
+  })
+  expect(toolRejected.success).toBe(false)
+  expect(
+    await sessionCacheToolDetailRead(database, {
+      detailId: "tool-a",
+      runId: "run-a",
+      sessionId: "session-a",
+      userId: "user-a",
+    }),
+  ).toEqual({ success: true, data: toolDetail })
+  database.close()
+})
+
 test("evicts the oldest same-account session to satisfy the configured byte limit", async () => {
   const database = await databaseCreate()
   await sessionCacheSnapshotReplace(database, {
@@ -445,6 +863,115 @@ test("caches only finalized run and tool detail under account and session keys",
   database.close()
 })
 
+test("caches delegated finalized detail without creating a synthetic session and validates delegation identity", async () => {
+  const database = await databaseCreate()
+  const detail = runDetailCreate("parent-session", "child-run")
+  expect(
+    await sessionCacheRunDetailWrite(database, {
+      delegationId: "delegation-a",
+      detail,
+      runId: "child-run",
+      sessionId: "parent-session",
+      storedAt: 1,
+      userId: "user-a",
+    }),
+  ).toEqual({ success: true, data: undefined })
+  expect(await database.count("sessionSnapshots")).toBe(0)
+  expect(
+    await sessionCacheRunDetailRead(database, {
+      delegationId: "delegation-a",
+      runId: "child-run",
+      sessionId: "parent-session",
+      userId: "user-a",
+    }),
+  ).toEqual({ success: true, data: detail })
+  expect(
+    await sessionCacheRunDetailRead(database, {
+      delegationId: "delegation-b",
+      runId: "child-run",
+      sessionId: "parent-session",
+      userId: "user-a",
+    }),
+  ).toEqual({ success: true, data: undefined })
+  expect(
+    await sessionCacheRunDetailRead(database, {
+      runId: "child-run",
+      sessionId: "parent-session",
+      userId: "user-a",
+    }),
+  ).toEqual({ success: true, data: undefined })
+  expect(
+    await sessionCacheRunDetailRead(database, {
+      delegationId: "delegation-a",
+      runId: "child-run",
+      sessionId: "parent-session",
+      userId: "user-b",
+    }),
+  ).toEqual({ success: true, data: undefined })
+  database.close()
+})
+
+test("keeps page and tool-detail records isolated for accounts sharing session identifiers", async () => {
+  const database = await databaseCreate()
+  const pageByUser = {
+    "user-a": pageCreate([1], null, 2),
+    "user-b": pageCreate([8], null, 9),
+  } as const
+  const snapshotsByUser = {
+    "user-a": snapshotCreate("session-shared", [2], { olderCursor: "cursor-shared" }),
+    "user-b": snapshotCreate("session-shared", [9], { olderCursor: "cursor-shared" }),
+  } as const
+  for (const [userId, snapshot] of Object.entries(snapshotsByUser)) {
+    await sessionCacheSnapshotReplace(database, { snapshot, storedAt: userId === "user-a" ? 1 : 2, userId })
+    await sessionCacheHistoryPageWrite(database, {
+      page: pageByUser[userId as keyof typeof pageByUser],
+      requestCursor: "cursor-shared",
+      sessionId: "session-shared",
+      storedAt: userId === "user-a" ? 3 : 4,
+      userId,
+    })
+  }
+  const toolByUser = {
+    "user-a": toolDetailCreate("session-shared", "run-shared", "tool-shared"),
+    "user-b": {
+      ...toolDetailCreate("session-shared", "run-shared", "tool-shared"),
+      detail: {
+        ...toolDetailCreate("session-shared", "run-shared", "tool-shared").detail,
+        tool: { detailId: "tool-shared", sequence: 1, toolCallId: "call-b", toolName: "write" },
+      },
+    },
+  } as const
+  for (const [userId, detail] of Object.entries(toolByUser)) {
+    await sessionCacheToolDetailWrite(database, {
+      detail,
+      detailId: "tool-shared",
+      runId: "run-shared",
+      sessionId: "session-shared",
+      storedAt: userId === "user-a" ? 5 : 6,
+      userId,
+    })
+  }
+
+  for (const userId of ["user-a", "user-b"] as const) {
+    expect(
+      await sessionCacheHistoryPageRead(database, {
+        requestCursor: "cursor-shared",
+        sessionId: "session-shared",
+        userId,
+      }),
+    ).toEqual({ success: true, data: pageByUser[userId] })
+    expect(
+      await sessionCacheToolDetailRead(database, {
+        detailId: "tool-shared",
+        runId: "run-shared",
+        sessionId: "session-shared",
+        userId,
+      }),
+    ).toEqual({ success: true, data: toolByUser[userId] })
+  }
+  database.close()
+})
+
 test("evicts the oldest durable detail across run and tool records", async () => {
   const database = await databaseCreate()
   const limits = limitsCreate({ maxDetailsPerSession: 2 })
@@ -494,6 +1021,98 @@ test("evicts the oldest durable detail across run and tool records", async () =>
   expect(
     await sessionCacheRunDetailRead(database, { runId: "run-new", sessionId: "session-a", userId: "user-a" }),
   ).toEqual({ success: true, data: runDetailCreate("session-a", "run-new") })
+  database.close()
+})
+
+test("retries page and durable-detail writes after quota eviction of an older session", async () => {
+  const database = await databaseCreate()
+  await sessionCacheSnapshotReplace(database, {
+    snapshot: snapshotCreate("session-old", [1]),
+    storedAt: 1,
+    userId: "user-a",
+  })
+  await sessionCacheSnapshotReplace(database, {
+    snapshot: snapshotCreate("session-page", [3], { olderCursor: "cursor-page" }),
+    storedAt: 2,
+    userId: "user-a",
+  })
+
+  const originalPut = IDBObjectStore.prototype.put
+  let quotaFailures = 1
+  IDBObjectStore.prototype.put = function (...args) {
+    if (quotaFailures > 0) {
+      quotaFailures -= 1
+      throw new DOMException("The storage quota was exceeded.", "QuotaExceededError")
+    }
+    return originalPut.apply(this, args)
+  }
+  try {
+    expect(
+      await sessionCacheHistoryPageWrite(database, {
+        page: pageCreate([1, 2], null, 3),
+        requestCursor: "cursor-page",
+        sessionId: "session-page",
+        storedAt: 3,
+        userId: "user-a",
+      }),
+    ).toEqual({ success: true, data: undefined })
+  } finally {
+    IDBObjectStore.prototype.put = originalPut
+  }
+  expect(await sessionCacheSnapshotRead(database, { sessionId: "session-old", userId: "user-a" })).toEqual({
+    success: true,
+    data: undefined,
+  })
+  expect(
+    await sessionCacheHistoryPageRead(database, {
+      requestCursor: "cursor-page",
+      sessionId: "session-page",
+      userId: "user-a",
+    }),
+  ).toEqual({ success: true, data: pageCreate([1, 2], null, 3) })
+
+  const detailDatabase = await databaseCreate()
+  await sessionCacheSnapshotReplace(detailDatabase, {
+    snapshot: snapshotCreate("session-detail-old", [1]),
+    storedAt: 4,
+    userId: "user-a",
+  })
+  await sessionCacheSnapshotReplace(detailDatabase, {
+    snapshot: snapshotCreate("session-detail", [1]),
+    storedAt: 5,
+    userId: "user-a",
+  })
+  quotaFailures = 1
+  IDBObjectStore.prototype.put = function (...args) {
+    if (quotaFailures > 0) {
+      quotaFailures -= 1
+      throw new DOMException("The storage quota was exceeded.", "QuotaExceededError")
+    }
+    return originalPut.apply(this, args)
+  }
+  try {
+    expect(
+      await sessionCacheRunDetailWrite(detailDatabase, {
+        detail: runDetailCreate("session-detail", "run-a"),
+        runId: "run-a",
+        sessionId: "session-detail",
+        storedAt: 6,
+        userId: "user-a",
+      }),
+    ).toEqual({ success: true, data: undefined })
+  } finally {
+    IDBObjectStore.prototype.put = originalPut
+  }
+  expect(await sessionCacheSnapshotRead(detailDatabase, { sessionId: "session-detail-old", userId: "user-a" })).toEqual(
+    {
+      success: true,
+      data: undefined,
+    },
+  )
+  expect(
+    await sessionCacheRunDetailRead(detailDatabase, { runId: "run-a", sessionId: "session-detail", userId: "user-a" }),
+  ).toEqual({ success: true, data: runDetailCreate("session-detail", "run-a") })
+  detailDatabase.close()
   database.close()
 })
 

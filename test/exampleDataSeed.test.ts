@@ -24,8 +24,8 @@ import { runDelegationTable } from "../src/run/db/runDelegationTable.js"
 import { runFinalizedDetailTable } from "../src/run/db/runFinalizedDetailTable.js"
 import { runTable } from "../src/run/db/runTable.js"
 import { serverTable } from "../src/servers/db/serverTable.js"
-import { sessionTable } from "../src/session/db/sessionTable.js"
 import { sessionHistoryEntryTable } from "../src/session/db/sessionHistoryEntryTable.js"
+import { sessionTable } from "../src/session/db/sessionTable.js"
 import { sessionViewTable } from "../src/session/db/sessionViewTable.js"
 import { simulationScenarioSessionMetadata } from "../src/simulation/simulationScenarioSessionMetadata.js"
 import { uuidv7 } from "../src/uuid/uuidv7.js"
@@ -141,6 +141,9 @@ test("the typed fixture has stable counts, IDs, timestamps, and content", () => 
   expect(exampleDataFixture.sessions.flatMap((session) => session.messages)).toHaveLength(8)
   expect(exampleDataFixture.sessions[0]?.messages[1]?.content).toBe("The workspace shell is ready for local sessions.")
   expect(exampleDataFixture.tools).toHaveLength(15)
+  expect([...new Set(exampleDataFixture.attempts.map((attempt) => attempt.runId))].sort()).toEqual(
+    exampleDataFixture.runs.map((run) => run.id).sort(),
+  )
   expect(exampleDataFixture.delegations).toEqual([
     expect.objectContaining({
       childRunId: "example-run-child-1",
@@ -299,6 +302,28 @@ test("development fixture can list and use seeded organization servers", async (
     developmentClient.close()
     await rm(developmentDatabaseDirectory, { force: true, recursive: true })
   }
+})
+
+test("deterministic seeding preserves delegated child finalized detail", async () => {
+  const first = await exampleDataSeed(database, { organizationExternalId, reset: true })
+  expect(first.success).toBe(true)
+  if (!first.success) return
+
+  const [firstDetail] = await database
+    .select()
+    .from(runFinalizedDetailTable)
+    .where(eq(runFinalizedDetailTable.runId, "example-run-child-1"))
+  expect(firstDetail?.transcript.assistantText).toBe("The delegated example task is complete.")
+
+  const second = await exampleDataSeed(database, { organizationExternalId })
+  expect(second).toEqual(first)
+  if (!second.success) return
+
+  const [secondDetail] = await database
+    .select()
+    .from(runFinalizedDetailTable)
+    .where(eq(runFinalizedDetailTable.runId, "example-run-child-1"))
+  expect(secondDetail).toEqual(firstDetail)
 })
 
 test("rejects an incomplete OIDC fixture identity override", async () => {
@@ -600,7 +625,13 @@ test("reset preserves unrelated data and descendant links", async () => {
     .from(sessionHistoryEntryTable)
     .where(inArray(sessionHistoryEntryTable.sessionId, sessionIds))
     .orderBy(asc(sessionHistoryEntryTable.sessionId), asc(sessionHistoryEntryTable.position))
-  expect(historyEntries.length).toBeGreaterThan(25)
+  const projectedEntryCount =
+    exampleDataFixture.sessions.flatMap((session) => session.messages).length +
+    exampleDataFixture.runs.length +
+    exampleDataFixture.tools.length +
+    exampleDataFixture.delegations.length
+  expect(projectedEntryCount).toBeGreaterThan(25)
+  expect(historyEntries).toHaveLength(projectedEntryCount)
   expect(new Set(historyEntries.map((entry) => entry.kind))).toEqual(new Set(["message", "run", "tool"]))
   expect(historyEntries.filter((entry) => entry.kind === "message")).toHaveLength(8)
   expect(historyEntries.filter((entry) => entry.kind === "run")).toHaveLength(exampleDataFixture.runs.length)
@@ -610,9 +641,9 @@ test("reset preserves unrelated data and descendant links", async () => {
   expect(
     historyEntries
       .filter((entry) => entry.kind === "run")
-      .map((entry) => (entry.payload as { terminalKind?: string }).terminalKind)
+      .map((entry) => `${entry.sourceId}:${(entry.payload as { terminalKind?: string }).terminalKind}`)
       .sort(),
-  ).toEqual(["cancelled", "completed", "completed", "completed", "completed", "failed", "interrupted"].sort())
+  ).toEqual(exampleDataFixture.runs.map((run) => `${run.id}:${run.outcome}`).sort())
 
   const delegationRows = await database
     .select()
@@ -728,6 +759,58 @@ test("an explicit empty root configuration preserves the standard fixture seed",
   const seeded = await exampleDataSeed(database, { organizationExternalId, projectRootDirs: [], reset: true })
 
   expect(seeded).toEqual({ success: true, data: { sessionCount: 15, messageCount: 8 } })
+})
+
+test("re-seeding repairs missing canonical run and tool projections", async () => {
+  const seeded = await exampleDataSeed(database, { organizationExternalId, reset: true })
+  expect(seeded.success).toBe(true)
+
+  await database
+    .delete(sessionHistoryEntryTable)
+    .where(
+      and(
+        eq(sessionHistoryEntryTable.sessionId, "example-session-remote-1"),
+        eq(sessionHistoryEntryTable.sourceType, "run"),
+        eq(sessionHistoryEntryTable.sourceId, "example-run-cancelled-1"),
+      ),
+    )
+  await database
+    .delete(sessionHistoryEntryTable)
+    .where(
+      and(
+        eq(sessionHistoryEntryTable.sessionId, "example-session-remote-1"),
+        eq(sessionHistoryEntryTable.sourceType, "tool"),
+        eq(sessionHistoryEntryTable.sourceId, "example-run-cancelled-1"),
+        eq(sessionHistoryEntryTable.sourceDetailId, "example-tool-cancelled-inspect"),
+      ),
+    )
+
+  const reseeded = await exampleDataSeed(database, { organizationExternalId })
+  expect(reseeded).toEqual(seeded)
+
+  const runEntries = await database
+    .select({ payload: sessionHistoryEntryTable.payload, sourceId: sessionHistoryEntryTable.sourceId })
+    .from(sessionHistoryEntryTable)
+    .where(and(eq(sessionHistoryEntryTable.sourceType, "run"), inArray(sessionHistoryEntryTable.sessionId, sessionIds)))
+  expect(runEntries).toHaveLength(exampleDataFixture.runs.length)
+  expect(
+    runEntries.map((entry) => `${entry.sourceId}:${(entry.payload as { terminalKind?: string }).terminalKind}`).sort(),
+  ).toEqual(exampleDataFixture.runs.map((run) => `${run.id}:${run.outcome}`).sort())
+
+  const cancelledToolEntries = await database
+    .select({ sourceDetailId: sessionHistoryEntryTable.sourceDetailId })
+    .from(sessionHistoryEntryTable)
+    .where(
+      and(
+        eq(sessionHistoryEntryTable.sessionId, "example-session-remote-1"),
+        eq(sessionHistoryEntryTable.sourceType, "tool"),
+        eq(sessionHistoryEntryTable.sourceId, "example-run-cancelled-1"),
+      ),
+    )
+  expect(cancelledToolEntries.map((entry) => entry.sourceDetailId).sort()).toEqual([
+    "example-tool-cancelled-inspect",
+    "example-tool-cancelled-patch",
+  ])
 })
 
 test("configured roots reconcile real children without fixture projects or dependent rows", async () => {

@@ -9,14 +9,19 @@ import { journalBacklogCursorSelect } from "../../journal/actions/journalBacklog
 import type { JournalCursorCodec } from "../../journal/actions/journalCursorCodecCreate.js"
 import type { metricsCollectorCreate } from "../../metrics/metricsCollectorCreate.js"
 import type { streamLiveSubscriptionCreate } from "../../stream/actions/streamLiveSubscriptionCreate.js"
-import type { streamSseConnectionWriterCreate } from "../../stream/actions/streamSseConnectionWriterCreate.js"
+import type { StreamSseConnectionWriter } from "../../stream/actions/streamSseConnectionWriter.js"
+import type { StreamSseConnectionWriterFactory } from "../../stream/actions/streamSseConnectionWriterFactory.js"
+import type { StreamSseConnectionWriterScheduler } from "../../stream/actions/streamSseConnectionWriterScheduler.js"
+import type { StreamSseConnectionWriterSinkFactory } from "../../stream/actions/streamSseConnectionWriterSinkFactory.js"
+import { streamSseConnectionWriterShutdownErrorIsAlreadyClosed } from "../../stream/actions/streamSseConnectionWriterShutdownErrorIsAlreadyClosed.js"
+import { streamSseConnectionWriterSinkCreate } from "../../stream/actions/streamSseConnectionWriterSinkCreate.js"
 import type { SessionDetailSseFrame } from "./sessionDetailSseFrameSchema.js"
 import { sessionDetailSseFrameSchema } from "./sessionDetailSseFrameSchema.js"
 import type { sessionDetailStreamBacklogRead } from "../actions/sessionDetailStreamBacklogRead.js"
 import { sessionDetailStreamQuerySchema } from "./sessionDetailStreamQuerySchema.js"
 
-type ApiSessionDetailEventsRoutesScheduler = Parameters<typeof streamSseConnectionWriterCreate>[0]["scheduler"]
-type ApiSessionDetailEventsConnection = ReturnType<typeof streamSseConnectionWriterCreate>
+type ApiSessionDetailEventsRoutesScheduler = StreamSseConnectionWriterScheduler
+type ApiSessionDetailEventsConnection = StreamSseConnectionWriter
 type ApiSessionDetailEventsLiveSubscription = Pick<
   ReturnType<typeof streamLiveSubscriptionCreate>,
   "selectedSessionDetailSubscribe"
@@ -35,12 +40,13 @@ type ApiSessionDetailEventsBacklogRead = (
 
 type ApiSessionDetailEventsRoutesOptions = {
   backlogRead: ApiSessionDetailEventsBacklogRead
-  connectionWriterCreate: typeof streamSseConnectionWriterCreate
+  connectionWriterCreate: StreamSseConnectionWriterFactory
   cursorCodec: JournalCursorCodec
   liveSubscription: ApiSessionDetailEventsLiveSubscription
   metricsCollector: ReturnType<typeof metricsCollectorCreate>
   now: () => number
   scheduler: ApiSessionDetailEventsRoutesScheduler
+  sinkCreate?: StreamSseConnectionWriterSinkFactory
 }
 
 type ApiSessionDetailEventsContext = Context<AppEnvironment>
@@ -88,6 +94,15 @@ function apiSessionDetailEventsBacklogErrorResponse(context: ApiSessionDetailEve
   if (result.code === "session_not_found") return apiSessionDetailEventsNotFound(context)
   if (result.code === "session_unavailable") return apiSessionDetailEventsUnavailable(context)
   return apiSessionDetailEventsInternalError(context)
+}
+
+async function apiSessionDetailEventsConnectionShutdown(operation: Promise<void>): Promise<void> {
+  try {
+    await operation
+  } catch (error: unknown) {
+    if (streamSseConnectionWriterShutdownErrorIsAlreadyClosed(error)) return
+    throw error
+  }
 }
 
 function apiSessionDetailEventsBaselineResolve(
@@ -152,7 +167,9 @@ function apiSessionDetailEventsConnectionWriterCreate(
   outputWriter: WritableStreamDefaultWriter<Uint8Array>,
 ): ApiSessionDetailEventsConnection {
   const subscription = apiSessionDetailEventsSubscriptionCreate(options.liveSubscription, sessionId, () => {
-    void connection.current?.disconnect("connection-frame-invalid")
+    const current = connection.current
+    if (current !== undefined)
+      void apiSessionDetailEventsConnectionShutdown(current.disconnect("connection-frame-invalid"))
   })
   return options.connectionWriterCreate({
     baselineSequence: baselineChangePosition,
@@ -161,11 +178,7 @@ function apiSessionDetailEventsConnectionWriterCreate(
     sequenceKind: "session-detail",
     subscription,
     userId: context.var.requestIdentity.userId,
-    writer: {
-      abort: (reason) => outputWriter.abort(reason).catch(() => undefined),
-      close: () => outputWriter.close().catch(() => undefined),
-      write: (chunk) => outputWriter.write(chunk),
-    },
+    writer: (options.sinkCreate ?? streamSseConnectionWriterSinkCreate)(outputWriter),
     metricsCollector: options.metricsCollector,
   })
 }
@@ -178,28 +191,31 @@ async function apiSessionDetailEventsBacklogPump(
   try {
     for await (const page of pages) {
       if (!page.success) {
-        await connection.disconnect("backlog-page-read-failed")
+        await apiSessionDetailEventsConnectionShutdown(connection.disconnect("backlog-page-read-failed"))
         return
       }
       const frames: SessionDetailSseFrame[] = []
       for (const event of page.data) {
         const validated = apiSessionDetailEventsFrameValidate(sessionId, event)
         if (!validated.success) {
-          await connection.disconnect("backlog-frame-invalid")
+          await apiSessionDetailEventsConnectionShutdown(connection.disconnect("backlog-frame-invalid"))
           return
         }
         frames.push(validated.data)
       }
       const enqueued = await connection.enqueueBacklog(frames)
       if (!enqueued.success) {
-        if (!connection.isDisconnected()) await connection.disconnect("backlog-queue-failed")
+        if (!connection.isDisconnected())
+          await apiSessionDetailEventsConnectionShutdown(connection.disconnect("backlog-queue-failed"))
         return
       }
     }
     const completed = connection.completeBacklog()
-    if (!completed.success && !connection.isDisconnected()) await connection.disconnect("backlog-handoff-failed")
+    if (!completed.success && !connection.isDisconnected())
+      await apiSessionDetailEventsConnectionShutdown(connection.disconnect("backlog-handoff-failed"))
   } catch (_error) {
-    if (!connection.isDisconnected()) await connection.disconnect("backlog-read-failed")
+    if (!connection.isDisconnected())
+      await apiSessionDetailEventsConnectionShutdown(connection.disconnect("backlog-read-failed"))
   }
 }
 
@@ -246,28 +262,29 @@ export function apiSessionDetailEventsRoutesAdd(
     connectionState.current = connection
     const requestSignal = context.req.raw.signal
     const onRequestAbort = () => {
-      void connection.disconnect("request-aborted")
+      void apiSessionDetailEventsConnectionShutdown(connection.disconnect("request-aborted"))
     }
     requestSignal.addEventListener("abort", onRequestAbort, { once: true })
     void outputWriter.closed.then(
       () => {
         requestSignal.removeEventListener("abort", onRequestAbort)
-        if (!connection.isDisconnected()) void connection.close()
+        if (!connection.isDisconnected()) void apiSessionDetailEventsConnectionShutdown(connection.close())
       },
       () => {
         requestSignal.removeEventListener("abort", onRequestAbort)
-        if (!connection.isDisconnected()) void connection.disconnect("output-closed")
+        if (!connection.isDisconnected())
+          void apiSessionDetailEventsConnectionShutdown(connection.disconnect("output-closed"))
       },
     )
 
     const connected = connection.connect()
     if (!connected.success) {
       requestSignal.removeEventListener("abort", onRequestAbort)
-      await connection.disconnect("connection-subscription-failed")
+      await apiSessionDetailEventsConnectionShutdown(connection.disconnect("connection-subscription-failed"))
       return apiSessionDetailEventsInternalError(context)
     }
     if (requestSignal.aborted) {
-      await connection.disconnect("request-aborted")
+      await apiSessionDetailEventsConnectionShutdown(connection.disconnect("request-aborted"))
       return apiSessionDetailEventsInternalError(context)
     }
 
@@ -285,11 +302,11 @@ export function apiSessionDetailEventsRoutesAdd(
         { cursorCodec: options.cursorCodec },
       )
     } catch (_error) {
-      await connection.disconnect("backlog-read-failed")
+      await apiSessionDetailEventsConnectionShutdown(connection.disconnect("backlog-read-failed"))
       return apiSessionDetailEventsInternalError(context)
     }
     if (!backlog.success) {
-      await connection.disconnect("backlog-read-rejected")
+      await apiSessionDetailEventsConnectionShutdown(connection.disconnect("backlog-read-rejected"))
       return apiSessionDetailEventsBacklogErrorResponse(context, backlog)
     }
 
@@ -297,7 +314,7 @@ export function apiSessionDetailEventsRoutesAdd(
       options.metricsCollector.increment("sse_replay_total")
       const upperBoundSet = connection.setReplayUpperBound(backlog.data.replayUpperBound)
       if (!upperBoundSet.success) {
-        await connection.disconnect("backlog-upper-bound-failed")
+        await apiSessionDetailEventsConnectionShutdown(connection.disconnect("backlog-upper-bound-failed"))
         return apiSessionDetailEventsInternalError(context)
       }
     } else {

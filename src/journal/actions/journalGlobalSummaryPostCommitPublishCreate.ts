@@ -6,7 +6,6 @@ import { journalGlobalSummaryEventFrameCreate } from "./journalGlobalSummaryEven
 
 type JournalGlobalSummaryPostCommitEvent = typeof journalEventTable.$inferSelect
 type JournalGlobalSummaryCursorCodec = {
-  encode: (journalId: unknown, sequence: unknown) => Result<string>
   encodeGlobalSequence?: NonNullable<JournalCursorCodec["encodeGlobalSequence"]>
 }
 
@@ -33,8 +32,9 @@ function journalGlobalSummaryCursorEncode(
   journalId: unknown,
   globalSequence: unknown,
 ): Result<string> {
-  if (cursorCodec.encodeGlobalSequence !== undefined) return cursorCodec.encodeGlobalSequence(journalId, globalSequence)
-  return cursorCodec.encode(journalId, globalSequence)
+  if (typeof cursorCodec.encodeGlobalSequence !== "function")
+    return createResultError("journalGlobalSummaryPostCommitPublish", "The global summary cursor codec is required.")
+  return cursorCodec.encodeGlobalSequence(journalId, globalSequence)
 }
 
 export function journalGlobalSummaryPostCommitPublishCreate(

@@ -120,6 +120,13 @@
       "when": 1788243473494,
       "tag": "0016_bumpy_molten_man",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1788282675999,
+      "tag": "0017_wide_mole_man",
+      "breakpoints": true
     }
   ]
 }

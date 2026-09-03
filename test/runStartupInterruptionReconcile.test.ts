@@ -378,6 +378,26 @@ test.skipIf(!databaseAvailable)("rolls back startup interruption when finalized 
     })
     await provider.flush()
 
+    const [beforeSession] = await database
+      .select({ nextHistoryPosition: sessionTable.nextHistoryPosition })
+      .from(sessionTable)
+      .where(eq(sessionTable.id, sessionId))
+    const [beforeHistory] = await database
+      .select()
+      .from(sessionHistoryEntryTable)
+      .where(
+        and(
+          eq(sessionHistoryEntryTable.sessionId, sessionId),
+          eq(sessionHistoryEntryTable.sourceType, "run"),
+          eq(sessionHistoryEntryTable.sourceId, created.data.run.id),
+        ),
+      )
+    const [beforeActiveState] = await database
+      .select()
+      .from(runActiveStateTable)
+      .where(eq(runActiveStateTable.runId, created.data.run.id))
+    if (beforeSession === undefined || beforeHistory === undefined || beforeActiveState === undefined) return
+
     const reconciled = await runStartupInterruptionReconcile({
       database,
       postCommitPublish: async () => createResult(undefined),
@@ -419,6 +439,19 @@ test.skipIf(!databaseAvailable)("rolls back startup interruption when finalized 
           ),
         ),
     ).toMatchObject([{ payload: { status: "running" } }])
+    const [afterHistory] = await database
+      .select()
+      .from(sessionHistoryEntryTable)
+      .where(eq(sessionHistoryEntryTable.id, beforeHistory?.id ?? ""))
+    expect(afterHistory).toEqual(beforeHistory)
+    expect(
+      await database.select().from(runActiveStateTable).where(eq(runActiveStateTable.runId, created.data.run.id)),
+    ).toEqual([beforeActiveState])
+    const [afterSession] = await database
+      .select({ nextHistoryPosition: sessionTable.nextHistoryPosition })
+      .from(sessionTable)
+      .where(eq(sessionTable.id, sessionId))
+    expect(afterSession).toEqual(beforeSession)
   } finally {
     await database.delete(sessionTable).where(eq(sessionTable.id, sessionId))
   }
