@@ -14,10 +14,12 @@ import type { applicationShellStateCreate } from "./applicationShellStateCreate.
 import { appShellContext } from "./appShellContext.js"
 import type { AppShellView } from "./appShellView.js"
 import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator.js"
+import { urlDashboard } from "./dashboard_url/urlDashboard.js"
 import { primaryNavigationStateCreate } from "./primaryNavigationStateCreate.js"
 import { PwaStatusActions } from "./pwa/PwaStatusActions.js"
 import { pwaStatusContext } from "./pwa/pwaStatusContext.js"
 import { sessionDrawerContext } from "./sessionDrawerContext.js"
+import { urlSettings } from "./settings_url/urlSettings.js"
 
 export function App(props: {
   applicationShell?: ReturnType<typeof applicationShellStateCreate>
@@ -37,7 +39,7 @@ export function App(props: {
           >
             <A
               class="inline-flex w-fit items-center gap-2 font-semibold tracking-[-0.02em] no-underline"
-              href="/"
+              href={urlDashboard()}
               aria-label="Codeline workspace"
             >
               <Img
@@ -84,7 +86,7 @@ export function App(props: {
                   false,
                   navigation.settingsIsActive() && "bg-slate-100 dark:bg-slate-800",
                 )}
-                href="/settings"
+                href={urlSettings()}
                 title="Settings"
                 aria-label="Settings"
               >

@@ -1,3 +1,6 @@
+import { pageRouteAuth } from "../identity/auth_url/pageRouteAuth.js"
+import { pageRouteDashboard } from "../ui/dashboard_url/pageRouteDashboard.js"
+
 const callbackEnvironmentNames = [
   "OIDC_AUTHWORKS_CALLBACK_URL",
   "OIDC_AUTHWORKS_REDIRECT_URI",
@@ -40,7 +43,7 @@ export function oidcCallbackPathResolve(environment: Readonly<Record<string, str
     callbackUrl.pathname.endsWith("/") && callbackUrl.pathname !== "/"
       ? callbackUrl.pathname.slice(0, -1)
       : callbackUrl.pathname
-  if (callbackPath === "/" || callbackPath === "/login") return undefined
+  if (callbackPath === pageRouteDashboard.dashboard || callbackPath === pageRouteAuth.login) return undefined
   return callbackUrl.pathname
 }
 

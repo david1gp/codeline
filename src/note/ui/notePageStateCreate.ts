@@ -13,6 +13,7 @@ import { noteRepresentationEtagCreate } from "../api/noteRepresentationEtagCreat
 import { noteDeleteRequest } from "../client/noteDeleteRequest.js"
 import { noteDetailConditionalFetch } from "../client/noteDetailConditionalFetch.js"
 import { noteUpdateRequest } from "../client/noteUpdateRequest.js"
+import { urlNotes } from "../note_url/urlNote.js"
 import { noteContentFieldStateCreate } from "./noteContentFieldStateCreate.js"
 import { noteLineCount } from "./noteLineCount.js"
 import { noteProjectChoicesResolve } from "./noteProjectChoicesResolve.js"
@@ -135,7 +136,7 @@ export function notePageStateCreate(options: NotePageStateOptions): NoteScreenVi
         }
         accountCache.cache.clear(accountCache.keyCreate(`/api/notes/${encodeURIComponent(current.id)}`))
         noteQuery.refresh()
-        navigate("/notes")
+        navigate(urlNotes())
       })
     },
     hasError: () => status.get() === "error" || (noteQuery.isError() && noteQuery.data() === undefined),

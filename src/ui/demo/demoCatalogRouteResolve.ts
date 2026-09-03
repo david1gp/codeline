@@ -1,3 +1,4 @@
+import { pageRouteDemo } from "../demo_url/pageRouteDemo.js"
 import { demoCatalogRegistry } from "./demoCatalogRegistry.js"
 import type { DemoCatalogRoute } from "./demoCatalogRoute.js"
 import { demoScenarioRegistry } from "./demoScenarioRegistry.js"
@@ -9,10 +10,10 @@ function demoSpecimenIs(item: { slug: string }): item is DemoSpecimen {
 }
 
 export function demoCatalogRouteResolve(pathname: string, variant?: unknown): DemoCatalogRoute {
-  const segments = pathname
-    .replace(/^\/demo\/?/, "")
-    .split("/")
-    .filter(Boolean)
+  const catalogPath = pathname.startsWith(pageRouteDemo.demo)
+    ? pathname.slice(pageRouteDemo.demo.length).replace(/^\/?/, "")
+    : pathname
+  const segments = catalogPath.split("/").filter(Boolean)
   if (segments.length === 0) return { kind: "index" }
 
   const section = demoCatalogRegistry.find((candidate) => candidate.slug === segments[0])

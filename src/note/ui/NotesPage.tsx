@@ -1,6 +1,7 @@
 import { A } from "@solidjs/router"
 import { For, Match, Show, Switch } from "solid-js"
 import { Badge } from "#ui/static/badge/Badge.jsx"
+import { urlNoteNew, urlNoteView } from "../note_url/urlNote.js"
 import { noteContentSummarize } from "./noteContentSummarize.js"
 import { noteDataStatusNoticeResolve } from "./noteDataStatusNoticeResolve.js"
 import type { NotesScreenView } from "./notesScreenView.js"
@@ -19,7 +20,7 @@ export function NotesPage(props: { state: NotesScreenView }) {
         </div>
         <A
           class="rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-accent-contrast no-underline transition-colors hover:bg-accent-hover"
-          href="/notes/new"
+          href={urlNoteNew()}
         >
           New note
         </A>
@@ -67,7 +68,7 @@ export function NotesPage(props: { state: NotesScreenView }) {
                           return (
                             <A
                               class="group min-h-36 rounded-xl border border-line bg-surface p-5 no-underline transition-[border-color,background-color,transform] hover:-translate-y-0.5 hover:border-accent-border hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-accent"
-                              href={`/notes/${encodeURIComponent(note.id)}`}
+                              href={urlNoteView(note.id)}
                             >
                               <h3 class="m-0 overflow-hidden text-ellipsis whitespace-nowrap text-base font-semibold tracking-[-0.02em] text-strong">
                                 {summary.heading}

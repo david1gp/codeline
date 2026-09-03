@@ -1,4 +1,5 @@
 import { useLocation } from "@solidjs/router"
+import { urlAuthLogin } from "../identity/auth_url/urlAuth.js"
 import { authReturnPathResolve } from "../identity/ui/authReturnPathResolve.js"
 import { authSessionStateCreate } from "../identity/ui/authSessionStateCreate.js"
 import { signedOutCachedBrowsingResolve } from "./signedOutCachedBrowsingResolve.js"
@@ -23,7 +24,7 @@ export function applicationRootStateCreate(options: ApplicationRootStateOptions)
     isSignedOutCachedBrowsing: () =>
       (session.status() === "offline" || session.status() === "signed-out") &&
       signedOutCachedBrowsingResolve({ pathname: location.pathname, search: location.search }),
-    loginHref: () => `/login?returnTo=${encodeURIComponent(returnTo())}`,
+    loginHref: () => urlAuthLogin(returnTo()),
     retry: session.retry,
     signOut: session.signOut,
     status: session.status,

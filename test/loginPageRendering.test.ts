@@ -7,9 +7,12 @@ test("login route renders a native document-navigation sign-in action", async ()
   const applicationRootState = await Bun.file(
     new URL("../src/ui/applicationRootStateCreate.ts", import.meta.url),
   ).text()
-  const router = await Bun.file(new URL("../src/ui/UiRouter.tsx", import.meta.url)).text()
+  const authRoutes = await Bun.file(new URL("../src/identity/auth_url/getRoutesAuth.ts", import.meta.url)).text()
 
-  expect(router).toContain('<Route path="/login" component={LoginPage} />')
+  expect(authRoutes).toContain("pageNameAuth")
+  expect(authRoutes).toContain("pageRouteAuth")
+  expect(authRoutes).toContain("lazy")
+  expect(authRoutes).toContain('import("../ui/LoginPage.js")')
   expect(applicationRoot).toContain("<LoginPage />")
   expect(applicationRoot).not.toContain("Sign in required")
   expect(applicationRootState).toContain("authReturnPathResolve")

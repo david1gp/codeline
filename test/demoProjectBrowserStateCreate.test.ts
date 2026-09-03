@@ -20,10 +20,12 @@ test("Project files views stay view-only and receive injected state", async () =
 
 test("Project files route composes production state outside the view", async () => {
   const routePage = await Bun.file(new URL("../src/ui/FilesRoutePage.tsx", import.meta.url)).text()
-  const router = await Bun.file(new URL("../src/ui/UiRouter.tsx", import.meta.url)).text()
+  const routes = await Bun.file(new URL("../src/ui/files_url/getRoutesFiles.ts", import.meta.url)).text()
 
   expect(routePage).toContain("filesScreenViewCreate")
-  expect(router).toContain("component={FilesRoutePage}")
+  expect(routes).toContain("FilesRoutePage")
+  expect(routes).toContain("pageNameFiles")
+  expect(routes).toContain("pageRouteFiles")
 })
 
 test("Files and project specimens are registered with representative variants", () => {

@@ -1,11 +1,13 @@
 import { sessionRouteResolve } from "./sessionRouteResolve.js"
 import type { SessionSidebarTab } from "./sessionSidebarTab.js"
+import { pageRouteWorkspace } from "./workspace_url/pageRouteWorkspace.js"
+import { urlWorkspace } from "./workspace_url/urlWorkspace.js"
 
 export function sessionSidebarRouteHrefResolve(
   tab: SessionSidebarTab,
   url: Pick<URL, "search" | "hash"> & Partial<Pick<URL, "pathname">>,
 ): string {
-  const route = sessionRouteResolve({ pathname: url.pathname ?? "/sessions", search: url.search })
+  const route = sessionRouteResolve({ pathname: url.pathname ?? pageRouteWorkspace.sessions, search: url.search })
   const sourceSearchParams = new URLSearchParams(url.search)
   const searchParams = new URLSearchParams({ tab })
   sourceSearchParams.forEach((value, key) => {
@@ -15,9 +17,9 @@ export function sessionSidebarRouteHrefResolve(
   const search = searchParams.toString()
   const pathname =
     route.kind === "new"
-      ? "/sessions/new"
+      ? pageRouteWorkspace.sessionsNew
       : route.sessionId
-        ? `/sessions/${encodeURIComponent(route.sessionId)}`
-        : "/sessions"
+        ? urlWorkspace.sessionDetail(route.sessionId)
+        : pageRouteWorkspace.sessions
   return `${pathname}${search === "" ? "" : `?${search}`}${url.hash}`
 }

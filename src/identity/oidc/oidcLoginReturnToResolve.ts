@@ -1,4 +1,6 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
+import { pageRouteDashboard } from "../../ui/dashboard_url/pageRouteDashboard.js"
+import { pageRouteAuth } from "../auth_url/pageRouteAuth.js"
 
 export function oidcLoginReturnToResolve(
   input: string | undefined,
@@ -6,7 +8,7 @@ export function oidcLoginReturnToResolve(
   pathIsKnown: (pathname: string) => boolean,
 ): Result<string> {
   const op = "oidcLoginReturnToResolve"
-  const returnTo = input ?? "/"
+  const returnTo = input ?? pageRouteDashboard.dashboard
   if (returnTo === "" || returnTo.includes("\\") || /%(?:2e|2f|5c)/i.test(returnTo)) {
     return createResultError(op, "The login return path is invalid.")
   }
@@ -27,8 +29,8 @@ export function oidcLoginReturnToResolve(
     target.origin !== publicOrigin.origin ||
     target.username !== "" ||
     target.password !== "" ||
-    target.pathname === "/login" ||
-    target.pathname.startsWith("/login/") ||
+    target.pathname === pageRouteAuth.login ||
+    target.pathname.startsWith(`${pageRouteAuth.login}/`) ||
     !pathIsKnown(target.pathname)
   ) {
     return createResultError(op, "The login return path is invalid.")

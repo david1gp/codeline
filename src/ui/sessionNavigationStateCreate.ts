@@ -4,6 +4,8 @@ import { sessionRouteResolve } from "./sessionRouteResolve.js"
 import { sessionSidebarDestinationResolve } from "./sessionSidebarDestinationResolve.js"
 import { sessionSidebarRouteHrefResolve } from "./sessionSidebarRouteHrefResolve.js"
 import type { SessionSidebarTab } from "./sessionSidebarTab.js"
+import { pageRouteWorkspace } from "./workspace_url/pageRouteWorkspace.js"
+import { urlWorkspace } from "./workspace_url/urlWorkspace.js"
 
 const sessionIdSchema = v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(200))
 
@@ -62,10 +64,10 @@ export function sessionNavigationStateCreate(navigation: SessionNavigation = win
     selectedSessionId,
     selectSession: (sessionId: string) => {
       const result = v.safeParse(sessionIdSchema, sessionId)
-      if (result.success) updateUrl(`/sessions/${result.output}`, result.output)
+      if (result.success) updateUrl(urlWorkspace.sessionDetail(result.output), result.output)
     },
-    clearSession: () => updateUrl("/sessions", null),
-    startNewSession: () => updateUrl("/sessions/new", null, false),
+    clearSession: () => updateUrl(pageRouteWorkspace.sessions, null),
+    startNewSession: () => updateUrl(pageRouteWorkspace.sessionsNew, null, false),
   }
 }
 

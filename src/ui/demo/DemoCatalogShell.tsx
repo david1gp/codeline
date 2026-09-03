@@ -1,5 +1,6 @@
 import { A } from "@solidjs/router"
 import { For, Match, Switch } from "solid-js"
+import { urlDemo, urlDemoSection } from "../demo_url/urlDemo.js"
 import { DemoCatalogIndex } from "./DemoCatalogIndex.js"
 import { DemoShell } from "./DemoShell.js"
 import { DemoSpecimenPanel } from "./DemoSpecimenPanel.js"
@@ -9,17 +10,17 @@ export function DemoCatalogShell(props: { state: ReturnType<typeof demoAppStateC
   return (
     <main class="min-h-dvh bg-surface-sunken text-foreground [font-family:Inter,ui-sans-serif,system-ui,sans-serif]">
       <header class="flex h-12 items-center gap-3 border-line border-b bg-surface px-4 min-[761px]:hidden">
-        <A class="flex items-center gap-2 text-sm font-semibold no-underline" href="/demo">
+        <A class="flex items-center gap-2 text-sm font-semibold no-underline" href={urlDemo()}>
           <span class="grid size-6 place-items-center rounded-md bg-accent font-mono text-[11px] text-accent-contrast">
             C/
           </span>
           Demo catalog
         </A>
         <nav class="ml-auto flex gap-1 text-xs" aria-label="Catalog sections">
-          <A class="rounded-md px-2 py-1.5 no-underline hover:bg-surface-hover" href="/demo/screens">
+          <A class="rounded-md px-2 py-1.5 no-underline hover:bg-surface-hover" href={urlDemoSection("screens")}>
             Screens
           </A>
-          <A class="rounded-md px-2 py-1.5 no-underline hover:bg-surface-hover" href="/demo/components">
+          <A class="rounded-md px-2 py-1.5 no-underline hover:bg-surface-hover" href={urlDemoSection("components")}>
             Components
           </A>
         </nav>
@@ -32,7 +33,7 @@ export function DemoCatalogShell(props: { state: ReturnType<typeof demoAppStateC
         >
           <A
             class="flex h-14 items-center gap-2 border-line border-b px-4 text-sm font-semibold no-underline"
-            href="/demo"
+            href={urlDemo()}
           >
             <span class="grid size-7 place-items-center rounded-md bg-accent font-mono text-[11px] text-accent-contrast">
               C/
@@ -45,7 +46,7 @@ export function DemoCatalogShell(props: { state: ReturnType<typeof demoAppStateC
                 <section class="mb-5">
                   <A
                     class="mb-1 block px-2 font-mono text-[10px] tracking-[0.1em] text-faint uppercase no-underline"
-                    href={`/demo/${section.slug}`}
+                    href={urlDemoSection(section.slug)}
                   >
                     {section.label} · {section.items.length}
                   </A>
@@ -76,7 +77,7 @@ export function DemoCatalogShell(props: { state: ReturnType<typeof demoAppStateC
               {(specimen) => (
                 <div class="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]">
                   <div class="flex min-h-12 flex-wrap items-center gap-3 border-line border-b bg-surface px-4 max-[760px]:min-h-11">
-                    <A class="text-xs text-faint no-underline hover:text-foreground" href="/demo">
+                    <A class="text-xs text-faint no-underline hover:text-foreground" href={urlDemo()}>
                       Catalog
                     </A>
                     <span class="text-placeholder">/</span>
@@ -109,7 +110,7 @@ export function DemoCatalogShell(props: { state: ReturnType<typeof demoAppStateC
               {(scenario) => (
                 <div class="h-full">
                   <div class="flex min-h-12 items-center gap-3 border-line border-b bg-surface px-4 max-[760px]:min-h-11">
-                    <A class="text-xs text-faint no-underline hover:text-foreground" href="/demo">
+                    <A class="text-xs text-faint no-underline hover:text-foreground" href={urlDemo()}>
                       Catalog
                     </A>
                     <span class="text-placeholder">/</span>

@@ -28,18 +28,28 @@ test("primary navigation exposes sessions, explorer, notes, and settings", async
 
 test("settings is registered with the settings route page", async () => {
   const routerSource = await Bun.file(new URL("../src/ui/UiRouter.tsx", import.meta.url)).text()
+  const settingsRoutesSource = await Bun.file(
+    new URL("../src/ui/settings_url/getRoutesSettings.ts", import.meta.url),
+  ).text()
   const settingsSource = await Bun.file(new URL("../src/ui/SettingsRoutePage.tsx", import.meta.url)).text()
 
-  expect(routerSource).toContain('import { SettingsRoutePage } from "./SettingsRoutePage.js"')
-  expect(routerSource).toContain('<Route path="/settings" component={SettingsRoutePage} />')
+  expect(routerSource).toContain("getRoutesSettings")
+  expect(settingsRoutesSource).toContain("pageNameSettings")
+  expect(settingsRoutesSource).toContain("pageRouteSettings")
+  expect(settingsRoutesSource).toContain("lazy")
   expect(settingsSource).toContain('<h1 id="settings-title"')
   expect(settingsSource).toContain("Settings")
 })
 
 test("the workspace is registered on the session sidebar routes instead of root", async () => {
   const routerSource = await Bun.file(new URL("../src/ui/UiRouter.tsx", import.meta.url)).text()
+  const workspaceRoutesSource = await Bun.file(
+    new URL("../src/ui/workspace_url/getRoutesWorkspace.ts", import.meta.url),
+  ).text()
 
-  expect(routerSource).toContain('path={["/sessions", "/sessions/new", "/sessions/:sessionId"]}')
+  expect(routerSource).toContain("getRoutesWorkspace")
+  expect(workspaceRoutesSource).toContain("pageNameWorkspace")
+  expect(workspaceRoutesSource).toContain("pageRouteWorkspace")
   expect(routerSource).not.toContain('<Route path="/" component={WorkspaceRoutePage} />')
 })
 
@@ -60,7 +70,8 @@ test("PWA installation is Settings-only while update reload remains in the shell
   expect(pwaActionsSource).toContain("Install app")
   expect(pwaActionsSource).toContain("props.state.install()")
   expect(appSource).toContain('<PwaStatusActions placement="shell"')
-  expect(appSource).toContain('href="/settings"')
+  expect(appSource).toContain("urlSettings")
+  expect(appSource).toContain("href={urlSettings()}")
   expect(appSource).toContain("mdiCogOutline")
   expect(appSource).not.toContain('placement="settings"')
   expect(pwaActionsSource).toContain('props.placement === "shell" && props.state.status() === "update-ready"')

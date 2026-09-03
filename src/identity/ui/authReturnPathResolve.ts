@@ -1,4 +1,6 @@
 import { appKnownRouteResolve } from "../../app/appKnownRouteResolve.js"
+import { pageRouteDashboard } from "../../ui/dashboard_url/pageRouteDashboard.js"
+import { pageRouteAuth } from "../auth_url/pageRouteAuth.js"
 
 /**
  * Validates a browser-supplied return path before it is handed to the login
@@ -9,7 +11,7 @@ export function authReturnPathResolve(
   input: string | null | undefined,
   pathIsKnown: (pathname: string) => boolean = appKnownRouteResolve,
 ): string {
-  const fallback = "/"
+  const fallback = pageRouteDashboard.dashboard
   if (input === null || input === undefined || input === "") return fallback
   if (!input.startsWith("/") || input.startsWith("//")) return fallback
   if (input.includes("\\")) return fallback
@@ -22,7 +24,7 @@ export function authReturnPathResolve(
     return fallback
   }
 
-  if (target.pathname === "/login" || target.pathname.startsWith("/login/")) return fallback
+  if (target.pathname === pageRouteAuth.login || target.pathname.startsWith(`${pageRouteAuth.login}/`)) return fallback
   if (!pathIsKnown(target.pathname)) return fallback
   return `${target.pathname}${target.search}${target.hash}`
 }

@@ -4,6 +4,7 @@ import * as v from "valibot"
 import type { ProjectRegistryState } from "../../project/ui/projectRegistryState.js"
 import { uuidv7 } from "../../uuid/uuidv7.js"
 import { noteCreateRequest } from "../client/noteCreateRequest.js"
+import { urlNotes } from "../note_url/urlNote.js"
 import type { NewNoteScreenView } from "./newNoteScreenView.js"
 import { noteContentFieldStateCreate } from "./noteContentFieldStateCreate.js"
 import { noteProjectListStateCreate } from "./noteProjectListStateCreate.js"
@@ -73,7 +74,7 @@ export function newNotePageStateCreate(options: NewNotePageStateOptions = {}): N
         return
       }
       localStorage.removeItem(draftKey)
-      navigate("/notes")
+      navigate(urlNotes())
     },
   }
 }

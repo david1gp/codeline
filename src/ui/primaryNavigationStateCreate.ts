@@ -3,9 +3,13 @@ import { mdiHistory } from "@adaptive-ds/mdi/mdiHistory.js"
 import { mdiNoteTextOutline } from "@adaptive-ds/mdi/mdiNoteTextOutline.js"
 import { useLocation } from "@solidjs/router"
 import { useContext } from "solid-js"
+import { urlNotes } from "../note/note_url/urlNote.js"
+import { pageRouteFiles } from "./files_url/pageRouteFiles.js"
+import { urlFiles } from "./files_url/urlFiles.js"
 import { primaryNavigationPathIsActive } from "./primaryNavigationPathIsActive.js"
 import { sessionDrawerContext } from "./sessionDrawerContext.js"
 import { sessionSidebarDestinationResolve } from "./sessionSidebarDestinationResolve.js"
+import { pageRouteSettings } from "./settings_url/pageRouteSettings.js"
 import { workspacePageStateCreate } from "./workspacePageStateCreate.js"
 
 type PrimaryNavigationActivationEvent = MouseEvent & { currentTarget: HTMLAnchorElement }
@@ -23,7 +27,7 @@ export function primaryNavigationStateCreate() {
   }
 
   return {
-    settingsIsActive: () => primaryNavigationPathIsActive(pathname(), "/settings"),
+    settingsIsActive: () => primaryNavigationPathIsActive(pathname(), pageRouteSettings.settings),
     items: [
       {
         activate: sessionsActivate,
@@ -40,9 +44,9 @@ export function primaryNavigationStateCreate() {
         controls: undefined,
         description: "Browse and inspect files in your connected repositories.",
         expanded: undefined,
-        href: () => "/explorer",
+        href: urlFiles,
         icon: mdiFolderOutline,
-        isActive: () => primaryNavigationPathIsActive(pathname(), "/explorer"),
+        isActive: () => primaryNavigationPathIsActive(pathname(), pageRouteFiles.files),
         label: "Explorer",
       },
       {
@@ -50,9 +54,9 @@ export function primaryNavigationStateCreate() {
         controls: undefined,
         description: "Capture and revisit notes alongside your coding work.",
         expanded: undefined,
-        href: () => "/notes",
+        href: urlNotes,
         icon: mdiNoteTextOutline,
-        isActive: () => primaryNavigationPathIsActive(pathname(), "/notes"),
+        isActive: () => primaryNavigationPathIsActive(pathname(), urlNotes()),
         label: "Notes",
       },
     ],

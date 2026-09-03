@@ -3,7 +3,9 @@ import { createMemo } from "solid-js"
 import { runSessionSnapshotFetch } from "../../run/ui/runSessionSnapshotFetch.js"
 import { simulationScenarioSessionMetadata } from "../../simulation/simulationScenarioSessionMetadata.js"
 import { simulationScenarioSessionResolve } from "../../simulation/simulationScenarioSessionResolve.js"
+import { urlDashboard } from "../dashboard_url/urlDashboard.js"
 import type { SessionNavigationState } from "../sessionNavigationStateCreate.js"
+import { urlWorkspace } from "../workspace_url/urlWorkspace.js"
 import { workspaceScreenStateCreate } from "../workspaceScreenStateCreate.js"
 import { simulateInspectorStateCreate } from "./simulateInspectorStateCreate.js"
 
@@ -18,10 +20,10 @@ export function simulateAppStateCreate() {
     clearSession: () => undefined,
     isNewSessionRoute: () => false,
     selectedSessionId: () => scenario().sessionId,
-    startNewSession: () => navigate("/sessions/new?tab=recent"),
+    startNewSession: () => navigate(urlWorkspace.sessionsNew({ tab: "recent" })),
     selectSession: (sessionId: string) => {
       const selectedScenario = simulationScenarios.find((candidate) => candidate.sessionId === sessionId)
-      navigate(selectedScenario?.href ?? `/?session=${encodeURIComponent(sessionId)}`)
+      navigate(selectedScenario?.href ?? `${urlDashboard()}?session=${encodeURIComponent(sessionId)}`)
     },
   } satisfies SessionNavigationState
 

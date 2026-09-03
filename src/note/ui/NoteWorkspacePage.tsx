@@ -2,6 +2,7 @@ import { A } from "@solidjs/router"
 import { For, Show } from "solid-js"
 import { Badge } from "#ui/static/badge/Badge.jsx"
 import { ProjectAvatar } from "../../project/ui/ProjectAvatar.js"
+import { urlNoteNew, urlNoteView } from "../note_url/urlNote.js"
 import { NotePage } from "./NotePage.js"
 import { noteContentSummarize } from "./noteContentSummarize.js"
 import { noteDataStatusNoticeResolve } from "./noteDataStatusNoticeResolve.js"
@@ -18,7 +19,7 @@ export function NoteWorkspacePage(props: { state: NoteWorkspaceScreenView }) {
       >
         <div class="mb-4 flex items-center justify-between gap-3">
           <p class="m-0 font-mono text-[10px] font-bold tracking-[0.14em] text-accent uppercase">Notes</p>
-          <A class="text-sm text-accent no-underline hover:underline" href="/notes/new">
+          <A class="text-sm text-accent no-underline hover:underline" href={urlNoteNew()}>
             New
           </A>
         </div>
@@ -67,7 +68,7 @@ export function NoteWorkspacePage(props: { state: NoteWorkspaceScreenView }) {
                         <A
                           class="min-w-0 flex-1 truncate rounded-md px-2 py-1.5 text-sm no-underline hover:bg-surface-hover aria-[current=page]:bg-line-subtle aria-[current=page]:text-accent"
                           classList={{ "text-faint": note.id !== state.activeNoteId() }}
-                          href={`/notes/${encodeURIComponent(note.id)}`}
+                          href={urlNoteView(note.id)}
                         >
                           {noteContentSummarize(note.content).heading}
                         </A>
