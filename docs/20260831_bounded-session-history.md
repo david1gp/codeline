@@ -2,14 +2,16 @@
 
 ## Goal
 
-Open a session with the latest agent answer and about 25 recent semantic steps, keep live state current without transferring full history, load older context and tool/run details on demand, expose agents waiting for input, and open delegated child conversations from their parent timeline.
+Open a session with the latest agent answer and about 25 recent semantic steps, keep live state current without transferring full history, load older context and tool/run details on demand, expose authoritative waiting state when supported, and open delegated child conversations from their parent timeline.
+
+Lasting architecture: [`docs/20260822_http_sse_migration_plan.md`](20260822_http_sse_migration_plan.md).
 
 ## Decisions
 
 - Keep messages, runs, attempts, delegations, and journal events canonical; add a session-owned history projection for bounded reads.
 - Use one bounded, transactionally consistent session snapshot with a session-local `throughPosition`, latest answer, projected entries, current run/input state, and an opaque older-page cursor.
 - Page backward by immutable projected-entry positions fixed to the snapshot `throughPosition`; never use offsets or paginate token deltas.
-- Start the selected-session live tail strictly after `throughPosition`; retain only lightweight lifecycle/input-needed summaries on the user-wide feed.
+- Start the selected-session live tail from the snapshot's session `changePosition` cursor; apply immutable timeline ordering by `position` and retain only lightweight lifecycle/input-needed summaries on the user-wide feed.
 - Represent tool and run timeline entries compactly and fetch full normalized details only when expanded.
 - Treat `waiting_for_input` as explicit durable state only when supported by an authoritative runtime event; do not infer it from tool names.
 - Navigate delegations by `parentSessionId + childRunId + delegationId`, using the existing right-side child conversation panel and the same bounded loading contract.
@@ -17,16 +19,20 @@ Open a session with the latest agent answer and about 25 recent semantic steps, 
 
 ## Approach
 
-- Current context: bounded session history and the managed-checkout deploy repair are pushed and deployed through `b0279c6`; managed and public readiness checks pass.
+- The bounded session-history implementation and cutover are complete; the lasting decisions are recorded in the HTTP/SSE migration plan linked above.
 - Add backend schemas and transactional read models before changing existing selected-session reads.
 - Introduce the bounded snapshot and fixed-watermark older-history API, then add lazy detail and child references.
-- Migrate selected-session state to snapshot-plus-tail, retaining existing reconciliation behavior as fallback.
+- Migrate selected-session state to bounded snapshot-plus-tail with authoritative monotonic reconciliation: retain the visible tail until replacement succeeds, reject stale replacements/events, resnapshot after reset or retention eviction, and never synthesize positions.
 - Update the existing conversation and subagent panel UI rather than creating a new route or visual system.
 - Verify each increment with focused tests at concurrency 1, then verify through the repository-managed combined preview service and browser.
 
+## Current context
+
+The bounded-history cutover is complete. Waiting-for-input history remains deferred until the runtime provides an authoritative durable request and resolution protocol.
+
 ## Session history projection contract
 
-This section defines the target contract for the atomic bounded-history cutover. `globalSequence`
+This section defines the implemented contract for the atomic bounded-history cutover. `globalSequence`
 remains the user-global journal order, while `position` and `throughPosition` are session-local and
 are never compared with it.
 
@@ -38,7 +44,7 @@ are never compared with it.
 | Run-summary entry | `("run", run.id)` | Create exactly once in the same transaction as the run and initial attempt, including child runs. | Update the same entry for accepted, running, terminal, retry, failure, and cancellation state; never create an entry per attempt. |
 | Tool-summary entry | `("tool", run.id, toolCallId)` | Create on the first authoritative observation of the stable tool call. The existing detail contract scopes `toolCallId`/`detailId` by `runId`. | Update the same entry as bounded name, output/result state, outcome, and delegation metadata become available. Repeated events for the same run/tool call do not create another entry. |
 | Delegation metadata | `delegation.id`, attached to `("tool", parentRunId, delegationKey)` | Attach `{ delegationId, parentSessionId, childRunId }` to the parent tool entry in the child-creation transaction, creating that tool entry first if needed. | Finalization updates that tool entry; there is no separate delegation timeline entry. |
-| Bounded active-run state | `run.id`; not a history entry | Create with the active run. | Replace bounded partial state transactionally as output arrives, then remove it only after finalized detail is durable. It has change positions but no timeline position of its own. |
+| Bounded active-run state | `run.id`; not a history entry | Create with the active run. | Replace bounded partial state transactionally as output arrives, then remove it only after finalized detail is durable. It has `changePosition` values but no timeline position of its own. |
 | Finalized run detail | `run.id`; not a history entry | Persist one bounded run transcript and its bounded tool details before deleting run deltas. | Immutable after terminal persistence; an identical terminal retry is a no-op and conflicting terminal content is an invariant failure. |
 
 Storage may encode compound source identities differently, but it must preserve the components
@@ -109,17 +115,19 @@ selected-session stream handoff well-defined.
   session. The server derives the parent session through `runDelegationTable`; the delegation must
   belong to that session and name that child run. Branch sessions remain separate and continue to use
   `session.parentSessionId`.
-- The global feed and selected-session stream have separate schemas, authorization, cursors, replay,
-  and reset behavior. Global frames are ordered by `globalSequence` and contain only lifecycle
-  summaries, invalidations, resets, and authoritative input-needed summaries; transcript, tool,
-  thinking, provider, and generic delta payloads are prohibited. Selected-session frames are ordered
+- The global feed and selected-session stream have separate schemas, authorization, cursors, and replay
+  behavior. Global frames are ordered by `globalSequence` and contain only lifecycle summaries,
+  invalidations, and authoritative input-needed summaries; an expired global cursor returns HTTP 400 and
+  triggers reconciliation rather than delivering a reset frame. Transcript, tool, thinking, provider, and
+  generic delta payloads are prohibited. Selected-session frames are ordered
   by `changePosition`, identify the stable projected entry when applicable, and carry its immutable
   ordering `position` separately.
-- Every named JSON SSE frame must have matching frame/data ID and event type. Before emission,
-  `streamSseFrameSchema.ts` must validate that the complete UTF-8 serialization produced by
-  `streamSseFrameSerialize.ts`—`id`, `event`, `data`, separators, and final blank line—is at most 128
-  KiB before compression. Producers must bound, split, invalidate, or reset rather than emit an
-  oversized frame.
+- Every named JSON SSE frame must have matching frame/data ID and event type. The
+  `globalSummarySseFrameSchema` and `sessionDetailSseFrameSchema` validators enforce their respective
+  frame contracts. Before emission, `streamSseConnectionWriterCreate.ts` validates and serializes the
+  complete UTF-8 frame with `streamSseFrameSerialize.ts`—`id`, `event`, `data`, separators, and final
+  blank line—and enforces a maximum of 128 KiB before compression. Producers must bound, split, invalidate,
+  or reset rather than emit an oversized frame.
 
 These rules extend existing contracts rather than treating current reconstruction as the target:
 `databaseExecutorTransactionRun.ts` already composes nested repository calls into an outer
@@ -129,19 +137,18 @@ transaction; message idempotency is session-scoped in `messageRepositoryAppend.t
 `runToolDetailIdCreate.ts`; delegation ownership and idempotency are defined by
 `runDelegationTable.ts` and `runRepositoryChildCreate.ts`; opaque payload cursors are supported by
 `journalCursorCodecCreate.ts`; and the complete-frame limit is enforced by
-`streamSseFrameSchema.ts`. `sessionRepositoryBranch.ts` currently spans separate writes, so bringing
-session creation, copied messages, and their projections under one outer transaction is an explicit
-later implementation requirement, not an exception to this contract.
+`streamSseConnectionWriterCreate.ts` and the two frame validators. Session creation, copied messages, and
+their projections participate in one outer transaction; this contract has no separate-write exception.
 
 ## Tasks
 
 - [x] 1. Add bounded snapshot, semantic-step, watermark, and cursor contracts with focused schema tests.
 - [x] 2. Implement the transactionally consistent bounded session snapshot repository/action/API and handoff tests.
-- [x] 3. Implement fixed-`throughSeq` backward keyset pagination for older semantic history and stability tests.
+- [x] 3. Implement fixed-`throughPosition` backward keyset pagination for older semantic history and stability tests.
 - [x] 4. Add compact run/tool projections and lazy run/tool detail API with payload-boundary tests.
-- [x] 5. Add authoritative waiting-for-input projection and response handling where the runtime protocol supports it.
-- [x] 6. Add stable parent/child session references required for delegation navigation and API tests.
+- [x] 5. Handle waiting-for-input only where the runtime protocol supports it; defer authoritative waiting-for-input history until a durable request and resolution protocol exists.
+- [x] 6. Add delegation navigation and API coverage using `parentSessionId + childRunId + delegationId`.
 - [x] 7. Migrate selected-session client state to bounded snapshot-plus-tail with incremental older-page loading.
-- [x] 8. Update the session UI to emphasize the latest answer, show about 25 recent semantic steps, load older steps, lazily expand details, display waiting state, and open child conversations.
+- [x] 8. Update the session UI to emphasize the latest answer, show about 25 recent semantic steps, load older steps, lazily expand details, display supported waiting state, and open child conversations.
 - [x] 9. Run focused and repository verification, then test the combined managed preview in a browser.
-- [x] 10. Review and publish the completed work with conventional commits, push, and deploy.
+- [x] 10. Review the completed implementation, record its lasting architecture decisions, and close this plan.
