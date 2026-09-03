@@ -59,7 +59,7 @@ test("fails fast when authenticated event route dependencies are incomplete", ()
       database: {} as never,
       journalCursorCodec: {} as never,
     }),
-  ).toThrow("The authenticated event feed dependencies are required.")
+  ).toThrow("The global summary event feed dependencies are required.")
 })
 
 test("app composition wires the complete authenticated event route", async () => {
@@ -80,19 +80,22 @@ test("app composition wires the complete authenticated event route", async () =>
       transaction: async (operation: (transaction: unknown) => Promise<unknown>) => operation({}),
     } as never,
     developmentIdentityUpsert: async () => createResult(user as never),
-    journalBacklogRead: async () => {
+    journalGlobalSummaryBacklogRead: async () => {
       const pages = async function* () {
         yield createResult([])
       }
       return createResult({
-        afterSequence: 0,
+        afterGlobalSequence: 0,
         mode: "replay" as const,
         pages: pages(),
         replayUpperBound: 0,
         selectedCursor: undefined,
       } as never)
     },
-    journalCursorCodec: {} as never,
+    journalCursorCodec: {
+      encodeGlobalSequence: () => createResult("global-cursor"),
+      validateGlobalSequence: () => createResult({ globalSequence: 0 }),
+    } as never,
     metricsCollector: metricsCollectorCreate(),
     organizationMemberLoad: async () =>
       createResult({
@@ -101,6 +104,7 @@ test("app composition wires the complete authenticated event route", async () =>
         subject: user.identityKey,
         userId: user.id,
       } as never),
+    globalSummaryLiveSubscription: streamLiveSubscriptionCreate(),
     streamLiveSubscription: streamLiveSubscriptionCreate(),
     streamSseConnectionWriterCreate: streamSseConnectionWriterCreate,
     streamSseNow: Date.now,

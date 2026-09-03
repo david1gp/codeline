@@ -12,9 +12,9 @@ import type { DatabaseConnection } from "../database/databaseClient.js"
 import { databaseConnectionClose } from "../database/databaseConnectionClose.js"
 import { databaseCreate } from "../database/databaseCreate.js"
 import { databaseUrl } from "../database/databaseUrl.js"
-import { journalBacklogRead } from "../journal/actions/journalBacklogRead.js"
 import type { JournalCursorCodec } from "../journal/actions/journalCursorCodecCreate.js"
 import { journalCursorCodecCreate } from "../journal/actions/journalCursorCodecCreate.js"
+import { journalEventsPruneSchedulerCreate } from "../journal/actions/journalEventsPruneSchedulerCreate.js"
 import { journalGlobalSummaryBacklogRead } from "../journal/actions/journalGlobalSummaryBacklogRead.js"
 import { journalGlobalSummaryPostCommitPublishCreate } from "../journal/actions/journalGlobalSummaryPostCommitPublishCreate.js"
 import { journalPostCommitPublishCreate } from "../journal/actions/journalPostCommitPublishCreate.js"
@@ -27,6 +27,8 @@ import { sessionDetailPostCommitPublishCreate } from "../session/actions/session
 import { sessionDetailStreamBacklogRead } from "../session/actions/sessionDetailStreamBacklogRead.js"
 import { streamLiveSubscriptionCreate } from "../stream/actions/streamLiveSubscriptionCreate.js"
 import { streamSseConnectionWriterCreate } from "../stream/actions/streamSseConnectionWriterCreate.js"
+import type { StreamSseConnectionWriterFactory } from "../stream/actions/streamSseConnectionWriterFactory.js"
+import type { StreamSseConnectionWriterScheduler } from "../stream/actions/streamSseConnectionWriterScheduler.js"
 import { streamSseSchedulerCreate } from "../stream/actions/streamSseSchedulerCreate.js"
 import { serverShutdownCoordinatorCreate } from "./serverShutdownCoordinatorCreate.js"
 
@@ -55,14 +57,13 @@ type ServerStartOptions = {
     projectRootDirs: readonly string[]
     providerAgentCatalog?: ProviderCatalog
     journalCursorCodec: JournalCursorCodec
-    journalBacklogRead: typeof journalBacklogRead
     journalGlobalSummaryBacklogRead: typeof journalGlobalSummaryBacklogRead
     journalPostCommitPublish: ReturnType<typeof journalPostCommitPublishCreate>
     sessionDetailStreamBacklogRead: typeof sessionDetailStreamBacklogRead
     streamLiveSubscription: ReturnType<typeof streamLiveSubscriptionCreate>
-    streamSseConnectionWriterCreate: typeof streamSseConnectionWriterCreate
+    streamSseConnectionWriterCreate: StreamSseConnectionWriterFactory
     streamSseNow: () => number
-    streamSseScheduler: Parameters<typeof streamSseConnectionWriterCreate>[0]["scheduler"]
+    streamSseScheduler: StreamSseConnectionWriterScheduler
     shutdownCoordinator: ReturnType<typeof serverShutdownCoordinatorCreate>
     runActiveRegistry: ReturnType<typeof runActiveRegistryCreate>
     metricsCollector: ReturnType<typeof metricsCollectorCreate>
@@ -74,6 +75,7 @@ type ServerStartOptions = {
   projectRootDirs?: readonly string[]
   providerAgentCatalog?: ProviderCatalog
   journalCursorCodec?: JournalCursorCodec
+  journalEventsPruneScheduler?: ReturnType<typeof journalEventsPruneSchedulerCreate>
   runActiveRegistry?: ReturnType<typeof runActiveRegistryCreate>
   runStartupInterruptionReconcile?: typeof runStartupInterruptionReconcile
   serve?: Serve
@@ -154,10 +156,13 @@ export async function serverStart(options: ServerStartOptions = {}): Promise<Ser
   const journalCursorCodec = options.journalCursorCodec ?? serverJournalCursorCodecCreate()
   const streamLiveSubscription = streamLiveSubscriptionCreate()
   const streamSseScheduler = streamSseSchedulerCreate()
-  const journalDetailPostCommitPublish = journalPostCommitPublishCreate({
-    cursorCodec: journalCursorCodec,
-    liveSubscription: streamLiveSubscription,
-  })
+  const metricsCollector = options.metricsCollector ?? metricsCollectorCreate()
+  const journalEventsPruneScheduler =
+    options.journalEventsPruneScheduler ??
+    journalEventsPruneSchedulerCreate({
+      database: database.data.db,
+      metricsCollector,
+    })
   const journalGlobalSummaryPostCommitPublish = journalGlobalSummaryPostCommitPublishCreate({
     cursorCodec: journalCursorCodec,
     liveSubscription: streamLiveSubscription,
@@ -167,15 +172,11 @@ export async function serverStart(options: ServerStartOptions = {}): Promise<Ser
     database: database.data.db,
     liveSubscription: streamLiveSubscription,
   })
-  const journalPostCommitPublish = async (events: Parameters<typeof journalDetailPostCommitPublish>[0]) => {
-    const detailPublished = await journalDetailPostCommitPublish(events)
-    const sessionDetailPublished = await sessionDetailPostCommitPublish(events)
-    const globalSummaryPublished = await journalGlobalSummaryPostCommitPublish(events)
-    if (!detailPublished.success) return detailPublished
-    if (!sessionDetailPublished.success) return sessionDetailPublished
-    return globalSummaryPublished
-  }
-  const metricsCollector = options.metricsCollector ?? metricsCollectorCreate()
+  const journalPostCommitPublish = journalPostCommitPublishCreate({
+    globalSummaryPostCommitPublish: journalGlobalSummaryPostCommitPublish,
+    pruneScheduler: journalEventsPruneScheduler,
+    selectedSessionDetailPostCommitPublish: sessionDetailPostCommitPublish,
+  })
   const shutdownCoordinator = options.serverShutdownCoordinator ?? serverShutdownCoordinatorCreate()
   const runActiveRegistry = options.runActiveRegistry ?? runActiveRegistryCreate()
   const application = createApp({
@@ -185,7 +186,6 @@ export async function serverStart(options: ServerStartOptions = {}): Promise<Ser
     projectRootDirs,
     providerAgentCatalog: providerAgentCatalogResult.data,
     journalCursorCodec,
-    journalBacklogRead,
     journalGlobalSummaryBacklogRead,
     journalPostCommitPublish,
     sessionDetailStreamBacklogRead,
@@ -221,6 +221,12 @@ export async function serverStart(options: ServerStartOptions = {}): Promise<Ser
           const cleanupErrors: unknown[] = []
           try {
             await server.stop(true)
+          } catch (error: unknown) {
+            cleanupErrors.push(error)
+          }
+
+          try {
+            await journalEventsPruneScheduler.drain()
           } catch (error: unknown) {
             cleanupErrors.push(error)
           }

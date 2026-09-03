@@ -3,22 +3,7 @@ import * as v from "valibot"
 import { apiErrorResponseSchema } from "../src/api/errors/apiErrorResponseSchema.js"
 import { apiIdempotencyResultSchemaCreate } from "../src/api/schema/apiIdempotencyResultSchemaCreate.js"
 import { runActiveSnapshotResponseSchema } from "../src/run/api/runActiveSnapshotResponseSchema.js"
-import { runActiveSummarySchema } from "../src/run/api/runActiveSummarySchema.js"
-import { sessionSettledSnapshotResponseSchema } from "../src/session/api/sessionSettledSnapshotResponseSchema.js"
-import { streamSseFrameSchema } from "../src/stream/api/streamSseFrameSchema.js"
-import { streamSseFrameSerialize } from "../src/stream/api/streamSseFrameSerialize.js"
-
-const sseMaximumBytes = 128 * 1024
-const deltaEvent = {
-  delta: "",
-  deltaKind: "text" as const,
-  eventType: "delta" as const,
-  id: "journal-1",
-  messageId: null,
-  runId: "run-1",
-  sequence: 1,
-  sessionId: "session-1",
-}
+import { sessionBoundedSnapshotSchema } from "../src/session/api/sessionBoundedSnapshotSchema.js"
 
 test("the shared API error contract accepts structured precondition failures", () => {
   expect(
@@ -72,17 +57,9 @@ test("standard API error extensions are deliberately validated", () => {
   ).toBe(false)
 })
 
-test("active-run reconciliation accepts terminal statuses intentionally", () => {
+test("active-run snapshots accept terminal statuses intentionally", () => {
   const response = { lastSequence: 4, partialText: "partial" }
   for (const status of ["succeeded", "failed", "aborted"] as const) {
-    expect(
-      v.safeParse(runActiveSummarySchema, {
-        ...response,
-        runId: "run-1",
-        sessionId: "session-1",
-        status,
-      }).success,
-    ).toBe(true)
     expect(v.safeParse(runActiveSnapshotResponseSchema, { ...response, status }).success).toBe(true)
   }
   expect(v.safeParse(runActiveSnapshotResponseSchema, { ...response, input: null, status: "running" }).success).toBe(
@@ -90,69 +67,32 @@ test("active-run reconciliation accepts terminal statuses intentionally", () => 
   )
 })
 
-test("settled session reconciliation uses the complete authoritative typed payload", () => {
+test("bounded session reconciliation uses the bounded typed payload", () => {
   const response = {
-    asOfCursor: "cursor-4",
-    asOfSequence: 4,
-    etag: '"session-4"',
-    messages: [],
-    revision: 4,
-    schemaVersion: "session-snapshot-v1",
+    detailCursor: "cursor-4",
+    hasMore: false,
+    latestAnswer: null,
+    olderCursor: null,
+    semanticSteps: [{ id: "entry-1", kind: "message", role: "assistant", sequence: 1, summary: "Answer" }],
     session: {
-      archivedAt: null,
-      createdAt: "2026-01-01T00:00:00.000Z",
       id: "session-1",
-      metadata: null,
-      parentSessionId: null,
       pinned: false,
-      primaryAgentId: "agent-1",
       projectPath: "/tmp/project",
       revision: 4,
-      serverId: "server-1",
       title: "Session",
-      updatedAt: "2026-01-01T00:00:00.000Z",
     },
-    settled: true,
+    state: { input: null, run: null },
+    throughPosition: 1,
   }
-  expect(v.safeParse(sessionSettledSnapshotResponseSchema, response).success).toBe(true)
+  expect(v.safeParse(sessionBoundedSnapshotSchema, response).success).toBe(true)
   expect(
-    v.safeParse(sessionSettledSnapshotResponseSchema, {
+    v.safeParse(sessionBoundedSnapshotSchema, {
       ...response,
-      session: { ...response.session, id: "session-2" },
+      hasMore: true,
     }).success,
-  ).toBe(true)
-  expect(v.safeParse(sessionSettledSnapshotResponseSchema, { ...response, asOfCursor: undefined }).success).toBe(false)
-  expect(v.safeParse(sessionSettledSnapshotResponseSchema, { revision: 4 }).success).toBe(false)
-})
-
-test("SSE size validation covers the complete serialized frame", () => {
-  const emptyDataBytes = new TextEncoder().encode(JSON.stringify(deltaEvent)).byteLength
-  const frameOverheadBytes =
-    new TextEncoder().encode(streamSseFrameSerialize({ data: deltaEvent, event: "delta", id: deltaEvent.id }))
-      .byteLength - emptyDataBytes
-  const withinLimit = {
-    ...deltaEvent,
-    delta: "x".repeat(sseMaximumBytes - emptyDataBytes - frameOverheadBytes),
-  }
-  const overLimit = {
-    ...deltaEvent,
-    delta: "x".repeat(sseMaximumBytes - emptyDataBytes - frameOverheadBytes + 1),
-  }
-
-  expect(
-    new TextEncoder().encode(streamSseFrameSerialize({ data: withinLimit, event: "delta", id: withinLimit.id }))
-      .byteLength,
-  ).toBe(sseMaximumBytes)
-  expect(v.safeParse(streamSseFrameSchema, { data: withinLimit, event: "delta", id: withinLimit.id }).success).toBe(
-    true,
-  )
-  expect(
-    new TextEncoder().encode(streamSseFrameSerialize({ data: overLimit, event: "delta", id: overLimit.id })).byteLength,
-  ).toBe(sseMaximumBytes + 1)
-  expect(v.safeParse(streamSseFrameSchema, { data: overLimit, event: "delta", id: overLimit.id }).success).toBe(false)
-  expect(v.safeParse(streamSseFrameSchema, { data: deltaEvent, event: "run-failed", id: deltaEvent.id }).success).toBe(
-    false,
-  )
+  ).toBe(false)
+  expect(v.safeParse(sessionBoundedSnapshotSchema, { ...response, detailCursor: undefined }).success).toBe(false)
+  expect(v.safeParse(sessionBoundedSnapshotSchema, { throughPosition: -1 }).success).toBe(false)
 })
 
 test("idempotency results validate response bodies with an operation schema", () => {

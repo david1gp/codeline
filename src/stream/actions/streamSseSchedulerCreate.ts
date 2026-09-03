@@ -1,6 +1,6 @@
-import type { streamSseConnectionWriterCreate } from "./streamSseConnectionWriterCreate.js"
+import type { StreamSseConnectionWriterScheduler } from "./streamSseConnectionWriterScheduler.js"
 
-export function streamSseSchedulerCreate(): Parameters<typeof streamSseConnectionWriterCreate>[0]["scheduler"] {
+export function streamSseSchedulerCreate(): StreamSseConnectionWriterScheduler {
   return {
     clearInterval: (handle) => clearInterval(handle as ReturnType<typeof setInterval>),
     clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),

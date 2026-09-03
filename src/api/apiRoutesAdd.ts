@@ -16,7 +16,6 @@ import { oidcProviderDiscoveryCreate } from "../identity/oidc/oidcProviderDiscov
 import type { OidcProviderFetch } from "../identity/oidc/oidcProviderFetch.js"
 import { agentInstructionsDiscover } from "../instructions/actions/agentInstructionsDiscover.js"
 import { apiAgentInstructionRoutesAdd } from "../instructions/api/apiAgentInstructionRoutesAdd.js"
-import type { journalBacklogRead } from "../journal/actions/journalBacklogRead.js"
 import type { JournalCursorCodec } from "../journal/actions/journalCursorCodecCreate.js"
 import type { journalGlobalSummaryBacklogRead } from "../journal/actions/journalGlobalSummaryBacklogRead.js"
 import type { journalPostCommitPublishCreate } from "../journal/actions/journalPostCommitPublishCreate.js"
@@ -60,7 +59,9 @@ import { skillCatalogDiscover } from "../skills/actions/skillCatalogDiscover.js"
 import { skillPresetCatalogLoad } from "../skills/actions/skillPresetCatalogLoad.js"
 import { apiSkillRoutesAdd } from "../skills/api/apiSkillRoutesAdd.js"
 import type { streamLiveSubscriptionCreate } from "../stream/actions/streamLiveSubscriptionCreate.js"
-import type { streamSseConnectionWriterCreate } from "../stream/actions/streamSseConnectionWriterCreate.js"
+import type { StreamSseConnectionWriterFactory } from "../stream/actions/streamSseConnectionWriterFactory.js"
+import type { StreamSseConnectionWriterScheduler } from "../stream/actions/streamSseConnectionWriterScheduler.js"
+import type { StreamSseConnectionWriterSinkFactory } from "../stream/actions/streamSseConnectionWriterSinkFactory.js"
 import type { AppEnvironment } from "./appEnvironment.js"
 import type { apiClientLogJournalWrite } from "./diagnostics/apiClientLogJournalWrite.js"
 import { apiDiagnosticsRoutesAdd } from "./diagnostics/apiDiagnosticsRoutesAdd.js"
@@ -123,16 +124,16 @@ type ApiRoutesAddOptions = {
   oidcReturnToPathIsKnown?: typeof appKnownRouteResolve
   authCallbackRoute?: Hono<AppEnvironment>
   sessionChatAdapter?: typeof sessionChatAdapterCreate
-  journalBacklogRead?: typeof journalBacklogRead
   journalGlobalSummaryBacklogRead?: typeof journalGlobalSummaryBacklogRead
   journalCursorCodec?: JournalCursorCodec
   journalPostCommitPublish?: ReturnType<typeof journalPostCommitPublishCreate>
   sessionDetailStreamBacklogRead?: typeof sessionDetailStreamBacklogRead
   globalSummaryLiveSubscription?: ReturnType<typeof streamLiveSubscriptionCreate>
   streamLiveSubscription?: ReturnType<typeof streamLiveSubscriptionCreate>
-  streamSseConnectionWriterCreate?: typeof streamSseConnectionWriterCreate
+  streamSseConnectionWriterCreate?: StreamSseConnectionWriterFactory
+  streamSseConnectionWriterSinkCreate?: StreamSseConnectionWriterSinkFactory
   streamSseNow?: () => number
-  streamSseScheduler?: Parameters<typeof streamSseConnectionWriterCreate>[0]["scheduler"]
+  streamSseScheduler?: StreamSseConnectionWriterScheduler
   metricsCollector?: ReturnType<typeof metricsCollectorCreate>
   clientLogJournalWrite?: typeof apiClientLogJournalWrite
 }
@@ -280,41 +281,32 @@ export function apiRoutesAdd(
     fetch: options.providerFetch ?? globalThis.fetch,
     providerAgentCatalog: options.providerAgentCatalog,
   })
-  // The authenticated feed is only constructed when both its auth middleware and
-  // opaque cursor codec are present. Partial API composition is allowed only
-  // when the authenticated event route cannot be configured at all.
+  // Partial API composition is allowed until authenticated routing is requested.
+  // Once it is requested, the global endpoint can only be built from its summary
+  // backlog and summary subscription contract.
   if (
-    (options.journalBacklogRead === undefined && options.journalGlobalSummaryBacklogRead === undefined) ||
-    options.streamSseConnectionWriterCreate === undefined ||
-    options.streamSseNow === undefined ||
-    options.streamSseScheduler === undefined ||
-    options.streamLiveSubscription === undefined ||
-    options.metricsCollector === undefined
-  ) {
-    if (
-      options.configuration !== undefined &&
-      options.database !== undefined &&
-      options.journalCursorCodec !== undefined
-    ) {
-      throw new Error("The authenticated event feed dependencies are required.")
-    }
-  } else if (
     options.configuration !== undefined &&
     options.database !== undefined &&
     options.journalCursorCodec !== undefined
   ) {
-    if (options.journalGlobalSummaryBacklogRead !== undefined && options.globalSummaryLiveSubscription === undefined)
+    if (options.journalGlobalSummaryBacklogRead === undefined || options.globalSummaryLiveSubscription === undefined)
       throw new Error("The global summary event feed dependencies are required.")
-    const backlogRead = options.journalGlobalSummaryBacklogRead ?? options.journalBacklogRead
-    if (backlogRead === undefined) throw new Error("The authenticated event feed backlog reader is required.")
+    if (
+      options.streamSseConnectionWriterCreate === undefined ||
+      options.streamSseNow === undefined ||
+      options.streamSseScheduler === undefined ||
+      options.metricsCollector === undefined
+    )
+      throw new Error("The authenticated event feed dependencies are required.")
+
     apiEventsRoutesAdd(api, {
-      backlogRead,
+      backlogRead: options.journalGlobalSummaryBacklogRead,
       connectionWriterCreate: options.streamSseConnectionWriterCreate,
       cursorCodec: options.journalCursorCodec,
       globalSummaryLiveSubscription: options.globalSummaryLiveSubscription,
-      liveSubscription: options.streamLiveSubscription,
       now: options.streamSseNow,
       scheduler: options.streamSseScheduler,
+      sinkCreate: options.streamSseConnectionWriterSinkCreate,
       metricsCollector: options.metricsCollector,
     })
   }
@@ -337,6 +329,7 @@ export function apiRoutesAdd(
       metricsCollector: options.metricsCollector,
       now: options.streamSseNow,
       scheduler: options.streamSseScheduler,
+      sinkCreate: options.streamSseConnectionWriterSinkCreate,
     })
   }
   apiTestingRoutesAdd(api)

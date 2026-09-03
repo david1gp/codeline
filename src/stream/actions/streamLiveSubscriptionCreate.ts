@@ -1,13 +1,9 @@
 import * as v from "valibot"
 import type { GlobalSummarySseFrame } from "../api/globalSummarySseFrameSchema.js"
 import { globalSummarySseFrameSchema } from "../api/globalSummarySseFrameSchema.js"
-import type { StreamSseFrame } from "../api/streamSseFrameSchema.js"
-import type { JournalEvent } from "../schema/journalEventSchema.js"
 import type { SessionDetailSseFrame } from "../../session/api/sessionDetailSseFrameSchema.js"
 import { sessionDetailSseFrameSchema } from "../../session/api/sessionDetailSseFrameSchema.js"
 
-type StreamLiveEvent = JournalEvent | StreamSseFrame
-type StreamLiveSubscriber = (event: StreamLiveEvent, publishedUserId: string) => void
 type GlobalSummarySubscriber = (event: GlobalSummarySseFrame, publishedUserId: string) => void
 type SelectedSessionDetailSubscriber = (event: SessionDetailSseFrame, publishedUserId: string) => void
 
@@ -95,7 +91,6 @@ export function streamLiveSubscriptionCreate() {
   const subscriberErrorHandler = (_error: unknown): void => {
     // A broken connection must not prevent another connection from receiving the event.
   }
-  const detailChannel = streamLiveChannelCreate<StreamLiveEvent>(subscriberErrorHandler)
   const globalSummaryChannel = streamLiveChannelCreate<GlobalSummarySseFrame>(subscriberErrorHandler)
   const selectedSessionDetailChannel = streamLiveSessionChannelCreate<SessionDetailSseFrame>(subscriberErrorHandler)
   const globalSummaryPublish = (userId: string, event: GlobalSummarySseFrame): void => {
@@ -116,9 +111,6 @@ export function streamLiveSubscriptionCreate() {
     selectedSessionDetailPublish,
     selectedSessionDetailSubscribe: selectedSessionDetailChannel.subscribe,
     selectedSessionDetailSubscriberCount: selectedSessionDetailChannel.subscriberCount,
-    publish: detailChannel.publish,
-    subscribe: detailChannel.subscribe,
-    subscriberCount: detailChannel.subscriberCount,
   } satisfies {
     globalSummaryPublish: (userId: string, event: GlobalSummarySseFrame) => void
     globalSummarySubscribe: (userId: string, subscriber: GlobalSummarySubscriber) => () => void
@@ -130,8 +122,5 @@ export function streamLiveSubscriptionCreate() {
       subscriber: SelectedSessionDetailSubscriber,
     ) => () => void
     selectedSessionDetailSubscriberCount: (userId: string, sessionId: string) => number
-    publish: (userId: string, event: StreamLiveEvent) => void
-    subscribe: (userId: string, subscriber: StreamLiveSubscriber) => () => void
-    subscriberCount: (userId: string) => number
   }
 }

@@ -1,41 +1,12 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
-import type { metricsCollectorCreate } from "../../metrics/metricsCollectorCreate.js"
-import type { GlobalSummarySseFrame } from "../api/globalSummarySseFrameSchema.js"
-import { globalSummarySseFrameSchema } from "../api/globalSummarySseFrameSchema.js"
-import type { StreamSseFrame } from "../api/streamSseFrameSchema.js"
-import { streamSseFrameSchema } from "../api/streamSseFrameSchema.js"
-import { streamSseFrameSerialize } from "../api/streamSseFrameSerialize.js"
-import type { JournalEvent } from "../schema/journalEventSchema.js"
 import type { SessionDetailSseFrame } from "../../session/api/sessionDetailSseFrameSchema.js"
 import { sessionDetailSseFrameSchema } from "../../session/api/sessionDetailSseFrameSchema.js"
-
-type StreamSseConnectionWriterSink = {
-  abort: (reason?: unknown) => Promise<void> | void
-  close: () => Promise<void> | void
-  write: (chunk: Uint8Array) => Promise<void>
-}
-
-type StreamSseConnectionWriterScheduler = {
-  clearInterval: (handle: unknown) => void
-  clearTimeout: (handle: unknown) => void
-  setInterval: (handler: () => void, timeoutMs: number) => unknown
-  setTimeout: (handler: () => void, timeoutMs: number) => unknown
-}
-
-type StreamSseConnectionWriterDependencies = {
-  baselineSequence: number
-  baselineGlobalSequence?: number
-  now: () => number
-  sequenceKind?: "global-summary" | "journal" | "session-detail"
-  scheduler: StreamSseConnectionWriterScheduler
-  subscription: {
-    subscribe: (userId: string, subscriber: (event: StreamSseConnectionInputEvent) => void) => () => void
-  }
-  userId: string
-  writer: StreamSseConnectionWriterSink
-  metricsCollector?: ReturnType<typeof metricsCollectorCreate>
-}
+import type { GlobalSummarySseFrame } from "../api/globalSummarySseFrameSchema.js"
+import { globalSummarySseFrameSchema } from "../api/globalSummarySseFrameSchema.js"
+import { streamSseFrameSerialize } from "../api/streamSseFrameSerialize.js"
+import type { StreamSseConnectionWriter } from "./streamSseConnectionWriter.js"
+import type { StreamSseConnectionWriterDependencies } from "./streamSseConnectionWriterDependencies.js"
 
 type StreamSseConnectionQueueEvent = {
   allowBaseline: boolean
@@ -44,7 +15,7 @@ type StreamSseConnectionQueueEvent = {
   sequence: number
 }
 
-type StreamSseConnectionInputEvent = GlobalSummarySseFrame | JournalEvent | SessionDetailSseFrame | StreamSseFrame
+type StreamSseConnectionInputEvent = GlobalSummarySseFrame | SessionDetailSseFrame
 
 const streamSseConnectionWriterHeartbeatIntervalMs = 15_000
 const streamSseConnectionWriterBlockedWriteTimeoutMs = 15_000
@@ -57,13 +28,12 @@ const streamSseConnectionWriterHeartbeat = new TextEncoder().encode(": heartbeat
 
 function streamSseConnectionFrameCreate(
   event: StreamSseConnectionInputEvent,
-  sequenceKind: "global-summary" | "journal" | "session-detail",
+  sequenceKind: "global-summary" | "session-detail",
 ): Result<Uint8Array> {
   const op = "streamSseConnectionFrameCreate"
   try {
-    const frame = "data" in event ? event : { data: event, event: event.eventType, id: event.id }
     if (sequenceKind === "global-summary") {
-      const parsed = v.safeParse(globalSummarySseFrameSchema, frame)
+      const parsed = v.safeParse(globalSummarySseFrameSchema, event)
       if (!parsed.success) return createResultError(op, "The global summary SSE event is invalid or exceeds 128 KiB.")
       const bytes = new TextEncoder().encode(streamSseFrameSerialize(parsed.output))
       if (bytes.byteLength > streamSseConnectionWriterMaximumFrameBytes)
@@ -71,22 +41,11 @@ function streamSseConnectionFrameCreate(
       return createResult(bytes)
     }
 
-    if (sequenceKind === "session-detail") {
-      const parsed = v.safeParse(sessionDetailSseFrameSchema, frame)
-      if (!parsed.success) return createResultError(op, "The selected-session SSE event is invalid or exceeds 128 KiB.")
-      const bytes = new TextEncoder().encode(streamSseFrameSerialize(parsed.output))
-      if (bytes.byteLength > streamSseConnectionWriterMaximumFrameBytes)
-        return createResultError(op, "The selected-session SSE event is invalid or exceeds 128 KiB.")
-      return createResult(bytes)
-    }
-
-    const globalParsed = v.safeParse(globalSummarySseFrameSchema, frame)
-    const parsed = globalParsed.success ? globalParsed : v.safeParse(streamSseFrameSchema, frame)
-    if (!parsed.success) return createResultError(op, "The SSE event is invalid or exceeds 128 KiB.")
-
+    const parsed = v.safeParse(sessionDetailSseFrameSchema, event)
+    if (!parsed.success) return createResultError(op, "The selected-session SSE event is invalid or exceeds 128 KiB.")
     const bytes = new TextEncoder().encode(streamSseFrameSerialize(parsed.output))
     if (bytes.byteLength > streamSseConnectionWriterMaximumFrameBytes)
-      return createResultError(op, "The SSE event is invalid or exceeds 128 KiB.")
+      return createResultError(op, "The selected-session SSE event is invalid or exceeds 128 KiB.")
     return createResult(bytes)
   } catch (_error) {
     return createResultError(op, "The SSE event could not be serialized.")
@@ -95,54 +54,39 @@ function streamSseConnectionFrameCreate(
 
 function streamSseConnectionEventSequence(
   event: StreamSseConnectionInputEvent,
-  sequenceKind: "global-summary" | "journal" | "session-detail",
+  sequenceKind: "global-summary" | "session-detail",
 ): number {
-  if (!("data" in event)) {
-    if (sequenceKind === "global-summary")
-      return "globalSequence" in event && typeof event.globalSequence === "number" ? event.globalSequence : Number.NaN
-    if (sequenceKind === "session-detail")
-      return "changePosition" in event && typeof event.changePosition === "number" ? event.changePosition : Number.NaN
-    return event.sequence
-  }
   if (sequenceKind === "global-summary") {
     const globalParsed = v.safeParse(globalSummarySseFrameSchema, event)
     return globalParsed.success ? globalParsed.output.data.globalSequence : Number.NaN
   }
-  if (sequenceKind === "session-detail") {
-    const selectedParsed = v.safeParse(sessionDetailSseFrameSchema, event)
-    return selectedParsed.success
-      ? selectedParsed.output.data.eventType === "entry"
-        ? selectedParsed.output.data.changePosition
-        : selectedParsed.output.data.asOfPosition
-      : Number.NaN
-  }
-  const globalParsed = v.safeParse(globalSummarySseFrameSchema, event)
-  if (globalParsed.success) return globalParsed.output.data.globalSequence
-  const legacyParsed = v.safeParse(streamSseFrameSchema, event)
-  if (legacyParsed.success) return legacyParsed.output.data.sequence
-  return Number.NaN
+  const selectedParsed = v.safeParse(sessionDetailSseFrameSchema, event)
+  return selectedParsed.success
+    ? selectedParsed.output.data.eventType === "entry"
+      ? selectedParsed.output.data.changePosition
+      : selectedParsed.output.data.asOfPosition
+    : Number.NaN
 }
 
 function streamSseConnectionEventKey(
   event: StreamSseConnectionInputEvent,
-  sequenceKind: "global-summary" | "journal" | "session-detail",
+  sequenceKind: "global-summary" | "session-detail",
 ): string {
   if (sequenceKind === "session-detail") {
-    const parsed = v.safeParse(
-      sessionDetailSseFrameSchema,
-      "data" in event ? event : { data: event, event: event.eventType, id: event.id },
-    )
+    const parsed = v.safeParse(sessionDetailSseFrameSchema, event)
     if (parsed.success) {
       if (parsed.output.data.eventType === "entry")
         return `entry:${parsed.output.data.entryId}:${parsed.output.data.changePosition}`
       return `reset:${parsed.output.data.sessionId}:${parsed.output.data.asOfPosition}`
     }
   }
-  return "data" in event ? event.id : event.id
+  return event.id
 }
 
-export function streamSseConnectionWriterCreate(dependencies: StreamSseConnectionWriterDependencies) {
-  const sequenceKind = dependencies.sequenceKind ?? "journal"
+export function streamSseConnectionWriterCreate(
+  dependencies: StreamSseConnectionWriterDependencies,
+): StreamSseConnectionWriter {
+  const sequenceKind = dependencies.sequenceKind
   const eventQueue = new Map<string, StreamSseConnectionQueueEvent>()
   const replayQueue = new Map<string, StreamSseConnectionQueueEvent>()
   const heartbeatQueue: Uint8Array[] = []
@@ -152,7 +96,6 @@ export function streamSseConnectionWriterCreate(dependencies: StreamSseConnectio
     resolveDisconnected = resolve
   })
 
-  let resolveShutdown: () => void = () => undefined
   let shutdownPromise: Promise<void> | undefined
   let backlogOpen = true
   let connected = false
@@ -204,9 +147,6 @@ export function streamSseConnectionWriterCreate(dependencies: StreamSseConnectio
   const shutdown = (mode: "abort" | "close", reason: unknown): Promise<void> => {
     if (shutdownPromise !== undefined) return shutdownPromise
 
-    shutdownPromise = new Promise<void>((resolve) => {
-      resolveShutdown = resolve
-    })
     disconnected = true
     connected = false
     backlogOpen = false
@@ -232,10 +172,13 @@ export function streamSseConnectionWriterCreate(dependencies: StreamSseConnectio
     let operation: Promise<void> | void
     try {
       operation = mode === "abort" ? dependencies.writer.abort(reason) : dependencies.writer.close()
-    } catch (_error) {
-      operation = undefined
+    } catch (error: unknown) {
+      shutdownPromise = Promise.reject(error)
+      void shutdownPromise.catch(() => undefined)
+      return shutdownPromise
     }
-    void Promise.resolve(operation).then(resolveShutdown, resolveShutdown)
+    shutdownPromise = Promise.resolve(operation)
+    void shutdownPromise.catch(() => undefined)
     return shutdownPromise
   }
 
@@ -520,7 +463,7 @@ export function streamSseConnectionWriterCreate(dependencies: StreamSseConnectio
       if (disconnected) return createResultError(op, "The SSE connection is disconnected.")
       const sequence = streamSseConnectionEventSequence(event, sequenceKind)
       const key = streamSseConnectionEventKey(event, sequenceKind)
-      const isReset = ("data" in event ? event.data.eventType : event.eventType) === "reset"
+      const isReset = event.data.eventType === "reset"
       if (lastWrittenSequence !== undefined && sequence <= lastWrittenSequence && !isReset) continue
       if (replayQueue.has(key) || (!isReset && eventQueue.has(key))) continue
 

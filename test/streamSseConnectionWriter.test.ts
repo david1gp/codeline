@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test"
-import { streamLiveSubscriptionCreate } from "../src/stream/actions/streamLiveSubscriptionCreate.js"
+import type { SessionDetailSseFrame } from "../src/session/api/sessionDetailSseFrameSchema.js"
 import { streamSseConnectionWriterCreate } from "../src/stream/actions/streamSseConnectionWriterCreate.js"
-import type { StreamSseFrame } from "../src/stream/api/streamSseFrameSchema.js"
-import type { JournalEvent } from "../src/stream/schema/journalEventSchema.js"
+import { streamSseFrameSerialize } from "../src/stream/api/streamSseFrameSerialize.js"
+import { streamSseConnectionWriterTestSubscriptionCreate } from "./streamSseConnectionWriterTestSubscriptionCreate.js"
 
 type Timer = { callback: () => void; intervalMs: number; repeating: boolean; dueAt: number }
 
@@ -51,17 +51,25 @@ class TestScheduler {
 class TestWriter {
   readonly writes: string[] = []
   abortReasons: unknown[] = []
+  abortError: unknown
+  abortThrow: unknown
   closeCalls = 0
+  closeError: unknown
+  closeThrow: unknown
   blocked = false
   private pendingWrites: Array<() => void> = []
 
-  abort = (reason?: unknown): void => {
+  abort = (reason?: unknown): void | Promise<void> => {
     this.abortReasons.push(reason)
+    if (this.abortThrow !== undefined) throw this.abortThrow
+    if (this.abortError !== undefined) return Promise.reject(this.abortError)
     this.releaseWrites()
   }
 
-  close = (): void => {
+  close = (): void | Promise<void> => {
     this.closeCalls += 1
+    if (this.closeThrow !== undefined) throw this.closeThrow
+    if (this.closeError !== undefined) return Promise.reject(this.closeError)
   }
 
   releaseWrites = (): void => {
@@ -76,21 +84,33 @@ class TestWriter {
   }
 }
 
-function event(sequence: number, delta = `event-${sequence}`): JournalEvent {
+function event(sequence: number, delta = `event-${sequence}`): SessionDetailSseFrame {
+  const id = `event-${sequence}`
   return {
-    delta,
-    deltaKind: "text",
-    eventType: "delta",
-    id: `event-${sequence}`,
-    messageId: null,
-    runId: "run-1",
-    sequence,
-    sessionId: "session-1",
+    data: {
+      changePosition: sequence,
+      entryId: `entry-${sequence}`,
+      eventType: "entry",
+      id,
+      kind: "run",
+      payload: { delta },
+      position: sequence,
+      sessionId: "session-1",
+      sourceDetailId: "",
+      sourceId: `source-${sequence}`,
+      sourceType: "run",
+    },
+    event: "entry",
+    id,
   }
 }
 
+function serializedEventBytes(input: SessionDetailSseFrame): number {
+  return new TextEncoder().encode(streamSseFrameSerialize(input)).byteLength
+}
+
 function connectionCreate(
-  subscription: ReturnType<typeof streamLiveSubscriptionCreate>,
+  subscription: ReturnType<typeof streamSseConnectionWriterTestSubscriptionCreate>,
   scheduler: TestScheduler,
   writer: TestWriter,
   userId = "user-1",
@@ -100,6 +120,7 @@ function connectionCreate(
     baselineSequence,
     now: () => scheduler.currentTime,
     scheduler,
+    sequenceKind: "session-detail",
     subscription,
     userId,
     writer,
@@ -111,7 +132,7 @@ async function drainMicrotasks(): Promise<void> {
 }
 
 test("subscribes before backlog handoff and orders/deduplicates live and backlog events", async () => {
-  const subscription = streamLiveSubscriptionCreate()
+  const subscription = streamSseConnectionWriterTestSubscriptionCreate()
   const scheduler = new TestScheduler()
   const writer = new TestWriter()
   const connection = connectionCreate(subscription, scheduler, writer)
@@ -130,12 +151,33 @@ test("subscribes before backlog handoff and orders/deduplicates live and backlog
   ])
 })
 
-test("accepts the validated frame shape returned by the journal backlog reader", async () => {
-  const subscription = streamLiveSubscriptionCreate()
+test("writes the complete SSE frame with id, event, data, and a terminating blank line", async () => {
+  const subscription = streamSseConnectionWriterTestSubscriptionCreate()
   const scheduler = new TestScheduler()
   const writer = new TestWriter()
   const connection = connectionCreate(subscription, scheduler, writer)
-  const backlogFrame: StreamSseFrame = { data: { ...event(1), id: "cursor-1" }, event: "delta", id: "cursor-1" }
+  const sourceFrame = event(1, "framed")
+
+  expect(connection.connect().success).toBe(true)
+  expect((await connection.enqueueBacklog([sourceFrame])).success).toBe(true)
+  expect(connection.completeBacklog().success).toBe(true)
+  await connection.waitForIdle()
+
+  expect(writer.writes).toEqual([streamSseFrameSerialize(sourceFrame)])
+  expect(writer.writes[0]).toBe(`id: event-1\nevent: entry\ndata: ${JSON.stringify(sourceFrame.data)}\n\n`)
+})
+
+test("accepts the validated frame shape returned by the selected-session backlog reader", async () => {
+  const subscription = streamSseConnectionWriterTestSubscriptionCreate()
+  const scheduler = new TestScheduler()
+  const writer = new TestWriter()
+  const connection = connectionCreate(subscription, scheduler, writer)
+  const sourceFrame = event(1)
+  const backlogFrame: SessionDetailSseFrame = {
+    ...sourceFrame,
+    data: { ...sourceFrame.data, id: "cursor-1" },
+    id: "cursor-1",
+  }
 
   expect(connection.connect().success).toBe(true)
   expect((await connection.enqueueBacklog([backlogFrame])).success).toBe(true)
@@ -147,7 +189,7 @@ test("accepts the validated frame shape returned by the journal backlog reader",
 })
 
 test("keeps later sequence events behind an in-flight earlier write", async () => {
-  const subscription = streamLiveSubscriptionCreate()
+  const subscription = streamSseConnectionWriterTestSubscriptionCreate()
   const scheduler = new TestScheduler()
   const writer = new TestWriter()
   writer.blocked = true
@@ -166,7 +208,7 @@ test("keeps later sequence events behind an in-flight earlier write", async () =
 })
 
 test("drops a late lower sequence event while a higher sequence write is in flight", async () => {
-  const subscription = streamLiveSubscriptionCreate()
+  const subscription = streamSseConnectionWriterTestSubscriptionCreate()
   const scheduler = new TestScheduler()
   const writer = new TestWriter()
   writer.blocked = true
@@ -184,7 +226,7 @@ test("drops a late lower sequence event while a higher sequence write is in flig
 })
 
 test("drains a replay larger than the live connection queue cap with bounded staging", async () => {
-  const subscription = streamLiveSubscriptionCreate()
+  const subscription = streamSseConnectionWriterTestSubscriptionCreate()
   const scheduler = new TestScheduler()
   const writer = new TestWriter()
   writer.blocked = true
@@ -210,7 +252,7 @@ test("drains a replay larger than the live connection queue cap with bounded sta
 })
 
 test("does not replay live events at or below the authenticated cursor baseline", async () => {
-  const subscription = streamLiveSubscriptionCreate()
+  const subscription = streamSseConnectionWriterTestSubscriptionCreate()
   const scheduler = new TestScheduler()
   const writer = new TestWriter()
   const connection = connectionCreate(subscription, scheduler, writer, "user-1", 5)
@@ -225,12 +267,12 @@ test("does not replay live events at or below the authenticated cursor baseline"
 })
 
 test("preserves a reset frame below a future cursor baseline", async () => {
-  const subscription = streamLiveSubscriptionCreate()
+  const subscription = streamSseConnectionWriterTestSubscriptionCreate()
   const scheduler = new TestScheduler()
   const writer = new TestWriter()
   const connection = connectionCreate(subscription, scheduler, writer, "user-1", 5)
-  const reset: StreamSseFrame = {
-    data: { asOfSequence: 2, eventType: "reset", id: "reset-2", reason: "cursor-expired", sequence: 2 },
+  const reset: SessionDetailSseFrame = {
+    data: { asOfPosition: 2, eventType: "reset", id: "reset-2", reason: "cursor-expired", sessionId: "session-1" },
     event: "reset",
     id: "reset-2",
   }
@@ -245,7 +287,7 @@ test("preserves a reset frame below a future cursor baseline", async () => {
 })
 
 test("writes one event frame and emits an injectable fifteen-second heartbeat", async () => {
-  const subscription = streamLiveSubscriptionCreate()
+  const subscription = streamSseConnectionWriterTestSubscriptionCreate()
   const scheduler = new TestScheduler()
   const writer = new TestWriter()
   const connection = connectionCreate(subscription, scheduler, writer)
@@ -262,7 +304,7 @@ test("writes one event frame and emits an injectable fifteen-second heartbeat", 
 })
 
 test("disconnects and cleans up when the event-count queue overflows", () => {
-  const subscription = streamLiveSubscriptionCreate()
+  const subscription = streamSseConnectionWriterTestSubscriptionCreate()
   const scheduler = new TestScheduler()
   const writer = new TestWriter()
   writer.blocked = true
@@ -280,7 +322,7 @@ test("disconnects and cleans up when the event-count queue overflows", () => {
 })
 
 test("disconnects and cleans up when queued frame bytes overflow", () => {
-  const subscription = streamLiveSubscriptionCreate()
+  const subscription = streamSseConnectionWriterTestSubscriptionCreate()
   const scheduler = new TestScheduler()
   const writer = new TestWriter()
   writer.blocked = true
@@ -297,7 +339,7 @@ test("disconnects and cleans up when queued frame bytes overflow", () => {
 })
 
 test("disconnects when replay admission exceeds the aggregate event queue limit", async () => {
-  const subscription = streamLiveSubscriptionCreate()
+  const subscription = streamSseConnectionWriterTestSubscriptionCreate()
   const scheduler = new TestScheduler()
   const writer = new TestWriter()
   writer.blocked = true
@@ -316,7 +358,7 @@ test("disconnects when replay admission exceeds the aggregate event queue limit"
 })
 
 test("disconnects when replay admission exceeds the aggregate byte queue limit", async () => {
-  const subscription = streamLiveSubscriptionCreate()
+  const subscription = streamSseConnectionWriterTestSubscriptionCreate()
   const scheduler = new TestScheduler()
   const writer = new TestWriter()
   writer.blocked = true
@@ -338,19 +380,25 @@ test("disconnects when replay admission exceeds the aggregate byte queue limit",
 })
 
 test("counts queued heartbeat bytes toward the aggregate byte queue limit", () => {
-  const subscription = streamLiveSubscriptionCreate()
+  const subscription = streamSseConnectionWriterTestSubscriptionCreate()
   const scheduler = new TestScheduler()
   const writer = new TestWriter()
   writer.blocked = true
   const connection = connectionCreate(subscription, scheduler, writer)
-  const delta = "x".repeat(104_671)
+  const delta = "x".repeat(104_600)
 
   expect(connection.connect().success).toBe(true)
   expect(connection.completeBacklog().success).toBe(true)
   scheduler.advance(15_000)
 
   for (let sequence = 1; sequence <= 10; sequence += 1) subscription.publish("user-1", event(sequence, delta))
-  expect(connection.queuedByteCount()).toBe(1_048_416)
+  expect(connection.queuedByteCount()).toBe(
+    new TextEncoder().encode(": heartbeat\n\n").byteLength +
+      Array.from({ length: 10 }, (_, index) => serializedEventBytes(event(index + 1, delta))).reduce(
+        (total, bytes) => total + bytes,
+        0,
+      ),
+  )
 
   subscription.publish("user-1", event(11, "x"))
 
@@ -359,7 +407,7 @@ test("counts queued heartbeat bytes toward the aggregate byte queue limit", () =
 })
 
 test("disconnects a write that remains blocked for fifteen seconds", async () => {
-  const subscription = streamLiveSubscriptionCreate()
+  const subscription = streamSseConnectionWriterTestSubscriptionCreate()
   const scheduler = new TestScheduler()
   const writer = new TestWriter()
   writer.blocked = true
@@ -379,7 +427,7 @@ test("disconnects a write that remains blocked for fifteen seconds", async () =>
 })
 
 test("disconnects and clears a heartbeat write that remains blocked for fifteen seconds", async () => {
-  const subscription = streamLiveSubscriptionCreate()
+  const subscription = streamSseConnectionWriterTestSubscriptionCreate()
   const scheduler = new TestScheduler()
   const writer = new TestWriter()
   writer.blocked = true
@@ -403,7 +451,7 @@ test("disconnects and clears a heartbeat write that remains blocked for fifteen 
 })
 
 test("preserves available events across intentional sequence gaps", async () => {
-  const subscription = streamLiveSubscriptionCreate()
+  const subscription = streamSseConnectionWriterTestSubscriptionCreate()
   const scheduler = new TestScheduler()
   const writer = new TestWriter()
   const connection = connectionCreate(subscription, scheduler, writer)
@@ -419,7 +467,7 @@ test("preserves available events across intentional sequence gaps", async () => 
 })
 
 test("rejects an oversized complete SSE frame and unsubscribes exactly once", async () => {
-  const subscription = streamLiveSubscriptionCreate()
+  const subscription = streamSseConnectionWriterTestSubscriptionCreate()
   const scheduler = new TestScheduler()
   const writer = new TestWriter()
   const connection = connectionCreate(subscription, scheduler, writer)
@@ -433,8 +481,35 @@ test("rejects an oversized complete SSE frame and unsubscribes exactly once", as
   expect(writer.abortReasons).toEqual(["connection-frame-invalid"])
 })
 
+test("accepts a complete frame at 128 KiB and rejects the next serialized byte", async () => {
+  const maximumFrameBytes = 128 * 1024
+  const base = event(1, "")
+  const exactDelta = "x".repeat(maximumFrameBytes - serializedEventBytes(base))
+  const exact = event(1, exactDelta)
+  const oversized = event(1, `${exactDelta}x`)
+  expect(serializedEventBytes(exact)).toBe(maximumFrameBytes)
+
+  const subscription = streamSseConnectionWriterTestSubscriptionCreate()
+  const scheduler = new TestScheduler()
+  const writer = new TestWriter()
+  const connection = connectionCreate(subscription, scheduler, writer)
+  expect(connection.connect().success).toBe(true)
+  expect((await connection.enqueueBacklog([exact])).success).toBe(true)
+  expect(connection.completeBacklog().success).toBe(true)
+  await connection.waitForIdle()
+  expect(writer.writes).toHaveLength(1)
+  await connection.close()
+
+  const rejectedWriter = new TestWriter()
+  const rejected = connectionCreate(subscription, scheduler, rejectedWriter)
+  expect(rejected.connect().success).toBe(true)
+  expect((await rejected.enqueueBacklog([oversized])).success).toBe(false)
+  expect(rejected.isDisconnected()).toBe(true)
+  expect(rejectedWriter.abortReasons).toEqual(["connection-frame-invalid"])
+})
+
 test("fans out only to the matching user and removes subscriptions on disconnect", async () => {
-  const subscription = streamLiveSubscriptionCreate()
+  const subscription = streamSseConnectionWriterTestSubscriptionCreate()
   const scheduler = new TestScheduler()
   const writerA = new TestWriter()
   const writerB = new TestWriter()
@@ -458,7 +533,7 @@ test("fans out only to the matching user and removes subscriptions on disconnect
 })
 
 test("aborts once and removes the subscription when the client disconnects", async () => {
-  const subscription = streamLiveSubscriptionCreate()
+  const subscription = streamSseConnectionWriterTestSubscriptionCreate()
   const scheduler = new TestScheduler()
   const writer = new TestWriter()
   const connection = connectionCreate(subscription, scheduler, writer)
@@ -476,7 +551,7 @@ test("aborts once and removes the subscription when the client disconnects", asy
 })
 
 test("closes once and cleans up the subscription and heartbeat timer", async () => {
-  const subscription = streamLiveSubscriptionCreate()
+  const subscription = streamSseConnectionWriterTestSubscriptionCreate()
   const scheduler = new TestScheduler()
   const writer = new TestWriter()
   const connection = connectionCreate(subscription, scheduler, writer)
@@ -489,4 +564,32 @@ test("closes once and cleans up the subscription and heartbeat timer", async () 
   expect(writer.abortReasons).toHaveLength(0)
   expect(subscription.subscriberCount("user-1")).toBe(0)
   expect(scheduler.timerCount()).toBe(0)
+})
+
+test("surfaces an asynchronous sink close failure through the writer API", async () => {
+  const subscription = streamSseConnectionWriterTestSubscriptionCreate()
+  const scheduler = new TestScheduler()
+  const writer = new TestWriter()
+  const closeError = new Error("sink close failed")
+  writer.closeError = closeError
+  const connection = connectionCreate(subscription, scheduler, writer)
+
+  await expect(connection.close()).rejects.toBe(closeError)
+  expect(writer.closeCalls).toBe(1)
+  expect(connection.isDisconnected()).toBe(true)
+  expect(subscription.subscriberCount("user-1")).toBe(0)
+})
+
+test("surfaces a synchronous sink abort failure through the writer API", async () => {
+  const subscription = streamSseConnectionWriterTestSubscriptionCreate()
+  const scheduler = new TestScheduler()
+  const writer = new TestWriter()
+  const abortError = new Error("sink abort failed")
+  writer.abortThrow = abortError
+  const connection = connectionCreate(subscription, scheduler, writer)
+
+  expect(connection.connect().success).toBe(true)
+  await expect(connection.disconnect("client-aborted")).rejects.toBe(abortError)
+  expect(writer.abortReasons).toEqual(["client-aborted"])
+  expect(subscription.subscriberCount("user-1")).toBe(0)
 })

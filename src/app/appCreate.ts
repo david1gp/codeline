@@ -23,7 +23,6 @@ import { oidcLoginTransactionCreate } from "../identity/db/oidcLoginTransactionC
 import { oidcProviderDiscoveryCreate } from "../identity/oidc/oidcProviderDiscoveryCreate.js"
 import type { OidcProviderFetch } from "../identity/oidc/oidcProviderFetch.js"
 import { agentInstructionsDiscover } from "../instructions/actions/agentInstructionsDiscover.js"
-import type { journalBacklogRead } from "../journal/actions/journalBacklogRead.js"
 import type { JournalCursorCodec } from "../journal/actions/journalCursorCodecCreate.js"
 import type { journalGlobalSummaryBacklogRead } from "../journal/actions/journalGlobalSummaryBacklogRead.js"
 import type { journalPostCommitPublishCreate } from "../journal/actions/journalPostCommitPublishCreate.js"
@@ -52,6 +51,9 @@ import { skillCatalogDiscover } from "../skills/actions/skillCatalogDiscover.js"
 import { skillPresetCatalogLoad } from "../skills/actions/skillPresetCatalogLoad.js"
 import type { streamLiveSubscriptionCreate } from "../stream/actions/streamLiveSubscriptionCreate.js"
 import type { streamSseConnectionWriterCreate } from "../stream/actions/streamSseConnectionWriterCreate.js"
+import type { StreamSseConnectionWriterFactory } from "../stream/actions/streamSseConnectionWriterFactory.js"
+import type { StreamSseConnectionWriterScheduler } from "../stream/actions/streamSseConnectionWriterScheduler.js"
+import type { StreamSseConnectionWriterSinkFactory } from "../stream/actions/streamSseConnectionWriterSinkFactory.js"
 import { appKnownRouteResolve } from "./appKnownRouteResolve.js"
 import { appUiShellFallbackAdd } from "./appUiShellFallbackAdd.js"
 
@@ -108,15 +110,15 @@ export type AppCreateOptions = {
   shutdownCoordinator?: ReturnType<typeof serverShutdownCoordinatorCreate>
   sessionChatAdapter?: typeof sessionChatAdapterCreate
   journalCursorCodec?: JournalCursorCodec
-  journalBacklogRead?: typeof journalBacklogRead
   journalGlobalSummaryBacklogRead?: typeof journalGlobalSummaryBacklogRead
   journalPostCommitPublish?: ReturnType<typeof journalPostCommitPublishCreate>
   sessionDetailStreamBacklogRead?: typeof sessionDetailStreamBacklogRead
   globalSummaryLiveSubscription?: ReturnType<typeof streamLiveSubscriptionCreate>
   streamLiveSubscription?: ReturnType<typeof streamLiveSubscriptionCreate>
-  streamSseConnectionWriterCreate?: typeof streamSseConnectionWriterCreate
+  streamSseConnectionWriterCreate?: StreamSseConnectionWriterFactory
+  streamSseConnectionWriterSinkCreate?: StreamSseConnectionWriterSinkFactory
   streamSseNow?: () => number
-  streamSseScheduler?: Parameters<typeof streamSseConnectionWriterCreate>[0]["scheduler"]
+  streamSseScheduler?: StreamSseConnectionWriterScheduler
   metricsCollector?: ReturnType<typeof metricsCollectorCreate>
   clientLogJournalWrite?: typeof apiClientLogJournalWrite
   uiShellPath?: string
@@ -237,13 +239,13 @@ export function appCreate(options: AppCreateOptions = {}): App {
     runDelegationFinalize: options.runDelegationFinalize,
     sessionChatAdapter: options.sessionChatAdapter,
     journalCursorCodec: options.journalCursorCodec,
-    journalBacklogRead: options.journalBacklogRead,
     journalGlobalSummaryBacklogRead: options.journalGlobalSummaryBacklogRead,
     journalPostCommitPublish: options.journalPostCommitPublish,
     sessionDetailStreamBacklogRead: options.sessionDetailStreamBacklogRead,
     globalSummaryLiveSubscription: options.globalSummaryLiveSubscription,
     streamLiveSubscription: options.streamLiveSubscription,
     streamSseConnectionWriterCreate: options.streamSseConnectionWriterCreate,
+    streamSseConnectionWriterSinkCreate: options.streamSseConnectionWriterSinkCreate,
     streamSseNow: options.streamSseNow,
     streamSseScheduler: options.streamSseScheduler,
     metricsCollector: options.metricsCollector,
