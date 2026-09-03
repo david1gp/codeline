@@ -23,7 +23,7 @@ export function SessionStreamEntryList(props: {
       <For each={props.entries}>
         {(entry) => (
           <Show
-            when={entry.delegation?.childSessionId && entry.delegation.parentSessionId ? entry.delegation : undefined}
+            when={entry.delegation?.childRunId && entry.delegation.parentSessionId ? entry.delegation : undefined}
             fallback={<SessionStreamEntryRow entry={entry} />}
           >
             {(delegation) => (
@@ -36,13 +36,19 @@ export function SessionStreamEntryList(props: {
                   data-child-session-id={delegation().childSessionId ?? undefined}
                   data-child-stream-id={delegation().childStreamId}
                   onClick={() =>
-                    props.onDelegation?.({
-                      childSessionId: delegation().childSessionId ?? "",
-                      childStreamId: delegation().childStreamId,
-                      delegationId: delegation().id,
-                      parentSessionId: delegation().parentSessionId ?? "",
-                      task: delegation().task,
-                    })
+                    (() => {
+                      const current = delegation()
+                      props.onDelegation?.({
+                        ...(typeof current.childSessionId === "string"
+                          ? { childSessionId: current.childSessionId }
+                          : {}),
+                        childRunId: current.childRunId,
+                        childStreamId: current.childStreamId,
+                        delegationId: current.id,
+                        parentSessionId: current.parentSessionId ?? "",
+                        task: current.task,
+                      })
+                    })()
                   }
                 >
                   <Badge class={badgeCompactClass} variant="subtle">

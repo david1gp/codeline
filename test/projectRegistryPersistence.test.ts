@@ -368,6 +368,9 @@ test("project registry backfill runs when an upgraded database has no completion
     await client.execute("DROP TABLE project_folder")
     await client.execute("DROP TABLE project_folder_assignment_backfill")
     await client.execute("DROP TABLE session_compaction")
+    await client.execute("DROP TABLE session_history_entry")
+    await client.execute("DROP TABLE run_finalized_detail")
+    await client.execute("DROP TABLE run_active_state")
     await client.execute(
       "DELETE FROM __drizzle_migrations WHERE created_at >= (SELECT created_at FROM __drizzle_migrations ORDER BY created_at LIMIT 1 OFFSET 8)",
     )
@@ -507,6 +510,9 @@ test("project registry forward migration repairs legacy 64-hex IDs and is stable
     await client.execute("DROP TABLE project_folder")
     await client.execute("DROP TABLE project_folder_assignment_backfill")
     await client.execute("DROP TABLE session_compaction")
+    await client.execute("DROP TABLE session_history_entry")
+    await client.execute("DROP TABLE run_finalized_detail")
+    await client.execute("DROP TABLE run_active_state")
     await client.execute(
       "DELETE FROM __drizzle_migrations WHERE created_at >= (SELECT created_at FROM __drizzle_migrations ORDER BY created_at LIMIT 1 OFFSET 10)",
     )

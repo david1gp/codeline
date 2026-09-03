@@ -14,6 +14,7 @@ type DurableMessage = {
 
 type TransientMessagesResolveOptions = {
   hideManualCompaction?: boolean
+  preserveUsersWhileBusy?: boolean
 }
 
 function transientMessageKey(role: string, content: string): string {
@@ -80,6 +81,10 @@ export function transientMessagesResolve(
     }
     if (message.role === "assistant") {
       if (!supersededAssistants.has(message.id)) remaining.push(message)
+      continue
+    }
+    if (options.preserveUsersWhileBusy === true) {
+      remaining.push(message)
       continue
     }
     const key = transientMessageKey(message.role, message.content)

@@ -5,8 +5,10 @@ import type { PwaInstallPromptEvent } from "./pwaInstallPromptEvent.js"
 import { pwaServiceWorkerRegister } from "./pwaServiceWorkerRegister.js"
 import { pwaServiceWorkerUpdateApply } from "./pwaServiceWorkerUpdateApply.js"
 
-export function pwaStatusIndicatorStateCreate() {
-  const online = createSignalObject(typeof navigator === "undefined" ? true : navigator.onLine)
+export function pwaStatusIndicatorStateCreate(options: { initialOnline?: boolean } = {}) {
+  const online = createSignalObject(
+    options.initialOnline ?? (typeof navigator === "undefined" ? true : navigator.onLine),
+  )
   const offlineSince = createSignalObject<number | undefined>(online.get() ? undefined : Date.now())
   const updateReady = createSignalObject(false)
   const installPrompt = createSignalObject<PwaInstallPromptEvent | undefined>(undefined)
@@ -28,6 +30,11 @@ export function pwaStatusIndicatorStateCreate() {
 
     window.addEventListener("online", setOnline)
     window.addEventListener("offline", setOffline)
+    const onlinePoll = window.setInterval(() => {
+      if (navigator.onLine === online.get()) return
+      if (navigator.onLine) setOnline()
+      else setOffline()
+    }, 250)
     window.addEventListener("beforeinstallprompt", captureInstall)
     window.addEventListener("appinstalled", clearInstall)
 
@@ -39,6 +46,7 @@ export function pwaStatusIndicatorStateCreate() {
     onCleanup(() => {
       window.removeEventListener("online", setOnline)
       window.removeEventListener("offline", setOffline)
+      window.clearInterval(onlinePoll)
       window.removeEventListener("beforeinstallprompt", captureInstall)
       window.removeEventListener("appinstalled", clearInstall)
     })

@@ -9,6 +9,8 @@ import type { JournalCursorCodec } from "../src/journal/actions/journalCursorCod
 import { metricsCollectorCreate } from "../src/metrics/metricsCollectorCreate.js"
 import { streamLiveSubscriptionCreate } from "../src/stream/actions/streamLiveSubscriptionCreate.js"
 import { streamSseConnectionWriterCreate } from "../src/stream/actions/streamSseConnectionWriterCreate.js"
+import type { GlobalSummarySseFrame } from "../src/stream/api/globalSummarySseFrameSchema.js"
+import { streamSseConnectionWriterTestSubscriptionCreate } from "./streamSseConnectionWriterTestSubscriptionCreate.js"
 
 type Timer = { callback: () => void; dueAt: number }
 
@@ -60,16 +62,12 @@ function metricValue(
   )
 }
 
-function event(sequence: number) {
+function event(sequence: number): GlobalSummarySseFrame {
+  const id = `event-${sequence}`
   return {
-    delta: `delta-${sequence}`,
-    deltaKind: "text" as const,
-    eventType: "delta" as const,
-    id: `event-${sequence}`,
-    messageId: null,
-    runId: "run-1",
-    sequence,
-    sessionId: "session-1",
+    data: { eventType: "run-started", globalSequence: sequence, id, runId: "run-1", sessionId: "session-1" },
+    event: "run-started",
+    id,
   }
 }
 
@@ -134,12 +132,13 @@ test("SSE writer records lifecycle, queue overflow, blocked timeout, and write f
   const blockedWrite = new Promise<void>((resolve) => {
     releaseWrite = resolve
   })
-  const subscription = streamLiveSubscriptionCreate()
+  const subscription = streamSseConnectionWriterTestSubscriptionCreate()
   const connection = streamSseConnectionWriterCreate({
     baselineSequence: 0,
     metricsCollector: metrics,
     now: () => scheduler.currentTime,
     scheduler,
+    sequenceKind: "global-summary",
     subscription,
     userId: "metrics-user",
     writer: {
@@ -162,12 +161,13 @@ test("SSE writer records lifecycle, queue overflow, blocked timeout, and write f
   releaseWrite()
 
   const overflowScheduler = new TestScheduler()
-  const overflowSubscription = streamLiveSubscriptionCreate()
+  const overflowSubscription = streamSseConnectionWriterTestSubscriptionCreate()
   const overflow = streamSseConnectionWriterCreate({
     baselineSequence: 0,
     metricsCollector: metrics,
     now: () => overflowScheduler.currentTime,
     scheduler: overflowScheduler,
+    sequenceKind: "global-summary",
     subscription: overflowSubscription,
     userId: "metrics-overflow-user",
     writer: { abort: () => undefined, close: () => undefined, write: () => new Promise<void>(() => undefined) },
@@ -179,12 +179,13 @@ test("SSE writer records lifecycle, queue overflow, blocked timeout, and write f
   expect(metricValue(metrics, "sse_queue_overflow_total", { reason: "events" })).toBe(1)
 
   const failedScheduler = new TestScheduler()
-  const failedSubscription = streamLiveSubscriptionCreate()
+  const failedSubscription = streamSseConnectionWriterTestSubscriptionCreate()
   const failed = streamSseConnectionWriterCreate({
     baselineSequence: 0,
     metricsCollector: metrics,
     now: () => failedScheduler.currentTime,
     scheduler: failedScheduler,
+    sequenceKind: "global-summary",
     subscription: failedSubscription,
     userId: "metrics-failed-user",
     writer: { abort: () => undefined, close: () => undefined, write: async () => Promise.reject(new Error("failed")) },
@@ -222,8 +223,10 @@ test("event route records replay and reset outcomes", async () => {
   const cursorCodec = {
     decode: () => createResult({ journalId: "metrics-user", sequence: 0, version: 1 }),
     encode: () => createResult("cursor"),
+    encodeGlobalSequence: () => createResult("global-cursor"),
     encodeDeterministic: () => createResult("cursor"),
     validate: () => createResult({ journalId: "metrics-user", sequence: 0 }),
+    validateGlobalSequence: () => createResult({ globalSequence: 0 }),
   } as unknown as JournalCursorCodec
   const app = new Hono<AppEnvironment>()
   app.use("*", async (context, next) => {
@@ -239,10 +242,10 @@ test("event route records replay and reset outcomes", async () => {
   const scheduler = new TestScheduler()
   apiEventsRoutesAdd(app, {
     backlogRead: async () =>
-      createResult({ afterSequence: 0, mode, pages: pages(), replayUpperBound: 0, selectedCursor: undefined }),
+      createResult({ afterGlobalSequence: 0, mode, pages: pages(), replayUpperBound: 0, selectedCursor: undefined }),
     connectionWriterCreate: streamSseConnectionWriterCreate,
     cursorCodec,
-    liveSubscription: subscription,
+    globalSummaryLiveSubscription: subscription,
     metricsCollector: metrics,
     now: () => scheduler.currentTime,
     scheduler,
@@ -253,7 +256,7 @@ test("event route records replay and reset outcomes", async () => {
   await replay.body?.cancel()
   mode = "reset"
   const reset = await app.request("http://codeline.test/events")
-  expect(reset.status).toBe(200)
+  expect(reset.status).toBe(400)
   await reset.body?.cancel()
   expect(metricValue(metrics, "sse_replay_total")).toBe(1)
   expect(metricValue(metrics, "sse_reset_total")).toBe(1)

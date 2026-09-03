@@ -220,11 +220,43 @@ async function* providerRuntimeDeterministicScenarioGenerate(
   const attempt = scenario.attempts.find(({ ordinal }) => ordinal === attemptOrdinal) ?? scenario.attempts.at(-1)
   if (attempt === undefined) return
 
+  const delegation = "delegation" in scenario ? scenario.delegation : undefined
+  const prompt = input.prompt.trim()
+  const delegationContinuation = delegation !== undefined && input.history.some((message) => message.role === "tool")
+  if (delegation !== undefined && !delegationContinuation && prompt.startsWith(delegation.promptPrefix)) {
+    const task = prompt.slice(delegation.promptPrefix.length).trim()
+    if (!(await providerRuntimeAdapterWait(input.signal))) return
+    const toolCallId = `${input.runId}:delegate:1`
+    yield {
+      timestamp: Date.now(),
+      toolCallId,
+      toolCallName: "delegate_task",
+      toolName: "delegate_task",
+      type: EventType.TOOL_CALL_START,
+    }
+    yield {
+      delta: JSON.stringify({ task: task.length === 0 ? prompt : task }),
+      timestamp: Date.now(),
+      toolCallId,
+      type: EventType.TOOL_CALL_ARGS,
+    }
+    yield {
+      finishReason: "tool_calls",
+      outcome: { type: "success" },
+      runId: input.runId,
+      threadId: input.sessionId,
+      timestamp: Date.now(),
+      type: EventType.RUN_FINISHED,
+    }
+    return
+  }
+
   const messageId = `assistant-${input.runId}`
   let messageStarted = false
   let messageEnded = false
 
-  for (const step of attempt.steps) {
+  const steps = delegationContinuation ? (delegation?.continuationSteps ?? attempt.steps) : attempt.steps
+  for (const step of steps) {
     if (!(await providerRuntimeAdapterWait(input.signal, step.delayMs))) return
 
     const event = step.event

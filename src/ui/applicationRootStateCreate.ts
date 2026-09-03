@@ -10,7 +10,8 @@ type ApplicationRootStateOptions = {
 /**
  * Decides which root shell renders. Signed-out visitors normally see the sign-in
  * prompt, but a session route whose account matches the last locally active user
- * may be browsed read-only from the device-local settled cache.
+ * may be browsed read-only from the device-local settled cache, including after
+ * a browser-offline session bootstrap failure.
  */
 export function applicationRootStateCreate(options: ApplicationRootStateOptions) {
   const session = authSessionStateCreate({ fetcher: options.fetcher })
@@ -20,7 +21,7 @@ export function applicationRootStateCreate(options: ApplicationRootStateOptions)
   return {
     displayName: session.displayName,
     isSignedOutCachedBrowsing: () =>
-      session.status() === "signed-out" &&
+      (session.status() === "offline" || session.status() === "signed-out") &&
       signedOutCachedBrowsingResolve({ pathname: location.pathname, search: location.search }),
     loginHref: () => `/login?returnTo=${encodeURIComponent(returnTo())}`,
     retry: session.retry,

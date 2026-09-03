@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test"
 import { EventType, type StreamChunk } from "@tanstack/ai"
+import type { CompactionMessage } from "../src/compaction/compactionMessage.js"
+import { providerDelegationAdapterCreate } from "../src/providers/runtime/providerDelegationAdapterCreate.js"
 import { providerDeterministicScenarioResolve } from "../src/providers/runtime/providerDeterministicScenarioResolve.js"
 import { providerExecutionEventFromStreamChunk } from "../src/providers/runtime/providerExecutionEventFromStreamChunk.js"
 import { providerRuntimeAdapterCreate } from "../src/providers/runtime/providerRuntimeAdapterCreate.js"
@@ -22,10 +24,14 @@ function adapter(model: string) {
   })
 }
 
-function input(signal: AbortSignal, attemptOrdinal?: number) {
+function input(
+  signal: AbortSignal,
+  attemptOrdinal?: number,
+  options: { history?: Array<Pick<CompactionMessage, "role">>; prompt?: string } = {},
+) {
   return {
-    history: [],
-    prompt: "simulation prompt",
+    history: options.history ?? [],
+    prompt: options.prompt ?? "simulation prompt",
     runId: "simulation-run",
     sessionId: "simulation-session",
     signal,
@@ -163,6 +169,81 @@ test("deterministic scenarios preserve chunk order and select the requested retr
   ])
   expect(firstAttempt.at(-1)).toMatchObject({ code: "provider_timeout", type: EventType.RUN_ERROR })
   expect(secondAttempt.at(-1)?.type).toBe(EventType.RUN_FINISHED)
+})
+
+test("deterministic streaming delegation emits a child round and a completed parent continuation", async () => {
+  const prompt = "delegate:Return the deterministic child answer exactly once."
+  const rawAdapter = adapter("simulation-streaming")
+  const childStreams: Array<Array<StreamChunk>> = []
+  const wrappedAdapter = providerDelegationAdapterCreate({
+    adapter: rawAdapter,
+    delegateTask: async ({ signal, task, toolCallId }) => {
+      const child = await collect(
+        rawAdapter({
+          history: [],
+          prompt: task,
+          runId: `child-${toolCallId}`,
+          sessionId: "simulation-session",
+          signal,
+        }),
+      )
+      childStreams.push(child)
+      return child
+        .filter((chunk) => chunk.type === EventType.TEXT_MESSAGE_CONTENT)
+        .map((chunk) => (chunk.type === EventType.TEXT_MESSAGE_CONTENT ? chunk.delta : ""))
+        .join("")
+    },
+    enabledTools: ["delegate_task"],
+    model: "simulation-streaming",
+  })
+  const delegated = await collect(
+    wrappedAdapter({
+      history: [],
+      prompt,
+      runId: "simulation-parent-run",
+      sessionId: "simulation-session",
+      signal: new AbortController().signal,
+    }),
+  )
+  expect(delegated.map((chunk) => chunk.type)).toEqual([
+    EventType.RUN_STARTED,
+    EventType.TOOL_CALL_START,
+    EventType.TOOL_CALL_ARGS,
+    EventType.TOOL_CALL_RESULT,
+    EventType.TEXT_MESSAGE_START,
+    EventType.TEXT_MESSAGE_CONTENT,
+    EventType.TEXT_MESSAGE_END,
+    EventType.RUN_FINISHED,
+  ])
+  expect(delegated.find((chunk) => chunk.type === EventType.TOOL_CALL_ARGS)).toMatchObject({
+    delta: JSON.stringify({ task: "Return the deterministic child answer exactly once." }),
+    type: EventType.TOOL_CALL_ARGS,
+  })
+  expect(childStreams).toHaveLength(1)
+  expect(childStreams[0]?.map((chunk) => chunk.type)).toEqual([
+    EventType.RUN_STARTED,
+    EventType.TEXT_MESSAGE_START,
+    EventType.TEXT_MESSAGE_CONTENT,
+    EventType.TEXT_MESSAGE_CONTENT,
+    EventType.TEXT_MESSAGE_END,
+    EventType.RUN_FINISHED,
+  ])
+  expect(
+    childStreams[0]
+      ?.filter((chunk) => chunk.type === EventType.TEXT_MESSAGE_CONTENT)
+      .map((chunk) => (chunk.type === EventType.TEXT_MESSAGE_CONTENT ? chunk.delta : ""))
+      .join(""),
+  ).toBe("The deterministic workspace check is streaming. No provider connection is required.")
+  expect(
+    delegated
+      .filter((chunk) => chunk.type === EventType.TEXT_MESSAGE_CONTENT)
+      .map((chunk) => (chunk.type === EventType.TEXT_MESSAGE_CONTENT ? chunk.delta : ""))
+      .join(""),
+  ).toBe("ok")
+  expect(delegated.find((chunk) => chunk.type === EventType.TEXT_MESSAGE_CONTENT)).toMatchObject({
+    delta: "ok",
+    type: EventType.TEXT_MESSAGE_CONTENT,
+  })
 })
 
 test("deterministic cancellation stops before the delayed step can emit", async () => {

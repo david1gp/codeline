@@ -7,7 +7,8 @@ import type { SessionReadOnlyReason } from "../session/client/sessionReadOnlyRea
  */
 export function workspaceSessionPaneVisibleResolve(input: {
   configurationStatus: string
+  hasSelectedSession?: boolean
   readOnlyReason: SessionReadOnlyReason | null
 }): boolean {
-  return input.configurationStatus === "ready" || input.readOnlyReason !== null
+  return input.hasSelectedSession === true || input.configurationStatus === "ready" || input.readOnlyReason !== null
 }

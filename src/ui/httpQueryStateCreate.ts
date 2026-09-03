@@ -44,6 +44,8 @@ export function httpQueryStateCreate<T>(options: HttpQueryStateOptions<T>) {
   const version = signalObjectCreate(0)
   let controller: AbortController | undefined
   let loadedKey: string | undefined
+  let activeLoad: Promise<void> | undefined
+  let pendingRefresh: { promise: Promise<void>; resolve: () => void } | undefined
 
   createEffect(() => {
     version.get()
@@ -58,12 +60,16 @@ export function httpQueryStateCreate<T>(options: HttpQueryStateOptions<T>) {
       loadedKey = key
     }
 
+    const requestedRefresh = pendingRefresh
+    pendingRefresh = undefined
+
     if (!enabled) {
       // A disabled or keyless query has no read in flight, so it reports idle
       // instead of loading and callers never render an indefinite spinner.
       status.set("idle")
       errorMessage.set(undefined)
       data.set(undefined)
+      requestedRefresh?.resolve()
       return
     }
 
@@ -74,53 +80,79 @@ export function httpQueryStateCreate<T>(options: HttpQueryStateOptions<T>) {
 
     const cached = options.cache?.get<T>(key)
     if (cached !== undefined) data.set(() => cached.data)
-    void options.load(key, active.signal, cached).then((result) => {
-      if (active.signal.aborted) return
-      if (!result.success) {
-        status.set("error")
-        errorMessage.set(result.errorMessage)
-        return
-      }
-
-      const response = httpQueryLoadResponseResolve(result.data)
-      if (response?.status === 304) {
-        if (cached === undefined) {
+    let resolveCompletion!: () => void
+    const completion = requestedRefresh?.promise ?? new Promise<void>((resolve) => (resolveCompletion = resolve))
+    if (requestedRefresh !== undefined) resolveCompletion = requestedRefresh.resolve
+    activeLoad = completion
+    const finish = (): void => {
+      if (activeLoad === completion) activeLoad = undefined
+      resolveCompletion()
+    }
+    void options
+      .load(key, active.signal, cached)
+      .then((result) => {
+        if (active.signal.aborted) return
+        if (!result.success) {
           status.set("error")
-          errorMessage.set("The conditional response has no cached representation.")
+          errorMessage.set(result.errorMessage)
           return
         }
-        data.set(() => cached.data)
-        errorMessage.set(undefined)
-        status.set("complete")
-        return
-      }
 
-      if (response?.status === 200) {
-        const replaced = options.cache?.replace(key, response)
-        if (replaced === false) {
-          const current = options.cache?.get<T>(key)
-          if (current !== undefined) data.set(() => current.data)
+        const response = httpQueryLoadResponseResolve(result.data)
+        if (response?.status === 304) {
+          if (cached === undefined) {
+            status.set("error")
+            errorMessage.set("The conditional response has no cached representation.")
+            return
+          }
+          data.set(() => cached.data)
           errorMessage.set(undefined)
           status.set("complete")
           return
         }
-        data.set(() => response.data)
-      } else {
-        data.set(() => result.data as T)
-      }
-      errorMessage.set(undefined)
-      status.set("complete")
-    })
+
+        if (response?.status === 200) {
+          const replaced = options.cache?.replace(key, response)
+          if (replaced === false) {
+            const current = options.cache?.get<T>(key)
+            if (current !== undefined) data.set(() => current.data)
+            errorMessage.set(undefined)
+            status.set("complete")
+            return
+          }
+          data.set(() => response.data)
+        } else {
+          data.set(() => result.data as T)
+        }
+        errorMessage.set(undefined)
+        status.set("complete")
+      })
+      .catch(() => {
+        if (!active.signal.aborted) {
+          status.set("error")
+          errorMessage.set("The request failed.")
+        }
+      })
+      .finally(finish)
   })
 
   onCleanup(() => controller?.abort())
 
-  const reload = () => version.set(version.get() + 1)
+  const reload = (): Promise<void> => {
+    if (pendingRefresh !== undefined) return pendingRefresh.promise
+    let resolve!: () => void
+    const promise = new Promise<void>((completionResolve) => {
+      resolve = completionResolve
+    })
+    pendingRefresh = { promise, resolve }
+    version.set(version.get() + 1)
+    return promise
+  }
   const invalidate = (revision: ApiRevision) => {
     const key = options.key()
     if (key === undefined) return false
     const changed = options.cache?.invalidate(key, revision) ?? true
-    if (changed) reload()
+    if (changed) void reload()
     return changed
   }
 

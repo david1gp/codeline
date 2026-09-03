@@ -5,6 +5,7 @@ import type { CodelineExecution } from "../providers/schema/codelineExecutionSch
 import { sessionDelegationsFetch } from "../run/ui/sessionDelegationsFetch.js"
 import { sessionBoundedHistoryStateCreate } from "../session/client/sessionBoundedHistoryStateCreate.js"
 import { sessionDetailSemanticStepCreate } from "../session/client/sessionDetailSemanticStepCreate.js"
+import type { SessionDetailSourceFactory } from "../session/client/sessionDetailSourceFactory.js"
 import { sessionDetailStateCreate } from "../session/client/sessionDetailStateCreate.js"
 import { sessionLastActiveAccountRead } from "../session/client/sessionLastActiveAccountRead.js"
 import { sessionLastActiveAccountWrite } from "../session/client/sessionLastActiveAccountWrite.js"
@@ -14,6 +15,7 @@ import { sessionEtagFetch } from "../session/ui/sessionEtagFetch.js"
 import { sessionPinRequest } from "../session/ui/sessionPinRequest.js"
 import { sessionRenameControlStateCreate } from "../session/ui/sessionRenameControlStateCreate.js"
 import { sessionRenameRequest } from "../session/ui/sessionRenameRequest.js"
+import { streamEventSourceCreate } from "../stream/client/streamEventSourceCreate.js"
 import { apiFetchContext } from "./apiFetchContext.js"
 import { applicationAccountContext } from "./applicationAccountContext.js"
 import { appShellContext } from "./appShellContext.js"
@@ -27,8 +29,8 @@ import { sessionChatStateReadOnlyWrap } from "./sessionChatStateReadOnlyWrap.js"
 import { sessionDisplayModeStateCreate } from "./sessionDisplayModeStateCreate.js"
 import { sessionInitialMessageStateCreate } from "./sessionInitialMessageStateCreate.js"
 import type { SessionNavigationState } from "./sessionNavigationStateCreate.js"
-import type { SessionProjectTarget } from "./sessionProjectTarget.js"
 import { sessionPinToggleStateCreate } from "./sessionPinToggleStateCreate.js"
+import type { SessionProjectTarget } from "./sessionProjectTarget.js"
 import { sessionStreamStateCreate } from "./sessionStreamStateCreate.js"
 import { sessionSubagentThreadStateCreate } from "./sessionSubagentThreadStateCreate.js"
 import { sessionViewAcknowledgeStateCreate } from "./sessionViewAcknowledgeStateCreate.js"
@@ -37,6 +39,7 @@ type SelectedSessionStateOptions = {
   codelineExecution: Accessor<CodelineExecution | null>
   /** Project command catalog backing composer slash-command autocomplete. */
   commandCatalog?: ChatCommandCatalogSource
+  eventSourceFactory?: SessionDetailSourceFactory
   navigation: Accessor<SessionNavigationState>
   sessionCreateStart: (
     projectTarget?: SessionProjectTarget,
@@ -58,6 +61,7 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
   const selectedSessionKey = () => selectedSessionId() ?? undefined
   const isSignedIn = () => (account?.userId() ?? null) !== null
   const isOnline = () => pwa?.status() !== "offline"
+  const selectedDetailEnabled = () => eventFeed?.eventFeed.selectedDetailEnabled() ?? true
   const cacheUserId = () => account?.userId() ?? sessionLastActiveAccountRead()
   createEffect(() => {
     const userId = account?.userId() ?? null
@@ -71,15 +75,48 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
     userId: cacheUserId,
   })
   const selectedDetail = sessionDetailStateCreate({
-    enabled: () => isSignedIn() && isOnline(),
-    resnapshot: () => boundedHistory.refresh(),
+    enabled: () => isSignedIn() && isOnline() && selectedDetailEnabled(),
+    eventSourceFactory: options.eventSourceFactory ?? streamEventSourceCreate,
+    onAuthenticationError: () => eventFeed?.eventFeed.onAuthenticationError?.(),
+    resnapshot: () => {
+      if (!selectedDetailEnabled()) return
+      return boundedHistory.refresh()
+    },
     snapshot: boundedHistory.snapshot,
   })
   const semanticSteps = () => {
     const byId = new Map(boundedHistory.semanticSteps().map((step) => [step.id, step]))
     for (const entry of selectedDetail.entries()) {
       const step = sessionDetailSemanticStepCreate(entry)
-      if (step.success) byId.set(step.data.id, step.data)
+      if (!step.success) continue
+      const existing = byId.get(step.data.id)
+      if (
+        existing?.kind === "tool" &&
+        step.data.kind === "tool" &&
+        existing.childReference != null &&
+        step.data.childReference == null
+      )
+        byId.set(step.data.id, { ...step.data, childReference: existing.childReference })
+      else if (step.data.kind === "tool" && step.data.childReference == null) {
+        const toolStep = step.data
+        const delegation = delegations()?.find(
+          (candidate) => candidate.parentRunId === toolStep.runId && candidate.delegationKey === toolStep.detailId,
+        )
+        byId.set(
+          toolStep.id,
+          delegation === undefined
+            ? toolStep
+            : {
+                ...toolStep,
+                childReference: {
+                  childRunId: delegation.childRunId,
+                  ...(delegation.childSessionId === null ? {} : { childSessionId: delegation.childSessionId }),
+                  delegationId: delegation.delegationId,
+                  parentSessionId: delegation.parentSessionId,
+                },
+              },
+        )
+      } else byId.set(step.data.id, step.data)
     }
     return [...byId.values()].sort((left, right) => left.sequence - right.sequence || left.id.localeCompare(right.id))
   }
@@ -273,19 +310,16 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
     sessionTargetAvailable: options.sessionTargetAvailable,
   })
   const revalidate = () => {
-    boundedHistory.refresh()
+    const previousSnapshot = boundedHistory.snapshot()
+    void boundedHistory.refresh().then(() => {
+      if (boundedHistory.snapshot() === previousSnapshot) selectedDetail.reconnect()
+    })
     delegationsQuery.refresh()
-    selectedDetail.reconnect()
   }
   const boundedRefresh = () => boundedHistory.refresh()
 
   const unregisterEventFeed = [
     eventFeed?.registerSelectedSession({
-      completion: () => selectedSessionViewAcknowledge(true),
-      refresh: boundedRefresh,
-      sessionId: selectedSessionId,
-    }),
-    eventFeed?.registerSelectedMessages({
       refresh: boundedRefresh,
       sessionId: selectedSessionId,
     }),

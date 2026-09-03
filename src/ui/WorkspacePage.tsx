@@ -80,6 +80,7 @@ export function WorkspacePage(props: { state: WorkspaceScreenView }) {
         <Show
           when={workspaceSessionPaneVisibleResolve({
             configurationStatus: props.state.sessionTargetSelector.configurationReadiness().status,
+            hasSelectedSession: props.state.selectedSession.session() !== undefined,
             readOnlyReason: props.state.selectedSession.readOnlyReason(),
           })}
           fallback={

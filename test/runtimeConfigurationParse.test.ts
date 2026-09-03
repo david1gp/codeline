@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { createResult } from "@adaptive-ds/result"
+import { createResult, createResultError } from "@adaptive-ds/result"
 import * as v from "valibot"
 import { apiErrorResponseSchema } from "../src/api/errors/apiErrorResponseSchema.js"
 import { healthResponseSchema } from "../src/api/health/healthResponseSchema.js"
@@ -8,6 +8,7 @@ import { appCreate } from "../src/app/appCreate.js"
 import { runtimeConfigurationParse } from "../src/configuration/runtimeConfigurationParse.js"
 import { databaseConnectionClose } from "../src/database/databaseConnectionClose.js"
 import { developmentIdentityUpsert } from "../src/identity/db/developmentIdentityUpsert.js"
+import { journalEventsPruneSchedulerCreate } from "../src/journal/actions/journalEventsPruneSchedulerCreate.js"
 import { metricsCollectorCreate } from "../src/metrics/metricsCollectorCreate.js"
 import { serverStart } from "../src/server/serverStart.js"
 
@@ -270,6 +271,68 @@ test("server shutdown stops the server and closes the injected database once", a
   expect(stopCount).toBe(1)
   expect(closeCount).toBe(1)
   expect(removeListenerCount).toBe(2)
+})
+
+test("server shutdown drains journal pruning before closing the database", async () => {
+  if (!configuration.success) throw new Error(configuration.errorMessage)
+  const listeners = new Map<string, () => Promise<void>>()
+  const events: string[] = []
+  let releasePrune!: () => void
+  const pruneReleased = new Promise<void>((resolve) => {
+    releasePrune = resolve
+  })
+  let pruneStarted!: () => void
+  const pruneStartedPromise = new Promise<void>((resolve) => {
+    pruneStarted = resolve
+  })
+  const journalEventsPruneScheduler = journalEventsPruneSchedulerCreate({
+    cooldownMs: 0,
+    database: {} as never,
+    logError: () => undefined,
+    prune: async () => {
+      events.push("prune-start")
+      pruneStarted()
+      await pruneReleased
+      events.push("prune-finish")
+      return createResultError("runtimeConfigurationParseTest", "expected prune failure")
+    },
+  })
+  const database = { client: { close: () => undefined }, db: {} } as never
+
+  await serverStart({
+    appCreate: () => appCreate(),
+    configuration: configuration.data,
+    configurationStore: {} as never,
+    database,
+    databaseConnectionClose: async () => {
+      events.push("database-close")
+      return createResult(undefined)
+    },
+    journalEventsPruneScheduler,
+    runStartupInterruptionReconcile: async () => ({ success: true as const, data: { interruptedRunIds: [] } }),
+    serve: () => ({
+      stop: async () => {
+        events.push("server-stop")
+      },
+      url: new URL("http://codeline.test"),
+    }),
+    signalSource: {
+      once: (signal, listener) => void listeners.set(signal, listener as () => Promise<void>),
+      removeListener: () => undefined,
+    },
+  })
+
+  journalEventsPruneScheduler.schedule(["shutdown-user"])
+  await pruneStartedPromise
+  const shutdown = listeners.get("SIGTERM")
+  if (shutdown === undefined) throw new Error("SIGTERM shutdown listener was not registered")
+  const pendingShutdown = shutdown()
+
+  expect(events).toEqual(["prune-start", "server-stop"])
+  releasePrune()
+  await pendingShutdown
+
+  expect(events).toEqual(["prune-start", "server-stop", "prune-finish", "database-close"])
 })
 
 test("server shutdown keeps SQLite open until the HTTP server stops", async () => {

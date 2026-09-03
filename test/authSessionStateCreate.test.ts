@@ -45,6 +45,83 @@ test("a 401 bootstrap yields the signed-out state with no user ID", async () => 
   root.dispose()
 })
 
+test("a browser-offline session fetch rejection uses the offline state without an identity", async () => {
+  const root = createRoot((dispose) => ({
+    dispose,
+    state: authSessionStateCreate({
+      fetcher: async () => {
+        throw new TypeError("Failed to fetch")
+      },
+      isOnline: () => false,
+    }),
+  }))
+
+  await tick()
+  expect(root.state.status()).toBe("offline")
+  expect(root.state.displayName()).toBeUndefined()
+  expect(root.state.userId()).toBeUndefined()
+  root.dispose()
+})
+
+test("an offline 503 session response uses the offline state", async () => {
+  const root = createRoot((dispose) => ({
+    dispose,
+    state: authSessionStateCreate({
+      fetcher: async () => new Response(null, { status: 503 }),
+      isOnline: () => false,
+    }),
+  }))
+
+  await tick()
+  expect(root.state.status()).toBe("offline")
+  root.dispose()
+})
+
+test("an online 503 session response stays an error", async () => {
+  const root = createRoot((dispose) => ({
+    dispose,
+    state: authSessionStateCreate({
+      fetcher: async () => new Response(null, { status: 503 }),
+      isOnline: () => true,
+    }),
+  }))
+
+  await tick()
+  expect(root.state.status()).toBe("error")
+  root.dispose()
+})
+
+test("a non-network session failure stays an error even when the browser is offline", async () => {
+  const root = createRoot((dispose) => ({
+    dispose,
+    state: authSessionStateCreate({
+      fetcher: async () => new Response(null, { status: 500 }),
+      isOnline: () => false,
+    }),
+  }))
+
+  await tick()
+  expect(root.state.status()).toBe("error")
+  expect(root.state.userId()).toBeUndefined()
+  root.dispose()
+})
+
+test("an online session fetch rejection stays an error", async () => {
+  const root = createRoot((dispose) => ({
+    dispose,
+    state: authSessionStateCreate({
+      fetcher: async () => {
+        throw new TypeError("Failed to fetch")
+      },
+      isOnline: () => true,
+    }),
+  }))
+
+  await tick()
+  expect(root.state.status()).toBe("error")
+  root.dispose()
+})
+
 test("an expired session retry clears every authenticated field", async () => {
   let now = new Date("2026-08-23T00:00:00.000Z")
   const expiresAt = new Date(now.getTime() + 1_000)

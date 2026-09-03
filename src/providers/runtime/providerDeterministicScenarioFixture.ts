@@ -1,13 +1,19 @@
 import type { ExecutionStreamEvent } from "../../stream/schema/executionStreamEventSchema.js"
 
+type DeterministicScenarioStep = {
+  delayMs: number
+  event: ExecutionStreamEvent
+}
+
 type DeterministicScenario = {
   attempts: readonly {
     ordinal: number
-    steps: readonly {
-      delayMs: number
-      event: ExecutionStreamEvent
-    }[]
+    steps: readonly DeterministicScenarioStep[]
   }[]
+  delegation?: {
+    continuationSteps: readonly DeterministicScenarioStep[]
+    promptPrefix: string
+  }
   maxAttempts: number
 }
 
@@ -60,6 +66,13 @@ export const providerDeterministicScenarioFixture = {
         ],
       },
     ],
+    delegation: {
+      continuationSteps: [
+        { delayMs: 20, event: { eventType: "text_delta", payload: { delta: "ok" } } },
+        { delayMs: 20, event: { eventType: "terminal", payload: { status: "completed" } } },
+      ],
+      promptPrefix: "delegate:",
+    },
     maxAttempts: 1,
   },
   "thinking-tools": {

@@ -8,7 +8,7 @@ import { appShellStateCreate } from "./appShellStateCreate.js"
  * account, so the session state modules render only from IndexedDB and keep
  * every mutation disabled.
  */
-export function signedOutApplicationStateCreate(): {
+export function signedOutApplicationStateCreate(options: { offline?: boolean } = {}): {
   account: ApplicationAccountView
   applicationShell: ReturnType<typeof applicationShellStateCreate>
   state: ReturnType<typeof appShellStateCreate>
@@ -16,6 +16,6 @@ export function signedOutApplicationStateCreate(): {
   return {
     account: { userId: () => null },
     applicationShell: applicationShellStateCreate(),
-    state: appShellStateCreate(),
+    state: appShellStateCreate({ initialOnline: options.offline === true ? false : undefined }),
   }
 }

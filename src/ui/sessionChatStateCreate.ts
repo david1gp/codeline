@@ -63,6 +63,7 @@ export function sessionChatStateCreate(options: SessionChatStateOptions) {
     pendingMessages: () =>
       transientMessagesResolve(composer.transientMessages(), options.durableMessages(), {
         hideManualCompaction: composer.manualCompactionHidden(),
+        preserveUsersWhileBusy: composer.isBusy(),
       }),
     recoveryStatus: composer.recoveryStatus,
     runId: composer.runId,

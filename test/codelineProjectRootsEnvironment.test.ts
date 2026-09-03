@@ -103,7 +103,7 @@ test("managed preview layers optional checked-in defaults before the ignored env
   expect(serviceUnit).toContain(defaultsEnvironmentFile)
   expect(serviceUnit).toContain(ignoredEnvironmentFile)
   expect(serviceUnit.indexOf(defaultsEnvironmentFile)).toBeLessThan(serviceUnit.indexOf(ignoredEnvironmentFile))
-  expect(checkedInDefaults).toContain('CODELINE_PROJECT_ROOTS=["../../leo","..","../../personal"]')
+  expect(checkedInDefaults).toContain('CODELINE_PROJECT_ROOTS=["../../leo","..","../../personal","."]')
   expect(checkedInDefaults).not.toContain("/home/")
   expect(checkedInDefaults).not.toContain("${HOME}")
 })

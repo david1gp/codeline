@@ -119,12 +119,18 @@ export function sessionSemanticStepRowStateCreate(options: SessionSemanticStepRo
   })
 
   return {
-    childConversationOpen: () => {
+    childConversationOpen: (event?: Event) => {
+      event?.stopPropagation()
       const step = options.step()
       if (step.kind !== "tool" || step.childReference == null) return
-      if (typeof step.childReference.childSessionId !== "string") return
-      const { childSessionId, ...reference } = step.childReference
-      options.onChildConversation?.({ ...reference, childSessionId, task: step.summary })
+      const childSessionId = step.childReference.childSessionId
+      options.onChildConversation?.({
+        ...(typeof childSessionId === "string" ? { childSessionId } : {}),
+        childRunId: step.childReference.childRunId,
+        delegationId: step.childReference.delegationId,
+        parentSessionId: step.childReference.parentSessionId,
+        task: step.summary,
+      })
     },
     detail: query.data,
     detailExpand: () => expanded.set(true),

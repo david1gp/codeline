@@ -1,15 +1,9 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
 import { apiRevisionSchema } from "../../api/schema/apiRevisionSchema.js"
-import { type RunActiveSummary, runActiveSummarySchema } from "../../run/api/runActiveSummarySchema.js"
-import {
-  type SessionSettledSnapshotResponse,
-  sessionSettledSnapshotResponseSchema,
-} from "../../session/api/sessionSettledSnapshotResponseSchema.js"
 import type { GlobalSummarySseFrame } from "../../stream/api/globalSummarySseFrameSchema.js"
 import { eventFeedCursorSchema } from "../../stream/client/eventFeedCursorSchema.js"
 import { eventFeedEventParse } from "../../stream/client/eventFeedEventParse.js"
-import { globalSummaryEventJournalAdapt } from "../../stream/client/globalSummaryEventJournalAdapt.js"
 import {
   type EventFeedApplyResult,
   type EventFeedReconciliationInstruction,
@@ -18,8 +12,12 @@ import {
   type EventFeedStaleResource,
   eventFeedStateCreate,
 } from "../../stream/client/eventFeedStateCreate.js"
+import type { StreamEventSourceError } from "../../stream/client/streamEventSourceError.js"
+import type { StreamEventSourceEvent } from "../../stream/client/streamEventSourceEvent.js"
 import type { UiDataLayerStatus } from "../../ui/uiDataLayerStatusSchema.js"
 import type { EventFeedOwnerRegistry } from "./eventFeedOwnerRegistryCreate.js"
+import type { EventFeedSource } from "./eventFeedSource.js"
+import type { EventFeedSourceFactory } from "./eventFeedSourceFactory.js"
 
 const eventFeedEventTypes = [
   "input-needed",
@@ -33,6 +31,9 @@ const eventFeedEventTypes = [
 ] as const
 const eventFeedClosedReadyState = 2
 const eventFeedPath = "/api/events"
+const eventFeedAuthenticationPath = "/api/auth/session"
+const eventFeedCursorFailureStatus = 400
+const eventFeedUnauthorizedStatuses = new Set([401, 403])
 const eventFeedResourceTypeSchema = v.picklist(["agent", "message", "note", "run", "server", "session", "session-list"])
 const eventFeedResourceReplacementSchema = v.strictObject({
   resourceId: v.pipe(v.string(), v.minLength(1)),
@@ -40,7 +41,6 @@ const eventFeedResourceReplacementSchema = v.strictObject({
   revision: apiRevisionSchema,
 })
 const eventFeedResetBootstrapSchema = v.strictObject({
-  activeRuns: v.array(runActiveSummarySchema),
   asOfCursor: eventFeedCursorSchema,
   lastEventId: v.optional(v.nullable(eventFeedCursorSchema)),
   resetCheckpoint: eventFeedCursorSchema,
@@ -49,20 +49,7 @@ const eventFeedResetBootstrapSchema = v.strictObject({
 
 type EventFeedTransportState = "closed" | "connecting" | "open" | "reconnecting"
 type EventFeedReset = Extract<EventFeedReconciliationInstruction, { kind: "reset" }>
-type EventFeedCompletion = Extract<EventFeedReconciliationInstruction, { kind: "authoritative-replacement" }>
-type EventFeedMessage = Event & {
-  data: unknown
-  lastEventId: unknown
-}
-type EventFeedSource = {
-  readonly readyState?: number
-  addEventListener: (type: string, listener: EventListener) => void
-  close: () => void
-  onerror: ((event: Event) => void) | null
-  onopen: ((event: Event) => void) | null
-  removeEventListener: (type: string, listener: EventListener) => void
-}
-type EventFeedSourceFactory = (url: string, options: { withCredentials: boolean }) => EventFeedSource
+type EventFeedFetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
 export type EventFeedBootstrap =
   | {
       asOfCursor: string
@@ -76,44 +63,17 @@ export type EventFeedBootstrap =
 type EventFeedCallbackResult<T> = Result<T> | Promise<Result<T>>
 export type EventFeedResetBootstrap = v.InferOutput<typeof eventFeedResetBootstrapSchema>
 type EventFeedResetCallbackInput = EventFeedReset
-type EventFeedResetActiveRunInput = {
-  lastSequence: number
-  reason: "reset"
-  runId: string
-  sessionId: string
-}
-type EventFeedActiveRunCallbackInput = EventFeedResetActiveRunInput
-type EventFeedSessionSnapshotInput = EventFeedCompletion
-type EventFeedResetSessionSnapshotInput = {
-  authoritative: "session-snapshot"
-  kind: "authoritative-replacement"
-  messageId: null
-  preserveDeltas: false
-  reason: "run-completed"
-  resetDiscovered: true
-  runId: string
-  sessionId: string
-  sessionRevision?: number
-}
 export type EventFeedReconciliationCallbacks = {
-  activeRunSnapshotLoad: (input: EventFeedActiveRunCallbackInput) => EventFeedCallbackResult<RunActiveSummary>
   resourceRevalidate: (input: EventFeedStaleResource) => EventFeedCallbackResult<EventFeedResourceRevision | null>
-  sessionSnapshotLoad: (
-    input: EventFeedSessionSnapshotInput | EventFeedResetSessionSnapshotInput,
-  ) => EventFeedCallbackResult<SessionSettledSnapshotResponse>
-  sessionSnapshotReplace: (
-    snapshot: SessionSettledSnapshotResponse,
-    input?: EventFeedSessionSnapshotInput | EventFeedResetSessionSnapshotInput,
-  ) => EventFeedCallbackResult<void>
   shellListBootstrap: (input: EventFeedResetCallbackInput) => EventFeedCallbackResult<EventFeedResetBootstrap>
   visibleResources: () => readonly EventFeedResource[] | Promise<readonly EventFeedResource[]>
 }
 export type EventFeedCreateOptions = {
   bootstrap: EventFeedBootstrap
   eventSourceFactory: EventFeedSourceFactory
+  fetch?: EventFeedFetcher
   initial?: {
     resourceRevisions?: readonly EventFeedResourceRevision[]
-    settledCacheKeys?: readonly string[]
   }
   onError?: (result: Result<unknown>) => void
   onEvent?: (frame: GlobalSummarySseFrame) => void
@@ -138,8 +98,7 @@ function eventFeedUrlCreate(cursor: string | null): string {
 
 function eventFeedInstructionKey(instruction: EventFeedReconciliationInstruction): string {
   if (instruction.kind === "reset") return "reset"
-  if (instruction.kind === "resource-stale") return `resource:${instruction.resourceType}:${instruction.resourceId}`
-  return `run:${instruction.runId}`
+  return `resource:${instruction.resourceType}:${instruction.resourceId}`
 }
 
 function eventFeedCallbackError<T>(operation: string): Result<T> {
@@ -162,6 +121,26 @@ function eventFeedBootstrapCursorResolve(bootstrap: EventFeedBootstrap): Result<
   return eventFeedCursorValidate(bootstrap.asOfCursor)
 }
 
+async function eventFeedAuthenticationStatusRead(
+  fetcher: EventFeedFetcher | undefined,
+): Promise<Result<number | undefined>> {
+  if (fetcher === undefined) return createResult(undefined)
+  try {
+    const response = await fetcher(eventFeedAuthenticationPath, {
+      cache: "no-store",
+      credentials: "same-origin",
+      headers: { "Cache-Control": "no-store" },
+    })
+    return createResult(response.status)
+  } catch (_error) {
+    return createResultError("eventFeedAuthenticationStatusRead", "The authentication status could not be read.")
+  }
+}
+
+function eventFeedAuthenticationStatusIsUnauthorized(status: number | undefined): boolean {
+  return status !== undefined && eventFeedUnauthorizedStatuses.has(status)
+}
+
 export function eventFeedCreate(options: EventFeedCreateOptions) {
   const cursor = eventFeedBootstrapCursorResolve(options.bootstrap)
   if (!cursor.success) throw new Error(cursor.errorMessage)
@@ -175,25 +154,19 @@ export function eventFeedCreate(options: EventFeedCreateOptions) {
       asOfCursor: cursor.data,
       lastEventId: initialLastEventId,
       resourceRevisions: options.initial?.resourceRevisions,
-      settledCacheKeys: options.initial?.settledCacheKeys,
     },
   })
   let currentCursor = cursor.data
-  // False only until a bootstrap, reset, or reload attach supplies a cursor the
-  // client chose. A cursorless fresh feed advancing through backlog does not
-  // count, so a later run snapshot may still redirect the connection.
-  let cursorAuthoritative = cursor.data !== null
   let browserOffline = false
   let transportState: EventFeedTransportState = "connecting"
   let closed = false
   let reconciliationEpoch = 0
   let reconnectAttempt = 0
   let source: EventFeedSource | null = null
-  let sourceListeners = new Map<string, EventListener>()
+  let sourceListeners = new Map<string, (event: StreamEventSourceEvent) => void>()
   let resetProcessing = false
   let reportedStateKey: string | null = null
   const pending = new Map<string, EventFeedReconciliationInstruction>()
-  const pendingGenerations = new Map<string, number>()
   const processing = new Map<string, Promise<Result<void>>>()
   let retryQueue: Promise<Result<void>> = Promise.resolve(createResult(undefined))
 
@@ -233,11 +206,31 @@ export function eventFeedCreate(options: EventFeedCreateOptions) {
     const current = source
     if (current === null) return
     source = null
-    current.onopen = null
-    current.onerror = null
-    for (const [eventType, listener] of sourceListeners) current.removeEventListener(eventType, listener)
+    try {
+      current.onopen = null
+    } catch (_error) {
+      // Continue detaching an injected source when its handler cannot be cleared.
+    }
+    try {
+      current.onerror = null
+    } catch (_error) {
+      // Continue detaching an injected source when its handler cannot be cleared.
+    }
+    for (const [eventType, listener] of sourceListeners) {
+      try {
+        current.removeEventListener(eventType, listener)
+      } catch (_error) {
+        // Continue closing an injected source when listener removal fails.
+      }
+    }
     sourceListeners = new Map()
-    if (closeSource) current.close()
+    if (closeSource) {
+      try {
+        current.close()
+      } catch (_error) {
+        // A source that is already closed needs no further transport action.
+      }
+    }
   }
 
   const transportClose = (): void => {
@@ -285,46 +278,7 @@ export function eventFeedCreate(options: EventFeedCreateOptions) {
     return createResult(next)
   }
 
-  const callbackSessionValidate = (
-    instruction: EventFeedSessionSnapshotInput | EventFeedResetSessionSnapshotInput,
-    replacement: unknown,
-  ): Result<SessionSettledSnapshotResponse> => {
-    const parsed = v.safeParse(sessionSettledSnapshotResponseSchema, replacement)
-    if (!parsed.success)
-      return createResultError("eventFeedSessionSnapshotLoad", "The session snapshot does not match its contract.")
-    if (parsed.output.session.id !== instruction.sessionId)
-      return createResultError("eventFeedSessionSnapshotLoad", "The session snapshot belongs to another session.")
-    if (parsed.output.session.revision !== parsed.output.revision)
-      return createResultError("eventFeedSessionSnapshotLoad", "The session snapshot revision is inconsistent.")
-    return createResult(parsed.output)
-  }
-
-  const callbackSessionApply = async (
-    instruction: EventFeedSessionSnapshotInput | EventFeedResetSessionSnapshotInput,
-    replacement: unknown,
-    current?: () => boolean,
-  ): Promise<Result<void>> => {
-    const snapshot = callbackSessionValidate(instruction, replacement)
-    if (!snapshot.success) return snapshot
-    if (instruction.sessionRevision !== undefined && snapshot.data.revision < instruction.sessionRevision)
-      return createResultError("eventFeedSessionSnapshotLoad", "The session snapshot is older than the terminal event.")
-    if (current?.() === false) return createResult(undefined)
-    const stored = await eventFeedCallbackRun("eventFeedSessionSnapshotReplace", () =>
-      options.reconciliation.sessionSnapshotReplace(snapshot.data, instruction),
-    )
-    if (!stored.success) return stored
-    if (current?.() === false) return createResult(undefined)
-    const replaced = feedState.sessionReplace(snapshot.data, "resetDiscovered" in instruction ? undefined : instruction)
-    if (!replaced.success) return replaced
-    return createResult(undefined)
-  }
-
   const epochCurrent = (epoch: number): boolean => !closed && epoch === reconciliationEpoch
-  const pendingGenerationCurrent = (
-    key: string,
-    instruction: EventFeedReconciliationInstruction,
-    generation: number,
-  ): boolean => pending.get(key) === instruction && pendingGenerations.get(key) === generation
 
   const reconcileReset = async (instruction: EventFeedReset, epoch: number): Promise<Result<void>> => {
     const bootstrap = await eventFeedCallbackRun("eventFeedResetBootstrap", () =>
@@ -378,83 +332,20 @@ export function eventFeedCreate(options: EventFeedCreateOptions) {
       stagedResourceRevisions.set(`${replacement.data.resourceType}:${replacement.data.resourceId}`, replacement.data)
     }
 
-    const activeRuns: RunActiveSummary[] = []
-    const completedSessions: Array<{
-      instruction: EventFeedResetSessionSnapshotInput
-      replacement: SessionSettledSnapshotResponse
-    }> = []
-    for (const activeRun of parsedBootstrap.output.activeRuns) {
-      const runResult = await eventFeedCallbackRun("eventFeedActiveRunSnapshotLoad", () =>
-        options.reconciliation.activeRunSnapshotLoad({
-          lastSequence: activeRun.lastSequence,
-          reason: "reset",
-          runId: activeRun.runId,
-          sessionId: activeRun.sessionId,
-        }),
-      )
-      if (!runResult.success) return runResult
-      if (!epochCurrent(epoch)) return createResult(undefined)
-      const parsedRun = v.safeParse(runActiveSummarySchema, runResult.data)
-      if (!parsedRun.success)
-        return createResultError(
-          "eventFeedActiveRunSnapshotLoad",
-          "The active run snapshot does not match its contract.",
-        )
-      if (parsedRun.output.status !== "succeeded") {
-        activeRuns.push(parsedRun.output)
-        continue
-      }
-
-      const sessionInstruction: EventFeedResetSessionSnapshotInput = {
-        authoritative: "session-snapshot",
-        kind: "authoritative-replacement",
-        messageId: null,
-        preserveDeltas: false,
-        reason: "run-completed",
-        resetDiscovered: true,
-        runId: activeRun.runId,
-        sessionId: activeRun.sessionId,
-      }
-      const sessionResult = await eventFeedCallbackRun("eventFeedSessionSnapshotLoad", () =>
-        options.reconciliation.sessionSnapshotLoad(sessionInstruction),
-      )
-      if (!sessionResult.success) return sessionResult
-      if (!epochCurrent(epoch)) return createResult(undefined)
-      const snapshot = callbackSessionValidate(sessionInstruction, sessionResult.data)
-      if (!snapshot.success) return snapshot
-      completedSessions.push({ instruction: sessionInstruction, replacement: snapshot.data })
-      stagedResourceRevisions.set(`session:${snapshot.data.session.id}`, {
-        resourceId: snapshot.data.session.id,
-        resourceType: "session",
-        revision: snapshot.data.revision,
-      })
-    }
-
     if (!epochCurrent(epoch)) return createResult(undefined)
 
     const resetCandidate = {
-      activeRuns,
       asOfCursor: parsedBootstrap.output.asOfCursor,
       lastEventId: parsedBootstrap.output.lastEventId ?? parsedBootstrap.output.asOfCursor,
       resourceRevisions: [...stagedResourceRevisions.values()],
       resetCheckpoint: parsedBootstrap.output.resetCheckpoint,
-      sessionSnapshots: completedSessions.map((completedSession) => completedSession.replacement),
     }
     const candidateValidated = feedState.resetValidate(resetCandidate)
     if (!candidateValidated.success) return candidateValidated
 
-    for (const completedSession of completedSessions) {
-      const sessionReplaced = await eventFeedCallbackRun("eventFeedSessionSnapshotReplace", () =>
-        options.reconciliation.sessionSnapshotReplace(completedSession.replacement, completedSession.instruction),
-      )
-      if (!sessionReplaced.success) return sessionReplaced
-      if (!epochCurrent(epoch)) return createResult(undefined)
-    }
-
     const completed = feedState.resetCommit(resetCandidate)
     if (!completed.success) return completed
     currentCursor = resetCandidate.asOfCursor
-    cursorAuthoritative = true
     return createResult(undefined)
   }
 
@@ -462,7 +353,6 @@ export function eventFeedCreate(options: EventFeedCreateOptions) {
     key: string,
     instruction: EventFeedReconciliationInstruction,
     epoch: number,
-    generation: number,
   ): Promise<Result<void>> => {
     if (!epochCurrent(epoch)) return createResult(undefined)
     if (instruction.kind === "reset") {
@@ -478,7 +368,8 @@ export function eventFeedCreate(options: EventFeedCreateOptions) {
         return createResult(undefined)
       }
       pending.delete(key)
-      openTransport()
+      reconnect()
+      online()
       stateEmit()
       return createResult(undefined)
     }
@@ -507,31 +398,6 @@ export function eventFeedCreate(options: EventFeedCreateOptions) {
       return createResult(undefined)
     }
 
-    if (instruction.kind === "authoritative-replacement") {
-      const result = await eventFeedCallbackRun("eventFeedSessionSnapshotLoad", () =>
-        options.reconciliation.sessionSnapshotLoad(instruction),
-      )
-      if (!result.success) {
-        stateEmit()
-        return result
-      }
-      if (!epochCurrent(epoch) || !pendingGenerationCurrent(key, instruction, generation))
-        return createResult(undefined)
-      const replaced = await callbackSessionApply(
-        instruction,
-        result.data,
-        () => epochCurrent(epoch) && pendingGenerationCurrent(key, instruction, generation),
-      )
-      if (!replaced.success) {
-        stateEmit()
-        return replaced
-      }
-      if (!pendingGenerationCurrent(key, instruction, generation)) return createResult(undefined)
-      pending.delete(key)
-      stateEmit()
-      return createResult(undefined)
-    }
-
     return createResult(undefined)
   }
 
@@ -540,8 +406,7 @@ export function eventFeedCreate(options: EventFeedCreateOptions) {
     const instruction = pending.get(key)
     if (instruction === undefined) return
     const epoch = reconciliationEpoch
-    const generation = pendingGenerations.get(key) ?? 0
-    const promise = reconcileOne(key, instruction, epoch, generation)
+    const promise = reconcileOne(key, instruction, epoch)
     processing.set(key, promise)
     void promise.then((result) => {
       processing.delete(key)
@@ -557,14 +422,52 @@ export function eventFeedCreate(options: EventFeedCreateOptions) {
       for (const key of pending.keys()) pending.delete(key)
     }
     const key = eventFeedInstructionKey(instruction)
-    pendingGenerations.set(key, (pendingGenerations.get(key) ?? 0) + 1)
     pending.set(key, instruction)
     stateEmit()
     reconcileSchedule(key)
   }
 
+  const resetRequest = (resetReason: EventFeedReset["resetReason"]): void => {
+    if (currentCursor === null) {
+      transportStateSet("reconnecting")
+      openTransport()
+      return
+    }
+    const requested = feedState.resetRequest({ resetCheckpoint: currentCursor, resetReason })
+    if (!requested.success) {
+      errorReport(requested)
+      return
+    }
+    pendingAdd(requested.data)
+  }
+
+  const closedSourceRecoveryRun = async (error: StreamEventSourceError): Promise<void> => {
+    if (closed || browserOffline) return
+    let status = error.status
+    if (status === undefined) {
+      const authentication = await eventFeedAuthenticationStatusRead(options.fetch)
+      if (!authentication.success) {
+        if (currentCursor !== null) resetRequest("cursor-invalid")
+        return
+      }
+      status = authentication.data
+    }
+
+    if (closed || browserOffline || source !== null || resetProcessing) return
+    if (eventFeedAuthenticationStatusIsUnauthorized(status)) {
+      options.onAuthenticationError?.()
+      return
+    }
+    if (currentCursor !== null) {
+      resetRequest("cursor-invalid")
+      return
+    }
+    transportStateSet("reconnecting")
+    openTransport()
+  }
+
   const eventApply = (frame: GlobalSummarySseFrame): Result<EventFeedApplyResult> => {
-    const applied = feedState.apply(globalSummaryEventJournalAdapt(frame.data))
+    const applied = feedState.apply(frame.data)
     if (!applied.success) return applied
     if (frame.data.eventType !== "reset" && applied.data.applied) currentCursor = frame.id
     if (applied.data.instruction !== null) pendingAdd(applied.data.instruction)
@@ -572,10 +475,9 @@ export function eventFeedCreate(options: EventFeedCreateOptions) {
     return applied
   }
 
-  const sourceEventHandle = (candidate: EventFeedSource, eventType: string, input: Event): void => {
+  const sourceEventHandle = (candidate: EventFeedSource, eventType: string, input: StreamEventSourceEvent): void => {
     if (closed || source !== candidate || resetProcessing) return
-    const message = input as EventFeedMessage
-    const parsed = eventFeedEventParse({ data: message.data, event: eventType, id: message.lastEventId })
+    const parsed = eventFeedEventParse({ data: input.data, event: eventType, id: input.lastEventId })
     if (!parsed.success) {
       errorReport(parsed)
       close()
@@ -604,28 +506,52 @@ export function eventFeedCreate(options: EventFeedCreateOptions) {
       return
     }
     source = created
-    const listeners = new Map<string, EventListener>()
+    const listeners = new Map<string, (event: StreamEventSourceEvent) => void>()
     sourceListeners = listeners
     created.onopen = () => {
       if (closed || source !== created) return
       reconnectAttempt = 0
       transportStateSet("open")
     }
-    created.onerror = () => {
+    created.onerror = (error = {}) => {
       if (closed || source !== created || resetProcessing) return
-      if (created.readyState === eventFeedClosedReadyState) {
+      if (browserOffline || (typeof navigator !== "undefined" && navigator.onLine === false)) {
+        sourceDetach(false)
+        transportStateSet("closed")
+        return
+      }
+      if (eventFeedAuthenticationStatusIsUnauthorized(error.status)) {
         sourceDetach(false)
         transportStateSet("closed")
         options.onAuthenticationError?.()
         return
       }
+      if (error.status === eventFeedCursorFailureStatus) {
+        sourceDetach(false)
+        transportStateSet("closed")
+        resetRequest("cursor-invalid")
+        return
+      }
+      if (created.readyState === eventFeedClosedReadyState) {
+        sourceDetach(false)
+        transportStateSet("closed")
+        void closedSourceRecoveryRun(error)
+        return
+      }
       reconnectAttempt += 1
       transportStateSet("reconnecting")
     }
-    for (const eventType of eventFeedEventTypes) {
-      const listener: EventListener = (event) => sourceEventHandle(created, eventType, event)
-      listeners.set(eventType, listener)
-      created.addEventListener(eventType, listener)
+    try {
+      for (const eventType of eventFeedEventTypes) {
+        const listener = (event: StreamEventSourceEvent) => sourceEventHandle(created, eventType, event)
+        listeners.set(eventType, listener)
+        created.addEventListener(eventType, listener)
+      }
+    } catch (_error) {
+      sourceDetach(true)
+      const result = createResultError("eventFeedCreate", "The event source listeners could not be installed.")
+      errorReport(result)
+      transportStateSet("closed")
     }
   }
 
@@ -640,49 +566,6 @@ export function eventFeedCreate(options: EventFeedCreateOptions) {
     browserOffline = false
     transportClose()
     transportStateSet("reconnecting")
-  }
-
-  /**
-   * Reload attach point. The caller has already read the run-specific active
-   * snapshot from one consistent server snapshot; this folds it into feed state
-   * and reopens `/api/events` after that run's cursor so only strictly newer
-   * fragments arrive.
-   *
-   * A fresh reload has no bootstrap cursor, so the feed opens cursorless and may
-   * consume backlog before the snapshot resolves. Those events are exactly the
-   * ones the snapshot supersedes, so the attach must not be skipped merely
-   * because the cursorless feed already advanced its cursor. Once a bootstrap,
-   * reset, or earlier attach has established an authoritative cursor, that cursor
-   * wins and the connection is left alone.
-   */
-  const activeRunAttach = (input: {
-    lastCursor: string | null
-    lastSequence: number
-    partialText: string
-    runId: string
-    sessionId: string
-    status: string
-  }): Result<void> => {
-    if (closed) return createResultError("eventFeedActiveRunAttach", "The event feed is closed.")
-    const replaced = feedState.runReplace({
-      lastSequence: input.lastSequence,
-      partialText: input.partialText,
-      runId: input.runId,
-      sessionId: input.sessionId,
-      status: input.status,
-    })
-    if (!replaced.success) return replaced
-
-    if (input.lastCursor !== null && cursorAuthoritative === false) {
-      const cursor = eventFeedCursorValidate(input.lastCursor)
-      if (!cursor.success) return cursor
-      cursorAuthoritative = true
-      currentCursor = cursor.data
-      transportClose()
-      openTransport()
-    }
-    stateEmit()
-    return createResult(undefined)
   }
 
   const close = (): void => {
@@ -739,7 +622,6 @@ export function eventFeedCreate(options: EventFeedCreateOptions) {
   openTransport()
 
   return {
-    activeRunAttach,
     cleanup: close,
     close,
     get dataState() {

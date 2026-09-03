@@ -118,7 +118,7 @@ export function chatComposerStateCreate(options: ChatComposerOptions) {
     const isQueueing = chat.isLoading()
     // A command draft that cannot expand deterministically is refused here, so the
     // user keeps the draft and sees the same message the server would have returned.
-    const blocking = options.command?.errorMessage()
+    const blocking = /^\/compact(?:\s|$)/u.test(prompt) ? undefined : options.command?.errorMessage()
     if (blocking !== undefined) {
       commandError.set(blocking)
       return
@@ -183,7 +183,10 @@ export function chatComposerStateCreate(options: ChatComposerOptions) {
 
   return {
     activity,
-    canSubmit: () => draft.get().trim().length > 0 && !stopping.get() && options.command?.errorMessage() === undefined,
+    canSubmit: () =>
+      draft.get().trim().length > 0 &&
+      !stopping.get() &&
+      (/^\/compact(?:\s|$)/u.test(draft.get().trim()) || options.command?.errorMessage() === undefined),
     draft: draft.get,
     errorMessage: () =>
       commandError.get() ?? stopError.get() ?? (recoveryStatus.get() === "stale" ? undefined : chat.error()?.message),

@@ -1,29 +1,28 @@
 import { expect, test } from "bun:test"
 import { createResult } from "@adaptive-ds/result"
-import type { RunActiveSummary } from "../src/run/api/runActiveSummarySchema.js"
-import type { SessionSettledSnapshotResponse } from "../src/session/api/sessionSettledSnapshotResponseSchema.js"
 import type { GlobalSummarySseFrame } from "../src/stream/api/globalSummarySseFrameSchema.js"
+import type { StreamEventSourceEvent } from "../src/stream/client/streamEventSourceEvent.js"
 import { eventFeedCoordinatorStateCreate } from "../src/ui/eventFeedCoordinatorStateCreate.js"
 
 type CoordinatorOptions = Parameters<typeof eventFeedCoordinatorStateCreate>[0]
 type CoordinatorReconciliation = CoordinatorOptions["reconciliation"]
-type FakeEventListener = (event: Event) => void
+type FakeEventListener = (event: StreamEventSourceEvent) => void
 
 class FakeEventSource {
   readonly listeners = new Map<string, Set<FakeEventListener>>()
   readonly url: string
   closeCount = 0
-  onerror: ((event: Event) => void) | null = null
-  onopen: ((event: Event) => void) | null = null
+  onerror: (() => void) | null = null
+  onopen: (() => void) | null = null
   readyState = 0
 
   constructor(url: string) {
     this.url = url
   }
 
-  addEventListener(type: string, listener: EventListener): void {
+  addEventListener(type: string, listener: FakeEventListener): void {
     const listeners = this.listeners.get(type) ?? new Set<FakeEventListener>()
-    listeners.add(listener as FakeEventListener)
+    listeners.add(listener)
     this.listeners.set(type, listeners)
   }
 
@@ -33,65 +32,28 @@ class FakeEventSource {
   }
 
   emit(frame: GlobalSummarySseFrame): void {
-    const message = new Event(frame.event) as Event & { data?: string; lastEventId?: string }
-    message.data = JSON.stringify(frame.data)
-    message.lastEventId = frame.id
+    const message = { data: JSON.stringify(frame.data), lastEventId: frame.id }
     for (const listener of [...(this.listeners.get(frame.event) ?? [])]) listener(message)
   }
 
   open(): void {
     this.readyState = 1
-    this.onopen?.(new Event("open"))
+    this.onopen?.()
   }
 
-  removeEventListener(type: string, listener: EventListener): void {
+  removeEventListener(type: string, listener: FakeEventListener): void {
     const listeners = this.listeners.get(type)
-    listeners?.delete(listener as FakeEventListener)
+    listeners?.delete(listener)
     if (listeners?.size === 0) this.listeners.delete(type)
   }
 }
 
-function sessionSnapshot(sessionId: string, revision = 1): SessionSettledSnapshotResponse {
-  const timestamp = "2026-01-01T00:00:00.000Z"
-  return {
-    asOfCursor: "cursor-1",
-    asOfSequence: 1,
-    etag: '"session-1"',
-    messages: [],
-    revision,
-    schemaVersion: "session-snapshot-v1",
-    session: {
-      archivedAt: null,
-      createdAt: timestamp,
-      id: sessionId,
-      metadata: null,
-      parentSessionId: null,
-      pinned: false,
-      primaryAgentId: "agent-1",
-      projectPath: "/tmp/project",
-      revision,
-      serverId: "server-1",
-      title: sessionId,
-      updatedAt: timestamp,
-    },
-    settled: true,
-  }
-}
-
-function runSummary(): RunActiveSummary {
-  return { lastSequence: 1, partialText: "", runId: "run-1", sessionId: "session-1", status: "running" }
-}
-
 function reconciliation(overrides: Partial<CoordinatorReconciliation> = {}): CoordinatorReconciliation {
   return {
-    activeRunSnapshotLoad: () => createResult(runSummary()),
     resourceRevalidate: (input) =>
       createResult({ resourceId: input.resourceId, resourceType: input.resourceType, revision: input.serverRevision }),
-    sessionSnapshotLoad: (input) => createResult(sessionSnapshot(input.sessionId, input.sessionRevision ?? 1)),
-    sessionSnapshotReplace: () => createResult(undefined),
     shellListBootstrap: (input) =>
       createResult({
-        activeRuns: [],
         asOfCursor: "cursor-after-reset",
         resetCheckpoint: input.resetCheckpoint,
         resourceRevisions: [],
@@ -124,21 +86,28 @@ function frame(
             }
           : eventType === "run-started"
             ? { runId: "run-1", sessionId: "session-1" }
-            : eventType === "run-failed"
+            : eventType === "input-needed"
               ? {
-                  changePosition: sequence,
-                  failure: null,
+                  requestId: "request-1",
                   runId: "run-1",
                   sessionId: "session-1",
                   sessionRevision: sequence,
                 }
-              : {
-                  changePosition: sequence,
-                  runId: "run-1",
-                  sessionId: "session-1",
-                  sessionRevision: sequence,
-                  reason: "test",
-                }),
+              : eventType === "run-failed"
+                ? {
+                    changePosition: sequence,
+                    failure: null,
+                    runId: "run-1",
+                    sessionId: "session-1",
+                    sessionRevision: sequence,
+                  }
+                : {
+                    changePosition: sequence,
+                    runId: "run-1",
+                    sessionId: "session-1",
+                    sessionRevision: sequence,
+                    reason: "test",
+                  }),
     ...values,
   }
   return { data, event: eventType, id: `cursor-${sequence}` } as GlobalSummarySseFrame
@@ -203,22 +172,10 @@ test("reopens the feed and refreshes registered state once when connectivity ret
       calls.push("session")
     },
   })
-  coordinator.registerSelectedMessages({
-    sessionId: "session-1",
-    refresh: () => {
-      calls.push("messages")
-    },
-  })
   coordinator.registerSelectedDelegations({
     sessionId: "session-1",
     refresh: () => {
       calls.push("delegations")
-    },
-  })
-  coordinator.registerSelectedStream({
-    sessionId: "session-1",
-    refresh: () => {
-      calls.push("stream")
     },
   })
   coordinator.registerNoteList(() => {
@@ -246,7 +203,38 @@ test("reopens the feed and refreshes registered state once when connectivity ret
   expect(await firstRecovery).toMatchObject({ success: true })
   expect(sources).toHaveLength(2)
   expect(sources[1]?.url).toBe("/api/events?after=cursor-0")
-  expect(calls).toEqual(["session-list", "session", "messages", "delegations", "stream", "note-list", "note-detail"])
+  expect(calls).toEqual(["session-list", "session", "delegations", "note-list", "note-detail"])
+  coordinator.close()
+})
+
+test("waits for the selected snapshot refresh before reopening during normal recovery", async () => {
+  let releaseSelectedRefresh: (() => void) | undefined
+  let selectedRefreshCount = 0
+  const selectedRefresh = new Promise<void>((resolve) => {
+    releaseSelectedRefresh = resolve
+  })
+  const { coordinator, source, sources } = coordinatorCreate()
+  coordinator.registerSelectedSession({
+    refresh: async () => {
+      selectedRefreshCount += 1
+      await selectedRefresh
+    },
+    sessionId: "session-1",
+  })
+
+  source.open()
+  coordinator.offline()
+  const recovery = coordinator.online()
+  await flush()
+
+  expect(selectedRefreshCount).toBe(1)
+  expect(sources).toHaveLength(1)
+  expect(coordinator.eventFeed.selectedDetailEnabled()).toBe(false)
+
+  releaseSelectedRefresh?.()
+  expect(await recovery).toMatchObject({ success: true })
+  expect(sources).toHaveLength(2)
+  expect(coordinator.eventFeed.selectedDetailEnabled()).toBe(true)
   coordinator.close()
 })
 
@@ -271,22 +259,10 @@ test("routes resource invalidations to the matching registered refresh seams", a
       calls.push("session")
     },
   })
-  coordinator.registerSelectedMessages({
-    sessionId: "session-1",
-    refresh: () => {
-      calls.push("messages")
-    },
-  })
   coordinator.registerSelectedDelegations({
     sessionId: "session-1",
     refresh: () => {
       calls.push("delegations")
-    },
-  })
-  coordinator.registerSelectedStream({
-    sessionId: "session-1",
-    refresh: () => {
-      calls.push("stream")
     },
   })
   coordinator.registerNoteList(() => {
@@ -301,13 +277,99 @@ test("routes resource invalidations to the matching registered refresh seams", a
 
   source.emit(frame("invalidate", 1, { resourceId: "session-1", resourceType: "session" }))
   await flush()
-  expect(calls).toEqual(["session-list", "session", "messages", "delegations", "stream"])
+  expect(calls).toEqual(["session-list", "delegations"])
 
   source.emit(frame("invalidate", 2, { resourceId: "note-1", resourceType: "note" }))
   await flush()
-  expect(calls).toEqual(["session-list", "session", "messages", "delegations", "stream", "note-list", "note-detail"])
+  expect(calls).toEqual(["session-list", "delegations", "note-list", "note-detail"])
 
   coordinator.unregisterNoteDetail({ noteId: "note-1", refresh: () => undefined })
+  coordinator.close()
+})
+
+test("does not reload the selected bounded snapshot for detail-bearing global invalidations", async () => {
+  const calls: string[] = []
+  const { coordinator, source } = coordinatorCreate()
+  coordinator.registerSelectedSession({
+    refresh: () => {
+      calls.push("snapshot")
+    },
+    sessionId: "session-1",
+  })
+  coordinator.registerSessionList(() => {
+    calls.push("session-list")
+  })
+  coordinator.registerSelectedDelegations({
+    refresh: () => {
+      calls.push("delegations")
+    },
+    sessionId: "session-1",
+  })
+
+  source.emit(frame("invalidate", 1, { resourceId: "session-1", resourceType: "session" }))
+  await flush()
+  expect(calls).toEqual(["session-list", "delegations"])
+
+  source.emit(frame("invalidate", 2, { resourceId: "message-1", resourceType: "message" }))
+  await flush()
+  expect(calls).toEqual(["session-list", "delegations"])
+  coordinator.close()
+})
+
+test("deduplicates one callback registered across selected refresh scopes", async () => {
+  let refreshCount = 0
+  const refresh = () => {
+    refreshCount += 1
+  }
+  const { coordinator, source } = coordinatorCreate()
+  coordinator.registerSelectedSession({ refresh, sessionId: "session-1" })
+  coordinator.registerSelectedDelegations({ refresh, sessionId: "session-1" })
+
+  source.emit(frame("reset", 1))
+  await flush()
+
+  expect(refreshCount).toBe(1)
+  coordinator.close()
+})
+
+test("keeps message and run invalidations on their owning selected seams", async () => {
+  const calls: string[] = []
+  const { coordinator, source } = coordinatorCreate()
+  coordinator.registerSelectedSession({
+    refresh: () => {
+      calls.push("session")
+    },
+    sessionId: "session-1",
+  })
+  coordinator.registerSelectedDelegations({
+    refresh: () => {
+      calls.push("delegations")
+    },
+    sessionId: "session-1",
+  })
+
+  source.emit(frame("invalidate", 1, { resourceId: "message-1", resourceType: "message" }))
+  await flush()
+  expect(calls).toEqual([])
+
+  source.emit(frame("invalidate", 2, { resourceId: "run-1", resourceType: "run" }))
+  await flush()
+  expect(calls).toEqual(["delegations"])
+  coordinator.close()
+})
+
+test("keeps input-needed as one selected-session bounded refresh", async () => {
+  let snapshotRefreshCount = 0
+  const { coordinator, source } = coordinatorCreate()
+  const snapshotRefresh = () => {
+    snapshotRefreshCount += 1
+  }
+  coordinator.registerSelectedSession({ refresh: snapshotRefresh, sessionId: "session-1" })
+
+  source.emit(frame("input-needed", 1))
+  await flush()
+
+  expect(snapshotRefreshCount).toBe(1)
   coordinator.close()
 })
 
@@ -329,6 +391,109 @@ test("refreshes the registry status seam for run start and every terminal event"
   coordinator.close()
 })
 
+test("refreshes the matching selected session, delegations, and lifecycle for every terminal kind", async () => {
+  const terminalEventTypes = ["run-completed", "run-failed", "run-cancelled", "run-interrupted"] as const
+  const calls: string[] = []
+  const { coordinator, source } = coordinatorCreate()
+  coordinator.registerSelectedSession({
+    refresh: () => {
+      calls.push("session")
+    },
+    sessionId: "session-1",
+  })
+  coordinator.registerSelectedDelegations({
+    refresh: () => {
+      calls.push("delegations")
+    },
+    sessionId: "session-1",
+  })
+  coordinator.registerRunLifecycle(() => {
+    calls.push("lifecycle")
+  })
+
+  for (const [index, eventType] of terminalEventTypes.entries()) {
+    source.emit(frame(eventType, index + 1))
+    await flush()
+    expect(calls).toEqual(["session", "delegations", "lifecycle"])
+    calls.length = 0
+  }
+
+  coordinator.close()
+})
+
+test("does not refresh selected seams for a terminal event from another session", async () => {
+  const calls: string[] = []
+  const { coordinator, source } = coordinatorCreate()
+  coordinator.registerSelectedSession({
+    refresh: () => {
+      calls.push("session")
+    },
+    sessionId: "session-2",
+  })
+  coordinator.registerSelectedDelegations({
+    refresh: () => {
+      calls.push("delegations")
+    },
+    sessionId: "session-2",
+  })
+  coordinator.registerSessionList(() => {
+    calls.push("session-list")
+  })
+  coordinator.registerRunLifecycle(() => {
+    calls.push("lifecycle")
+  })
+
+  source.emit(frame("run-failed", 1, { sessionId: "session-1" }))
+  await flush()
+
+  expect(calls).toEqual(["lifecycle"])
+  coordinator.close()
+})
+
+test("deduplicates a terminal callback shared by selected session, delegations, and lifecycle", async () => {
+  let refreshCount = 0
+  const refresh = () => {
+    refreshCount += 1
+  }
+  const { coordinator, source } = coordinatorCreate()
+  coordinator.registerSelectedSession({ refresh, sessionId: "session-1" })
+  coordinator.registerSelectedDelegations({ refresh, sessionId: "session-1" })
+  coordinator.registerRunLifecycle(refresh)
+
+  source.emit(frame("run-interrupted", 1))
+  await flush()
+
+  expect(refreshCount).toBe(1)
+  coordinator.close()
+})
+
+test("refreshes the affected bounded session and session list when a run starts", async () => {
+  const calls: string[] = []
+  const { coordinator, source } = coordinatorCreate()
+  coordinator.registerSessionList(() => {
+    calls.push("session-list")
+  })
+  const sessionRefresh = () => {
+    calls.push("session")
+  }
+  coordinator.registerSelectedSession({
+    refresh: sessionRefresh,
+    sessionId: "session-1",
+  })
+  coordinator.registerSelectedSession({
+    refresh: () => {
+      calls.push("other-session")
+    },
+    sessionId: "session-2",
+  })
+
+  source.emit(frame("run-started", 1))
+  await flush()
+
+  expect(calls).toEqual(["session-list", "session"])
+  coordinator.close()
+})
+
 test("refreshes the registry status seam during reset reconciliation", async () => {
   let refreshCount = 0
   const { coordinator, source } = coordinatorCreate()
@@ -340,67 +505,6 @@ test("refreshes the registry status seam during reset reconciliation", async () 
   await flush()
 
   expect(refreshCount).toBe(1)
-  coordinator.close()
-})
-
-test("acknowledges the selected session after a completion snapshot refresh", async () => {
-  const calls: string[] = []
-  const { coordinator, source } = coordinatorCreate({
-    reconciliation: reconciliation({
-      activeRunSnapshotLoad: (input) =>
-        createResult({
-          lastSequence: 2,
-          partialText: "",
-          runId: input.runId,
-          sessionId: input.sessionId,
-          status: "succeeded",
-        }),
-      sessionSnapshotReplace: () => {
-        calls.push("snapshot")
-        return createResult(undefined)
-      },
-    }),
-  })
-  coordinator.registerSelectedSession({
-    completion: () => {
-      calls.push("acknowledge")
-    },
-    refresh: () => {
-      calls.push("session")
-    },
-    sessionId: "session-1",
-  })
-
-  source.open()
-  source.emit(frame("run-completed", 1))
-  await flush()
-
-  expect(calls).toEqual(["snapshot", "session", "acknowledge"])
-  coordinator.close()
-})
-
-test("refreshes selected session queries after authoritative cancellation replacement", async () => {
-  const calls: string[] = []
-  const { coordinator, source } = coordinatorCreate({
-    reconciliation: reconciliation({
-      sessionSnapshotReplace: () => {
-        calls.push("snapshot")
-        return createResult(undefined)
-      },
-    }),
-  })
-  coordinator.registerSelectedSession({
-    refresh: () => {
-      calls.push("session")
-    },
-    sessionId: "session-1",
-  })
-
-  source.open()
-  source.emit(frame("run-cancelled", 1))
-  await flush()
-
-  expect(calls).toEqual(["snapshot", "session"])
   coordinator.close()
 })
 
@@ -416,22 +520,10 @@ test("refreshes every active seam once during reset bootstrap", async () => {
       calls.push("session")
     },
   })
-  coordinator.registerSelectedMessages({
-    sessionId: "session-1",
-    refresh: () => {
-      calls.push("messages")
-    },
-  })
   coordinator.registerSelectedDelegations({
     sessionId: "session-1",
     refresh: () => {
       calls.push("delegations")
-    },
-  })
-  coordinator.registerSelectedStream({
-    sessionId: "session-1",
-    refresh: () => {
-      calls.push("stream")
     },
   })
   coordinator.registerNoteList(() => {
@@ -447,8 +539,38 @@ test("refreshes every active seam once during reset bootstrap", async () => {
   source.emit(frame("reset", 1))
   await flush()
 
-  expect(calls).toEqual(["session-list", "session", "messages", "delegations", "stream", "note-list", "note-detail"])
+  expect(calls).toEqual(["session-list", "session", "delegations", "note-list", "note-detail"])
   expect(sources).toHaveLength(2)
+  coordinator.close()
+})
+
+test("holds selected detail closed until one authoritative refresh completes for an expired global cursor", async () => {
+  let releaseSelectedRefresh: (() => void) | undefined
+  let selectedRefreshCount = 0
+  const selectedRefresh = new Promise<void>((resolve) => {
+    releaseSelectedRefresh = resolve
+  })
+  const { coordinator, source, sources } = coordinatorCreate()
+  coordinator.registerSelectedSession({
+    refresh: async () => {
+      selectedRefreshCount += 1
+      await selectedRefresh
+    },
+    sessionId: "session-1",
+  })
+
+  source.emit(frame("reset", 1))
+  await flush()
+
+  expect(selectedRefreshCount).toBe(1)
+  expect(sources).toHaveLength(1)
+  expect(coordinator.eventFeed.selectedDetailEnabled()).toBe(false)
+
+  releaseSelectedRefresh?.()
+  await flush()
+
+  expect(sources).toHaveLength(2)
+  expect(coordinator.eventFeed.selectedDetailEnabled()).toBe(true)
   coordinator.close()
 })
 

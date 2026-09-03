@@ -1,6 +1,7 @@
 import { batch, onCleanup, useContext } from "solid-js"
 import { projectRegistryStateCreate } from "../project/ui/projectRegistryStateCreate.js"
 import { providerModelSelectorStateCreate } from "../providers/ui/providerModelSelectorStateCreate.js"
+import type { SessionDetailSourceFactory } from "../session/client/sessionDetailSourceFactory.js"
 import { activeProjectStateCreate } from "./activeProjectStateCreate.js"
 import { applicationAccountContext } from "./applicationAccountContext.js"
 import { applicationShellContext } from "./applicationShellContext.js"
@@ -24,6 +25,7 @@ import { workspacePageStateCreate } from "./workspacePageStateCreate.js"
 import type { WorkspaceScreenView } from "./workspaceScreenView.js"
 
 type WorkspaceScreenStateOptions = {
+  eventSourceFactory?: SessionDetailSourceFactory
   fetcher?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
 }
 
@@ -150,6 +152,7 @@ export function workspaceScreenStateCreate(
   const selectedSessionState = selectedSessionStateCreate({
     codelineExecution: providerModelSelector.codelineExecution,
     commandCatalog,
+    eventSourceFactory: options.eventSourceFactory,
     navigation: () => navigation,
     rightPanelClose: shell.rightPanelClose,
     rightPanelShow: shell.rightPanelShow,

@@ -1,4 +1,6 @@
 import { onCleanup, onMount } from "solid-js"
+import type { EventFeedSourceFactory } from "../events/client/eventFeedSourceFactory.js"
+import { streamEventSourceCreate } from "../stream/client/streamEventSourceCreate.js"
 import { applicationShellStateCreate } from "./applicationShellStateCreate.js"
 import { appShellStateCreate } from "./appShellStateCreate.js"
 import { eventFeedCoordinatorStateCreate } from "./eventFeedCoordinatorStateCreate.js"
@@ -7,6 +9,7 @@ import { protectedShellStateCreate } from "./protectedShellStateCreate.js"
 
 type SignedInApplicationStateOptions = {
   displayName: () => string
+  eventSourceFactory?: EventFeedSourceFactory
   fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
   sessionClear: () => void
   userId: () => string
@@ -27,7 +30,8 @@ export function signedInApplicationStateCreate(options: SignedInApplicationState
   const eventFeed = eventFeedCoordinatorStateCreate({
     bootstrap: { fresh: true },
     connectionIndicator: state.events,
-    eventSourceFactory: (url, eventSourceOptions) => new EventSource(url, eventSourceOptions),
+    eventSourceFactory: options.eventSourceFactory ?? streamEventSourceCreate,
+    fetch: fetcher,
     onAuthenticationError: options.sessionClear,
     reconciliation: eventFeedReconciliationCreate({ fetch: fetcher }),
   })

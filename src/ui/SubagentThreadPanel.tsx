@@ -32,7 +32,7 @@ export function SubagentThreadPanel(props: { state: SelectedSessionView }) {
             <p class="m-0 text-[11px] font-semibold tracking-[0.14em] text-faint uppercase">Task</p>
             <p class="mt-1 mb-4 whitespace-pre-wrap break-words text-[13px] leading-relaxed">{delegation.task}</p>
             <div class="mb-4">
-              <ChildSessionConversation sessionId={delegation.childSessionId} />
+              <ChildSessionConversation link={delegation} />
             </div>
             <section aria-label="Subagent execution stream">
               <p class="m-0 mb-2 text-[11px] font-semibold tracking-[0.14em] text-faint uppercase">Stream</p>

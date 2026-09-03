@@ -23,7 +23,11 @@ export function ApplicationRoot(props: { children?: JSX.Element }) {
             </p>
           </main>
         </Match>
-        <Match when={session.status() === "error"}>
+        <Match
+          when={
+            session.status() === "error" || (session.status() === "offline" && !session.isSignedOutCachedBrowsing())
+          }
+        >
           <main class="grid min-h-screen place-items-center px-6 py-12">
             <div class="max-w-sm text-center" role="alert">
               <h1 class="font-semibold text-[var(--foreground)] text-lg">Session check failed</h1>
@@ -41,7 +45,9 @@ export function ApplicationRoot(props: { children?: JSX.Element }) {
           </main>
         </Match>
         <Match when={session.isSignedOutCachedBrowsing()}>
-          <SignedOutCachedShell>{props.children}</SignedOutCachedShell>
+          <SignedOutCachedShell offline={session.status() === "offline" || session.status() === "error"}>
+            {props.children}
+          </SignedOutCachedShell>
         </Match>
         <Match when={session.status() === "signed-out"}>
           <LoginPage />
@@ -105,8 +111,8 @@ function ProtectedShell(props: {
  * account's cached settled sessions. No event feed is opened and no
  * authenticated identity is exposed, so every mutation path stays disabled.
  */
-function SignedOutCachedShell(props: { children?: JSX.Element }) {
-  const state = signedOutApplicationStateCreate()
+function SignedOutCachedShell(props: { children?: JSX.Element; offline: boolean }) {
+  const state = signedOutApplicationStateCreate({ offline: props.offline })
 
   return (
     <applicationAccountContext.Provider value={state.account}>

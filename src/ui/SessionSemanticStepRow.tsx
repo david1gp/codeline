@@ -19,7 +19,11 @@ export function SessionSemanticStepRow(props: {
   })
 
   return (
-    <li class="min-w-0">
+    <li
+      class="min-w-0"
+      data-session-message-role={props.step.kind === "message" ? props.step.role : undefined}
+      data-session-semantic-kind={props.step.kind}
+    >
       <Show
         when={props.step.kind === "run" || props.step.kind === "tool"}
         fallback={
@@ -31,7 +35,7 @@ export function SessionSemanticStepRow(props: {
           </div>
         }
       >
-        <div onClick={state.detailExpand}>
+        <div data-session-history-entry-id={props.step.id} onClick={state.detailExpand}>
           <Details
             class="!border-line-subtle !bg-surface !shadow-none"
             summaryClass="!min-h-9 !flex-row !gap-2 !p-2"
@@ -67,6 +71,7 @@ export function SessionSemanticStepRow(props: {
         <Show when={props.step.kind === "tool" && props.step.childReference != null}>
           <Button
             class="!mt-1 !h-8 !w-full !justify-start !px-2 !text-xs"
+            data-child-run-id={props.step.kind === "tool" ? props.step.childReference?.childRunId : undefined}
             data-child-session-id={props.step.kind === "tool" ? props.step.childReference?.childSessionId : undefined}
             variant="outline"
             onClick={state.childConversationOpen}

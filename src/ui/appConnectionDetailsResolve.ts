@@ -45,11 +45,13 @@ export function appConnectionDetailsResolve(input: {
   const api = {
     disconnectedSince: input.healthDisconnectedSince(),
     kind:
-      healthStatus === "unavailable"
-        ? connectionStatusKind.error
-        : healthStatus === "checking"
-          ? connectionStatusKind.checking
-          : connectionStatusKind.ok,
+      appStatus === "offline"
+        ? connectionStatusKind.offline
+        : healthStatus === "unavailable"
+          ? connectionStatusKind.error
+          : healthStatus === "checking"
+            ? connectionStatusKind.checking
+            : connectionStatusKind.ok,
     label: input.healthLabel(),
     source: connectionStatusSource.api,
   }

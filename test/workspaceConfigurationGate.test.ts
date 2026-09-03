@@ -15,7 +15,7 @@ test("the workspace shows the initial composer when execution configuration is r
   const normalized = workspacePage.replace(/\s+/g, " ")
 
   expect(normalized).toContain(
-    "when={workspaceSessionPaneVisibleResolve({ configurationStatus: props.state.sessionTargetSelector.configurationReadiness().status, readOnlyReason: props.state.selectedSession.readOnlyReason(), })}",
+    "when={workspaceSessionPaneVisibleResolve({ configurationStatus: props.state.sessionTargetSelector.configurationReadiness().status, hasSelectedSession: props.state.selectedSession.session() !== undefined, readOnlyReason: props.state.selectedSession.readOnlyReason(), })}",
   )
   // Both panes receive the resource selector, so the pending selection is configurable
   // before a session exists and the captured one is shown after it does.

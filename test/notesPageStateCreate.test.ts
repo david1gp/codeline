@@ -42,7 +42,15 @@ test("notes page state loads typed notes, project labels, and refreshes after re
   }))
 
   await tick()
-  expect(root.state.groups()).toEqual([{ label: "Codeline", notes: [note], projectId, projectPath: projectId }])
+  expect(root.state.groups()).toEqual([
+    {
+      faviconUrl: null,
+      label: "Codeline",
+      notes: [note],
+      projectId,
+      projectPath: projectId,
+    },
+  ])
   expect(root.state.isLoading()).toBe(false)
   expect(root.state.isEmpty()).toBe(false)
   expect(noteListCalls).toBe(1)

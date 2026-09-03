@@ -11,13 +11,14 @@ import { themeSwitcherStateCreate } from "./themeSwitcherStateCreate.js"
 type AppShellStateOptions = {
   accountId?: () => string | null
   fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+  initialOnline?: boolean
 }
 
 export function appShellStateCreate(options: AppShellStateOptions = {}): AppShellView & {
   events: ReturnType<typeof eventFeedConnectionIndicatorStateCreate>
 } {
   const app = appStateCreate()
-  const pwa = pwaStatusIndicatorStateCreate()
+  const pwa = pwaStatusIndicatorStateCreate({ initialOnline: options.initialOnline })
   const events = eventFeedConnectionIndicatorStateCreate()
   const projectRegistry = projectRegistryStateCreate({
     accountId: options.accountId,
