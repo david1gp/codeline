@@ -1,5 +1,5 @@
 import { lazy } from "solid-js"
-import type { RouteComponent, RouteConfig } from "../routeConfig.js"
+import type { RouteConfig } from "../routeConfig.js"
 import { pageNameWorkspace, type PageNameWorkspace } from "./pageNameWorkspace.js"
 import { pageRouteWorkspace } from "./pageRouteWorkspace.js"
 
@@ -9,13 +9,15 @@ const WorkspaceRoutePage = lazy(() =>
 
 export function getRoutesWorkspace(): RouteConfig {
   const routeMapping = {
-    [pageNameWorkspace.sessions]: WorkspaceRoutePage,
-    [pageNameWorkspace.sessionsNew]: WorkspaceRoutePage,
-    [pageNameWorkspace.sessionDetail]: WorkspaceRoutePage,
-  } as const satisfies Record<PageNameWorkspace, RouteComponent>
+    [pageNameWorkspace.sessions]: pageRouteWorkspace.sessions,
+    [pageNameWorkspace.sessionsNew]: pageRouteWorkspace.sessionsNew,
+    [pageNameWorkspace.sessionDetail]: pageRouteWorkspace.sessionDetail,
+  } as const satisfies Record<PageNameWorkspace, string>
 
-  return Object.entries(routeMapping).map(([routeKey, component]) => ({
-    path: pageRouteWorkspace[routeKey as PageNameWorkspace],
-    component,
-  }))
+  return [
+    {
+      path: Object.values(routeMapping),
+      component: WorkspaceRoutePage,
+    },
+  ]
 }

@@ -47,8 +47,14 @@ const { getRoutesSettings } = await import("../src/ui/settings_url/getRoutesSett
 const { getRoutesSimulate } = await import("../src/ui/simulate_url/getRoutesSimulate.js")
 const { getRoutesWorkspace } = await import("../src/ui/workspace_url/getRoutesWorkspace.js")
 
-function routeGroupCreate(names: object, paths: object, getRoutes: () => RouteConfig, count: number) {
-  return { count, getRoutes, names, paths }
+function routeGroupCreate(
+  names: object,
+  paths: Record<string, string>,
+  getRoutes: () => RouteConfig,
+  count: number,
+  expectedPaths: Array<string | string[]> = Object.values(paths),
+) {
+  return { count, expectedPaths, getRoutes, names, paths }
 }
 
 test("route groups preserve page-name mappings, path order, and route counts", () => {
@@ -60,14 +66,14 @@ test("route groups preserve page-name mappings, path order, and route counts", (
     routeGroupCreate(pageNameNote, pageRouteNote, getRoutesNote, 3),
     routeGroupCreate(pageNameSettings, pageRouteSettings, getRoutesSettings, 1),
     routeGroupCreate(pageNameSimulate, pageRouteSimulate, getRoutesSimulate, 2),
-    routeGroupCreate(pageNameWorkspace, pageRouteWorkspace, getRoutesWorkspace, 3),
+    routeGroupCreate(pageNameWorkspace, pageRouteWorkspace, getRoutesWorkspace, 1, [Object.values(pageRouteWorkspace)]),
   ]
 
   for (const group of routeGroups) {
     expect(Object.keys(group.names)).toEqual(Object.keys(group.paths))
     const routes = group.getRoutes()
     expect(routes).toHaveLength(group.count)
-    expect(routes.map((route) => route.path)).toEqual(Object.values(group.paths))
+    expect(routes.map((route) => route.path)).toEqual(group.expectedPaths)
   }
 })
 
@@ -118,9 +124,7 @@ test("application route groups keep wildcard fallbacks after their concrete rout
   expect(getRoutesSimulate().map((route) => route.path)).toEqual(["/simulate", "/simulate/*unknownSimulation"])
   expect(getRoutesNote().map((route) => route.path)).toEqual(["/notes", "/notes/new", "/notes/:noteId"])
   expect(getRoutesWorkspace().map((route) => route.path)).toEqual([
-    "/sessions",
-    "/sessions/new",
-    "/sessions/:sessionId",
+    ["/sessions", "/sessions/new", "/sessions/:sessionId"],
   ])
   expect(getRoutesDemo()[0]?.component).toBe(getRoutesDemo()[1]?.component)
   expect(getRoutesSimulate()[0]?.component).toBe(getRoutesSimulate()[1]?.component)
