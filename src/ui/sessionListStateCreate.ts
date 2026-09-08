@@ -184,6 +184,7 @@ export function sessionListStateCreate(
     if (tab === "projects") return []
     return sidebarTabs()[tab]
   }
+  const activeHierarchy = () => sidebarTabs().hierarchies[activeTab()]
   const folderIsDescendantSelected = (folder: ReturnType<typeof sidebarTabs>["folders"][number]) =>
     folder.projects.some((project) =>
       project.sessions.some((row) => navigation().selectedSessionId() === row.session.id),
@@ -191,7 +192,7 @@ export function sessionListStateCreate(
   const folderIsOpen = (folder: ReturnType<typeof sidebarTabs>["folders"][number]) =>
     disclosure.isFolderOpen(folder.id, folderIsDescendantSelected(folder))
   const projectIsOpen = (project: ReturnType<typeof sidebarTabs>["projects"][number]) =>
-    project.sessions.some((row) => navigation().selectedSessionId() === row.session.id)
+    activeTab() !== "projects" || project.sessions.some((row) => navigation().selectedSessionId() === row.session.id)
   const folderToggle = (folderId: string, open: boolean) => disclosure.folderToggle(folderId, open)
   const visibleSessions = () =>
     search.isActive() ? search.sessions().map(sessionSearchResultAdapt) : sessionsWithWorking()
@@ -267,13 +268,14 @@ export function sessionListStateCreate(
       activeRows,
       activeTab,
       canLoadMore,
-      folders: () => sidebarTabs().folders,
+      folders: () => activeHierarchy().folders,
       isLoadingMore: isLoadingMore.get,
       loadMore,
       projectGroups: () => sidebarTabs().projects,
       selectTab,
+      showsManagementControls: () => activeTab() === "projects",
       tabs: sidebarTabs,
-      uncategorizedProjects: () => sidebarTabs().uncategorizedProjects,
+      uncategorizedProjects: () => activeHierarchy().uncategorizedProjects,
     },
     updateQuery: (value: string) => {
       if (activeTab() !== "search") selectTab("search")

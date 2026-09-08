@@ -255,3 +255,77 @@ test("sidebar groups registered projects into user folders while isolating uncat
 
   expect(derived.uncategorizedProjects.map((p) => p.projectLabel)).toEqual(["hist", "Unassigned Project"])
 })
+
+test("sidebar derives non-empty hierarchies for recent, pinned, and search subsets", () => {
+  const folderId = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fe0"
+  const emptyFolderId = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fe3"
+  const registeredId = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fe1"
+  const emptyRegisteredId = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fe2"
+  const registeredProjects = [
+    {
+      available: true,
+      faviconUrl: null,
+      folderId,
+      id: registeredId,
+      label: "Registered",
+      parentFolder: { id: folderId, label: "Work" },
+    },
+    { available: true, faviconUrl: null, id: emptyRegisteredId, label: "Empty", parentFolder: null },
+  ]
+  const registeredFolders = [
+    { active: false, id: folderId, label: "Work", unseenEnded: false },
+    { active: false, id: emptyFolderId, label: "Empty", unseenEnded: false },
+  ]
+  const derived = sessionSidebarDerive(
+    [
+      session({ id: "registered-pinned", projectId: registeredId, projectPath: "/work/registered", pinned: true }),
+      session({
+        id: "registered-unpinned",
+        projectId: registeredId,
+        projectPath: "/work/registered",
+        pinned: false,
+        updatedAt: now - 1_000,
+      }),
+      session({ id: "historical", projectPath: "/legacy", pinned: false, updatedAt: now - 2_000 }),
+    ],
+    [
+      {
+        archivedAt: null,
+        createdAt: new Date(now).toISOString(),
+        id: "search-only",
+        metadata: {},
+        parentSessionId: null,
+        pinned: false,
+        projectId: registeredId,
+        primaryAgentId: "agent-1",
+        projectPath: "/work/registered",
+        revision: 1,
+        serverId: "server-1",
+        title: "Search only",
+        updatedAt: new Date(now).toISOString(),
+      },
+    ],
+    now,
+    {},
+    registeredProjects,
+    registeredFolders,
+  )
+
+  expect(derived.projects.map((project) => project.projectLabel)).toEqual(["Empty", "legacy", "Registered"])
+  expect(derived.folders.map((folder) => folder.id)).toEqual([folderId, emptyFolderId])
+  expect(derived.folders[0]?.projects.map((project) => project.projectLabel)).toEqual(["Registered"])
+  expect(derived.folders[1]?.projects).toHaveLength(0)
+  expect(derived.hierarchies.recent.projects.map((project) => project.projectLabel)).toEqual(["legacy", "Registered"])
+  expect(derived.hierarchies.recent.folders.map((folder) => folder.id)).toEqual([folderId])
+  expect(
+    derived.hierarchies.recent.projects.flatMap((project) => project.sessions).map((row) => row.session.id),
+  ).toEqual(["historical", "registered-pinned", "registered-unpinned"])
+  expect(
+    derived.hierarchies.pinned.projects.flatMap((project) => project.sessions).map((row) => row.session.id),
+  ).toEqual(["registered-pinned"])
+  expect(derived.hierarchies.search.projects.map((project) => project.projectLabel)).toEqual(["Registered"])
+  expect(
+    derived.hierarchies.search.projects.flatMap((project) => project.sessions).map((row) => row.session.id),
+  ).toEqual(["search-only"])
+  expect(derived.hierarchies.search.folders.map((folder) => folder.id)).toEqual([folderId])
+})

@@ -33,8 +33,20 @@ export type SessionSidebarFolderGroup = {
   unseenEnded: boolean
 }
 
+type SessionSidebarHierarchy = {
+  folders: readonly SessionSidebarFolderGroup[]
+  projects: readonly SessionSidebarProjectGroup[]
+  uncategorizedProjects: readonly SessionSidebarProjectGroup[]
+}
+
 export type SessionSidebarTabs = {
   folders: readonly SessionSidebarFolderGroup[]
+  hierarchies: {
+    pinned: SessionSidebarHierarchy
+    projects: SessionSidebarHierarchy
+    recent: SessionSidebarHierarchy
+    search: SessionSidebarHierarchy
+  }
   pinned: readonly SessionSidebarRow[]
   projects: readonly SessionSidebarProjectGroup[]
   recent: readonly SessionSidebarRow[]
@@ -70,20 +82,13 @@ function sessionSidebarRowCreate(
   }
 }
 
-export function sessionSidebarDerive(
-  activeSessions: readonly SessionSidebarSession[],
-  searchResults: readonly SessionShell[],
-  now: number = Date.now(),
-  projectLabels: Record<string, string> = {},
-  registeredProjects: readonly ProjectRegistryApiProject[] = [],
-  registeredFolders: readonly ProjectRegistryApiFolder[] = [],
-): SessionSidebarTabs {
-  const projectFaviconUrls = new Map(registeredProjects.map((project) => [project.id, project.faviconUrl]))
-  const recent = [...activeSessions]
-    .sort(sessionSidebarSessionCompare)
-    .map((session) => sessionSidebarRowCreate(session, now, projectLabels, projectFaviconUrls))
-  const pinned = recent.filter((row) => row.session.pinned)
-
+function sessionSidebarHierarchyDerive(
+  rows: readonly SessionSidebarRow[],
+  projectLabels: Record<string, string>,
+  registeredProjects: readonly ProjectRegistryApiProject[],
+  registeredFolders: readonly ProjectRegistryApiFolder[],
+  includeEmptyRegisteredEntities: boolean,
+): SessionSidebarHierarchy {
   const matchedSessionIds = new Set<string>()
   const groups: SessionSidebarProjectGroup[] = []
   const registeredFolderMap = new Map(registeredFolders.map((folder) => [folder.id, folder]))
@@ -91,31 +96,33 @@ export function sessionSidebarDerive(
   for (const reg of registeredProjects) {
     const matchingSessions: SessionSidebarRow[] = []
 
-    for (const row of recent) {
+    for (const row of rows) {
       if (matchedSessionIds.has(row.session.id)) continue
       if (row.session.projectId !== reg.id) continue
       matchingSessions.push(row)
       matchedSessionIds.add(row.session.id)
     }
 
-    groups.push({
-      available: reg.available,
-      faviconUrl: reg.faviconUrl,
-      folderId: registeredFolderMap.has(reg.folderId ?? "")
-        ? (reg.folderId ?? null)
-        : registeredFolderMap.has(reg.parentFolder?.id ?? "")
-          ? (reg.parentFolder?.id ?? null)
-          : null,
-      parentFolder: reg.parentFolder ?? null,
-      projectId: reg.id,
-      projectLabel: reg.label,
-      projectPath: matchingSessions[0]?.session.projectPath ?? "",
-      sessions: matchingSessions,
-    })
+    if (includeEmptyRegisteredEntities || matchingSessions.length > 0) {
+      groups.push({
+        available: reg.available,
+        faviconUrl: reg.faviconUrl,
+        folderId: registeredFolderMap.has(reg.folderId ?? "")
+          ? (reg.folderId ?? null)
+          : registeredFolderMap.has(reg.parentFolder?.id ?? "")
+            ? (reg.parentFolder?.id ?? null)
+            : null,
+        parentFolder: reg.parentFolder ?? null,
+        projectId: reg.id,
+        projectLabel: reg.label,
+        projectPath: matchingSessions[0]?.session.projectPath ?? "",
+        sessions: matchingSessions,
+      })
+    }
   }
 
   const remainingByPath = new Map<string, SessionSidebarRow[]>()
-  for (const row of recent) {
+  for (const row of rows) {
     if (matchedSessionIds.has(row.session.id)) continue
     const existing = remainingByPath.get(row.session.projectPath)
     if (existing === undefined) remainingByPath.set(row.session.projectPath, [row])
@@ -146,26 +153,80 @@ export function sessionSidebarDerive(
     )
   })
 
-  const folders: SessionSidebarFolderGroup[] = registeredFolders.map((folder) => ({
-    active: folder.active,
-    id: folder.id,
-    label: folder.label,
-    projects: groups.filter((group) => group.folderId === folder.id),
-    unseenEnded: folder.unseenEnded,
-  }))
+  const folders = registeredFolders
+    .map((folder) => ({
+      active: folder.active,
+      id: folder.id,
+      label: folder.label,
+      projects: groups.filter((group) => group.folderId === folder.id),
+      unseenEnded: folder.unseenEnded,
+    }))
+    .filter((folder) => includeEmptyRegisteredEntities || folder.projects.length > 0)
 
   const uncategorizedProjects = groups.filter(
     (group) => group.folderId === null || group.folderId === undefined || !registeredFolderMap.has(group.folderId),
   )
 
-  return {
-    folders,
-    pinned,
-    projects: groups,
+  return { folders, projects: groups, uncategorizedProjects }
+}
+
+export function sessionSidebarDerive(
+  activeSessions: readonly SessionSidebarSession[],
+  searchResults: readonly SessionShell[],
+  now: number = Date.now(),
+  projectLabels: Record<string, string> = {},
+  registeredProjects: readonly ProjectRegistryApiProject[] = [],
+  registeredFolders: readonly ProjectRegistryApiFolder[] = [],
+): SessionSidebarTabs {
+  const projectFaviconUrls = new Map(registeredProjects.map((project) => [project.id, project.faviconUrl]))
+  const recent = [...activeSessions]
+    .sort(sessionSidebarSessionCompare)
+    .map((session) => sessionSidebarRowCreate(session, now, projectLabels, projectFaviconUrls))
+  const pinned = recent.filter((row) => row.session.pinned)
+  const search = searchResults.map((result) =>
+    sessionSidebarRowCreate(sessionSearchResultAdapt(result), now, projectLabels, projectFaviconUrls),
+  )
+  const projectsHierarchy = sessionSidebarHierarchyDerive(
     recent,
-    search: searchResults.map((result) =>
-      sessionSidebarRowCreate(sessionSearchResultAdapt(result), now, projectLabels, projectFaviconUrls),
-    ),
-    uncategorizedProjects,
+    projectLabels,
+    registeredProjects,
+    registeredFolders,
+    true,
+  )
+  const recentHierarchy = sessionSidebarHierarchyDerive(
+    recent,
+    projectLabels,
+    registeredProjects,
+    registeredFolders,
+    false,
+  )
+  const pinnedHierarchy = sessionSidebarHierarchyDerive(
+    pinned,
+    projectLabels,
+    registeredProjects,
+    registeredFolders,
+    false,
+  )
+  const searchHierarchy = sessionSidebarHierarchyDerive(
+    search,
+    projectLabels,
+    registeredProjects,
+    registeredFolders,
+    false,
+  )
+
+  return {
+    folders: projectsHierarchy.folders,
+    hierarchies: {
+      pinned: pinnedHierarchy,
+      projects: projectsHierarchy,
+      recent: recentHierarchy,
+      search: searchHierarchy,
+    },
+    pinned,
+    projects: projectsHierarchy.projects,
+    recent,
+    search,
+    uncategorizedProjects: projectsHierarchy.uncategorizedProjects,
   }
 }

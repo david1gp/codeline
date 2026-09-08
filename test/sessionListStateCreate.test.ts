@@ -359,3 +359,88 @@ test("session list projects tab organizes folders and uncategorized projects", a
   expect(root.state.disclosure.isFolderOpen(folderId, true)).toBe(true)
   root.rootDispose()
 })
+
+test("session list filtered tabs expose the folder hierarchy limited to matching sessions", async () => {
+  const folderId = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fbc"
+  const projectId1 = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fbd"
+  const projectId2 = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fbe"
+
+  const registeredProjects = [
+    {
+      available: true,
+      faviconUrl: null,
+      folderId,
+      id: projectId1,
+      label: "Foldered Project",
+      parentFolder: { id: folderId, label: "Work" },
+    },
+    {
+      available: true,
+      faviconUrl: null,
+      folderId: null,
+      id: projectId2,
+      label: "Uncategorized Project",
+      parentFolder: null,
+    },
+  ]
+  const folders = [{ active: false, id: folderId, label: "Work", unseenEnded: false }]
+  const mockRegistry = {
+    availableProjects: () => registeredProjects,
+    errorMessage: () => undefined,
+    folderFind: (id: string) => folders.find((folder) => folder.id === id),
+    folders: () => folders,
+    isEmpty: () => false,
+    isError: () => false,
+    isLoading: () => false,
+    openCodeImport: async () => ({ success: true as const, data: { importedCount: 0 } }),
+    projectFind: (id: string) => registeredProjects.find((project) => project.id === id),
+    projectOpenCodeImport: async () => ({ success: true as const, data: { importedCount: 0 } }),
+    projectRegister: async () => ({ success: true as const, data: { project: registeredProjects[0]! } }),
+    projectRemove: async () => ({ success: true as const, data: undefined }),
+    projectRename: async () => ({ success: true as const, data: { project: registeredProjects[0]! } }),
+    projects: () => registeredProjects,
+    refresh: () => {},
+    retry: () => {},
+    status: () => "ready" as const,
+  }
+
+  const root = createRoot((rootDispose) => ({
+    rootDispose,
+    state: sessionListStateCreate(() => navigation, undefined, {
+      fetcher: async () => {
+        const pinnedSession = { ...session("pinned-session", "2026-08-23T00:00:00.000Z"), pinned: true }
+        const plainSession = session("plain-session", "2026-08-22T00:00:00.000Z")
+        return pageResponse(
+          [
+            Object.assign(pinnedSession, { projectId: projectId1 }),
+            Object.assign(plainSession, {
+              projectId: projectId2,
+            }),
+          ],
+          null,
+        )
+      },
+      projectRegistry: mockRegistry,
+    }),
+  }))
+
+  await flush()
+
+  root.state.sidebar.selectTab("recent")
+  expect(root.state.sidebar.folders()).toHaveLength(1)
+  expect(root.state.sidebar.folders()[0]?.projects[0]?.sessions.map((row) => row.session.id)).toEqual([
+    "pinned-session",
+  ])
+  expect(root.state.sidebar.uncategorizedProjects().map((project) => project.projectId)).toEqual([projectId2])
+  expect(root.state.sidebar.showsManagementControls()).toBe(false)
+
+  root.state.sidebar.selectTab("pinned")
+  expect(root.state.sidebar.folders()).toHaveLength(1)
+  expect(root.state.sidebar.uncategorizedProjects()).toHaveLength(0)
+  expect(root.state.isEmpty()).toBe(false)
+
+  root.state.sidebar.selectTab("projects")
+  expect(root.state.sidebar.showsManagementControls()).toBe(true)
+  expect(root.state.sidebar.uncategorizedProjects().map((project) => project.projectId)).toEqual([projectId2])
+  root.rootDispose()
+})

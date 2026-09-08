@@ -16,15 +16,16 @@ test("SessionList wires the load-more view boundary to sidebar pagination state"
 })
 
 test("SessionList configures Delete action for historical projects and Remove for registered projects", async () => {
-  const source = await Bun.file(new URL("../src/ui/SessionList.tsx", import.meta.url)).text()
+  const source = await Bun.file(new URL("../src/ui/ProjectRow.tsx", import.meta.url)).text()
 
-  expect(source).toContain('deleteLabel={project.projectId !== undefined ? "Remove" : "Delete"}')
-  expect(source).toContain("props.state.actions.projectRemoveOpen(project)")
-  expect(source).toContain("props.state.actions.projectDeleteOpen(project)")
+  expect(source).toContain('deleteLabel={props.project.projectId !== undefined ? "Remove" : "Delete"}')
+  expect(source).toContain("props.state.actions.projectRemoveOpen(props.project)")
+  expect(source).toContain("props.state.actions.projectDeleteOpen(props.project)")
 })
 
 test("SessionList renders nested folder and project details with accessible status dots and new folder button", async () => {
   const source = await Bun.file(new URL("../src/ui/SessionList.tsx", import.meta.url)).text()
+  const projectRowSource = await Bun.file(new URL("../src/ui/ProjectRow.tsx", import.meta.url)).text()
 
   // New folder button
   expect(source).toContain('title="New folder"')
@@ -47,6 +48,6 @@ test("SessionList renders nested folder and project details with accessible stat
   expect(source).toContain("onDelete={() => props.state.actions.folderDeleteOpen(folder)}")
 
   // Move action for registered projects
-  expect(source).toContain("onMove={")
-  expect(source).toContain("props.state.actions.projectMoveOpen(project)")
+  expect(projectRowSource).toContain("onMove={")
+  expect(projectRowSource).toContain("props.state.actions.projectMoveOpen(props.project)")
 })

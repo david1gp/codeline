@@ -54,7 +54,7 @@ export function demoSessionListStateCreate(options: DemoSessionListStateOptions)
     )
   const folderToggle = (folderId: string, open: boolean) => disclosure.folderToggle(folderId, open)
   const projectIsOpen = (project: ReturnType<typeof sidebarTabs>["projects"][number]) =>
-    project.sessions.some((row) => options.selectedSessionId.get() === row.session.id)
+    activeTab.get() !== "projects" || project.sessions.some((row) => options.selectedSessionId.get() === row.session.id)
 
   return {
     actions,
@@ -83,13 +83,14 @@ export function demoSessionListStateCreate(options: DemoSessionListStateOptions)
         return sidebarTabs()[tab]
       },
       canLoadMore: () => false,
-      folders: () => sidebarTabs().folders,
+      folders: () => sidebarTabs().hierarchies[activeTab.get()].folders,
       isLoadingMore: () => false,
       loadMore: () => {},
       projectGroups: () => sidebarTabs().projects,
       selectTab: activeTab.set,
+      showsManagementControls: () => activeTab.get() === "projects",
       tabs: sidebarTabs,
-      uncategorizedProjects: () => sidebarTabs().uncategorizedProjects,
+      uncategorizedProjects: () => sidebarTabs().hierarchies[activeTab.get()].uncategorizedProjects,
     },
     selectSession: (sessionId: string) => {
       options.selectedSessionId.set(sessionId)

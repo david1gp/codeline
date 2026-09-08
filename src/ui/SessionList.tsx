@@ -1,11 +1,8 @@
 import { mdiFolderMultipleOutline } from "@adaptive-ds/mdi/mdiFolderMultipleOutline.js"
 import { mdiFolderPlusOutline } from "@adaptive-ds/mdi/mdiFolderPlusOutline.js"
 import { mdiHistory } from "@adaptive-ds/mdi/mdiHistory.js"
-import { mdiLoading } from "@adaptive-ds/mdi/mdiLoading.js"
 import { mdiMagnify } from "@adaptive-ds/mdi/mdiMagnify.js"
 import { mdiPinOutline } from "@adaptive-ds/mdi/mdiPinOutline.js"
-import { mdiPlus } from "@adaptive-ds/mdi/mdiPlus.js"
-import { mdiTrashCanOutline } from "@adaptive-ds/mdi/mdiTrashCanOutline.js"
 import { For, Match, Show, Switch } from "solid-js"
 import { Input } from "#ui/input/input/Input.jsx"
 import { Button } from "#ui/interactive/button/Button.jsx"
@@ -13,10 +10,10 @@ import { ButtonIconOnly } from "#ui/interactive/button/ButtonIconOnly.jsx"
 import { buttonVariant } from "#ui/interactive/button/buttonCva.js"
 import { Icon } from "#ui/static/icon/Icon.jsx"
 import { projectFolderIconSelect } from "../project/ui/projectFolderIconSelect.js"
-import { ProjectAvatar } from "../project/ui/ProjectAvatar.js"
 import type { ProjectRegistryState } from "../project/ui/projectRegistryState.js"
 import type { ActiveProjectState } from "./activeProjectStateCreate.js"
 import { NewProjectDialog } from "./NewProjectDialog.js"
+import { ProjectRow } from "./ProjectRow.js"
 import { SessionSidebarDialogs } from "./SessionSidebarDialogs.js"
 import { SessionSidebarMenu } from "./SessionSidebarMenu.js"
 import type { SessionListState } from "./sessionListStateCreate.js"
@@ -29,100 +26,6 @@ const tabs: ReadonlyArray<{ icon: string; label: string; value: SessionSidebarTa
   { icon: mdiHistory, label: "Recent", value: "recent" },
   { icon: mdiMagnify, label: "Search", value: "search" },
 ]
-
-type SessionRow = ReturnType<SessionListState["sidebar"]["tabs"]>["recent"][number]
-
-function SessionRows(props: {
-  hideProjectLabel?: boolean
-  isSelected: SessionListState["isSelected"]
-  onSessionDelete: (sessionId: string) => void
-  onSessionDeleteImmediate: (sessionId: string) => void
-  onSessionRename: (sessionId: string) => void
-  rows: readonly SessionRow[]
-  selectSession: (sessionId: string) => void
-}) {
-  return (
-    <ul class="m-0 list-none p-0" aria-label="Active conversations">
-      <For each={props.rows}>
-        {(row) => (
-          <li>
-            <div
-              class="flex min-h-[54px] w-full min-w-0 items-stretch overflow-hidden border-0 border-transparent border-l-2 bg-transparent transition-colors duration-100 hover:bg-surface-hover"
-              classList={{
-                "border-l-accent bg-[var(--bg-selected)]": props.isSelected(row.session.id),
-              }}
-            >
-              <button
-                type="button"
-                class="flex min-w-0 flex-1 flex-col justify-center overflow-hidden border-0 bg-transparent px-3 py-2 text-left"
-                aria-current={props.isSelected(row.session.id) ? "page" : undefined}
-                onClick={() => props.selectSession(row.session.id)}
-              >
-                <span
-                  class="block w-full min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-xs font-medium text-strong"
-                  title={row.session.title}
-                >
-                  {row.session.title}
-                </span>
-                <span class="mt-0.5 flex w-full min-w-0 items-center gap-1.5 text-[11px] text-faint">
-                  <Show when={!props.hideProjectLabel}>
-                    <ProjectAvatar name={row.projectLabel} faviconUrl={row.faviconUrl} class="size-3 text-[8px]" />
-                    <span class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">{row.projectLabel}</span>
-                    <span aria-hidden="true">·</span>
-                  </Show>
-                  <Show
-                    when={row.session.working}
-                    fallback={
-                      <time
-                        class="shrink-0"
-                        datetime={new Date(row.session.updatedAt).toISOString()}
-                        title={row.updatedAtTitle}
-                      >
-                        {row.updatedAtRelative}
-                      </time>
-                    }
-                  >
-                    <Icon
-                      path={mdiLoading}
-                      class="size-3 shrink-0 animate-spin fill-current text-accent dark:fill-current"
-                      title="Working"
-                    />
-                  </Show>
-                </span>
-              </button>
-              <div class="flex items-end pr-2 pb-2">
-                <Show
-                  when={row.session.title === "New session"}
-                  fallback={
-                    <SessionSidebarMenu
-                      ariaLabel={`Session actions for ${row.session.title}`}
-                      onRename={() => props.onSessionRename(row.session.id)}
-                      onDelete={() => props.onSessionDelete(row.session.id)}
-                    />
-                  }
-                >
-                  <ButtonIconOnly
-                    class="size-6 shrink-0 rounded-md text-faint hover:bg-surface-hover hover:text-strong"
-                    icon={mdiTrashCanOutline}
-                    iconClass="size-3.5 fill-current text-faint dark:fill-current"
-                    title={`Delete ${row.session.title}`}
-                    aria-label={`Delete ${row.session.title}`}
-                    variant={buttonVariant.ghost}
-                    onClick={(event) => {
-                      event.preventDefault()
-                      event.stopPropagation()
-                      props.onSessionDeleteImmediate(row.session.id)
-                    }}
-                  />
-                </Show>
-              </div>
-            </div>
-          </li>
-        )}
-      </For>
-    </ul>
-  )
-}
 
 export function SessionList(props: {
   activeProject: ActiveProjectState
@@ -236,7 +139,7 @@ export function SessionList(props: {
           <Match when={props.state.isEmpty()}>
             <div class="px-3.5 py-4 text-xs leading-[1.5] text-faint">{props.state.emptyMessage()}</div>
           </Match>
-          <Match when={props.state.sidebar.activeTab() === "projects"}>
+          <Match when={true}>
             <div class="py-1">
               <For each={props.state.sidebar.folders()}>
                 {(folder) => (
@@ -269,87 +172,25 @@ export function SessionList(props: {
                           aria-label={folder.active ? "Active session in folder" : "Unseen ended session in folder"}
                         />
                       </Show>
-                      <SessionSidebarMenu
-                        ariaLabel={`Folder actions for ${folder.label}`}
-                        deleteLabel="Delete"
-                        onRename={() => props.state.actions.folderRenameOpen(folder)}
-                        onDelete={() => props.state.actions.folderDeleteOpen(folder)}
-                      />
+                      <Show when={props.state.sidebar.showsManagementControls()}>
+                        <SessionSidebarMenu
+                          ariaLabel={`Folder actions for ${folder.label}`}
+                          deleteLabel="Delete"
+                          onRename={() => props.state.actions.folderRenameOpen(folder)}
+                          onDelete={() => props.state.actions.folderDeleteOpen(folder)}
+                        />
+                      </Show>
                     </summary>
                     <Show when={folder.projects.length > 0}>
                       <div class="ml-3 border-line-subtle border-l">
                         <For each={folder.projects}>
                           {(project) => (
-                            <details class="group" open={props.state.projectIsOpen(project)}>
-                              <summary class="flex min-h-10 cursor-pointer list-none items-center gap-2 px-3 text-xs font-semibold text-strong hover:bg-surface-hover">
-                                <ProjectAvatar name={project.projectLabel} faviconUrl={project.faviconUrl} />
-                                <span
-                                  class="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
-                                  classList={{ "text-faint": project.available === false }}
-                                  title={project.projectPath || project.projectLabel}
-                                >
-                                  {project.projectLabel}
-                                  {project.available === false ? " (unavailable)" : ""}
-                                </span>
-                                <SessionSidebarMenu
-                                  ariaLabel={`Project actions for ${project.projectLabel}`}
-                                  deleteLabel={project.projectId !== undefined ? "Remove" : "Delete"}
-                                  onRename={() => props.state.actions.projectRenameOpen(project)}
-                                  onMove={
-                                    project.projectId !== undefined
-                                      ? () => props.state.actions.projectMoveOpen(project)
-                                      : undefined
-                                  }
-                                  onDelete={() =>
-                                    project.projectId !== undefined
-                                      ? props.state.actions.projectRemoveOpen(project)
-                                      : props.state.actions.projectDeleteOpen(project)
-                                  }
-                                />
-                                <ButtonIconOnly
-                                  class="size-6 shrink-0 rounded-md text-faint hover:bg-transparent hover:text-faint disabled:opacity-40"
-                                  disabled={project.available === false}
-                                  icon={mdiPlus}
-                                  iconClass="size-3.5 fill-current text-faint dark:fill-current"
-                                  title={
-                                    project.available === false
-                                      ? `${project.projectLabel} is unavailable`
-                                      : `New session in ${project.projectLabel}`
-                                  }
-                                  aria-label={
-                                    project.available === false
-                                      ? `${project.projectLabel} is unavailable`
-                                      : `New session in ${project.projectLabel}`
-                                  }
-                                  variant={buttonVariant.ghost}
-                                  onClick={(event) => {
-                                    event.preventDefault()
-                                    event.stopPropagation()
-                                    if (project.available === false) return
-                                    props.sessionCreateInProject?.(
-                                      project.projectId === undefined
-                                        ? { kind: "path", projectPath: project.projectPath }
-                                        : { kind: "registered", projectId: project.projectId },
-                                    )
-                                  }}
-                                />
-                              </summary>
-                              <Show when={project.sessions.length > 0}>
-                                <div class="ml-3 border-line-subtle border-l">
-                                  <SessionRows
-                                    hideProjectLabel
-                                    rows={project.sessions}
-                                    isSelected={props.state.isSelected}
-                                    onSessionDelete={props.state.actions.sessionDeleteOpen}
-                                    onSessionDeleteImmediate={(sessionId) =>
-                                      void props.state.actions.sessionDeleteImmediate(sessionId)
-                                    }
-                                    onSessionRename={props.state.actions.sessionRenameOpen}
-                                    selectSession={selectSession}
-                                  />
-                                </div>
-                              </Show>
-                            </details>
+                            <ProjectRow
+                              project={project}
+                              selectSession={selectSession}
+                              sessionCreateInProject={props.sessionCreateInProject}
+                              state={props.state}
+                            />
                           )}
                         </For>
                       </div>
@@ -360,89 +201,15 @@ export function SessionList(props: {
 
               <For each={props.state.sidebar.uncategorizedProjects()}>
                 {(project) => (
-                  <details class="group" open={props.state.projectIsOpen(project)}>
-                    <summary class="flex min-h-10 cursor-pointer list-none items-center gap-2 px-3 text-xs font-semibold text-strong hover:bg-surface-hover">
-                      <ProjectAvatar name={project.projectLabel} faviconUrl={project.faviconUrl} />
-                      <span
-                        class="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
-                        classList={{ "text-faint": project.available === false }}
-                        title={project.projectPath || project.projectLabel}
-                      >
-                        {project.projectLabel}
-                        {project.available === false ? " (unavailable)" : ""}
-                      </span>
-                      <SessionSidebarMenu
-                        ariaLabel={`Project actions for ${project.projectLabel}`}
-                        deleteLabel={project.projectId !== undefined ? "Remove" : "Delete"}
-                        onRename={() => props.state.actions.projectRenameOpen(project)}
-                        onMove={
-                          project.projectId !== undefined
-                            ? () => props.state.actions.projectMoveOpen(project)
-                            : undefined
-                        }
-                        onDelete={() =>
-                          project.projectId !== undefined
-                            ? props.state.actions.projectRemoveOpen(project)
-                            : props.state.actions.projectDeleteOpen(project)
-                        }
-                      />
-                      <ButtonIconOnly
-                        class="size-6 shrink-0 rounded-md text-faint hover:bg-transparent hover:text-faint disabled:opacity-40"
-                        disabled={project.available === false}
-                        icon={mdiPlus}
-                        iconClass="size-3.5 fill-current text-faint dark:fill-current"
-                        title={
-                          project.available === false
-                            ? `${project.projectLabel} is unavailable`
-                            : `New session in ${project.projectLabel}`
-                        }
-                        aria-label={
-                          project.available === false
-                            ? `${project.projectLabel} is unavailable`
-                            : `New session in ${project.projectLabel}`
-                        }
-                        variant={buttonVariant.ghost}
-                        onClick={(event) => {
-                          event.preventDefault()
-                          event.stopPropagation()
-                          if (project.available === false) return
-                          props.sessionCreateInProject?.(
-                            project.projectId === undefined
-                              ? { kind: "path", projectPath: project.projectPath }
-                              : { kind: "registered", projectId: project.projectId },
-                          )
-                        }}
-                      />
-                    </summary>
-                    <Show when={project.sessions.length > 0}>
-                      <div class="ml-3 border-line-subtle border-l">
-                        <SessionRows
-                          hideProjectLabel
-                          rows={project.sessions}
-                          isSelected={props.state.isSelected}
-                          onSessionDelete={props.state.actions.sessionDeleteOpen}
-                          onSessionDeleteImmediate={(sessionId) =>
-                            void props.state.actions.sessionDeleteImmediate(sessionId)
-                          }
-                          onSessionRename={props.state.actions.sessionRenameOpen}
-                          selectSession={selectSession}
-                        />
-                      </div>
-                    </Show>
-                  </details>
+                  <ProjectRow
+                    project={project}
+                    selectSession={selectSession}
+                    sessionCreateInProject={props.sessionCreateInProject}
+                    state={props.state}
+                  />
                 )}
               </For>
             </div>
-          </Match>
-          <Match when={true}>
-            <SessionRows
-              rows={props.state.sidebar.activeRows()}
-              isSelected={props.state.isSelected}
-              onSessionDelete={props.state.actions.sessionDeleteOpen}
-              onSessionDeleteImmediate={(sessionId) => void props.state.actions.sessionDeleteImmediate(sessionId)}
-              onSessionRename={props.state.actions.sessionRenameOpen}
-              selectSession={selectSession}
-            />
           </Match>
         </Switch>
         <Show when={props.state.sidebar.activeTab() !== "search" && props.state.sidebar.canLoadMore()}>
