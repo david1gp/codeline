@@ -9,6 +9,7 @@ import { For, Show } from "solid-js"
 import { ButtonIconOnly } from "#ui/interactive/button/ButtonIconOnly.jsx"
 import { buttonCvaIconOnly, buttonVariant } from "#ui/interactive/button/buttonCva.js"
 import { Icon } from "#ui/static/icon/Icon.jsx"
+import { Img } from "#ui/static/img/Img.jsx"
 import { AccountPopover } from "../identity/ui/AccountPopover.js"
 import type { AuthShellView } from "../identity/ui/authShellView.js"
 import { applicationNavigationContext } from "./applicationNavigationContext.js"
@@ -17,6 +18,7 @@ import type { applicationShellStateCreate } from "./applicationShellStateCreate.
 import { appShellContext } from "./appShellContext.js"
 import type { AppShellView } from "./appShellView.js"
 import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator.js"
+import { urlDashboard } from "./dashboard_url/urlDashboard.js"
 import { primaryNavigationStateCreate } from "./primaryNavigationStateCreate.js"
 import { PwaStatusActions } from "./pwa/PwaStatusActions.js"
 import { pwaStatusContext } from "./pwa/pwaStatusContext.js"
@@ -39,34 +41,49 @@ export function App(props: {
             class="z-10 grid grid-cols-[220px_1fr_auto] items-center gap-4 bg-[var(--header-background)] px-4 backdrop-blur-[18px] max-[760px]:min-h-[52px] max-[760px]:grid-cols-[1fr_auto] max-[760px]:gap-2 max-[760px]:px-2 max-[760px]:py-2"
             inert={navigation.sessionDrawer.isSessionDrawerOpen()}
           >
-            <Show when={navigation.workspaceActions.isAvailable()}>
-              <div class="flex items-center gap-0.5">
-                <ButtonIconOnly
-                  icon={mdiPlus}
-                  iconClass="size-4 fill-current dark:fill-current"
-                  variant={buttonVariant.ghost}
-                  title="New session"
-                  aria-label="New session"
-                  onClick={navigation.workspaceActions.sessionNew}
+            <div class="flex items-center gap-2">
+              <A
+                class="inline-flex w-fit items-center no-underline"
+                href={urlDashboard()}
+                aria-label="Codeline workspace"
+              >
+                <Img
+                  src="/logo.svg"
+                  alt=""
+                  width={32}
+                  height={32}
+                  class="size-8 rounded-[9px] border border-[var(--border)]"
                 />
-                <ButtonIconOnly
-                  icon={mdiFolderOutline}
-                  iconClass="size-4 fill-current dark:fill-current"
-                  variant={buttonVariant.ghost}
-                  title="New project"
-                  aria-label="New project"
-                  onClick={navigation.workspaceActions.projectCreateOpen}
-                />
-                <ButtonIconOnly
-                  icon={mdiFolderPlusOutline}
-                  iconClass="size-4 fill-current dark:fill-current"
-                  variant={buttonVariant.ghost}
-                  title="New folder"
-                  aria-label="New folder"
-                  onClick={navigation.workspaceActions.folderCreateOpen}
-                />
-              </div>
-            </Show>
+              </A>
+              <Show when={navigation.workspaceActions.isAvailable()}>
+                <div class="flex items-center gap-0.5">
+                  <ButtonIconOnly
+                    icon={mdiPlus}
+                    iconClass="size-4 fill-current dark:fill-current"
+                    variant={buttonVariant.ghost}
+                    title="New session"
+                    aria-label="New session"
+                    onClick={navigation.workspaceActions.sessionNew}
+                  />
+                  <ButtonIconOnly
+                    icon={mdiFolderOutline}
+                    iconClass="size-4 fill-current dark:fill-current"
+                    variant={buttonVariant.ghost}
+                    title="New project"
+                    aria-label="New project"
+                    onClick={navigation.workspaceActions.projectCreateOpen}
+                  />
+                  <ButtonIconOnly
+                    icon={mdiFolderPlusOutline}
+                    iconClass="size-4 fill-current dark:fill-current"
+                    variant={buttonVariant.ghost}
+                    title="New folder"
+                    aria-label="New folder"
+                    onClick={navigation.workspaceActions.folderCreateOpen}
+                  />
+                </div>
+              </Show>
+            </div>
 
             <nav
               class="flex h-full min-w-0 items-stretch gap-1 overflow-x-auto max-[760px]:col-span-full max-[760px]:row-start-2 max-[760px]:h-9"

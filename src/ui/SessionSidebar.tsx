@@ -19,8 +19,8 @@ export function SessionSidebar(props: {
 }) {
   return (
     <div class="flex h-full min-h-0 flex-col bg-[var(--sidebar-background)]">
-      <header class="shrink-0 px-2.5 py-1.5">
-        <Show when={props.close !== undefined}>
+      <Show when={props.close !== undefined}>
+        <div class="shrink-0 px-2.5 py-1.5">
           <div class="mb-2 flex items-center justify-end">
             <button
               class="flex h-8 items-center justify-center rounded-[7px] border border-line bg-surface-hover px-2.5 text-xs text-faint hover:text-strong"
@@ -32,16 +32,18 @@ export function SessionSidebar(props: {
               Close
             </button>
           </div>
-        </Show>
-        <h2 class="sr-only" id={props.headingId}>
-          Sessions
-        </h2>
-        <Show when={props.sessionTarget.sessionCreateStatus() === "error"}>
+        </div>
+      </Show>
+      <h2 class="sr-only" id={props.headingId}>
+        Sessions
+      </h2>
+      <Show when={props.sessionTarget.sessionCreateStatus() === "error"}>
+        <div class="shrink-0 px-2.5 py-1.5">
           <p class="mt-2 mb-0 text-[11px] text-danger" role="alert">
             The new session could not be created. Use New Session in the top navigation to retry.
           </p>
-        </Show>
-      </header>
+        </div>
+      </Show>
 
       <SessionList
         activeProject={props.activeProject}
