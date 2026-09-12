@@ -22,4 +22,4 @@ Allow the left sidebar to be dragged narrower and wider, up to 80% of the screen
 - [x] 1. Implement dynamic sidebar resizing bounds and focused tests.
 - [x] 2. Verify the change in the managed combined preview.
 - [x] 3. Commit and push the completed change using the commits skill.
-- [ ] 4. Deploy the committed change.
+- [x] 4. Deploy the committed change.
