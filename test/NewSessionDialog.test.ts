@@ -3,11 +3,15 @@ import { expect, test } from "bun:test"
 const dialog = await Bun.file(new URL("../src/ui/NewSessionDialog.tsx", import.meta.url)).text()
 const state = await Bun.file(new URL("../src/ui/newSessionDialogStateCreate.ts", import.meta.url)).text()
 const sidebar = await Bun.file(new URL("../src/ui/SessionSidebar.tsx", import.meta.url)).text()
+const app = await Bun.file(new URL("../src/ui/App.tsx", import.meta.url)).text()
+const navigation = await Bun.file(new URL("../src/ui/primaryNavigationStateCreate.ts", import.meta.url)).text()
 
 test("New Session navigates directly instead of opening the project dialog", () => {
   expect(sidebar).not.toContain("NewSessionDialog")
   expect(sidebar).not.toContain("CorvuDialog")
-  expect(sidebar).toContain("props.sessionTarget.sessionNew?.()")
+  expect(app).toContain('aria-label="New session"')
+  expect(app).toContain("onClick={navigation.workspaceActions.sessionNew}")
+  expect(navigation).toContain("sessionNew: () => workspaceActions.get()?.sessionNew()")
 })
 
 test("the existing-project dialog action hands off to the no-session workspace", () => {

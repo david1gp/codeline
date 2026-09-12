@@ -1,5 +1,4 @@
 import { mdiFolderMultipleOutline } from "@adaptive-ds/mdi/mdiFolderMultipleOutline.js"
-import { mdiFolderPlusOutline } from "@adaptive-ds/mdi/mdiFolderPlusOutline.js"
 import { mdiHistory } from "@adaptive-ds/mdi/mdiHistory.js"
 import { mdiMagnify } from "@adaptive-ds/mdi/mdiMagnify.js"
 import { mdiPinOutline } from "@adaptive-ds/mdi/mdiPinOutline.js"
@@ -7,7 +6,6 @@ import { For, Match, Show, Switch } from "solid-js"
 import { Input } from "#ui/input/input/Input.jsx"
 import { Button } from "#ui/interactive/button/Button.jsx"
 import { ButtonIconOnly } from "#ui/interactive/button/ButtonIconOnly.jsx"
-import { buttonVariant } from "#ui/interactive/button/buttonCva.js"
 import { Icon } from "#ui/static/icon/Icon.jsx"
 import { projectFolderIconSelect } from "../project/ui/projectFolderIconSelect.js"
 import type { ProjectRegistryState } from "../project/ui/projectRegistryState.js"
@@ -31,6 +29,8 @@ export function SessionList(props: {
   activeProject: ActiveProjectState
   idPrefix?: string
   onSessionSelect?: () => void
+  projectCreateOpen?: () => boolean
+  projectCreateOpenChange?: (open: boolean) => void
   projectRegistry?: ProjectRegistryState
   sessionNewInProject?: (target: SessionProjectTarget) => void
   sessionCreateInProject?: (target: SessionProjectTarget) => void
@@ -48,7 +48,7 @@ export function SessionList(props: {
       class="flex min-h-0 flex-1 flex-col"
       id={props.idPrefix === undefined ? "activity" : `${props.idPrefix}-activity`}
     >
-      <div class="grid shrink-0 grid-cols-4 gap-1 border-line border-b p-2" role="tablist" aria-label="Session views">
+      <div class="grid shrink-0 grid-cols-4 gap-1 p-2" role="tablist" aria-label="Session views">
         <For each={tabs}>
           {(tab) => (
             <ButtonIconOnly
@@ -69,7 +69,7 @@ export function SessionList(props: {
       </div>
 
       <Show when={props.state.sidebar.activeTab() === "search"}>
-        <label class="relative shrink-0 border-line border-b p-2.5" for={searchId()}>
+        <label class="relative shrink-0 p-2.5" for={searchId()}>
           <span class="sr-only">Search conversations</span>
           <Icon
             path={mdiMagnify}
@@ -87,27 +87,15 @@ export function SessionList(props: {
         </label>
       </Show>
 
-      <Show when={props.state.sidebar.activeTab() === "projects"}>
-        <div class="flex items-center gap-1.5 shrink-0 border-line border-b p-2">
-          <div class="min-w-0 flex-1">
-            <NewProjectDialog
-              activeProject={props.activeProject}
-              idPrefix={`${prefix()}-new-project`}
-              projectRegistry={props.projectRegistry ?? props.state.projectRegistry}
-            />
-          </div>
-          <Button
-            class="h-8 shrink-0 px-2 text-xs font-normal text-faint hover:bg-surface-hover hover:text-strong"
-            variant={buttonVariant.ghost}
-            title="New folder"
-            aria-label="New folder"
-            onClick={() => props.state.actions.folderCreateOpen()}
-          >
-            <Icon path={mdiFolderPlusOutline} class="mr-1 size-3.5" />
-            New Folder
-          </Button>
-        </div>
-      </Show>
+      <NewProjectDialog
+        activeProject={props.activeProject}
+        buttonChildren={null}
+        buttonClass="hidden"
+        idPrefix={`${prefix()}-new-project`}
+        onOpenChange={props.projectCreateOpenChange}
+        open={props.projectCreateOpen}
+        projectRegistry={props.projectRegistry ?? props.state.projectRegistry}
+      />
 
       <div
         class="min-h-0 flex-1 overflow-y-auto"
@@ -216,7 +204,7 @@ export function SessionList(props: {
           </Match>
         </Switch>
         <Show when={props.state.sidebar.activeTab() !== "search" && props.state.sidebar.canLoadMore()}>
-          <div class="flex justify-center border-line border-t p-2">
+          <div class="flex justify-center p-2">
             <Button
               variant="none"
               size="none"

@@ -10,6 +10,7 @@ import { primaryNavigationPathIsActive } from "./primaryNavigationPathIsActive.j
 import { sessionDrawerContext } from "./sessionDrawerContext.js"
 import { sessionSidebarDestinationResolve } from "./sessionSidebarDestinationResolve.js"
 import { pageRouteSettings } from "./settings_url/pageRouteSettings.js"
+import { signalObjectCreate } from "./signalObjectCreate.js"
 import { workspacePageStateCreate } from "./workspacePageStateCreate.js"
 
 type PrimaryNavigationActivationEvent = MouseEvent & { currentTarget: HTMLAnchorElement }
@@ -19,6 +20,7 @@ export function primaryNavigationStateCreate() {
   const pathname = () => location.pathname
   const href = () => `${location.pathname}${location.search}${location.hash}`
   const sessionDrawer = useContext(sessionDrawerContext) ?? workspacePageStateCreate()
+  const workspaceActions = signalObjectCreate<WorkspaceNavigationActions | undefined>(undefined)
   const sessionsIsActive = () => primaryNavigationPathIsActive(pathname(), sessionSidebarDestinationResolve(href()))
   const sessionsActivate = (event: PrimaryNavigationActivationEvent) => {
     const handled = sessionDrawer.sessionDrawerOpen(event.currentTarget)
@@ -28,6 +30,18 @@ export function primaryNavigationStateCreate() {
 
   return {
     settingsIsActive: () => primaryNavigationPathIsActive(pathname(), pageRouteSettings.settings),
+    workspaceActions: {
+      folderCreateOpen: () => workspaceActions.get()?.folderCreateOpen(),
+      isAvailable: () => workspaceActions.get() !== undefined,
+      projectCreateOpen: () => workspaceActions.get()?.projectCreateOpen(),
+      register: (actions: WorkspaceNavigationActions) => {
+        workspaceActions.set(actions)
+        return () => {
+          if (workspaceActions.get() === actions) workspaceActions.set(undefined)
+        }
+      },
+      sessionNew: () => workspaceActions.get()?.sessionNew(),
+    },
     items: [
       {
         activate: sessionsActivate,
@@ -62,4 +76,10 @@ export function primaryNavigationStateCreate() {
     ],
     sessionDrawer,
   }
+}
+
+type WorkspaceNavigationActions = {
+  folderCreateOpen: () => void
+  projectCreateOpen: () => void
+  sessionNew: () => void
 }

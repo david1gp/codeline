@@ -17,6 +17,8 @@ export function WorkspacePage(props: { state: WorkspaceScreenView }) {
       leftSidebar={
         <SessionSidebar
           activeProject={props.state.activeProject}
+          projectCreateOpen={props.state.projectCreateOpen}
+          projectCreateOpenChange={props.state.projectCreateOpenChange}
           projectRegistry={props.state.projectRegistry}
           sessionList={props.state.sessionList}
           sessionTarget={props.state.sessionTargetSelector}
@@ -39,7 +41,7 @@ export function WorkspacePage(props: { state: WorkspaceScreenView }) {
           onClick={state.sessionDrawerClose}
         />
         <aside
-          class="fixed inset-y-0 left-0 z-40 flex w-full flex-col overflow-hidden border-[var(--border)] border-r bg-muted shadow-[18px_0_50px_var(--shadow-color-strong)] min-[761px]:hidden"
+          class="fixed inset-y-0 left-0 z-40 flex w-full flex-col overflow-hidden bg-[var(--sidebar-background)] shadow-[18px_0_50px_var(--shadow-color-strong)] min-[761px]:hidden"
           id="mobile-session-drawer"
           role="dialog"
           aria-modal="true"
@@ -65,7 +67,7 @@ export function WorkspacePage(props: { state: WorkspaceScreenView }) {
         aria-label="Conversation workspace"
         inert={state.isSessionDrawerOpen()}
       >
-        <div class="hidden min-h-[56px] shrink-0 items-center gap-3 border-line-subtle border-b px-4 py-2 max-[760px]:flex max-[760px]:items-stretch max-[760px]:gap-2 max-[760px]:overflow-x-auto">
+        <div class="hidden min-h-[56px] shrink-0 items-center gap-3 px-4 py-2 max-[760px]:flex max-[760px]:items-stretch max-[760px]:gap-2 max-[760px]:overflow-x-auto">
           <button
             class="hidden min-h-11 shrink-0 items-center rounded-lg border border-accent-border bg-accent-soft px-4 text-sm font-semibold text-accent max-[760px]:flex"
             type="button"

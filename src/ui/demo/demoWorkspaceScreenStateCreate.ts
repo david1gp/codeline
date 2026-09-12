@@ -14,6 +14,7 @@ import { demoSessionTargetSelectorStateCreate } from "./demoSessionTargetSelecto
 
 export function demoWorkspaceScreenStateCreate(variant: () => DemoSessionScreenVariant): WorkspaceScreenView {
   const selectedSessionId = createSignalObject<string | null>(null)
+  const projectCreateOpen = createSignalObject(false)
   const projectPathOverride = createSignalObject<string | null>(null)
   const shell = applicationShellStateCreate()
 
@@ -22,6 +23,8 @@ export function demoWorkspaceScreenStateCreate(variant: () => DemoSessionScreenV
     drawer: workspacePageStateCreate(),
     files: demoFilesScreenStateCreate(variant),
     providerModelSelector: demoProviderModelSelectorStateCreate(variant),
+    projectCreateOpen: projectCreateOpen.get,
+    projectCreateOpenChange: projectCreateOpen.set,
     projectPathOverride,
     projectRegistry: demoProjectRegistryStateCreate(),
     shell,

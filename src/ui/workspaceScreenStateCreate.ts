@@ -4,6 +4,7 @@ import { providerModelSelectorStateCreate } from "../providers/ui/providerModelS
 import type { SessionDetailSourceFactory } from "../session/client/sessionDetailSourceFactory.js"
 import { activeProjectStateCreate } from "./activeProjectStateCreate.js"
 import { applicationAccountContext } from "./applicationAccountContext.js"
+import { applicationNavigationContext } from "./applicationNavigationContext.js"
 import { applicationShellContext } from "./applicationShellContext.js"
 import { applicationShellStateCreate } from "./applicationShellStateCreate.js"
 import { appShellContext } from "./appShellContext.js"
@@ -16,8 +17,8 @@ import { sessionListStateCreate } from "./sessionListStateCreate.js"
 import { type SessionNavigationState, sessionNavigationStateCreate } from "./sessionNavigationStateCreate.js"
 import type { SessionProjectIdOverride } from "./sessionProjectIdOverride.js"
 import type { SessionProjectPathOverride } from "./sessionProjectPathOverride.js"
-import { sessionResourceSelectorStateCreate } from "./sessionResourceSelectorStateCreate.js"
 import type { SessionProjectTarget } from "./sessionProjectTarget.js"
+import { sessionResourceSelectorStateCreate } from "./sessionResourceSelectorStateCreate.js"
 import type { SessionSidebarRouteState } from "./sessionSidebarRouteStateCreate.js"
 import { sessionTargetSelectorStateCreate } from "./sessionTargetSelectorStateCreate.js"
 import { signalObjectCreate } from "./signalObjectCreate.js"
@@ -36,6 +37,7 @@ export function workspaceScreenStateCreate(
 ): WorkspaceScreenView {
   const shell = useContext(applicationShellContext) ?? applicationShellStateCreate()
   const appShell = useContext(appShellContext)
+  const applicationNavigation = useContext(applicationNavigationContext)
   const eventFeed = useContext(eventFeedCoordinatorContext)
   const activeProject = appShell?.activeProject ?? activeProjectStateCreate()
   const drawer = useContext(sessionDrawerContext) ?? workspacePageStateCreate()
@@ -62,6 +64,7 @@ export function workspaceScreenStateCreate(
     },
   }
   const projectIdOverrideState = signalObjectCreate<string | null>(null)
+  const projectCreateOpenState = signalObjectCreate(false)
   const projectIdOverride: SessionProjectIdOverride = {
     get: projectIdOverrideState.get,
     set: (value) => {
@@ -161,6 +164,13 @@ export function workspaceScreenStateCreate(
     sessionTargetAvailable: sessionTargetSelector.canCreateSession,
   })
   selectedSessionProjectPath = () => selectedSessionState.session()?.projectPath ?? null
+  const sessionList = sessionListStateCreate(() => navigation, sidebarRoute, { fetcher: options.fetcher })
+  const workspaceActionsUnregister = applicationNavigation?.workspaceActions.register({
+    folderCreateOpen: sessionList.actions.folderCreateOpen,
+    projectCreateOpen: () => projectCreateOpenState.set(true),
+    sessionNew: () => sessionTargetSelector.sessionNew?.(),
+  })
+  if (workspaceActionsUnregister !== undefined) onCleanup(workspaceActionsUnregister)
   shell.rightPanelEnable()
   onCleanup(shell.rightPanelDisable)
   onCleanup(drawer.sessionDrawerClose)
@@ -170,11 +180,13 @@ export function workspaceScreenStateCreate(
     drawer,
     files: filesScreenViewCreate({ fetcher: options.fetcher, projectRegistry }),
     projectIdOverride,
+    projectCreateOpen: projectCreateOpenState.get,
+    projectCreateOpenChange: projectCreateOpenState.set,
     projectPathOverride,
     projectRegistry,
     providerModelSelector,
     selectedSession: selectedSessionState,
-    sessionList: sessionListStateCreate(() => navigation, sidebarRoute, { fetcher: options.fetcher }),
+    sessionList,
     sessionResourceSelector,
     sessionTargetSelector,
     shell,

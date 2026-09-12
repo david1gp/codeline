@@ -15,6 +15,24 @@ test("the context-owned mobile session drawer is a full-width modal and isolates
   expect(appSource).toContain("inert={navigation.sessionDrawer.isSessionDrawerOpen()}")
 })
 
+test("the navbar exposes accessible creation actions through the workspace registration", async () => {
+  const app = await Bun.file(new URL("../src/ui/App.tsx", import.meta.url)).text()
+  const navigation = await Bun.file(new URL("../src/ui/primaryNavigationStateCreate.ts", import.meta.url)).text()
+  const workspace = await Bun.file(new URL("../src/ui/workspaceScreenStateCreate.ts", import.meta.url)).text()
+
+  expect(app).toContain("ButtonIconOnly")
+  expect(app).toContain('aria-label="New session"')
+  expect(app).toContain('aria-label="New project"')
+  expect(app).toContain('aria-label="New folder"')
+  expect(app).toContain("onClick={navigation.workspaceActions.sessionNew}")
+  expect(app).toContain("onClick={navigation.workspaceActions.projectCreateOpen}")
+  expect(app).toContain("onClick={navigation.workspaceActions.folderCreateOpen}")
+  expect(navigation).toContain("register: (actions: WorkspaceNavigationActions)")
+  expect(workspace).toContain("folderCreateOpen: sessionList.actions.folderCreateOpen")
+  expect(workspace).toContain("projectCreateOpen: () => projectCreateOpenState.set(true)")
+  expect(workspace).toContain("sessionNew: () => sessionTargetSelector.sessionNew?.()")
+})
+
 test("workspace surfaces share the active project state", async () => {
   const workspacePage = (await Bun.file(new URL("../src/ui/WorkspacePage.tsx", import.meta.url)).text()).replace(
     /\s+/g,

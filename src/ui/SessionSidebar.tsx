@@ -1,8 +1,4 @@
-import { mdiPlus } from "@adaptive-ds/mdi/mdiPlus.js"
 import { Show } from "solid-js"
-import { Button } from "#ui/interactive/button/Button.jsx"
-import { buttonVariant } from "#ui/interactive/button/buttonCva.js"
-import { Icon } from "#ui/static/icon/Icon.jsx"
 import type { ProjectRegistryState } from "../project/ui/projectRegistryState.js"
 import type { ActiveProjectState } from "./activeProjectStateCreate.js"
 import { SessionList } from "./SessionList.js"
@@ -15,13 +11,15 @@ export function SessionSidebar(props: {
   headingId?: string
   idPrefix?: string
   initialFocus?: (element: HTMLElement) => void
+  projectCreateOpen?: () => boolean
+  projectCreateOpenChange?: (open: boolean) => void
   projectRegistry?: ProjectRegistryState
   sessionList: SessionListState
   sessionTarget: SessionTargetSelectorState
 }) {
   return (
-    <div class="flex h-full min-h-0 flex-col bg-muted">
-      <header class="shrink-0 border-line border-b px-2.5 py-1.5">
+    <div class="flex h-full min-h-0 flex-col bg-[var(--sidebar-background)]">
+      <header class="shrink-0 px-2.5 py-1.5">
         <Show when={props.close !== undefined}>
           <div class="mb-2 flex items-center justify-end">
             <button
@@ -38,17 +36,9 @@ export function SessionSidebar(props: {
         <h2 class="sr-only" id={props.headingId}>
           Sessions
         </h2>
-        <Button
-          class="h-9 w-full justify-center"
-          variant={buttonVariant.contrast}
-          onClick={() => props.sessionTarget.sessionNew?.()}
-        >
-          <Icon path={mdiPlus} class="mr-2 size-4" />
-          New Session
-        </Button>
         <Show when={props.sessionTarget.sessionCreateStatus() === "error"}>
           <p class="mt-2 mb-0 text-[11px] text-danger" role="alert">
-            The new session could not be created. Select New Session to retry.
+            The new session could not be created. Use New Session in the top navigation to retry.
           </p>
         </Show>
       </header>
@@ -57,6 +47,8 @@ export function SessionSidebar(props: {
         activeProject={props.activeProject}
         idPrefix={props.idPrefix}
         projectRegistry={props.projectRegistry}
+        projectCreateOpen={props.projectCreateOpen}
+        projectCreateOpenChange={props.projectCreateOpenChange}
         state={props.sessionList}
         onSessionSelect={props.close}
         sessionNewInProject={(target) => props.sessionTarget.sessionNewInProject(target)}

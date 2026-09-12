@@ -20,6 +20,8 @@ export type WorkspaceScreenView = {
   drawer: ReturnType<typeof workspacePageStateCreate>
   files: FilesScreenView
   projectIdOverride?: SessionProjectIdOverride
+  projectCreateOpen: () => boolean
+  projectCreateOpenChange: (open: boolean) => void
   projectPathOverride: SessionProjectPathOverride
   projectRegistry?: ProjectRegistryState
   providerModelSelector: ReturnType<typeof providerModelSelectorStateCreate>

@@ -23,13 +23,13 @@ test("SessionList configures Delete action for historical projects and Remove fo
   expect(source).toContain("props.state.actions.projectDeleteOpen(props.project)")
 })
 
-test("SessionList renders nested folder and project details with accessible status dots and new folder button", async () => {
+test("SessionList renders nested folder and project details without relocated creation controls", async () => {
   const source = await Bun.file(new URL("../src/ui/SessionList.tsx", import.meta.url)).text()
   const projectRowSource = await Bun.file(new URL("../src/ui/ProjectRow.tsx", import.meta.url)).text()
 
-  // New folder button
-  expect(source).toContain('title="New folder"')
-  expect(source).toContain("props.state.actions.folderCreateOpen()")
+  // Creation controls now live in the application navbar.
+  expect(source).not.toContain('title="New folder"')
+  expect(source).not.toContain("props.state.actions.folderCreateOpen()")
 
   // Folder details and summary
   expect(source).toContain('class="group/folder"')

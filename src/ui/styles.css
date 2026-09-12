@@ -67,6 +67,7 @@
     --foreground-subtle: #4b5563;
     --foreground-faint: #6b7280;
     --muted: #f5f5f5;
+    --sidebar-background: #fafafa;
     --muted-foreground: #6b7280;
     --placeholder: #9ca3af;
     --surface: #ffffff;
@@ -141,6 +142,7 @@
     --foreground-subtle: #c2c6cc;
     --foreground-faint: #9ca3af;
     --muted: #242424;
+    --sidebar-background: var(--muted);
     --muted-foreground: #9ca3af;
     --placeholder: #6b7280;
     --surface: #1a1a1a;
@@ -238,8 +240,7 @@
     width: var(--sidebar-width, 260px);
     min-width: var(--sidebar-width, 260px);
     overflow: hidden;
-    border-right: 1px solid var(--border);
-    background: var(--muted);
+    background: var(--sidebar-background);
   }
 
   .application-shell-content {
