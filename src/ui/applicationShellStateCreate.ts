@@ -19,8 +19,7 @@ type ApplicationShellDrag = {
 }
 
 const sidebarDefaultWidth = 260
-const sidebarMinWidth = 180
-const sidebarMaxWidth = 480
+const sidebarMinWidth = 120
 const rightPanelDefaultWidth = 560
 const rightPanelMinWidth = 300
 const rightPanelMaxWidth = 1200
@@ -46,8 +45,14 @@ function storedWidthRead(key: string, fallback: number) {
 export function applicationShellStateCreate(options: ApplicationShellStateOptions = {}) {
   const documentState = options.document ?? (typeof document === "undefined" ? undefined : document)
   const viewportEventTarget = options.viewportEventTarget ?? (typeof window === "undefined" ? undefined : window)
+  const viewportWidthRead = () => viewportEventTarget?.innerWidth ?? 1440
+  const sidebarMaximumWidthCalculate = (viewportWidth: number) => Math.max(sidebarMinWidth, viewportWidth * 0.8)
   const sidebarWidth = signalObjectCreate(
-    widthClamp(storedWidthRead("codeline-sidebar-width", sidebarDefaultWidth), sidebarMinWidth, sidebarMaxWidth),
+    widthClamp(
+      storedWidthRead("codeline-sidebar-width", sidebarDefaultWidth),
+      sidebarMinWidth,
+      sidebarMaximumWidthCalculate(viewportWidthRead()),
+    ),
   )
   const rightPanelWidth = signalObjectCreate(
     widthClamp(
@@ -68,15 +73,16 @@ export function applicationShellStateCreate(options: ApplicationShellStateOption
   const resizingPanel = signalObjectCreate<ApplicationShellPanel | undefined>(undefined)
   let drag: ApplicationShellDrag | undefined
 
-  const viewportWidthRead = () => viewportEventTarget?.innerWidth ?? 1440
   const sessionContextIsDesktop = () => viewportWidthRead() > sessionContextBreakpoint
   let sessionContextWasDesktop = sessionContextIsDesktop()
 
   const panelBounds = (panel: ApplicationShellPanel) => {
     const viewportWidth = viewportWidthRead()
     if (panel === "sidebar") {
-      const reservedRightWidth = rightPanelOpen.get() && viewportWidth >= 960 ? rightPanelWidth.get() : 0
-      return { maximum: Math.min(sidebarMaxWidth, viewportWidth - reservedRightWidth - 420), minimum: sidebarMinWidth }
+      return {
+        maximum: sidebarMaximumWidthCalculate(viewportWidth),
+        minimum: sidebarMinWidth,
+      }
     }
     if (panel === "session-context") {
       if (!sessionContextIsDesktop()) {
@@ -238,6 +244,8 @@ export function applicationShellStateCreate(options: ApplicationShellStateOption
     rightPanelToggle: () => rightPanelOpen.set(!rightPanelOpen.get()),
     rightPanelWidth: rightPanelWidth.get,
     sessionContextWidth: sessionContextWidth.get,
+    sidebarMaximumWidth: () => panelBounds("sidebar").maximum,
+    sidebarMinimumWidth: () => sidebarMinWidth,
     sidebarWidth: sidebarWidth.get,
   }
 }

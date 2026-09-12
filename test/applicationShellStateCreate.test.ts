@@ -2,6 +2,8 @@ import { expect, test } from "bun:test"
 import { createRoot } from "solid-js/dist/solid.js"
 import { applicationShellStateCreate } from "../src/ui/applicationShellStateCreate.js"
 
+const applicationShellSource = await Bun.file(new URL("../src/ui/ApplicationShell.tsx", import.meta.url)).text()
+
 function viewportCreate(innerWidth: number) {
   const listeners = new Set<() => void>()
   return {
@@ -83,6 +85,52 @@ test("application shell resizes panels with keyboard controls", () => {
   expect(root.state.rightPanelWidth()).toBe(580)
   expect(prevented).toBe(2)
   root.dispose()
+})
+
+test("application shell clamps the sidebar to dynamic viewport bounds", () => {
+  const restoreStorage = storageInstall({ "codeline-sidebar-width": "2400" })
+  const viewport = viewportCreate(2400)
+  const root = createRoot((dispose) => ({
+    dispose,
+    state: applicationShellStateCreate({ viewportEventTarget: viewport as unknown as Window }),
+  }))
+
+  expect(root.state.sidebarMinimumWidth()).toBe(120)
+  expect(root.state.sidebarMaximumWidth()).toBe(2400 * 0.8)
+  expect(root.state.sidebarWidth()).toBe(2400 * 0.8)
+
+  viewport.innerWidth = 1200
+  viewport.dispatchResize()
+  expect(root.state.sidebarMaximumWidth()).toBe(1200 * 0.8)
+  expect(root.state.sidebarWidth()).toBe(1200 * 0.8)
+
+  root.state.rightPanelShow()
+  expect(root.state.sidebarMaximumWidth()).toBe(1200 * 0.8)
+  root.state.resizeKeyDown("sidebar", {
+    key: "ArrowRight",
+    preventDefault: () => undefined,
+    shiftKey: false,
+  } as unknown as KeyboardEvent)
+  expect(root.state.sidebarWidth()).toBe(1200 * 0.8)
+
+  for (let index = 0; index < 30; index += 1) {
+    root.state.resizeKeyDown("sidebar", {
+      key: "ArrowLeft",
+      preventDefault: () => undefined,
+      shiftKey: true,
+    } as unknown as KeyboardEvent)
+  }
+  expect(root.state.sidebarWidth()).toBe(120)
+
+  root.dispose()
+  restoreStorage()
+})
+
+test("application shell uses dynamic sidebar bounds for resize handle accessibility metadata", () => {
+  const normalized = applicationShellSource.replace(/\s+/g, " ")
+
+  expect(normalized).toContain("aria-valuemin={props.state.sidebarMinimumWidth()}")
+  expect(normalized).toContain("aria-valuemax={props.state.sidebarMaximumWidth()}")
 })
 
 test("application shell initializes and persists the session context width within its bounds", () => {

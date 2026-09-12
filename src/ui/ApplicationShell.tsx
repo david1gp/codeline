@@ -28,8 +28,8 @@ export function ApplicationShell(props: ApplicationShellProps) {
         tabIndex={0}
         aria-label="Resize workspace sidebar"
         aria-orientation="vertical"
-        aria-valuemin="180"
-        aria-valuemax="480"
+        aria-valuemin={props.state.sidebarMinimumWidth()}
+        aria-valuemax={props.state.sidebarMaximumWidth()}
         aria-valuenow={props.state.sidebarWidth()}
         onKeyDown={(event) => props.state.resizeKeyDown("sidebar", event)}
         onPointerCancel={props.state.resizeCancel}
