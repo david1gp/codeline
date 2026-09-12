@@ -108,21 +108,38 @@ function SessionRows(props: {
 export function ProjectRow(props: {
   project: Project
   selectSession: (sessionId: string) => void
+  sessionNewInProject?: (target: SessionProjectTarget) => void
   sessionCreateInProject?: (target: SessionProjectTarget) => void
   state: SessionListState
 }) {
   return (
     <details class="group" open={props.state.projectIsOpen(props.project)}>
       <summary class="flex min-h-10 cursor-pointer list-none items-center gap-2 px-3 text-xs font-semibold text-strong hover:bg-surface-hover">
-        <ProjectAvatar name={props.project.projectLabel} faviconUrl={props.project.faviconUrl} />
-        <span
-          class="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
-          classList={{ "text-faint": props.project.available === false }}
+        <button
+          class="flex min-w-0 flex-1 items-center gap-2 border-0 bg-transparent p-0 text-left text-xs font-semibold"
+          type="button"
+          aria-disabled={props.project.available === false}
           title={props.project.projectPath || props.project.projectLabel}
+          onClick={(event) => {
+            if (props.sessionNewInProject === undefined || props.project.available === false) return
+            event.preventDefault()
+            event.stopPropagation()
+            props.sessionNewInProject(
+              props.project.projectId === undefined
+                ? { kind: "path", projectPath: props.project.projectPath }
+                : { kind: "registered", projectId: props.project.projectId },
+            )
+          }}
         >
-          {props.project.projectLabel}
-          {props.project.available === false ? " (unavailable)" : ""}
-        </span>
+          <ProjectAvatar name={props.project.projectLabel} faviconUrl={props.project.faviconUrl} />
+          <span
+            class="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
+            classList={{ "text-faint": props.project.available === false }}
+          >
+            {props.project.projectLabel}
+            {props.project.available === false ? " (unavailable)" : ""}
+          </span>
+        </button>
         <Show when={props.state.sidebar.showsManagementControls()}>
           <SessionSidebarMenu
             ariaLabel={`Project actions for ${props.project.projectLabel}`}

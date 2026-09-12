@@ -1,6 +1,7 @@
 import { expect, mock, test } from "bun:test"
 import * as solidRuntime from "solid-js/dist/solid.js"
 import { createRoot, createSignal } from "solid-js/dist/solid.js"
+import type { SessionProjectTarget } from "../src/ui/sessionProjectTarget.js"
 
 mock.module("solid-js", () => solidRuntime)
 
@@ -1380,6 +1381,35 @@ test("sessionCreateStart forwards only the registered projectId when one is prov
   const parsedBody = JSON.parse(requests[0]?.body ?? "{}")
   expect(parsedBody.projectId).toBe(projectId)
   expect(parsedBody).not.toHaveProperty("projectPath")
+  dispose()
+})
+
+test("sessionNewInProject selects a pending project without creating a session", async () => {
+  const requests: string[] = []
+  const pendingTargets: SessionProjectTarget[] = []
+  let newSessionCount = 0
+  let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
+  const dispose = createRoot((rootDispose) => {
+    state = sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(),
+      fetch: fetchDefaultCreate(requests),
+      pendingProjectTargetSet: (target) => pendingTargets.push(target),
+      selectedSessionId: () => null,
+      sessionNew: () => {
+        newSessionCount += 1
+      },
+      sessionSelect: () => undefined,
+    })
+    return rootDispose
+  })
+
+  await effectsSettle()
+  state?.sessionNewInProject({ kind: "registered", projectId: "sidebar-project" })
+
+  expect(pendingTargets).toEqual([{ kind: "registered", projectId: "sidebar-project" }])
+  expect(newSessionCount).toBe(1)
+  expect(requests.some((request) => request === "POST /api/sessions")).toBe(false)
+  expect(state?.sessionCreateStatus()).toBe("idle")
   dispose()
 })
 

@@ -850,6 +850,11 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
     return task
   }
 
+  const sessionNewInProject = (projectTarget: SessionProjectTarget) => {
+    options.pendingProjectTargetSet?.(projectTarget)
+    options.sessionNew?.()
+  }
+
   // Entering /new no longer creates a session on its own. The pre-session workspace must
   // stay mutable so the preset, skills, and tools can be resolved before creation, and a
   // session created eagerly here would capture an immutable default selection instead.
@@ -893,6 +898,7 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
     serverStatus: serverStatus.get,
     targetRevalidate,
     sessionNew: options.sessionNew,
+    sessionNewInProject,
     sessionCreateStart,
     sessionCreateErrorMessage: sessionCreateErrorMessage.get,
     sessionCreateStatus: sessionCreateStatus.get,

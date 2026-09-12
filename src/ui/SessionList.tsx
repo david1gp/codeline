@@ -32,6 +32,7 @@ export function SessionList(props: {
   idPrefix?: string
   onSessionSelect?: () => void
   projectRegistry?: ProjectRegistryState
+  sessionNewInProject?: (target: SessionProjectTarget) => void
   sessionCreateInProject?: (target: SessionProjectTarget) => void
   state: SessionListState
 }) {
@@ -188,6 +189,7 @@ export function SessionList(props: {
                             <ProjectRow
                               project={project}
                               selectSession={selectSession}
+                              sessionNewInProject={props.sessionNewInProject}
                               sessionCreateInProject={props.sessionCreateInProject}
                               state={props.state}
                             />
@@ -204,6 +206,7 @@ export function SessionList(props: {
                   <ProjectRow
                     project={project}
                     selectSession={selectSession}
+                    sessionNewInProject={props.sessionNewInProject}
                     sessionCreateInProject={props.sessionCreateInProject}
                     state={props.state}
                   />

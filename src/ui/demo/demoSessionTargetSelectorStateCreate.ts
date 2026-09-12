@@ -111,6 +111,7 @@ export function demoSessionTargetSelectorStateCreate(
     serverStatus: status,
     targetRevalidate: () => undefined,
     sessionNew: () => undefined,
+    sessionNewInProject: () => undefined,
     sessionCreateErrorMessage: () =>
       variant() === "error" ? "The demo conversation could not be created." : undefined,
     sessionCreateStart: () => Promise.resolve(null),
