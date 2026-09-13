@@ -59,6 +59,25 @@ test("demo catalog resolves specimens with a validated variant", () => {
   expect(demoCatalogRouteResolve("/demo/components/session-list", "nonsense")).toMatchObject({ variant: "ready" })
 })
 
+test("demo catalog registers and resolves the new session dialog at its requested route", () => {
+  expect(demoComponentSpecimenRegistry).toContainEqual(
+    expect.objectContaining({
+      href: "/demo/new-session-dialog",
+      label: "New session dialog",
+      slug: "new-session-dialog",
+    }),
+  )
+  expect(demoCatalogRouteResolve("/demo/new-session-dialog")).toMatchObject({
+    kind: "specimen",
+    specimen: { href: "/demo/new-session-dialog", slug: "new-session-dialog" },
+    variant: "ready",
+  })
+  expect(demoCatalogRouteResolve("/demo/components/new-session-dialog")).toMatchObject({
+    kind: "specimen",
+    specimen: { slug: "new-session-dialog" },
+    variant: "ready",
+  })
+})
 
 test("demo catalog resolves the note screen family and its editing variant", () => {
   expect(demoCatalogRouteResolve("/demo/screens/notes-screen", "empty")).toMatchObject({
