@@ -94,11 +94,10 @@ export function SelectedSession(props: {
           </Match>
           <Match when={props.state.session()} keyed>
             {(_session) => (
-              <div class="min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-4 pt-4 pb-2 max-[760px]:px-3">
-                <div class="mx-auto w-full max-w-[820px] min-w-0">
-                  <header class="mb-4 border-line-subtle border-b pb-3">
-                    <p class="m-0 text-[11px] text-faint">Conversation</p>
-                    <div class="mt-1 flex min-w-0 items-start justify-between gap-2 text-lg font-semibold tracking-[-0.02em]">
+              <div class="min-w-0 flex-1 overflow-x-hidden overflow-y-auto bg-surface-sunken px-5 pt-5 pb-4 max-[760px]:px-3 max-[760px]:pt-3">
+                <div class="mx-auto w-full max-w-[900px] min-w-0">
+                  <header class="sticky top-0 z-10 mb-5 rounded-2xl border border-line bg-surface-raised/95 px-4 py-3 shadow-[0_1px_2px_var(--shadow-color),0_10px_30px_-22px_var(--shadow-color-strong)] backdrop-blur max-[760px]:rounded-xl max-[760px]:px-3">
+                    <div class="flex min-w-0 items-center justify-between gap-3 text-lg font-semibold tracking-[-0.025em]">
                       <div class="min-w-0 flex-1">
                         <Show
                           when={props.state.readOnlyReason() === null ? props.state.renameState() : undefined}
@@ -111,7 +110,7 @@ export function SelectedSession(props: {
                           {(rename) => <SessionRenameControl state={rename()} />}
                         </Show>
                       </div>
-                      <div class="mt-0.5 flex shrink-0 items-center gap-1.5">
+                      <div class="flex shrink-0 items-center gap-1.5">
                         <SessionDisplayModeSwitcher state={props.state.displayMode} />
                         <Show when={props.state.readOnlyReason() === null ? props.state.pinState() : undefined}>
                           {(pin) => (
@@ -161,11 +160,11 @@ export function SelectedSession(props: {
 
                   <Show when={props.resources}>
                     {(resources) => (
-                      <div class="mt-6">
+                      <div class="mt-5 pb-1">
                         <Details
-                          class="!bg-surface-raised !border-line"
-                          summaryClass="!p-3 !text-sm"
-                          title="Captured execution context"
+                          class="!rounded-xl !border-line !bg-surface-raised !shadow-[0_1px_2px_var(--shadow-color)]"
+                          summaryClass="!min-h-12 !p-3.5 !text-sm"
+                          title="Session context"
                         >
                           <div class="px-3 pb-3">
                             <SessionCapturedContextInspector idPrefix="selected-session-context" state={resources()} />

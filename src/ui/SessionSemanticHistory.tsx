@@ -9,17 +9,23 @@ export function SessionSemanticHistory(props: { state: SelectedSessionView }) {
   const state = sessionSemanticHistoryStateCreate(props.state.latestAnswer)
 
   return (
-    <div class="grid gap-5">
+    <div class="grid gap-4">
       <Show when={props.state.latestAnswer()} keyed>
         {(answer) => (
-          <section aria-labelledby="latest-agent-answer-heading">
-            <p
-              id="latest-agent-answer-heading"
-              class="m-0 mb-2 text-[11px] font-semibold tracking-[0.14em] text-faint uppercase"
-            >
-              Latest agent answer
-            </p>
-            <div class="rounded-xl border border-accent-border bg-accent-soft p-3 shadow-sm">
+          <section
+            class="overflow-hidden rounded-2xl border border-line bg-surface-raised shadow-[0_1px_2px_var(--shadow-color),0_14px_38px_-28px_var(--shadow-color-strong)]"
+            aria-labelledby="latest-agent-answer-heading"
+          >
+            <div class="flex items-center gap-2 border-line-subtle border-b px-4 py-2.5">
+              <span class="size-2 rounded-full bg-accent" aria-hidden="true" />
+              <p
+                id="latest-agent-answer-heading"
+                class="m-0 text-[11px] font-semibold tracking-[0.12em] text-faint uppercase"
+              >
+                Response
+              </p>
+            </div>
+            <div class="px-4 py-4 max-[760px]:px-3.5">
               <FinalizedMessage content={answer.content} role="assistant" state={state.copyState} />
             </div>
           </section>
@@ -29,7 +35,7 @@ export function SessionSemanticHistory(props: { state: SelectedSessionView }) {
       <Show when={props.state.compactState()?.input} keyed>
         {(input) => (
           <section
-            class="rounded-xl border border-warning-border bg-warning-soft px-3 py-2"
+            class="rounded-xl border border-warning-border bg-warning-soft px-4 py-3 shadow-[0_1px_2px_var(--shadow-color)]"
             aria-label="Waiting for input"
             role="status"
           >
@@ -39,15 +45,20 @@ export function SessionSemanticHistory(props: { state: SelectedSessionView }) {
         )}
       </Show>
 
-      <section aria-labelledby="recent-session-steps-heading">
-        <div class="mb-2 flex items-center justify-between gap-2">
+      <section
+        class="rounded-2xl border border-line bg-surface-raised p-4 shadow-[0_1px_2px_var(--shadow-color)] max-[760px]:p-3"
+        aria-labelledby="recent-session-steps-heading"
+      >
+        <div class="mb-3 flex items-center justify-between gap-2 border-line-subtle border-b pb-3">
           <p
             id="recent-session-steps-heading"
             class="m-0 text-[11px] font-semibold tracking-[0.14em] text-faint uppercase"
           >
-            Recent activity
+            Activity
           </p>
-          <span class="text-[10px] text-placeholder">{props.state.semanticSteps().length} semantic steps</span>
+          <span class="rounded-full bg-surface-sunken px-2 py-1 text-[10px] font-medium text-faint">
+            {props.state.semanticSteps().length} steps
+          </span>
         </div>
 
         <Show
@@ -95,7 +106,7 @@ export function SessionSemanticHistory(props: { state: SelectedSessionView }) {
             </p>
           }
         >
-          <ol class="m-0 grid list-none gap-1 p-0" aria-label="Recent semantic activity">
+          <ol class="m-0 grid list-none gap-1.5 p-0" aria-label="Recent semantic activity">
             <For each={props.state.semanticSteps()}>
               {(step) => (
                 <SessionSemanticStepRow

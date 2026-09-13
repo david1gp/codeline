@@ -27,24 +27,26 @@ export function SessionSemanticStepRow(props: {
       <Show
         when={props.step.kind === "run" || props.step.kind === "tool"}
         fallback={
-          <div class="flex min-w-0 items-start gap-2 rounded-lg px-2 py-1.5 text-[12px]">
-            <Badge class="mt-0.5 shrink-0 border-line-subtle px-1.5 py-0 text-[10px]" variant="outline">
+          <div class="flex min-w-0 items-start gap-2.5 rounded-lg px-2.5 py-2 text-[12px] hover:bg-surface-hover">
+            <Badge class="mt-0.5 shrink-0 border-line-subtle px-1.5 py-0 text-[10px] capitalize" variant="outline">
               {props.step.kind === "message" ? props.step.role : props.step.kind}
             </Badge>
-            <span class="min-w-0 whitespace-pre-wrap break-words text-faint">{props.step.summary}</span>
+            <span class="min-w-0 whitespace-pre-wrap break-words leading-relaxed text-subtle">
+              {props.step.summary}
+            </span>
           </div>
         }
       >
         <div data-session-history-entry-id={props.step.id} onClick={state.detailExpand}>
           <Details
-            class="!border-line-subtle !bg-surface !shadow-none"
-            summaryClass="!min-h-9 !flex-row !gap-2 !p-2"
+            class="!rounded-lg !border-transparent !bg-surface !shadow-none open:!border-line-subtle"
+            summaryClass="!min-h-10 !flex-row !gap-2 !px-2.5 !py-2 hover:!bg-surface-hover"
             summaryEl={
               <span class="flex min-w-0 flex-1 items-center gap-2 text-left">
-                <Badge class="shrink-0 border-line-subtle px-1.5 py-0 text-[10px]" variant="subtle">
+                <Badge class="shrink-0 border-line-subtle px-1.5 py-0 text-[10px] capitalize" variant="subtle">
                   {props.step.kind}
                 </Badge>
-                <span class="min-w-0 truncate text-[12px] text-faint">{props.step.summary}</span>
+                <span class="min-w-0 truncate text-[12px] text-subtle">{props.step.summary}</span>
               </span>
             }
           >

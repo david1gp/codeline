@@ -53,10 +53,6 @@ export function SessionCapturedContextInspector(props: { idPrefix?: string; stat
         </Match>
 
         <Match when={true}>
-          <p class={metaClass}>
-            about {state.totalEstimatedTokens()} tokens of prompt and instruction context (estimate)
-          </p>
-
           <label class="grid gap-1.5" for={`${prefix()}-agent-prompt`}>
             <span class={labelClass}>System prompt</span>
             <Show
@@ -64,7 +60,6 @@ export function SessionCapturedContextInspector(props: { idPrefix?: string; stat
               fallback={<p class={metaClass}>No system prompt was captured for this session.</p>}
             >
               <Textarea id={`${prefix()}-agent-prompt`} class={promptClass} readOnly value={state.agentPrompt()} />
-              <span class={metaClass}>about {state.agentPromptEstimatedTokens()} tokens (estimate)</span>
             </Show>
           </label>
 
@@ -90,12 +85,10 @@ export function SessionCapturedContextInspector(props: { idPrefix?: string; stat
                           value={entry.content}
                         />
                       </Show>
-                      <span class={metaClass}>about {entry.estimatedTokens} tokens (estimate)</span>
                     </li>
                   )}
                 </For>
               </ul>
-              <p class={metaClass}>about {state.instructionEstimatedTokens()} tokens in total (estimate)</p>
             </Show>
           </div>
 

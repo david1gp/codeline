@@ -26,13 +26,13 @@ export function ProjectBrowser(props: { compact?: boolean; state: ProjectBrowser
         class="grid min-h-0 grid-cols-1"
         classList={{
           "gap-4 lg:grid-cols-[minmax(16rem,0.75fr)_minmax(0,1.25fr)]": !props.compact,
-          "h-full grid-rows-[minmax(10rem,2fr)_minmax(12rem,3fr)]": props.compact,
+          "h-full gap-2 grid-rows-[minmax(10rem,2fr)_minmax(12rem,3fr)]": props.compact,
         }}
       >
         <div
           class="min-h-0 border-line bg-surface p-3"
           classList={{
-            "overflow-auto border-b": props.compact,
+            "overflow-auto rounded-xl border shadow-[0_1px_2px_var(--shadow-color)]": props.compact,
             "rounded-xl border": !props.compact,
           }}
         >
@@ -113,14 +113,17 @@ export function ProjectBrowser(props: { compact?: boolean; state: ProjectBrowser
         </div>
 
         <div
-          class="min-w-0 overflow-hidden border-line bg-surface-sunken"
+          class="min-w-0 overflow-hidden border-line bg-surface"
           classList={{
-            "min-h-0 flex flex-col": props.compact,
+            "min-h-0 flex flex-col rounded-xl border shadow-[0_1px_2px_var(--shadow-color)]": props.compact,
             "min-h-[16rem] rounded-xl border": !props.compact,
           }}
         >
           <Show when={state.tabs().length > 0}>
-            <nav class="flex min-w-0 overflow-x-auto border-b border-line" aria-label="Open project files">
+            <nav
+              class="flex min-w-0 overflow-x-auto border-b border-line bg-surface-sunken"
+              aria-label="Open project files"
+            >
               <For each={state.tabs()}>
                 {(tab) => (
                   <div

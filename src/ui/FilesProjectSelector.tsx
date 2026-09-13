@@ -15,17 +15,17 @@ export function FilesProjectSelector(props: { compact?: boolean; state: FilesScr
       class="border-[var(--border)] bg-[var(--surface)]"
       classList={{
         "mb-4 rounded-xl border p-3": !props.compact,
-        "shrink-0 border-x-0 border-t-0 px-3 py-2": props.compact,
+        "shrink-0 border-x-0 border-t-0 px-3 py-3": props.compact,
       }}
       aria-labelledby={props.compact ? "panel-project-selector-heading" : "project-selector-heading"}
     >
-      <div class="flex flex-wrap items-center justify-between gap-3">
+      <div class="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1
             id={props.compact ? "panel-project-selector-heading" : "project-selector-heading"}
             class="m-0 text-sm font-semibold text-[var(--foreground)]"
           >
-            Project files
+            {props.compact ? "Workspace" : "Project files"}
           </h1>
           <Show when={!props.compact}>
             <p class="m-0 mt-1 text-[11px] text-[var(--muted-foreground)]">Choose a registered project to browse.</p>
@@ -57,13 +57,13 @@ export function FilesProjectSelector(props: { compact?: boolean; state: FilesScr
           </Match>
           <Match when={true}>
             <label
-              class="flex min-w-0 items-center gap-2 text-xs text-[var(--muted-foreground)]"
+              class="flex min-w-0 flex-1 items-center gap-2 text-xs text-[var(--muted-foreground)]"
               for={props.compact ? "panel-project-selector" : "project-selector"}
             >
-              <span>Project</span>
+              <span class="sr-only">Project</span>
               <SelectSingle
                 id={props.compact ? "panel-project-selector" : "project-selector"}
-                class="min-w-0 max-w-64 !rounded-md !border !border-line !bg-surface !px-2.5 !py-1.5 text-xs !text-foreground focus:!border-accent-border focus:!ring-accent-border"
+                class="min-w-0 flex-1 !rounded-lg !border !border-line !bg-surface-raised !px-2.5 !py-2 text-xs !text-foreground shadow-[0_1px_2px_var(--shadow-color)] focus:!border-accent-border focus:!ring-accent-border"
                 valueSignal={projectValueSignal}
                 getOptions={state.projectSelectorOptions}
                 valueText={(projectId) =>
