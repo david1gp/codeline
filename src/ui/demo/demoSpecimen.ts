@@ -7,6 +7,7 @@ export interface DemoSpecimen {
   /** Rendered by DemoSpecimenPanel, which keeps the registry free of JSX. */
   slug:
     | "app-shell"
+    | "chatarea"
     | "files-screen"
     | "finalized-message"
     | "note-back-link"

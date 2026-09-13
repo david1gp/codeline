@@ -1,4 +1,5 @@
 import { demoAppShellStateCreate } from "./demoAppShellStateCreate.js"
+import { demoChatAreaStateCreate } from "./demoChatAreaStateCreate.js"
 import { demoFilesScreenStateCreate } from "./demoFilesScreenStateCreate.js"
 import { demoFinalizedMessageStateCreate } from "./demoFinalizedMessageStateCreate.js"
 import { demoNewNoteScreenStateCreate } from "./demoNewNoteScreenStateCreate.js"
@@ -16,6 +17,7 @@ export function demoSpecimenStateCreate(variant: () => DemoSessionScreenVariant)
   const projectBrowser = demoProjectBrowserStateCreate(variant)
 
   return {
+    chatArea: demoChatAreaStateCreate(),
     files,
     newNote,
     projectBrowser,

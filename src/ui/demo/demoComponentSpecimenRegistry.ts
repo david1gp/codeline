@@ -1,7 +1,15 @@
 import { urlDemoItem } from "../demo_url/urlDemo.js"
+import { urlDemoChatArea } from "../demo_url/urlDemoChatArea.js"
 import type { DemoSpecimen } from "./demoSpecimen.js"
 
 export const demoComponentSpecimenRegistry = [
+  {
+    description: "T3code-inspired conversation composer that rests when the reader scrolls upward.",
+    href: urlDemoChatArea(),
+    label: "Chat area",
+    slug: "chatarea",
+    variants: ["ready"],
+  },
   {
     description: "Branch tree, search, selection, loading, empty, and error states.",
     href: urlDemoItem("components", "session-list"),

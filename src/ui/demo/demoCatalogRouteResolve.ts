@@ -1,5 +1,6 @@
 import { pageRouteDemo } from "../demo_url/pageRouteDemo.js"
 import { demoCatalogRegistry } from "./demoCatalogRegistry.js"
+import { demoComponentSpecimenRegistry } from "./demoComponentSpecimenRegistry.js"
 import type { DemoCatalogRoute } from "./demoCatalogRoute.js"
 import { demoScenarioRegistry } from "./demoScenarioRegistry.js"
 import { demoSessionScreenVariantParse } from "./demoSessionScreenVariantParse.js"
@@ -28,6 +29,10 @@ export function demoCatalogRouteResolve(pathname: string, variant?: unknown): De
 
   // Keep every pre-catalog URL addressable.
   if (segments.length === 1) {
+    const specimen = demoComponentSpecimenRegistry.find((candidate) => candidate.href === pathname.replace(/\/$/, ""))
+    if (specimen) {
+      return { kind: "specimen", specimen, variant: demoSessionScreenVariantParse(specimen, variant) }
+    }
     const scenario = demoScenarioRegistry.find((candidate) => candidate.slug === segments[0])
     if (scenario) return { kind: "scenario", scenario }
   }

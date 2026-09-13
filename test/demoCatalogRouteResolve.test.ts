@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test"
 import { demoCatalogRouteResolve } from "../src/ui/demo/demoCatalogRouteResolve.js"
+import { demoComponentSpecimenRegistry } from "../src/ui/demo/demoComponentSpecimenRegistry.js"
 
 test("demo catalog resolves its index, sections, canonical scenarios, and legacy scenarios", () => {
   expect(demoCatalogRouteResolve("/demo")).toEqual({ kind: "index" })
@@ -16,6 +17,15 @@ test("demo catalog resolves its index, sections, canonical scenarios, and legacy
 })
 
 test("demo catalog resolves specimens with a validated variant", () => {
+  expect(demoCatalogRouteResolve("/demo/chatarea")).toMatchObject({
+    kind: "specimen",
+    specimen: { href: "/demo/chatarea", slug: "chatarea" },
+    variant: "ready",
+  })
+  expect(demoCatalogRouteResolve("/demo/components/chatarea", "error")).toMatchObject({
+    specimen: { slug: "chatarea" },
+    variant: "ready",
+  })
   expect(demoCatalogRouteResolve("/demo/screens/workspace-screen")).toMatchObject({
     kind: "specimen",
     specimen: { slug: "workspace-screen" },
