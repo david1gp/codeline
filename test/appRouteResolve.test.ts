@@ -32,13 +32,19 @@ test("settings is registered with the settings route page", async () => {
     new URL("../src/ui/settings_url/getRoutesSettings.ts", import.meta.url),
   ).text()
   const settingsSource = await Bun.file(new URL("../src/ui/SettingsRoutePage.tsx", import.meta.url)).text()
+  const settingsGeneralSource = await Bun.file(new URL("../src/ui/SettingsGeneralPanel.tsx", import.meta.url)).text()
+  const settingsSidebarSource = await Bun.file(new URL("../src/ui/SettingsSidebar.tsx", import.meta.url)).text()
 
   expect(routerSource).toContain("getRoutesSettings")
   expect(settingsRoutesSource).toContain("pageNameSettings")
   expect(settingsRoutesSource).toContain("pageRouteSettings")
   expect(settingsRoutesSource).toContain("lazy")
-  expect(settingsSource).toContain('<h1 id="settings-title"')
-  expect(settingsSource).toContain("Settings")
+  expect(settingsSource).toContain("SettingsSidebar")
+  expect(settingsSource).toContain("ConfigurationEditor")
+  expect(settingsGeneralSource).toContain('<h1 id="settings-title"')
+  expect(settingsSidebarSource).toContain("Subagents")
+  expect(settingsSidebarSource).toContain("Skills")
+  expect(settingsSidebarSource).toContain("Commands")
 })
 
 test("the workspace is registered on the session sidebar routes instead of root", async () => {
@@ -61,7 +67,7 @@ test("primary navigation reuses the shell-owned mobile session drawer", async ()
 
 test("PWA installation is Settings-only while update reload remains in the shell", async () => {
   const appSource = await Bun.file(new URL("../src/ui/App.tsx", import.meta.url)).text()
-  const settingsSource = await Bun.file(new URL("../src/ui/SettingsRoutePage.tsx", import.meta.url)).text()
+  const settingsSource = await Bun.file(new URL("../src/ui/SettingsGeneralPanel.tsx", import.meta.url)).text()
   const pwaActionsSource = await Bun.file(new URL("../src/ui/pwa/PwaStatusActions.tsx", import.meta.url)).text()
 
   expect(settingsSource).toContain("PwaStatusActions")
@@ -72,9 +78,18 @@ test("PWA installation is Settings-only while update reload remains in the shell
   expect(appSource).toContain('<PwaStatusActions placement="shell"')
   expect(appSource).toContain("urlSettings")
   expect(appSource).toContain("href={urlSettings()}")
-  expect(appSource).toContain("mdiCogOutline")
+  expect(appSource).toContain("applicationIcon.settings")
   expect(appSource).not.toContain('placement="settings"')
   expect(pwaActionsSource).toContain('props.placement === "shell" && props.state.status() === "update-ready"')
   expect(pwaActionsSource).toContain("Reload to update")
   expect(pwaActionsSource).toContain("props.state.reloadForUpdate")
+})
+
+
+test("right-side header controls share the ghost utility-button treatment", async () => {
+  const appSource = await Bun.file(new URL("../src/ui/App.tsx", import.meta.url)).text()
+  const connectionSource = await Bun.file(new URL("../src/ui/ConnectionStatusIndicator.tsx", import.meta.url)).text()
+
+  expect(appSource).toContain('navigation.settingsIsActive() && "bg-surface-hover text-foreground"')
+  expect(connectionSource).toContain("variant={buttonVariant.ghost}")
 })

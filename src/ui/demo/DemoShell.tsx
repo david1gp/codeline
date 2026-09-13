@@ -12,9 +12,9 @@ export function DemoShell(props: {
   workspacePanelState: ReturnType<typeof demoWorkspacePanelStateCreate>
 }) {
   return (
-    <div class="overflow-x-hidden bg-muted text-strong">
+    <div class="min-h-0 overflow-x-hidden bg-muted text-strong">
       <div
-        class="grid h-[calc(100dvh-48px)] min-h-[620px] max-[760px]:h-auto max-[760px]:min-h-0 max-[760px]:grid-cols-1"
+        class="grid h-[calc(100dvh-48px)] min-h-[620px] max-[760px]:h-full max-[760px]:min-h-0 max-[760px]:grid-cols-1 max-[760px]:grid-rows-[auto_minmax(0,1fr)_minmax(330px,1fr)]"
         classList={{
           "grid-cols-[250px_minmax(360px,1fr)_330px] max-[1000px]:grid-cols-[220px_minmax(360px,1fr)_280px]":
             !props.fixture.workspace && !props.fixture.surface,
@@ -72,12 +72,9 @@ export function DemoShell(props: {
           <div class="flex items-center gap-3 overflow-hidden border-line border-b px-3 text-xs">
             <span class="font-mono text-faint">::</span>
             <h1 class="m-0 min-w-0 truncate text-xs font-bold">{props.fixture.heading}</h1>
-            <span class="ml-auto shrink-0 rounded-full bg-surface-hover px-2 py-1 font-mono text-[9px] text-faint">
-              32k context
-            </span>
           </div>
           <section
-            class="relative min-h-[340px] overflow-auto px-5 py-6 max-[720px]:min-h-[390px] max-[720px]:px-4"
+            class="relative min-h-0 overflow-auto px-5 py-6 min-[721px]:min-h-[340px] max-[720px]:px-4"
             aria-label="Conversation messages"
             tabindex="0"
           >

@@ -168,7 +168,7 @@ export const demoScenarioFixtures = {
         actions: ["Copy"],
         author: "assistant",
         body: "### Implemented\n\n- Added typed message variants\n- Kept fixtures local and deterministic\n- Preserved the responsive three-region shell",
-        detail: "1,248 tokens · 24.6 t/s · 10:43",
+        detail: "Completed at 10:43",
         kind: "markdown",
       },
     ],
@@ -213,7 +213,7 @@ export const demoScenarioFixtures = {
       {
         author: "assistant",
         body: "The shell reflows to one column. I’m checking the composer queue and horizontal scenario navigation next",
-        detail: "312 tokens · 18.4 t/s",
+        detail: "Generating response",
         kind: "markdown",
         streaming: true,
       },
@@ -299,7 +299,7 @@ export const demoScenarioFixtures = {
     composer: {
       action: "Send",
       placeholder: "Continue the architecture review...",
-      status: "48 messages · 18.2k / 32k context · history available",
+      status: "48 messages · history available",
     },
     sessions: [
       { active: true, label: "Architecture review", meta: "now" },

@@ -21,7 +21,7 @@ export function ConnectionStatusIndicator(props: { state: ConnectionStatusView }
       aria-label={
         props.state.durationLabel() ? `${props.state.label()} ${props.state.durationLabel()}` : props.state.label()
       }
-      variant={props.state.isError() ? buttonVariant.outlineRed : buttonVariant.outline}
+      variant={buttonVariant.ghost}
       innerClass="min-w-[240px] border border-line bg-surface-raised text-foreground shadow-lg"
       open={props.state.popoverOpen()}
       onOpenChange={props.state.popoverOpenChange}

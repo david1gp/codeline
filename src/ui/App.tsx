@@ -117,7 +117,7 @@ export function App(props: {
                   buttonVariant.ghost,
                   false,
                   false,
-                  navigation.settingsIsActive() && "bg-slate-100 dark:bg-slate-800",
+                  navigation.settingsIsActive() && "bg-surface-hover text-foreground",
                 )}
                 href={urlSettings()}
                 title="Settings"
