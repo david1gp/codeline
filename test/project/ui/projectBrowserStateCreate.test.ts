@@ -1,0 +1,246 @@
+import { expect, test } from "bun:test"
+import { createRoot } from "solid-js/dist/solid.js"
+import { projectBrowserStateCreate } from "../../../src/project/ui/projectBrowserStateCreate.js"
+
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
+const projectId = "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1faa"
+
+test("project browser navigates only through listed directories and returns to their parent", async () => {
+  const calls: string[] = []
+  const root = createRoot((dispose) => ({
+    dispose,
+    state: projectBrowserStateCreate({
+      projectId,
+      fetcher: async (input) => {
+        const url = String(input)
+        calls.push(url)
+        const path = new URL(url, "https://codeline.test").searchParams.get("path")
+        return Response.json({
+          entries:
+            path === "src"
+              ? [
+                  {
+                    name: "index.ts",
+                    path: "src/index.ts",
+                    type: "file",
+                    size: 12,
+                    modifiedAt: "2026-08-13T00:00:00.000Z",
+                  },
+                ]
+              : [{ name: "src", path: "src", type: "directory", size: 0, modifiedAt: "2026-08-13T00:00:00.000Z" }],
+        })
+      },
+    }),
+  }))
+
+  await tick()
+  expect(root.state.currentPath()).toBe("")
+  root.state.directoryOpen({
+    name: "etc",
+    path: "../etc",
+    type: "directory",
+    size: 0,
+    modifiedAt: "2026-08-13T00:00:00.000Z",
+  })
+  expect(calls).toHaveLength(1)
+  root.state.directoryOpen(root.state.entries()[0]!)
+  await tick()
+  expect(root.state.currentPath()).toBe("src")
+  expect(calls[1]).toBe(`/api/project/directory?project=${projectId}&path=src`)
+  root.state.parentOpen()
+  await tick()
+  expect(root.state.currentPath()).toBe("")
+  expect(calls[2]).toBe(`/api/project/directory?project=${projectId}&path=`)
+  root.dispose()
+})
+
+test("project browser validates bounded previews and keeps an encoded download action on failure", async () => {
+  let previewAttempts = 0
+  const root = createRoot((dispose) => ({
+    dispose,
+    state: projectBrowserStateCreate({
+      apiBase: "/project",
+      projectId,
+      fetcher: async (input) => {
+        const url = String(input)
+        if (url.startsWith("/project/directory")) {
+          return Response.json({
+            entries: [
+              { name: "a b.txt", path: "notes/a b.txt", type: "file", size: 3, modifiedAt: "2026-08-13T00:00:00.000Z" },
+            ],
+          })
+        }
+        previewAttempts += 1
+        if (previewAttempts === 1) return new Response(null, { status: 400 })
+        return Response.json({ path: "notes/a b.txt", kind: "text", mimeType: "text/plain", content: "ok\n", size: 3 })
+      },
+    }),
+  }))
+
+  await tick()
+  root.state.fileOpen(root.state.entries()[0]!)
+  await tick()
+  expect(root.state.previewStatus()).toBe("error")
+  expect(root.state.downloadUrl()).toBe(`/project/download?project=${projectId}&path=notes%2Fa%20b.txt`)
+  root.state.retryPreview()
+  await tick()
+  expect(root.state.previewStatus()).toBe("complete")
+  expect(root.state.preview()).toMatchObject({ kind: "text", content: "ok\n" })
+  expect(previewAttempts).toBe(2)
+  root.dispose()
+})
+
+test("project browser accepts browser-safe image, PDF, and unsupported preview responses", async () => {
+  const files = [
+    { name: "image.png", path: "image.png", type: "file", size: 4, modifiedAt: "2026-08-13T00:00:00.000Z" },
+    { name: "file.pdf", path: "file.pdf", type: "file", size: 4, modifiedAt: "2026-08-13T00:00:00.000Z" },
+    { name: "data.bin", path: "data.bin", type: "file", size: 4, modifiedAt: "2026-08-13T00:00:00.000Z" },
+  ] as const
+  const root = createRoot((dispose) => ({
+    dispose,
+    state: projectBrowserStateCreate({
+      projectId,
+      fetcher: async (input) => {
+        const url = new URL(String(input), "https://codeline.test")
+        if (url.pathname.endsWith("/directory")) return Response.json({ entries: files })
+        const path = url.searchParams.get("path")!
+        if (path === "image.png") {
+          return Response.json({ path, kind: "image", mimeType: "image/png", size: 4, url: "/image-content" })
+        }
+        if (path === "file.pdf") {
+          return Response.json({ path, kind: "pdf", mimeType: "application/pdf", size: 4, url: "/pdf-content" })
+        }
+        return Response.json({ path, kind: "unsupported", mimeType: "application/octet-stream", size: 4 })
+      },
+    }),
+  }))
+
+  await tick()
+  for (const [index, kind] of (["image", "pdf", "unsupported"] as const).entries()) {
+    root.state.fileOpen(root.state.entries()[index]!)
+    await tick()
+    expect(root.state.previewStatus()).toBe("complete")
+    expect(root.state.preview()?.kind).toBe(kind)
+  }
+  root.dispose()
+})
+
+test("project browser opens, selects, and closes multiple viewed files", async () => {
+  const files = [
+    { name: "a.txt", path: "a.txt", type: "file", size: 1, modifiedAt: "2026-08-13T00:00:00.000Z" },
+    { name: "b.txt", path: "nested/b.txt", type: "file", size: 1, modifiedAt: "2026-08-13T00:00:00.000Z" },
+  ] as const
+  const root = createRoot((dispose) => ({
+    dispose,
+    state: projectBrowserStateCreate({
+      projectId,
+      fetcher: async (input) => {
+        const url = new URL(String(input), "https://codeline.test")
+        if (url.pathname.endsWith("/directory")) return Response.json({ entries: files })
+        const path = url.searchParams.get("path")!
+        return Response.json({ path, kind: "text", mimeType: "text/plain", content: path, size: 1 })
+      },
+    }),
+  }))
+
+  await tick()
+  root.state.fileOpen(root.state.entries()[0]!)
+  await tick()
+  root.state.fileOpen(root.state.entries()[1]!)
+  await tick()
+  expect(root.state.tabs().map((tab) => tab.path)).toEqual(["a.txt", "nested/b.txt"])
+  expect(root.state.selectedFile()?.path).toBe("nested/b.txt")
+
+  root.state.tabSelect("a.txt")
+  await tick()
+  expect(root.state.textPreview()?.content).toBe("a.txt")
+  root.state.tabClose("a.txt")
+  await tick()
+  expect(root.state.selectedFile()?.path).toBe("nested/b.txt")
+  expect(root.state.textPreview()?.content).toBe("nested/b.txt")
+  root.state.tabClose("nested/b.txt")
+  expect(root.state.tabs()).toEqual([])
+  expect(root.state.selectedFile()).toBeNull()
+  expect(root.state.previewStatus()).toBe("idle")
+  root.dispose()
+})
+
+test("project browser defaults Markdown to source and renders only sanitized preview HTML", async () => {
+  const root = createRoot((dispose) => ({
+    dispose,
+    state: projectBrowserStateCreate({
+      projectId,
+      fetcher: async (input) => {
+        const url = new URL(String(input), "https://codeline.test")
+        if (url.pathname.endsWith("/directory")) {
+          return Response.json({
+            entries: [
+              {
+                name: "README.md",
+                path: "README.md",
+                type: "file",
+                size: 31,
+                modifiedAt: "2026-08-13T00:00:00.000Z",
+              },
+            ],
+          })
+        }
+        return Response.json({
+          path: "README.md",
+          kind: "text",
+          mimeType: "text/markdown; charset=utf-8",
+          content: "# Safe\n\n<script>alert(1)</script>\n\n[bad](javascript:alert(1))",
+          size: 31,
+        })
+      },
+    }),
+  }))
+
+  await tick()
+  root.state.fileOpen(root.state.entries()[0]!)
+  await tick()
+  expect(root.state.isMarkdownPreview()).toBe(true)
+  expect(root.state.displayMode()).toBe("source")
+
+  root.state.displayModeSelect("preview")
+  expect(root.state.displayMode()).toBe("preview")
+  expect(root.state.markdownPreviewHtml()).toContain("<h1>Safe</h1>")
+  expect(root.state.markdownPreviewHtml()).not.toContain("<script>")
+  expect(root.state.markdownPreviewHtml()).not.toContain('href="javascript:')
+  root.dispose()
+})
+
+test("project browser preserves direct legacy-root requests and resets when recreated for another project", async () => {
+  const legacyCalls: string[] = []
+  const legacyRoot = createRoot((dispose) => ({
+    dispose,
+    state: projectBrowserStateCreate({
+      fetcher: async (input) => {
+        legacyCalls.push(String(input))
+        return Response.json({ entries: [] })
+      },
+    }),
+  }))
+
+  await tick()
+  expect(legacyCalls).toEqual(["/api/project/directory?path="])
+  legacyRoot.dispose()
+
+  const projectCalls: string[] = []
+  const projectRoot = createRoot((dispose) => ({
+    dispose,
+    state: projectBrowserStateCreate({
+      projectId,
+      fetcher: async (input) => {
+        projectCalls.push(String(input))
+        return Response.json({ entries: [] })
+      },
+    }),
+  }))
+
+  await tick()
+  expect(projectRoot.state.currentPath()).toBe("")
+  expect(projectRoot.state.tabs()).toEqual([])
+  expect(projectCalls).toEqual([`/api/project/directory?project=${projectId}&path=`])
+  projectRoot.dispose()
+})

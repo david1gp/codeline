@@ -1,0 +1,419 @@
+import { afterAll, beforeAll, expect, test } from "bun:test"
+import { randomBytes } from "node:crypto"
+import { createResult, createResultError, type Result } from "@adaptive-ds/result"
+import { asc, eq, inArray } from "drizzle-orm"
+import { Hono } from "hono"
+import * as v from "valibot"
+import { agentTable } from "../../../src/agents/db/agentTable.js"
+import type { AppEnvironment } from "../../../src/api/appEnvironment.js"
+import { mutationIdempotencyTable } from "../../../src/api/db/mutationIdempotencyTable.js"
+import { databaseConnectionClose } from "../../../src/database/databaseConnectionClose.js"
+import { applicationUserTable } from "../../../src/identity/db/applicationUserTable.js"
+import { developmentIdentityUpsert } from "../../../src/identity/db/developmentIdentityUpsert.js"
+import { organizationTable } from "../../../src/identity/db/organizationTable.js"
+import { journalCursorCodecCreate } from "../../../src/journal/actions/journalCursorCodecCreate.js"
+import { journalWriteCreate } from "../../../src/journal/actions/journalWriteCreate.js"
+import { journalEventTable } from "../../../src/journal/db/journalEventTable.js"
+import { journalSequenceCounterTable } from "../../../src/journal/db/journalSequenceCounterTable.js"
+import { apiMessageRoutesAdd } from "../../../src/message/api/apiMessageRoutesAdd.js"
+import { messageAppendResponseSchema } from "../../../src/message/api/messageAppendResponseSchema.js"
+import { messagePageResponseSchema } from "../../../src/message/api/messagePageResponseSchema.js"
+import { messageRepositoryAppendMutation } from "../../../src/message/db/messageRepositoryAppendMutation.js"
+import { messageTable } from "../../../src/message/db/messageTable.js"
+import { serverTable } from "../../../src/servers/db/serverTable.js"
+import { sessionCreate } from "../../../src/session/actions/sessionCreate.js"
+import { sessionJournalRecipientResolverCreate } from "../../../src/session/db/sessionJournalRecipientResolverCreate.js"
+import { sessionTable } from "../../../src/session/db/sessionTable.js"
+import { uuidv7 } from "../../../src/uuid/uuidv7.js"
+import { databaseTestConnectionCreate } from "../../database/fixtures/databaseTestConnectionCreate.js"
+
+const connection = databaseTestConnectionCreate()
+const database = connection.db
+const apiConnection = databaseTestConnectionCreate()
+const apiDatabase = apiConnection.db
+const fixture = {
+  agentId: `message-http-agent-${uuidv7()}`,
+  organizationId: `message-http-organization-${uuidv7()}`,
+  otherOrganizationId: `message-http-other-organization-${uuidv7()}`,
+  serverId: `message-http-server-${uuidv7()}`,
+  userKey: `message-http-user-${uuidv7()}`,
+}
+const codecResult = journalCursorCodecCreate({ randomBytes, secret: `message-http-${uuidv7()}` })
+if (!codecResult.success) throw new Error(codecResult.errorMessage)
+
+let userId: string | undefined
+let sessionId: string | undefined
+const published: Array<typeof journalEventTable.$inferSelect> = []
+const publisher = async (events: readonly (typeof journalEventTable.$inferSelect)[]) => {
+  published.push(...events)
+  return createResult(undefined)
+}
+const api = new Hono<AppEnvironment>()
+api.use("*", async (context, next) => {
+  context.set("database", apiDatabase)
+  context.set("requestIdentity", { organizationId: fixture.organizationId, userId: userId as string })
+  await next()
+})
+apiMessageRoutesAdd(api, { journalCursorCodec: codecResult.data, journalPostCommitPublish: publisher })
+
+beforeAll(async () => {
+  const user = await developmentIdentityUpsert(database, {
+    displayName: "Message HTTP User",
+    identityKey: fixture.userKey,
+  })
+  if (!user.success) throw new Error(user.errorMessage)
+  userId = user.data.id
+  await database.insert(organizationTable).values([
+    { externalId: fixture.organizationId, id: fixture.organizationId, name: "Message HTTP Organization" },
+    { externalId: fixture.otherOrganizationId, id: fixture.otherOrganizationId, name: "Other Organization" },
+  ])
+  await database.insert(serverTable).values({
+    endpoint: "http://message-http-server.test",
+    id: fixture.serverId,
+    name: "Message HTTP Server",
+    organizationId: fixture.organizationId,
+  })
+  await database.insert(agentTable).values({
+    id: fixture.agentId,
+    name: "Message HTTP Agent",
+    role: "coding",
+    serverId: fixture.serverId,
+  })
+  const session = await sessionCreate(
+    database,
+    userId,
+    {
+      clientRequestId: `message-http-session-${uuidv7()}`,
+      metadata: {},
+      primaryAgentId: fixture.agentId,
+      serverId: fixture.serverId,
+      title: "Message HTTP session",
+    },
+    { organizationId: fixture.organizationId },
+  )
+  if (!session.success) throw new Error(session.errorMessage)
+  sessionId = session.data.session.id
+})
+
+afterAll(async () => {
+  if (userId !== undefined) await database.delete(applicationUserTable).where(eq(applicationUserTable.id, userId))
+  await database.delete(serverTable).where(eq(serverTable.id, fixture.serverId))
+  await database
+    .delete(organizationTable)
+    .where(inArray(organizationTable.id, [fixture.organizationId, fixture.otherOrganizationId]))
+  await databaseConnectionClose(connection)
+  await databaseConnectionClose(apiConnection)
+})
+
+test("writes validated messages transactionally and publishes one replayable invalidation", async () => {
+  if (userId === undefined || sessionId === undefined) return
+  const input = {
+    clientRequestId: `message-http-key-${uuidv7()}`,
+    content: "hello from the Drizzle route",
+    role: "user",
+  } as const
+  const created = await api.request(`http://codeline.test/sessions/${sessionId}/messages`, {
+    body: JSON.stringify(input),
+    headers: { "Content-Type": "application/json", "Idempotency-Key": input.clientRequestId },
+    method: "POST",
+  })
+  expect(created.status).toBe(201)
+  expect(created.headers.get("Idempotency-Replayed")).toBe("false")
+  const createdBody = await created.json()
+  expect(v.safeParse(messageAppendResponseSchema, createdBody).success).toBe(true)
+  expect(createdBody).toMatchObject({ created: true, message: { content: input.content, sequence: 1 } })
+
+  const repeated = await api.request(`http://codeline.test/sessions/${sessionId}/messages`, {
+    body: JSON.stringify(input),
+    headers: { "Content-Type": "application/json", "Idempotency-Key": input.clientRequestId },
+    method: "POST",
+  })
+  expect(repeated.status).toBe(200)
+  expect(repeated.headers.get("Idempotency-Replayed")).toBe("true")
+  expect(await repeated.json()).toEqual({ ...createdBody, created: false })
+
+  const conflict = await api.request(`http://codeline.test/sessions/${sessionId}/messages`, {
+    body: JSON.stringify({ ...input, content: "different" }),
+    headers: { "Content-Type": "application/json", "Idempotency-Key": input.clientRequestId },
+    method: "POST",
+  })
+  expect(conflict.status).toBe(409)
+
+  const unsupported = await api.request(`http://codeline.test/sessions/${sessionId}/messages`, {
+    body: JSON.stringify({ ...input, clientRequestId: `message-http-run-${uuidv7()}`, runId: "deferred" }),
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+  })
+  expect(unsupported.status).toBe(400)
+  expect((await unsupported.json()).error.message).toContain("Run-start")
+
+  const missingKey = await api.request(`http://codeline.test/sessions/${sessionId}/messages`, {
+    body: JSON.stringify({ content: input.content, role: input.role }),
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+  })
+  expect(missingKey.status).toBe(400)
+
+  const [session] = await database
+    .select({ revision: sessionTable.revision })
+    .from(sessionTable)
+    .where(eq(sessionTable.id, sessionId))
+  expect(session?.revision).toBe(2)
+  expect(await database.select().from(messageTable).where(eq(messageTable.sessionId, sessionId))).toHaveLength(1)
+  expect(
+    await database
+      .select()
+      .from(mutationIdempotencyTable)
+      .where(eq(mutationIdempotencyTable.idempotencyKey, input.clientRequestId)),
+  ).toHaveLength(1)
+  const events = await database.select().from(journalEventTable).where(eq(journalEventTable.userId, userId))
+  expect(events).toHaveLength(1)
+  expect(events[0]).toMatchObject({ eventType: "invalidate", sequence: 1, payload: { resourceId: sessionId } })
+  expect(published).toHaveLength(1)
+})
+
+test("isolates message writes and serves opaque consistent page cursors with correct ETags", async () => {
+  if (userId === undefined || sessionId === undefined) return
+  const authenticatedUserId = userId
+  const authenticatedSessionId = sessionId
+  const secondInput = {
+    clientRequestId: `message-http-second-${uuidv7()}`,
+    content: "second message",
+    role: "assistant",
+  } as const
+  const second = await api.request(`http://codeline.test/sessions/${sessionId}/messages`, {
+    body: JSON.stringify(secondInput),
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+  })
+  expect(second.status).toBe(201)
+
+  const firstPageResponse = await api.request(`http://codeline.test/sessions/${sessionId}/messages?limit=1`)
+  expect(firstPageResponse.status).toBe(200)
+  const firstPage = await firstPageResponse.json()
+  expect(firstPage.asOfCursor).not.toContain(userId)
+  expect(codecResult.data.validate(firstPage.asOfCursor, userId).success).toBe(true)
+  expect(firstPage).not.toHaveProperty("asOfSequence")
+  expect(v.safeParse(messagePageResponseSchema, firstPage).success).toBe(true)
+  expect(firstPageResponse.headers.get("ETag")).toBe(firstPage.etag)
+  expect(firstPage.nextCursor).toEqual(expect.any(String))
+
+  const notModified = await api.request(`http://codeline.test/sessions/${sessionId}/messages?limit=1`, {
+    headers: { "If-None-Match": firstPage.etag },
+  })
+  expect(notModified.status).toBe(304)
+  expect(notModified.headers.get("ETag")).toBe(firstPage.etag)
+
+  const secondPage = await api.request(
+    `http://codeline.test/sessions/${sessionId}/messages?cursor=${encodeURIComponent(firstPage.nextCursor)}&limit=1`,
+  )
+  expect(secondPage.status).toBe(200)
+  expect((await secondPage.json()).messages.map((message: { sequence: number }) => message.sequence)).toEqual([2])
+
+  let releaseWriter: (() => void) | undefined
+  let writerReadyResolve: (() => void) | undefined
+  const writerReady = new Promise<void>((resolve) => {
+    writerReadyResolve = resolve
+  })
+  const writer = database.transaction(async (transaction) => {
+    await transaction
+      .update(sessionTable)
+      .set({ revision: 99, title: "uncommitted", updatedAt: new Date("2026-08-23T00:00:00.000Z") })
+      .where(eq(sessionTable.id, authenticatedSessionId))
+    await transaction.insert(messageTable).values({
+      agentId: fixture.agentId,
+      clientRequestId: `message-http-uncommitted-${uuidv7()}`,
+      content: "uncommitted message",
+      id: uuidv7(),
+      metadata: {},
+      role: "user",
+      sequence: 3,
+      sessionId: authenticatedSessionId,
+    })
+    await transaction
+      .update(journalSequenceCounterTable)
+      .set({ nextSequence: 99 })
+      .where(eq(journalSequenceCounterTable.userId, authenticatedUserId))
+    writerReadyResolve?.()
+    await new Promise<void>((resolve) => {
+      releaseWriter = resolve
+    })
+    throw new Error("rollback consistency fixture")
+  })
+  await writerReady
+  releaseWriter?.()
+  await writer.catch(() => undefined)
+  const consistentPage = await api.request(`http://codeline.test/sessions/${sessionId}/messages`)
+  expect(consistentPage.status).toBe(200)
+  const consistentBody = await consistentPage.json()
+  expect(consistentBody.revision).toBe(3)
+  expect(consistentBody.messages.map((message: { sequence: number }) => message.sequence)).toEqual([1, 2])
+  expect(codecResult.data.validate(consistentBody.asOfCursor, userId)).toMatchObject({
+    success: true,
+    data: { sequence: 2 },
+  })
+
+  const otherOrganizationApi = new Hono<AppEnvironment>()
+  otherOrganizationApi.use("*", async (context, next) => {
+    context.set("database", apiDatabase)
+    context.set("requestIdentity", { organizationId: fixture.otherOrganizationId, userId: userId as string })
+    await next()
+  })
+  apiMessageRoutesAdd(otherOrganizationApi, {
+    journalCursorCodec: codecResult.data,
+    journalPostCommitPublish: publisher,
+  })
+  const isolated = await otherOrganizationApi.request(`http://codeline.test/sessions/${sessionId}/messages`, {
+    body: JSON.stringify({
+      clientRequestId: `message-http-isolated-${uuidv7()}`,
+      content: "must not write",
+      role: "user",
+    }),
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+  })
+  const isolatedBody = await isolated.text()
+  expect({ body: isolatedBody, status: isolated.status }).toEqual({
+    body: JSON.stringify({ error: { code: "not_found", message: "The requested resource was not found." } }),
+    status: 404,
+  })
+})
+
+test("serializes overlapping message mutations with monotonic revisions and journal order", async () => {
+  if (userId === undefined || sessionId === undefined) return
+  const authenticatedSessionId = sessionId
+  const authenticatedUserId = userId
+
+  const [beforeSession] = await database
+    .select({ revision: sessionTable.revision })
+    .from(sessionTable)
+    .where(eq(sessionTable.id, authenticatedSessionId))
+  const beforeMessages = await database
+    .select()
+    .from(messageTable)
+    .where(eq(messageTable.sessionId, authenticatedSessionId))
+  const beforeJournal = await database
+    .select({ sequence: journalEventTable.sequence })
+    .from(journalEventTable)
+    .where(eq(journalEventTable.userId, authenticatedUserId))
+  const baselineSequence = Math.max(0, ...beforeJournal.map((event) => event.sequence))
+  const publishedStart = published.length
+  if (beforeSession === undefined) return
+
+  type MessageMutation =
+    Awaited<ReturnType<typeof messageRepositoryAppendMutation>> extends Result<infer Data> ? Data : never
+  let releaseFirstMutation: (() => void) | undefined
+  const firstMutationRelease = new Promise<void>((resolve) => {
+    releaseFirstMutation = resolve
+  })
+  let firstMutationStartedResolve: (() => void) | undefined
+  const firstMutationStarted = new Promise<void>((resolve) => {
+    firstMutationStartedResolve = resolve
+  })
+
+  const append = (input: Parameters<typeof messageRepositoryAppendMutation>[4], hold = false) => {
+    const writer = journalWriteCreate({
+      database,
+      postCommitPublish: publisher,
+      resolveRecipients: sessionJournalRecipientResolverCreate({ organizationId: fixture.organizationId }),
+    })
+    let mutation: MessageMutation | undefined
+    return writer.run<MessageMutation>({
+      mutate: async (transaction) => {
+        const result = await messageRepositoryAppendMutation(
+          transaction,
+          authenticatedUserId,
+          fixture.organizationId,
+          authenticatedSessionId,
+          input,
+        )
+        if (result.success) {
+          mutation = result.data
+          if (hold) {
+            firstMutationStartedResolve?.()
+            await firstMutationRelease
+          }
+        }
+        return result
+      },
+      resources: [{ resourceId: authenticatedSessionId, resourceType: "session" }],
+      write: async (_transaction, journal) => {
+        if (mutation === undefined)
+          return createResultError("messageConcurrencyTest", "The message mutation result is missing.")
+        if (mutation.replayed) return createResult(undefined)
+        const appended = await journal.append({
+          eventType: "invalidate",
+          payload: { resourceId: authenticatedSessionId, resourceType: "session", revision: mutation.revision },
+          resource: { resourceId: authenticatedSessionId, resourceType: "session" },
+        })
+        if (!appended.success) return createResultError("messageConcurrencyTest", appended.errorMessage)
+        return createResult(undefined)
+      },
+    })
+  }
+
+  const firstInput = {
+    clientRequestId: `message-http-concurrent-first-${uuidv7()}`,
+    content: "concurrent first message",
+    role: "user",
+  } as const
+  const secondInput = {
+    clientRequestId: `message-http-concurrent-second-${uuidv7()}`,
+    content: "concurrent second message",
+    role: "assistant",
+  } as const
+  const first = append(firstInput, true)
+  await firstMutationStarted
+  const second = append(secondInput)
+  releaseFirstMutation?.()
+  const firstResult = await first
+  const secondResult = await second
+
+  expect(firstResult.success).toBe(true)
+  expect(secondResult.success).toBe(true)
+  if (!firstResult.success || !secondResult.success || beforeSession === undefined) return
+  expect(firstResult.data.replayed).toBe(false)
+  expect(secondResult.data.replayed).toBe(false)
+  expect(firstResult.data.revision).toBe(beforeSession.revision + 1)
+  expect(secondResult.data.revision).toBe(beforeSession.revision + 2)
+  expect(firstResult.data.responseBody.message.sequence).toBe(beforeMessages.length + 1)
+  expect(secondResult.data.responseBody.message.sequence).toBe(beforeMessages.length + 2)
+
+  const [afterSession] = await database
+    .select({ revision: sessionTable.revision })
+    .from(sessionTable)
+    .where(eq(sessionTable.id, authenticatedSessionId))
+  expect(afterSession?.revision).toBe(beforeSession.revision + 2)
+  const afterMessages = await database
+    .select()
+    .from(messageTable)
+    .where(eq(messageTable.sessionId, authenticatedSessionId))
+  expect(afterMessages).toHaveLength(beforeMessages.length + 2)
+  const addedMessages = afterMessages
+    .filter((message) => message.sequence > beforeMessages.length)
+    .sort((left, right) => left.sequence - right.sequence)
+  expect(addedMessages).toMatchObject([
+    { clientRequestId: firstInput.clientRequestId, content: firstInput.content, sequence: beforeMessages.length + 1 },
+    { clientRequestId: secondInput.clientRequestId, content: secondInput.content, sequence: beforeMessages.length + 2 },
+  ])
+
+  const addedJournal = (
+    await database
+      .select()
+      .from(journalEventTable)
+      .where(eq(journalEventTable.userId, authenticatedUserId))
+      .orderBy(asc(journalEventTable.sequence))
+  ).filter((event) => event.sequence > baselineSequence)
+  expect(addedJournal).toHaveLength(2)
+  expect(addedJournal.map((event) => event.sequence)).toEqual([baselineSequence + 1, baselineSequence + 2])
+  expect(addedJournal.map((event) => (event.payload as { revision: number }).revision)).toEqual([
+    firstResult.data.revision,
+    secondResult.data.revision,
+  ])
+  const addedPublished = published.slice(publishedStart)
+  expect(addedPublished.map((event) => event.sequence)).toEqual([baselineSequence + 1, baselineSequence + 2])
+  expect(addedPublished.map((event) => (event.payload as { revision: number }).revision)).toEqual([
+    firstResult.data.revision,
+    secondResult.data.revision,
+  ])
+})
