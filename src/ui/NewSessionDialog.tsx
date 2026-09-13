@@ -1,13 +1,13 @@
-import { Show, type Accessor } from "solid-js"
+import { type Accessor, Show } from "solid-js"
 import { Button } from "#ui/interactive/button/Button.jsx"
 import { buttonVariant } from "#ui/interactive/button/buttonCva.js"
-import { CorvuDialog } from "#ui/interactive/dialog/CorvuDialog.jsx"
 import { Icon } from "#ui/static/icon/Icon.jsx"
 import { ProjectAvatar } from "../project/ui/ProjectAvatar.js"
 import type { ProjectRegistryState } from "../project/ui/projectRegistryState.js"
 import type { ActiveProjectState } from "./activeProjectStateCreate.js"
 import { applicationIcon } from "./applicationIcon.js"
 import { NewProjectForm } from "./NewProjectForm.js"
+import { NewSessionDialogDialog } from "./NewSessionDialogDialog.js"
 import { newProjectDialogStateCreate } from "./newProjectDialogStateCreate.js"
 import { newSessionDialogStateCreate } from "./newSessionDialogStateCreate.js"
 import { SearchablePicker } from "./SearchablePicker.js"
@@ -49,7 +49,7 @@ export function NewSessionDialog(props: {
   })
 
   return (
-    <CorvuDialog
+    <NewSessionDialogDialog
       title={state.dialogTitle()}
       description={state.dialogDescription()}
       buttonChildren="New Session"
@@ -57,7 +57,8 @@ export function NewSessionDialog(props: {
       disabled={!state.canCreateSession()}
       icon={applicationIcon.sessionCreate}
       iconClass="size-4"
-      innerClass="w-[min(92vw,28rem)]"
+      innerClass="w-[min(92vw,28rem)] !p-4"
+      initialFocusEl={state.searchInputElement()}
       open={state.open()}
       onOpenChange={state.openChange}
       variant={buttonVariant.contrast}
@@ -65,13 +66,19 @@ export function NewSessionDialog(props: {
       <Show
         when={state.newProjectOpen()}
         fallback={
-          <form class="grid gap-3" onSubmit={state.formSubmit}>
+          <form ref={state.formRef} class="grid gap-3" onSubmit={state.formSubmit}>
             <SearchablePicker
               active={state.open() && !state.newProjectOpen()}
               ariaLabel="Projects"
+              autofocus
               emptyText="No projects match your search."
               idPrefix={`${props.idPrefix}-project`}
+              inputRef={state.searchInputRef}
               items={state.pickerItems()}
+              onEnter={(project) => {
+                state.projectChange(project.id)
+                state.formRequestSubmit()
+              }}
               onSelect={(project) => state.projectChange(project.id)}
               placeholder="Search projects…"
               selectedId={state.selectedProjectId()}
@@ -102,6 +109,6 @@ export function NewSessionDialog(props: {
       >
         <NewProjectForm state={projectState} />
       </Show>
-    </CorvuDialog>
+    </NewSessionDialogDialog>
   )
 }

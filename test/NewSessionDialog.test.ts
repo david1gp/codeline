@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test"
 
 const dialog = await Bun.file(new URL("../src/ui/NewSessionDialog.tsx", import.meta.url)).text()
+const genericDialog = await Bun.file(new URL("../src/ui/NewSessionDialogDialog.tsx", import.meta.url)).text()
 const state = await Bun.file(new URL("../src/ui/newSessionDialogStateCreate.ts", import.meta.url)).text()
 const sidebar = await Bun.file(new URL("../src/ui/SessionSidebar.tsx", import.meta.url)).text()
 const app = await Bun.file(new URL("../src/ui/App.tsx", import.meta.url)).text()
@@ -32,4 +33,21 @@ test("the existing-project dialog action hands off to the no-session workspace",
 test("the handoff action identifies project selection and preserves new-project flow", () => {
   expect(state).toContain('return "Use project"')
   expect(state).toContain('return "New Project"')
+})
+
+test("Enter selects through the existing form without nesting or bypassing submit", () => {
+  expect(dialog).toContain("onEnter={(project) => {")
+  expect(dialog).toContain("state.projectChange(project.id)")
+  expect(dialog).toContain("state.formRequestSubmit()")
+  expect(dialog).toContain("ref={state.formRef}")
+  expect(state).toContain("formElement.get()?.requestSubmit()")
+  expect(dialog.match(/<form/g)?.length).toBe(1)
+})
+
+test("the picker is the dialog initial focus and uses native autofocus when it returns", () => {
+  expect(genericDialog).toContain("initialFocusEl?: HTMLElement")
+  expect(genericDialog).toContain("initialFocusEl={p.initialFocusEl}")
+  expect(dialog).toContain("initialFocusEl={state.searchInputElement()}")
+  expect(dialog).toContain("autofocus")
+  expect(dialog).toContain("inputRef={state.searchInputRef}")
 })

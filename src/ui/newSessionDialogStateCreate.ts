@@ -77,6 +77,8 @@ export function newSessionDialogStateCreate(options: NewSessionDialogStateOption
   const newProjectOpen = signalObjectCreate(false)
   const newProjectSelected = signalObjectCreate(false)
   const selectedProjectOverrideId = signalObjectCreate<string | null>(null)
+  const formElement = signalObjectCreate<HTMLFormElement | null>(null)
+  const searchInputElement = signalObjectCreate<HTMLInputElement | null>(null)
   let externalOpen: boolean | undefined
 
   const projects = (): readonly NewSessionProjectItem[] => {
@@ -215,6 +217,10 @@ export function newSessionDialogStateCreate(options: NewSessionDialogStateOption
     options.sessionTarget.sessionNew?.()
   }
 
+  const formRequestSubmit = () => {
+    formElement.get()?.requestSubmit()
+  }
+
   const canCreateSession = () => {
     if (selectedProjectId() === newProjectOptionValue) return true
     if (!options.sessionTarget.canCreateSession()) return false
@@ -238,6 +244,8 @@ export function newSessionDialogStateCreate(options: NewSessionDialogStateOption
       }
       projectSelectionConfirm()
     },
+    formRef: (element: HTMLFormElement) => formElement.set(element),
+    formRequestSubmit,
     newProjectOpen: newProjectOpen.get,
     newProjectOpenChange,
     newProjectOptionValue,
@@ -249,6 +257,8 @@ export function newSessionDialogStateCreate(options: NewSessionDialogStateOption
     openChange,
     projectChange,
     projectSelectionConfirm,
+    searchInputElement: () => searchInputElement.get() ?? undefined,
+    searchInputRef: (element: HTMLInputElement) => searchInputElement.set(element),
     projectConfirmed: (projectPath: string, project?: ProjectRegistryApiProject) => {
       newProjectOpen.set(false)
       newProjectSelected.set(false)
