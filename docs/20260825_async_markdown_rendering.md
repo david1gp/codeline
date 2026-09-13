@@ -38,9 +38,9 @@ Render chat-message Markdown off the UI thread while immediately showing the ori
 - `src/message/ui/messageBodyRenderStateCreate.ts`
 - `src/message/ui/MessageBody.tsx`
 - `src/markdown/markdown.css`
-- `test/messageBodyRenderStateCreate.test.ts`
-- `test/messageBodyPresentation.test.ts`
-- `test/finalizedMessageHtmlRender.test.ts`
+- `test/message/ui/messageBodyRenderStateCreate.test.ts`
+- `test/message/ui/messageBodyPresentation.test.ts`
+- `test/markdown/rendering/finalizedMessageHtmlRender.test.ts`
 - `e2e/lunaSubagentThread.spec.ts`
 - `e2e/asyncMarkdownRendering.spec.ts`
 - `~/opensource/opencode/packages/session-ui/src/components/markdown-worker-transport.test.ts`

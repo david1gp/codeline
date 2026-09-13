@@ -32,6 +32,6 @@ Restore an editable signed-in session automatically after a temporary connection
 - `src/ui/signedInApplicationStateCreate.ts`
 - `src/ui/App.tsx`
 - `src/ui/ConnectionStatusIndicator.tsx`
-- `test/eventFeedCreate.test.ts`
-- `test/eventFeedConnectionIndicatorStateCreate.test.ts`
+- `test/events/client/eventFeedCreate.test.ts`
+- `test/ui/eventFeedConnectionIndicatorStateCreate.test.ts`
 - `e2e/settledSessionOfflineBrowsing.spec.ts`

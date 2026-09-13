@@ -60,17 +60,17 @@ Reduce repeated UI derivation during long-running streamed sessions and prevent 
 - `src/journal/actions/journalPostCommitPublishCreate.ts`
 - `src/journal/actions/journalBacklogRead.ts`
 - `src/journal/actions/journalBacklogEventFrameCreate.ts`
-- `test/sessionStreamGroupsDerive.test.ts`
-- `test/sessionStreamStateCreate.test.ts`
-- `test/sessionStreamInFlightDerive.test.ts`
-- `test/eventFeedStateCreate.test.ts`
-- `test/eventFeedCreate.test.ts`
-- `test/executionStreamEventNormalize.test.ts`
-- `test/streamProducerCoalescer.test.ts`
-- `test/runLifecycleEventFeedIntegration.test.ts`
-- `test/apiEventsRoutesAdd.test.ts`
-- `test/runActiveSnapshot.test.ts`
-- `test/journalTask5DeltaCompaction.test.ts`
+- `test/session/ui/sessionStreamGroupsDerive.test.ts`
+- `test/session/ui/sessionStreamStateCreate.test.ts`
+- `test/session/ui/sessionStreamInFlightDerive.test.ts`
+- `test/events/client/eventFeedStateCreate.test.ts`
+- `test/events/client/eventFeedCreate.test.ts`
+- `test/run/actions/executionStreamEventNormalize.test.ts`
+- `test/run/actions/streamProducerCoalescer.test.ts`
+- `test/app/runLifecycleEventFeedIntegration.test.ts`
+- `test/events/api/apiEventsRoutesAdd.test.ts`
+- `test/run/actions/runActiveSnapshot.test.ts`
+- `test/journal/actions/journalTask5DeltaCompaction.test.ts`
 - T3 Code entry-reuse source: `/home/david/opensource/t3code/apps/web/src/session-logic.ts` at `fa219001dc2`; inspect `deriveWorkLogEntries`, `toDerivedWorkLogEntry`, `derivedWorkLogEntryByActivity`, and collapse/merge helpers.
 - T3 Code entry-reuse tests: `/home/david/opensource/t3code/apps/web/src/session-logic.test.ts` at `fa219001dc2`; inspect `reuses entries for unchanged activities` and `updates 20,000 ordered tool activities within 100 ms`.
 - T3 Code output-bound source: `/home/david/opensource/t3code/apps/server/src/provider/acp/AcpRuntimeModel.ts` at `afc8342801d4`; inspect `boundToolCallOutputText`, `boundToolCallRawOutput`, `boundToolCallRawPayload`, and `decideToolCallUpdateEmission`.

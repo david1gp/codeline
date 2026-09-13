@@ -41,7 +41,7 @@ Keep background sessions immediately observable while bounding per-tab network a
   - `src/stream/schema/journalEventSchema.ts`
   - new `src/stream/client/eventFeedSessionProjectionStateCreate.ts`
   - new `src/stream/client/eventFeedEventMaterializationClassify.ts`
-  - `test/eventFeedStateCreate.test.ts`
+  - `test/events/client/eventFeedStateCreate.test.ts`
   - new `test/eventFeedSessionProjectionStateCreate.test.ts`
 
 ### 2 — Selective materialization and bounded eviction
@@ -58,8 +58,8 @@ Keep background sessions immediately observable while bounding per-tab network a
   - `src/ui/sessionDisplayModeStateCreate.ts`
   - `src/ui/streamActivityStateCreate.ts`
   - new `src/stream/client/eventFeedMaterializationPolicyCreate.ts`
-  - `test/eventFeedStateCreate.test.ts`
-  - `test/streamActivityStateCreate.test.ts`
+  - `test/events/client/eventFeedStateCreate.test.ts`
+  - `test/session/ui/streamActivityStateCreate.test.ts`
   - new `test/eventFeedMaterializationPolicyCreate.test.ts`
 
 ### 3 — Selection-time rehydration and handoff
@@ -76,9 +76,9 @@ Keep background sessions immediately observable while bounding per-tab network a
   - `src/ui/sessionActiveRunReattachStateCreate.ts`
   - `src/ui/sessionChatConnectionCreate.ts`
   - `test/eventFeedActiveRunReload.test.ts`
-  - `test/sessionSnapshotFeedHandoffIntegration.test.ts`
+  - `test/app/sessionSnapshotFeedHandoffIntegration.test.ts`
   - `test/sessionSettledCacheStateCreate.test.ts`
-  - `test/sessionStreamStateCreate.test.ts`
+  - `test/session/ui/sessionStreamStateCreate.test.ts`
 
 ### 4 — Replay and reset reconciliation
 
@@ -92,7 +92,7 @@ Keep background sessions immediately observable while bounding per-tab network a
   - `src/session/api/apiSessionRoutesAdd.ts`
   - `src/session/client/sessionListStateCreate.ts`
   - `src/run/api/runActiveSummarySchema.ts`
-  - `test/eventFeedCreate.test.ts`
+  - `test/events/client/eventFeedCreate.test.ts`
   - `test/eventFeedActiveRunReload.test.ts`
   - `e2e/expiredCursorResetReconciliation.spec.ts`
 

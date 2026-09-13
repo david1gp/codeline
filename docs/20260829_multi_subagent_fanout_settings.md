@@ -95,14 +95,14 @@
 - `src/ui/SettingsRoutePage.tsx`
 - `src/ui/RunBudgetSettings.tsx`
 - `agents/delegate.md`
-- `test/runContracts.test.ts`
-- `test/runChildAdmissionResolve.test.ts`
-- `test/runDelegationExecute.test.ts`
-- `test/runPersistence.test.ts`
-- `test/providerDelegationToolLoopCreate.test.ts`
+- `test/run/schema/runContracts.test.ts`
+- `test/run/actions/runChildAdmissionResolve.test.ts`
+- `test/run/actions/runDelegationExecute.test.ts`
+- `test/run/actions/runPersistence.test.ts`
+- `test/providers/runtime/providerDelegationToolLoopCreate.test.ts`
 - `test/apiConfigurationRoutesAdd.test.ts`
-- `test/configurationStore.test.ts`
-- `test/apiSessionRoutesAdd.test.ts`
+- `test/configuration/actions/configurationStore.test.ts`
+- `test/session/api/apiSessionRoutesAdd.test.ts`
 - `test/settingsRoutePageStateCreate.test.ts`
 - `e2e/lunaSubagentThread.spec.ts`
 - Reference: `~/opensource/opencode/packages/opencode/src/tool/task.ts`

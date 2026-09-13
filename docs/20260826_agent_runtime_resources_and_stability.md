@@ -54,11 +54,11 @@ Status: complete.
   - `src/ui/simulate/simulateInspectorBackendStateDerive.ts`
   - `src/ui/simulate/simulateInspectorStateCreate.ts`
   - new `src/run/actions/executionTranscriptNormalize.ts`
-  - `test/executionStreamEventNormalize.test.ts`
-  - `test/providerDeterministicScenarioResolve.test.ts`
-  - `test/runContracts.test.ts`
-  - `test/simulateInspectorStateCreate.test.ts`
-  - new `test/executionTranscriptNormalize.test.ts`
+  - `test/run/actions/executionStreamEventNormalize.test.ts`
+  - `test/providers/runtime/providerDeterministicScenarioResolve.test.ts`
+  - `test/run/schema/runContracts.test.ts`
+  - `test/ui/simulate/simulateInspectorStateCreate.test.ts`
+  - new `test/run/actions/executionTranscriptNormalize.test.ts`
 - Inspiration and portable tests:
   - DeepSeek Harness `packages/test-support/llm-replay/src/index.ts`
   - DeepSeek Harness `packages/core/agent-loop/tests/request-reconstruction.spec.ts`
@@ -100,9 +100,9 @@ Status: complete.
   - DeepSeek Harness `packages/core/tools/src/schema.ts`
   - DeepSeek Harness `packages/core/tools/src/json-schema.ts`
   - OpenCode `packages/core/src/tool/`
-  - Existing Codeline `test/runContracts.test.ts`
-  - Existing Codeline `test/runPersistence.test.ts`
-  - Existing Codeline `test/runDelegationExecute.test.ts`
+  - Existing Codeline `test/run/schema/runContracts.test.ts`
+  - Existing Codeline `test/run/actions/runPersistence.test.ts`
+  - Existing Codeline `test/run/actions/runDelegationExecute.test.ts`
 
 ### Phase 3 — Hierarchical `AGENTS.md` snapshots
 
@@ -123,8 +123,8 @@ Status: complete; focused tests pass.
   - `src/run/actions/runExecutionSnapshotResolve.ts`
   - `src/run/schema/runExecutionSnapshotSchema.ts`
   - `src/api/apiRoutesAdd.ts`
-  - new `test/agentInstructionsDiscover.test.ts`
-  - new `test/agentInstructionsSnapshotResolve.test.ts`
+  - new `test/instructions/actions/agentInstructionsDiscover.test.ts`
+  - new `test/instructions/actions/agentInstructionsSnapshotResolve.test.ts`
 - Inspiration and portable tests:
   - DeepSeek Harness `packages/context/agent-instructions/src/files.ts`
   - DeepSeek Harness `packages/context/agent-instructions/src/state.ts`
@@ -157,9 +157,9 @@ Status: complete; focused tests pass.
   - `src/run/actions/runExecutionSnapshotResolve.ts`
   - `src/tools/runtime/toolRegistryCreate.ts`
   - database migration under `src/database/migrations/`
-  - new `test/skillCatalogDiscover.test.ts`
-  - new `test/skillSelectionResolve.test.ts`
-  - new `test/skillToolCreate.test.ts`
+  - new `test/skills/actions/skillCatalogDiscover.test.ts`
+  - new `test/skills/actions/skillSelectionResolve.test.ts`
+  - new `test/skills/runtime/skillToolCreate.test.ts`
 - Inspiration and portable tests:
   - OpenCode `packages/opencode/src/skill/index.ts`
   - OpenCode `packages/opencode/src/tool/skill.ts`
@@ -224,9 +224,9 @@ Status: complete; focused tests pass.
   - `src/providers/runtime/providerDelegationToolLoopCreate.ts`
   - `src/run/actions/runProviderOutputCreate.ts`
   - `src/instructions/actions/agentInstructionsForPathResolve.ts`
-  - new `test/bashExecute.test.ts`
-  - new `test/bashToolCreate.test.ts`
-  - `test/runCancellationCoordinator.test.ts`
+  - new `test/tools/actions/bashExecute.test.ts`
+  - new `test/tools/runtime/bashToolCreate.test.ts`
+  - `test/run/actions/runCancellationCoordinator.test.ts`
 - Inspiration and portable tests:
   - OpenCode `packages/core/src/tool/bash.ts`
   - OpenCode `packages/core/test/tool-bash.test.ts`
@@ -246,8 +246,8 @@ Status: complete; deterministic focused tests pass.
   - `src/tools/runtime/toolRegistryCreate.ts`
   - `src/providers/runtime/providerDelegationAdapterCreate.ts`
   - `src/run/actions/runProviderOutputCreate.ts`
-  - new `test/webfetchExecute.test.ts`
-  - new `test/webfetchToolCreate.test.ts`
+  - new `test/tools/actions/webfetchExecute.test.ts`
+  - new `test/tools/runtime/webfetchToolCreate.test.ts`
 - Inspiration and portable tests:
   - OpenCode `packages/core/src/tool/webfetch.ts`
   - OpenCode `packages/core/test/tool-webfetch.test.ts`
@@ -275,8 +275,8 @@ Status: complete; unit/integration tests and managed-preview E2E verification pa
   - `src/session/schema/sessionChatRequestSchema.ts`
   - `src/session/api/apiSessionRoutesAdd.ts`
   - new `src/ui/ChatCommandSuggestions.tsx`
-  - new `test/commandCatalogDiscover.test.ts`
-  - new `test/commandExpand.test.ts`
+  - new `test/commands/actions/commandCatalogDiscover.test.ts`
+  - new `test/commands/actions/commandExpand.test.ts`
   - new `e2e/chatCommandExpansion.spec.ts`
 - Inspiration and portable tests:
   - OpenCode `packages/opencode/src/config/command.ts`
@@ -304,12 +304,12 @@ Status: complete; full unit/integration, opt-in provider, build, managed-preview
   - `src/run/db/runRepositoryRetryAttemptCreate.ts`
   - `src/run/db/runRepositoryCancel.ts`
   - `src/run/db/runRepositoryActiveSnapshotLoad.ts`
-  - `test/journalTask5DeltaCompaction.test.ts`
-  - `test/runPersistence.test.ts`
-  - `test/runDelegationExecute.test.ts`
-  - `test/runCancellationCoordinator.test.ts`
-  - `test/runActiveSnapshot.test.ts`
-  - new `test/runFinalizationFailure.test.ts`
+  - `test/journal/actions/journalTask5DeltaCompaction.test.ts`
+  - `test/run/actions/runPersistence.test.ts`
+  - `test/run/actions/runDelegationExecute.test.ts`
+  - `test/run/actions/runCancellationCoordinator.test.ts`
+  - `test/run/actions/runActiveSnapshot.test.ts`
+  - new `test/run/actions/runFinalizationFailure.test.ts`
   - `e2e/detachedRunReload.spec.ts`
   - `e2e/expiredCursorResetReconciliation.spec.ts`
   - `e2e/multipleTabsParallelRuns.spec.ts`

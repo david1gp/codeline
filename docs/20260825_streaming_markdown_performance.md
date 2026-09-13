@@ -45,11 +45,11 @@ Reduce wasted Markdown work during streamed message updates while preserving com
 - `src/markdown/markdownBlockCacheCreate.ts`
 - `src/message/ui/messageBodyRenderStateCreate.ts`
 - `src/message/ui/MessageBody.tsx`
-- `test/markdownHtmlRenderAsync.test.ts`
-- `test/markdownLatestOnlySchedulerCreate.test.ts`
-- `test/markdownStreamingProjectionCreate.test.ts`
-- `test/markdownBlockCacheCreate.test.ts`
-- `test/messageBodyRenderStateCreate.test.ts`
+- `test/markdown/rendering/markdownHtmlRenderAsync.test.ts`
+- `test/markdown/streaming/markdownLatestOnlySchedulerCreate.test.ts`
+- `test/markdown/streaming/markdownStreamingProjectionCreate.test.ts`
+- `test/markdown/cache/markdownBlockCacheCreate.test.ts`
+- `test/message/ui/messageBodyRenderStateCreate.test.ts`
 - `e2e/asyncMarkdownRendering.spec.ts`
 - `~/opensource/opencode/packages/session-ui/src/components/markdown-worker-queue.test.ts`
 - `~/opensource/opencode/packages/session-ui/src/components/markdown-worker-protocol.test.ts`

@@ -51,9 +51,9 @@ Bound the sessions sidebar to pages of a configurable size, load older sessions 
 - `src/server/serverStart.ts`
 - `.env.example`
 - `src/ui/vite-env.d.ts`
-- `test/runtimeConfigurationParse.test.ts`
+- `test/configuration/actions/runtimeConfigurationParse.test.ts`
 - `test/codelineQueries.test.ts`
-- `test/sessionListStateCreate.test.ts`
-- `test/sessionList.test.ts`
+- `test/session/ui/sessionListStateCreate.test.ts`
+- `test/session/ui/sessionList.test.ts`
 - `test/zeroMaterializationDiagnosticsStart.test.ts`
 - `test/`

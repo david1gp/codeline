@@ -20,7 +20,7 @@ Make `/sessions` → `New Session` → `New project` rename the primary action t
 
 - [x] Single-dialog content swap; rename primary action; open project step on submit.
 - [x] Extract `NewProjectForm`; keep standalone `NewProjectDialog` working.
-- [x] Unit coverage in `test/newSessionDialogStateCreate.test.ts`.
+- [x] Unit coverage in `test/session/ui/newSessionDialogStateCreate.test.ts`.
 - [x] E2E coverage in `e2e/newProjectFlow.spec.ts`.
 
 ## Paths
@@ -29,7 +29,7 @@ Make `/sessions` → `New Session` → `New project` rename the primary action t
 - `src/ui/newSessionDialogStateCreate.ts`
 - `src/ui/NewProjectForm.tsx`
 - `src/ui/NewProjectDialog.tsx`
-- `test/newSessionDialogStateCreate.test.ts`
+- `test/session/ui/newSessionDialogStateCreate.test.ts`
 - `e2e/newProjectFlow.spec.ts`
 
 ## Current context

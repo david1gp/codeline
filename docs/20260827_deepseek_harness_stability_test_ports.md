@@ -18,10 +18,10 @@ Increase Codeline stability with focused regression tests and lifecycle hardenin
 
 ## Approach
 
-- Reuse the existing SQLite fixtures in `test/runPersistence.test.ts` for repository-level concurrency.
-- Reuse the injected provider fetch/stream seam in `test/providerRuntimeChatIntegration.test.ts`.
-- Reuse the injected fetcher and `AbortSignal` in `test/sessionChatConnectionCreate.test.ts`.
-- Reuse `FakeEventSource` and retained callbacks in `test/eventFeedCreate.test.ts`.
+- Reuse the existing SQLite fixtures in `test/run/actions/runPersistence.test.ts` for repository-level concurrency.
+- Reuse the injected provider fetch/stream seam in `test/providers/runtime/providerRuntimeChatIntegration.test.ts`.
+- Reuse the injected fetcher and `AbortSignal` in `test/session/client/sessionChatConnectionCreate.test.ts`.
+- Reuse `FakeEventSource` and retained callbacks in `test/events/client/eventFeedCreate.test.ts`.
 - Assert durable and externally visible outcomes: one terminal state, no duplicate attempt, no post-abort output, no invented completion, no post-close mutation, and no extra polling.
 - Add shutdown behavior incrementally: ordering and idempotence first, then admission closure and bounded cleanup, then managed-service verification.
 - Resolve parent/child and startup ownership races at the transactional or registry boundary rather than with timing delays.
@@ -30,7 +30,7 @@ Increase Codeline stability with focused regression tests and lifecycle hardenin
 ## Tasks
 
 - [x] **1. Retry admission racing with cancellation**
-  - Extend `test/runPersistence.test.ts`.
+  - Extend `test/run/actions/runPersistence.test.ts`.
   - Race `runRetryAttemptCreate()` with `runCancel()` after attempt one fails.
   - Assert the repository cannot produce both cancellation and an active continuation, creates at most one retry attempt, and rejects any later duplicate retry.
   - Inspiration:
@@ -39,7 +39,7 @@ Increase Codeline stability with focused regression tests and lifecycle hardenin
     - `~/opensource/deepseek-harness/packages/test-support/llm-replay/tests/llm-replay.spec.ts` — search for retry separation at error finishes.
 
 - [x] **2. Cancellation racing with terminal persistence**
-  - Extend `test/runPersistence.test.ts`.
+  - Extend `test/run/actions/runPersistence.test.ts`.
   - Race `runCancel()` with `runTransition()` to `succeeded`, then independently to `failed`.
   - Assert one immutable terminal result, consistent run and attempt statuses, and metadata belonging only to the winning transition.
   - Inspiration:
@@ -48,7 +48,7 @@ Increase Codeline stability with focused regression tests and lifecycle hardenin
     - `~/opensource/deepseek-harness/packages/test-support/acp-snapshot/tests/harness.spec.ts` — search for persisted `turn/end` around cancellation.
 
 - [x] **3. Provider abort after partial output**
-  - Extend `test/providerRuntimeChatIntegration.test.ts`.
+  - Extend `test/providers/runtime/providerRuntimeChatIntegration.test.ts`.
   - Emit one provider chunk, abort while the stream remains active, then attempt late output and a finish chunk.
   - Assert exactly one canonical interruption error, no `RUN_FINISHED`, no late output, and no leaked provider error details.
   - Inspiration:
@@ -56,28 +56,28 @@ Increase Codeline stability with focused regression tests and lifecycle hardenin
     - `~/opensource/deepseek-harness/packages/core/agent-loop/tests/coverage-edges.spec.ts` — search for mid-stream failure classification and finish-aborted mapping.
 
 - [x] **4. Abort pending chat polling and inter-poll delay**
-  - Extend `test/sessionChatConnectionCreate.test.ts` with separate pending-fetch and pending-delay cases.
+  - Extend `test/session/client/sessionChatConnectionCreate.test.ts` with separate pending-fetch and pending-delay cases.
   - Abort the connection while a snapshot fetch is unresolved, then while waiting before the next poll.
   - Assert prompt generator termination, no success/error completion synthesized by cancellation, and no subsequent snapshot request.
   - Inspiration:
     - `~/opensource/deepseek-harness/packages/test-support/llm-replay/tests/llm-replay.spec.ts` — search for `rejects a hang entry when the signal fires DURING the wait`, `aborting DURING a pace wait cancels the stream promptly`, and the already-aborted signal case.
 
 - [x] **5. Partial SSE disconnect without synthetic completion**
-  - Extend `test/eventFeedCreate.test.ts`.
+  - Extend `test/events/client/eventFeedCreate.test.ts`.
   - Deliver a valid partial event, simulate a non-auth transport error/EOF, and reopen the feed.
   - Assert partial state and cursor remain, status moves through reconnecting, and no completed, failed, or cancelled terminal state is invented.
   - Inspiration:
     - `~/opensource/deepseek-harness/packages/test-support/llm-mock-server/tests/server.spec.ts` — search for `stream_eof`, `partial_eof`, `stream_disconnect`, and `partial_disconnect`.
 
 - [x] **6. Suppress late EventSource callbacks after close**
-  - Extend `test/eventFeedCreate.test.ts`.
+  - Extend `test/events/client/eventFeedCreate.test.ts`.
   - Retain event, open, and error callbacks; close the feed; invoke each callback afterward.
   - Assert the feed remains offline, no replacement source opens, no cursor or state changes, no callbacks escape, and the source closes exactly once.
   - Inspiration:
     - `~/opensource/deepseek-harness/packages/test-support/acp-snapshot/tests/harness.spec.ts` — search for `waits for in-flight client callbacks after the ACP stream closes`.
 
 - [x] **7. Verify shutdown ordering and idempotence**
-  - Extend `test/runtimeConfigurationParse.test.ts` around the injected server and database lifecycle seams in `src/server/serverStart.ts`.
+  - Extend `test/configuration/actions/runtimeConfigurationParse.test.ts` around the injected server and database lifecycle seams in `src/server/serverStart.ts`.
   - Hold `server.stop(true)` on a deferred promise and assert SQLite remains open until it settles; cover stop rejection, database-close rejection, and racing `SIGTERM`/`SIGINT` without duplicate cleanup.
   - Preserve the production order: reject/stop new HTTP work, drain the server, then close the database and remove signal listeners.
   - Inspiration:
@@ -96,7 +96,7 @@ Increase Codeline stability with focused regression tests and lifecycle hardenin
     - `~/opensource/deepseek-harness/packages/sdk/client/tests/dispose.spec.ts` — search for graceful shutdown followed by termination escalation.
 
 - [x] **9. Prevent child admission after parent cancellation**
-  - Extend `test/runChildAdmissionResolve.test.ts` and the nearest persistence/integration test covering `src/run/actions/runDelegationExecute.ts`.
+  - Extend `test/run/actions/runChildAdmissionResolve.test.ts` and the nearest persistence/integration test covering `src/run/actions/runDelegationExecute.ts`.
   - Deterministically pause child admission after eligibility is observed, cancel the parent, then resume admission.
   - Assert an aborted or terminal parent cannot produce a newly active child, already-started children converge once, and repeated cancellation/admission attempts remain idempotent.
   - Move any required re-check into the transactional admission boundary instead of relying only on a preflight parent-state read.
@@ -105,7 +105,7 @@ Increase Codeline stability with focused regression tests and lifecycle hardenin
     - `~/opensource/deepseek-harness/packages/core/agent-loop/tests/tool-calls.spec.ts` — search for abort before dispatch and stopping sibling replenishment; adapt only parent/child admission guarantees.
 
 - [x] **10. Separate startup reconciliation from active execution ownership**
-  - Extend `test/runStartupInterruptionReconcile.test.ts` and `test/runActiveRegistry.test.ts` around `src/run/actions/runStartupInterruptionReconcile.ts` and the active-run registry.
+  - Extend `test/app/runStartupInterruptionReconcile.test.ts` and `test/run/actions/runActiveRegistry.test.ts` around `src/run/actions/runStartupInterruptionReconcile.ts` and the active-run registry.
   - Establish an ownership invariant: startup reconciliation repairs only persisted work abandoned by a previous process and never interrupts work registered to the current process.
   - Add deterministic tests for reconciliation before registration, registration during reconciliation, failed registration rollback, and duplicate ownership attempts.
   - Keep reconciliation before `Bun.serve` in `src/server/serverStart.ts`; introduce a lease or ownership token only if the current registry cannot express the invariant.
@@ -114,7 +114,7 @@ Increase Codeline stability with focused regression tests and lifecycle hardenin
     - `~/opensource/deepseek-harness/packages/core/agent-loop/tests/config-session-id.spec.ts` — search for exact-ID duplicate rejection and cancellation of deferred resume.
 
 - [x] **11. Isolate durable completion from observer and SSE failures**
-  - Extend `test/runLifecycleEventFeedIntegration.test.ts`, `test/apiEventsRoutesAdd.test.ts`, and/or `test/streamSseConnectionWriter.test.ts` at the narrowest production publication seam.
+  - Extend `test/app/runLifecycleEventFeedIntegration.test.ts`, `test/events/api/apiEventsRoutesAdd.test.ts`, and/or `test/stream/actions/streamSseConnectionWriter.test.ts` at the narrowest production publication seam.
   - Force one subscriber or observer to throw or disconnect while a run reaches success, failure, and cancellation.
   - Assert durable run/attempt state and journal events commit exactly once, healthy subscribers continue, the failed subscriber is isolated, and reconnect/backlog recovery returns the committed terminal event.
   - Keep persistence and journal append authoritative; perform best-effort live notification only after the durable boundary.
@@ -125,17 +125,17 @@ Increase Codeline stability with focused regression tests and lifecycle hardenin
 
 ## Paths
 
-- `test/runPersistence.test.ts`
-- `test/providerRuntimeChatIntegration.test.ts`
-- `test/sessionChatConnectionCreate.test.ts`
-- `test/eventFeedCreate.test.ts`
-- `test/runtimeConfigurationParse.test.ts`
-- `test/runChildAdmissionResolve.test.ts`
-- `test/runLifecycleEventFeedIntegration.test.ts`
-- `test/runStartupInterruptionReconcile.test.ts`
-- `test/runActiveRegistry.test.ts`
-- `test/apiEventsRoutesAdd.test.ts`
-- `test/streamSseConnectionWriter.test.ts`
+- `test/run/actions/runPersistence.test.ts`
+- `test/providers/runtime/providerRuntimeChatIntegration.test.ts`
+- `test/session/client/sessionChatConnectionCreate.test.ts`
+- `test/events/client/eventFeedCreate.test.ts`
+- `test/configuration/actions/runtimeConfigurationParse.test.ts`
+- `test/run/actions/runChildAdmissionResolve.test.ts`
+- `test/app/runLifecycleEventFeedIntegration.test.ts`
+- `test/app/runStartupInterruptionReconcile.test.ts`
+- `test/run/actions/runActiveRegistry.test.ts`
+- `test/events/api/apiEventsRoutesAdd.test.ts`
+- `test/stream/actions/streamSseConnectionWriter.test.ts`
 - `src/run/db/runRepositoryCancel.ts`
 - `src/run/db/runRepositoryRetryAttemptCreate.ts`
 - `src/run/actions/runDelegationExecute.ts`

@@ -38,4 +38,4 @@
 - `src/ui/ThemeSwitcher.tsx`
 - `src/ui/ConnectionStatusIndicator.tsx`
 - `src/identity/ui/AccountPopover.tsx`
-- `test/appRouteResolve.test.ts`
+- `test/app/ui/appRouteResolve.test.ts`

@@ -47,6 +47,6 @@ Replace duplicated native controls with standard `#ui` primitives where their AP
 - `src/ui/demo/demoThemeSwitcherStateCreate.ts`
 - `src/project/ProjectBrowser.tsx`
 - `src/ui/styles.css`
-- `test/demoThemeSwitcherStateCreate.test.ts`
-- `test/filesPageStateCreate.test.ts`
+- `test/ui/demo/demoThemeSwitcherStateCreate.test.ts`
+- `test/project/ui/filesPageStateCreate.test.ts`
 - `test/zeroSyncConfiguration.test.ts`

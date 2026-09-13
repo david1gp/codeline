@@ -49,6 +49,6 @@ Turn the note detail experience into a three-column workspace with a project-sco
 - `src/ui/codelineQueries.ts`
 - `src/ui/NoteRoutePage.tsx`
 - `src/ui/UiRouter.tsx`
-- `test/databaseSchema.test.ts`
+- `test/database/schema/databaseSchema.test.ts`
 - `test/noteMutators.test.ts`
-- `test/appRouteResolve.test.ts`
+- `test/app/ui/appRouteResolve.test.ts`

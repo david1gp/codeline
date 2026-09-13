@@ -33,4 +33,4 @@ Let users begin typing immediately when no conversation is selected, while retai
 - `src/ui/WorkspacePage.tsx`
 - `src/ui/SelectedSession.tsx`
 - `src/ui/SessionChat.tsx`
-- `test/workspaceConfigurationGate.test.ts`
+- `test/ui/workspaceConfigurationGate.test.ts`

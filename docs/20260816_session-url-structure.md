@@ -44,7 +44,7 @@ Make the active conversation the primary sessions URL resource while preserving 
 - `src/ui/sessionTargetSelectorStateCreate.ts`
 - `src/ui/selectedSessionStateCreate.ts`
 - `src/ui/sessionInitialMessageStateCreate.ts`
-- `test/sessionNavigationStateCreate.test.ts`
-- `test/sessionSidebarRouteStateCreate.test.ts`
-- `test/sessionSidebarDestinationResolve.test.ts`
-- `test/appUiShellFallback.test.ts`
+- `test/session/ui/sessionNavigationStateCreate.test.ts`
+- `test/session/ui/sessionSidebarRouteStateCreate.test.ts`
+- `test/session/ui/sessionSidebarDestinationResolve.test.ts`
+- `test/app/ui/appUiShellFallback.test.ts`

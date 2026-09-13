@@ -38,5 +38,5 @@ Automatically create and select a blank conversation when the new-conversation r
 - `src/ui/sessionInitialMessageStateCreate.ts`
 - `src/ui/SelectedSession.tsx`
 - `src/providers/ui/ProviderModelSelector.tsx`
-- `test/sessionTargetSelectorStateCreate.test.ts`
-- `test/ProviderModelSelector.test.ts`
+- `test/session/ui/sessionTargetSelectorStateCreate.test.ts`
+- `test/providers/ui/ProviderModelSelector.test.ts`
