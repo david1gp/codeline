@@ -3,11 +3,12 @@ import type { JSX } from "solid-js"
 import { For, Show } from "solid-js"
 import { ButtonIcon } from "#ui/interactive/button/ButtonIcon.jsx"
 import { ButtonIconOnly } from "#ui/interactive/button/ButtonIconOnly.jsx"
-import { buttonCvaIconOnly, buttonSize, buttonVariant } from "#ui/interactive/button/buttonCva.js"
+import { buttonCva2, buttonCvaIconOnly, buttonSize, buttonVariant } from "#ui/interactive/button/buttonCva.js"
 import { Icon } from "#ui/static/icon/Icon.jsx"
 import { Img } from "#ui/static/img/Img.jsx"
 import { AccountPopover } from "../identity/ui/AccountPopover.js"
 import type { AuthShellView } from "../identity/ui/authShellView.js"
+import { sessionDrawerContext } from "../session/ui/sessionDrawerContext.js"
 import { applicationIcon } from "./applicationIcon.js"
 import { applicationNavigationContext } from "./applicationNavigationContext.js"
 import { applicationShellContext } from "./applicationShellContext.js"
@@ -16,10 +17,10 @@ import { appShellContext } from "./appShellContext.js"
 import type { AppShellView } from "./appShellView.js"
 import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator.js"
 import { urlDashboard } from "./dashboard_url/urlDashboard.js"
+import { urlDemo } from "./demo_url/urlDemo.js"
 import { primaryNavigationStateCreate } from "./primaryNavigationStateCreate.js"
 import { PwaStatusActions } from "./pwa/PwaStatusActions.js"
 import { pwaStatusContext } from "./pwa/pwaStatusContext.js"
-import { sessionDrawerContext } from "../session/ui/sessionDrawerContext.js"
 import { urlSettings } from "./settings_url/urlSettings.js"
 
 export function App(props: {
@@ -112,6 +113,9 @@ export function App(props: {
 
             <div class="flex items-center gap-1 max-[760px]:col-start-2 max-[760px]:row-start-1">
               <Show when={props.auth}>{(auth) => <AccountPopover auth={auth()} />}</Show>
+              <A class={buttonCva2(buttonVariant.ghost, buttonSize.sm, "text-xs")} href={urlDemo()} title="Demo">
+                D
+              </A>
               <A
                 class={buttonCvaIconOnly(
                   buttonVariant.ghost,
