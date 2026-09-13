@@ -9,7 +9,7 @@ import type { demoAppStateCreate } from "./demoAppStateCreate.js"
 
 export function DemoCatalogShell(props: { state: ReturnType<typeof demoAppStateCreate> }) {
   return (
-    <main class="min-h-dvh bg-surface-sunken text-foreground [font-family:Inter,ui-sans-serif,system-ui,sans-serif]">
+    <main class="h-dvh overflow-hidden bg-surface-sunken text-foreground [font-family:Inter,ui-sans-serif,system-ui,sans-serif]">
       <header class="flex h-12 items-center gap-3 border-line border-b bg-surface px-4 min-[761px]:hidden">
         <A class="flex items-center gap-2 text-sm font-semibold no-underline" href={urlDemo()}>
           <span class="grid size-6 place-items-center rounded-md bg-accent font-mono text-[11px] text-accent-contrast">
@@ -27,7 +27,7 @@ export function DemoCatalogShell(props: { state: ReturnType<typeof demoAppStateC
         </nav>
       </header>
 
-      <div class="grid min-h-dvh grid-cols-[260px_minmax(0,1fr)] max-[760px]:min-h-[calc(100dvh-48px)] max-[760px]:grid-cols-1">
+      <div class="grid h-full min-h-0 grid-cols-[260px_minmax(0,1fr)] max-[760px]:h-[calc(100dvh-48px)] max-[760px]:grid-cols-1">
         <aside
           class="flex min-h-0 flex-col border-line border-r bg-surface max-[760px]:hidden"
           aria-label="Demo catalog directory"
@@ -72,7 +72,7 @@ export function DemoCatalogShell(props: { state: ReturnType<typeof demoAppStateC
           </p>
         </aside>
 
-        <section class="min-w-0 overflow-hidden">
+        <section class="min-h-0 min-w-0 overflow-hidden">
           <Switch fallback={<DemoCatalogIndex sections={props.state.indexSections()} />}>
             <Match when={props.state.specimen()}>
               {(specimen) => (
