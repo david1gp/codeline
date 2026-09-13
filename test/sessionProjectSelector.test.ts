@@ -7,30 +7,19 @@ const popoverStateSource = await Bun.file(
 ).text()
 const stateSource = await Bun.file(new URL("../src/ui/sessionProjectSelectorStateCreate.ts", import.meta.url)).text()
 
-test("the project selector renders a typed search input driving the shared project search", () => {
-  expect(popoverSource).toContain('from "#ui/input/input/Input.jsx"')
-  expect(popoverSource).toContain('aria-label="Search projects"')
-  expect(popoverSource).toContain("value={state.search()}")
-  expect(popoverSource).toContain("onInput={state.searchInput}")
-  expect(popoverStateSource).toContain("resources().projectSearchChange(value)")
-  expect(popoverStateSource).toContain("resources().projectSearch()")
+test("the project selector reuses the shared searchable picker", () => {
+  expect(popoverSource).toContain('from "./SearchablePicker.js"')
+  expect(popoverSource).toContain('ariaLabel="Registered projects"')
+  expect(popoverSource).toContain("items={state.projectItems()}")
+  expect(popoverSource).toContain("selectedId={state.selectedProjectId()}")
+  expect(popoverSource).toContain("renderLeading={(project)")
+  expect(popoverStateSource).toContain("sessionProjectPickerItemsDerive(resources().projects())")
 })
 
-test("the project selector renders grouped, scrollable, accessible options over the derived option list", () => {
-  expect(popoverSource).toContain("each={state.projectGroups()}")
-  expect(popoverSource).toContain('role="listbox"')
-  expect(popoverSource).toContain('role="group"')
-  expect(popoverSource).toContain('role="option"')
-  expect(popoverSource).toContain("aria-selected={state.isSelected(project.id)}")
-  expect(popoverSource).toContain("max-h-[45vh]")
-  expect(popoverSource).toContain("overflow-y-auto")
-  expect(popoverSource).toContain("projectFolderIconSelect(false)")
-  expect(popoverSource).toContain("<ProjectAvatar name={project.label} faviconUrl={project.faviconUrl} />")
-  expect(popoverSource).toContain('class="ml-3 border-line-subtle border-l"')
-})
-
-test("the project selector uses available width and keeps the popover within small viewports", () => {
-  expect(selectorSource).toContain('class="grid w-full min-w-0 gap-1.5"')
+test("the project selector keeps the shared picker project visuals and trigger sizing", () => {
+  expect(popoverSource).toContain("<SearchablePicker")
+  expect(popoverSource).toContain('<ProjectAvatar class="size-5"')
+  expect(popoverSource).toContain("New Project")
   expect(popoverSource).toContain("!w-full")
   expect(popoverSource).toContain('classesPopoverContentMerge("grid w-[min(92vw,22rem)] gap-2")')
 })
@@ -43,9 +32,6 @@ test("the project selector keeps the controlled dialog mounted outside the dismi
   expect(selectorSource).toContain("onProjectConfirmed={state.newProjectConfirmed}")
   expect(popoverSource).toContain("onClick={state.newProjectStart}")
   expect(popoverSource).not.toContain("<NewProjectDialog")
-  // The action sits outside the filtered option list, so search never hides it.
-  const listboxEnd = popoverSource.indexOf("</div>", popoverSource.indexOf('role="listbox"'))
-  expect(popoverSource.indexOf("onClick={state.newProjectStart}")).toBeGreaterThan(listboxEnd)
 })
 
 test("the popover hands focus to the controlled dialog without an asynchronous open race", () => {
@@ -64,11 +50,9 @@ test("a confirmed new project is selected once the shared registry lists it", ()
   expect(stateSource).toContain("resources().projectSelect(projectId)")
 })
 
-test("the project selector keeps keyboard usability and current selection semantics", () => {
-  expect(popoverStateSource).toContain('const optionNavigationKeys = ["ArrowDown", "ArrowUp", "Home", "End"]')
-  expect(popoverSource).toContain("onKeyDown={state.optionKeyDown}")
-  expect(popoverSource).toContain("onKeyDown={state.searchKeyDown}")
-  // Selection stays owned by the shared resource selector.
+test("the project selector keeps shared keyboard and selection ownership", () => {
+  expect(popoverSource).toContain("active={state.open()}")
+  expect(popoverSource).toContain("idPrefix={props.idPrefix}")
   expect(popoverStateSource).toContain("resources().selectedProjectId()")
   expect(popoverStateSource).not.toContain("fetch(")
 })

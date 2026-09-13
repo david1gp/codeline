@@ -1,14 +1,13 @@
 import { Match, Show, Switch } from "solid-js"
-import { SelectSingle } from "#ui/input/select/SelectSingle.jsx"
 import { Button } from "#ui/interactive/button/Button.jsx"
+import { Icon } from "#ui/static/icon/Icon.jsx"
+import { projectFolderIconSelect } from "../project/ui/projectFolderIconSelect.js"
+import { SearchablePicker } from "./SearchablePicker.js"
+import { filesProjectPickerItemsDerive } from "./filesProjectPickerItemsDerive.js"
 import type { FilesScreenView } from "./filesScreenView.js"
 
 export function FilesProjectSelector(props: { compact?: boolean; state: FilesScreenView }) {
   const state = props.state
-  const projectValueSignal = {
-    get: () => state.selectedProject()?.id ?? "",
-    set: state.projectSelect,
-  }
 
   return (
     <section
@@ -56,22 +55,18 @@ export function FilesProjectSelector(props: { compact?: boolean; state: FilesScr
             </p>
           </Match>
           <Match when={true}>
-            <label
-              class="flex min-w-0 flex-1 items-center gap-2 text-xs text-[var(--muted-foreground)]"
-              for={props.compact ? "panel-project-selector" : "project-selector"}
-            >
-              <span class="sr-only">Project</span>
-              <SelectSingle
-                id={props.compact ? "panel-project-selector" : "project-selector"}
-                class="min-w-0 flex-1 !rounded-lg !border !border-line !bg-surface-raised !px-2.5 !py-2 text-xs !text-foreground shadow-[0_1px_2px_var(--shadow-color)] focus:!border-accent-border focus:!ring-accent-border"
-                valueSignal={projectValueSignal}
-                getOptions={state.projectSelectorOptions}
-                valueText={(projectId) =>
-                  state.projects().find((project) => project.id === projectId)?.label ?? projectId
-                }
-                buttonProps={{ size: "none", variant: "none" }}
+            <div class="min-w-0 flex-1 basis-full">
+              <SearchablePicker
+                ariaLabel="Project files"
+                emptyText="No projects match your search."
+                idPrefix={props.compact ? "panel-project-selector" : "project-selector"}
+                items={filesProjectPickerItemsDerive(state.projects())}
+                onSelect={(project) => state.projectSelect(project.id)}
+                placeholder="Search projects…"
+                selectedId={state.selectedProject()?.id ?? null}
+                renderLeading={() => <Icon class="size-5 shrink-0 text-faint" path={projectFolderIconSelect(false)} />}
               />
-            </label>
+            </div>
           </Match>
         </Switch>
       </div>

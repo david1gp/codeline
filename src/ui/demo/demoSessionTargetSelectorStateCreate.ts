@@ -20,6 +20,7 @@ const demoAgents = [
 export function demoSessionTargetSelectorStateCreate(
   variant: () => DemoSessionScreenVariant,
   selectedSessionId: { get: () => string | null },
+  sessionNew: () => void = () => undefined,
 ): SessionTargetSelectorState {
   const selectedServerId = createSignalObject<string | null>(demoServers[0]?.id ?? null)
   const selectedAgentId = createSignalObject<string | null>(demoAgents[0]?.id ?? null)
@@ -110,7 +111,7 @@ export function demoSessionTargetSelectorStateCreate(
     serversReload: () => undefined,
     serverStatus: status,
     targetRevalidate: () => undefined,
-    sessionNew: () => undefined,
+    sessionNew,
     sessionNewInProject: () => undefined,
     sessionCreateErrorMessage: () =>
       variant() === "error" ? "The demo conversation could not be created." : undefined,
