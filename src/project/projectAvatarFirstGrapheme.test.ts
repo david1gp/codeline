@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { projectAvatarFirstGrapheme } from "./projectAvatarFirstGrapheme.js"
+import { projectAvatarFirstGrapheme } from "./ui/projectAvatarFirstGrapheme.js"
 
 test("projectAvatarFirstGrapheme returns an empty string for an empty name", () => {
   expect(projectAvatarFirstGrapheme("")).toBe("")

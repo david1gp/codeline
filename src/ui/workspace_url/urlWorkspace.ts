@@ -1,4 +1,4 @@
-import type { SessionSidebarTab } from "../sessionSidebarTab.js"
+import type { SessionSidebarTab } from "../../session/ui/sessionSidebarTab.js"
 import { pageRouteWorkspace } from "./pageRouteWorkspace.js"
 
 function workspaceSearchResolve(tab?: SessionSidebarTab): string {

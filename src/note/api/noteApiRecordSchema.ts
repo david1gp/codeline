@@ -1,7 +1,7 @@
 import * as v from "valibot"
 import { apiPublicIdSchema } from "../../api/schema/apiPublicIdSchema.js"
 import { apiRevisionSchema } from "../../api/schema/apiRevisionSchema.js"
-import { projectIdSchema } from "../../project/projectIdSchema.js"
+import { projectIdSchema } from "../../project/schema/projectIdSchema.js"
 
 const noteTimestampSchema = v.number()
 const noteSortOrderSchema = v.pipe(v.number(), v.integer(), v.minValue(0))

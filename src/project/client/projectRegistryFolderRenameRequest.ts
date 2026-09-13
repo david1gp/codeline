@@ -9,7 +9,7 @@ import {
   type ProjectRegistryFolderRequest,
   projectRegistryFolderRequestSchema,
 } from "../api/projectRegistryFolderRequestSchema.js"
-import { projectFolderIdSchema } from "../projectFolderIdSchema.js"
+import { projectFolderIdSchema } from "../schema/projectFolderIdSchema.js"
 
 type ProjectRegistryFolderRenameRequestDependencies = {
   fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>

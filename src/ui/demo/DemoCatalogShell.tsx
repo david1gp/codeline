@@ -1,6 +1,6 @@
 import { A } from "@solidjs/router"
 import { For, Match, Switch } from "solid-js"
-import { ConfigurationEditor } from "../configuration/ConfigurationEditor.js"
+import { ConfigurationEditor } from "../../configuration/ui/ConfigurationEditor.js"
 import { urlDemo, urlDemoSection } from "../demo_url/urlDemo.js"
 import { DemoCatalogIndex } from "./DemoCatalogIndex.js"
 import { DemoSessionWorkspace } from "./DemoSessionWorkspace.js"

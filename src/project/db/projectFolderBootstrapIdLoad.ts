@@ -1,7 +1,7 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import { and, eq } from "drizzle-orm"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
-import type { ProjectFolderBootstrapKey } from "../projectFolderBootstrapKeySchema.js"
+import type { ProjectFolderBootstrapKey } from "../schema/projectFolderBootstrapKeySchema.js"
 import { projectFolderTable } from "./projectFolderTable.js"
 
 export async function projectFolderBootstrapIdLoad(

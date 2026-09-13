@@ -1,6 +1,6 @@
 import { createSignalObject } from "@adaptive-ds/solid-ui/utils/createSignalObject"
-import type { FilesScreenView } from "../filesScreenView.js"
-import { filesProjectSelectorOptionsDerive } from "../filesProjectSelectorOptionsDerive.js"
+import type { FilesScreenView } from "../../project/ui/filesScreenView.js"
+import { filesProjectSelectorOptionsDerive } from "../../project/ui/filesProjectSelectorOptionsDerive.js"
 import { demoProjectBrowserStateCreate } from "./demoProjectBrowserStateCreate.js"
 import { demoProjectsFixture } from "./demoProjectsFixture.js"
 import type { DemoSessionScreenVariant } from "./demoSessionScreenVariant.js"

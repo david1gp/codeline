@@ -1,6 +1,6 @@
 import * as v from "valibot"
-import { projectDiscoveryIdSchema } from "../projectDiscoveryIdSchema.js"
-import { projectDiscoveryLimits } from "../projectDiscoveryLimits.js"
+import { projectDiscoveryIdSchema } from "../schema/projectDiscoveryIdSchema.js"
+import { projectDiscoveryLimits } from "../actions/projectDiscoveryLimits.js"
 import { projectRegistryApiProjectSchema } from "./projectRegistryApiProjectSchema.js"
 
 const projectApiListProjectSchema = v.union([

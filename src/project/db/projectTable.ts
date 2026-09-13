@@ -1,6 +1,6 @@
 import { foreignKey, index, integer, sqliteTable, text, unique } from "drizzle-orm/sqlite-core"
 import { applicationUserTable } from "../../identity/db/applicationUserTable.js"
-import type { ProjectFolderId } from "../projectFolderIdSchema.js"
+import type { ProjectFolderId } from "../schema/projectFolderIdSchema.js"
 import { projectFolderTable } from "./projectFolderTable.js"
 
 export const projectTable = sqliteTable(

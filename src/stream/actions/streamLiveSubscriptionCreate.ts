@@ -1,6 +1,6 @@
 import * as v from "valibot"
-import type { GlobalSummarySseFrame } from "../api/globalSummarySseFrameSchema.js"
-import { globalSummarySseFrameSchema } from "../api/globalSummarySseFrameSchema.js"
+import type { GlobalSummarySseFrame } from "../../events/api/globalSummarySseFrameSchema.js"
+import { globalSummarySseFrameSchema } from "../../events/api/globalSummarySseFrameSchema.js"
 import type { SessionDetailSseFrame } from "../../session/api/sessionDetailSseFrameSchema.js"
 import { sessionDetailSseFrameSchema } from "../../session/api/sessionDetailSseFrameSchema.js"
 

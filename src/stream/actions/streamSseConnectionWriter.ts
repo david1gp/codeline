@@ -1,6 +1,6 @@
 import type { Result } from "@adaptive-ds/result"
 import type { SessionDetailSseFrame } from "../../session/api/sessionDetailSseFrameSchema.js"
-import type { GlobalSummarySseFrame } from "../api/globalSummarySseFrameSchema.js"
+import type { GlobalSummarySseFrame } from "../../events/api/globalSummarySseFrameSchema.js"
 
 type StreamSseConnectionWriterEvent = GlobalSummarySseFrame | SessionDetailSseFrame
 

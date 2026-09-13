@@ -5,7 +5,7 @@ import {
   type ProjectRegistryApiProjectResponse,
   projectRegistryApiProjectResponseSchema,
 } from "../api/projectRegistryApiProjectResponseSchema.js"
-import { projectIdSchema } from "../projectIdSchema.js"
+import { projectIdSchema } from "../schema/projectIdSchema.js"
 
 type ProjectRegistryResolveFetchDependencies = {
   fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>

@@ -15,8 +15,8 @@ import type { StreamSseConnectionWriterScheduler } from "../../stream/actions/st
 import { streamSseConnectionWriterShutdownErrorIsAlreadyClosed } from "../../stream/actions/streamSseConnectionWriterShutdownErrorIsAlreadyClosed.js"
 import { streamSseConnectionWriterSinkCreate } from "../../stream/actions/streamSseConnectionWriterSinkCreate.js"
 import type { StreamSseConnectionWriterSinkFactory } from "../../stream/actions/streamSseConnectionWriterSinkFactory.js"
-import type { GlobalSummarySseFrame } from "../../stream/api/globalSummarySseFrameSchema.js"
-import { globalSummarySseFrameSchema } from "../../stream/api/globalSummarySseFrameSchema.js"
+import type { GlobalSummarySseFrame } from "./globalSummarySseFrameSchema.js"
+import { globalSummarySseFrameSchema } from "./globalSummarySseFrameSchema.js"
 
 type ApiEventsRoutesScheduler = StreamSseConnectionWriterScheduler
 type ApiEventsRoutesConnection = StreamSseConnectionWriter

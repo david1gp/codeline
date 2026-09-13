@@ -2,7 +2,7 @@ import { createResultError, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
 import { apiHttpClientCreate } from "../../api/client/apiHttpClientCreate.js"
 import { projectRegistryRemoveResponseSchema } from "../api/projectRegistryRemoveResponseSchema.js"
-import { projectIdSchema } from "../projectIdSchema.js"
+import { projectIdSchema } from "../schema/projectIdSchema.js"
 
 type ProjectRegistryRemoveRequestDependencies = {
   fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>

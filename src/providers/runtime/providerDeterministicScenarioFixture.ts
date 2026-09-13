@@ -1,4 +1,4 @@
-import type { ExecutionStreamEvent } from "../../stream/schema/executionStreamEventSchema.js"
+import type { ExecutionStreamEvent } from "../../run/schema/executionStreamEventSchema.js"
 
 type DeterministicScenarioStep = {
   delayMs: number

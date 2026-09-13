@@ -1,5 +1,5 @@
 import { createSignalObject } from "@adaptive-ds/solid-ui/utils/createSignalObject"
-import type { ProjectGitPanelView } from "../../project/projectGitPanelView.js"
+import type { ProjectGitPanelView } from "../../project/ui/projectGitPanelView.js"
 import { demoProjectGitFixture } from "./demoProjectGitFixture.js"
 import type { DemoSessionScreenVariant } from "./demoSessionScreenVariant.js"
 

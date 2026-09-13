@@ -6,7 +6,7 @@ import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.j
 import type { DatabaseClient } from "../../database/databaseClient.js"
 import { projectDiscoveryApiProjectQuerySchema } from "../../project/api/projectDiscoveryApiProjectQuerySchema.js"
 import { projectApiProjectQuerySchema } from "../../project/api/projectApiProjectQuerySchema.js"
-import { projectResolve } from "../../project/projectResolve.js"
+import { projectResolve } from "../../project/actions/projectResolve.js"
 import { type CommandCatalogDiscoverOptions, commandCatalogDiscover } from "../actions/commandCatalogDiscover.js"
 import { commandCatalogInspectionResponseCreate } from "../actions/commandCatalogInspectionResponseCreate.js"
 

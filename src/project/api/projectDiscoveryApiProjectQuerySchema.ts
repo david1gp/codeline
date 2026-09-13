@@ -1,5 +1,5 @@
 import * as v from "valibot"
-import { projectDiscoveryIdSchema } from "../projectDiscoveryIdSchema.js"
+import { projectDiscoveryIdSchema } from "../schema/projectDiscoveryIdSchema.js"
 
 export const projectDiscoveryApiProjectQuerySchema = v.strictObject({
   project: projectDiscoveryIdSchema,

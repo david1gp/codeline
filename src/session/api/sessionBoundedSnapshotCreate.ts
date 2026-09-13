@@ -1,7 +1,7 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
 import { messageApiRecordCreate } from "../../message/api/messageApiRecordCreate.js"
-import { executionToolPayloadBound } from "../../stream/actions/executionToolPayloadBound.js"
+import { executionToolPayloadBound } from "../../run/actions/executionToolPayloadBound.js"
 import type { SessionBoundedSnapshot } from "./sessionBoundedSnapshotSchema.js"
 import { sessionBoundedSnapshotSchema } from "./sessionBoundedSnapshotSchema.js"
 

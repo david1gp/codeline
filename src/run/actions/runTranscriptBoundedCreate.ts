@@ -1,6 +1,6 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
-import { executionToolPayloadBound } from "../../stream/actions/executionToolPayloadBound.js"
+import { executionToolPayloadBound } from "./executionToolPayloadBound.js"
 import type { RunTranscript } from "../api/runTranscriptSchema.js"
 import { runTranscriptSchema } from "../api/runTranscriptSchema.js"
 import type { executionTranscriptProject } from "./executionTranscriptProject.js"

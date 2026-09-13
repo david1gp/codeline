@@ -28,7 +28,7 @@ import type { journalGlobalSummaryBacklogRead } from "../journal/actions/journal
 import type { journalPostCommitPublishCreate } from "../journal/actions/journalPostCommitPublishCreate.js"
 import type { metricsCollectorCreate } from "../metrics/metricsCollectorCreate.js"
 import type { projectConfiguredRootsReconcile } from "../project/db/projectConfiguredRootsReconcile.js"
-import type { ProjectLimits } from "../project/projectLimitsSchema.js"
+import type { ProjectLimits } from "../project/schema/projectLimitsSchema.js"
 import { providerDelegationToolLoopCreate } from "../providers/runtime/providerDelegationToolLoopCreate.js"
 import type { ProviderModelDiscoveryOptions } from "../providers/runtime/providerModelDiscovery.js"
 import { providerRuntimeAdapterCreate } from "../providers/runtime/providerRuntimeAdapterCreate.js"

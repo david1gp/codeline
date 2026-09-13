@@ -1,4 +1,4 @@
-import type { ConfigurationSection } from "../configuration/configurationSectionSchema.js"
+import type { ConfigurationSection } from "../../configuration/ui/configurationSectionSchema.js"
 
 export interface DemoConfiguration {
   description: string

@@ -1,8 +1,8 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import type { DatabaseClient } from "../../database/databaseClient.js"
-import { projectDirectoryCanonicalPathResolve } from "../../project/projectDirectoryCanonicalPathResolve.js"
+import { projectDirectoryCanonicalPathResolve } from "../../project/actions/projectDirectoryCanonicalPathResolve.js"
 import { projectRegistryRepositoryResolvePath } from "../../project/db/projectRegistryRepositoryResolvePath.js"
-import { projectResolve } from "../../project/projectResolve.js"
+import { projectResolve } from "../../project/actions/projectResolve.js"
 
 export async function noteProjectPathResolve(
   database: DatabaseClient,

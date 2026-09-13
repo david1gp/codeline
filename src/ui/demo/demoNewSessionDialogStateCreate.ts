@@ -1,6 +1,6 @@
 import { createSignalObject } from "@adaptive-ds/solid-ui/utils/createSignalObject"
-import { activeProjectStateCreate } from "../activeProjectStateCreate.js"
-import type { NewSessionProject } from "../newSessionDialogStateCreate.js"
+import { activeProjectStateCreate } from "../../project/ui/activeProjectStateCreate.js"
+import type { NewSessionProject } from "../../session/ui/newSessionDialogStateCreate.js"
 import { demoProjectRegistryStateCreate } from "./demoProjectRegistryStateCreate.js"
 import { demoSessionTargetSelectorStateCreate } from "./demoSessionTargetSelectorStateCreate.js"
 

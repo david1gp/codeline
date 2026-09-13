@@ -15,14 +15,11 @@ import { providerExecutionEventFromStreamChunk } from "../../providers/runtime/p
 import { sessionTable } from "../../session/db/sessionTable.js"
 import { sessionHistoryEntryRepositoryUpsert } from "../../session/db/sessionHistoryEntryRepositoryUpsert.js"
 import { sessionHistoryEntryTable } from "../../session/db/sessionHistoryEntryTable.js"
-import { executionStreamEventNormalize } from "../../stream/actions/executionStreamEventNormalize.js"
-import { executionToolPayloadBound } from "../../stream/actions/executionToolPayloadBound.js"
-import { streamProducerCoalescerCreate } from "../../stream/actions/streamProducerCoalescerCreate.js"
-import {
-  type ExecutionStreamEvent,
-  executionStreamEventSchema,
-} from "../../stream/schema/executionStreamEventSchema.js"
-import type { StreamProducerDelta } from "../../stream/schema/streamProducerDeltaSchema.js"
+import { executionStreamEventNormalize } from "./executionStreamEventNormalize.js"
+import { executionToolPayloadBound } from "./executionToolPayloadBound.js"
+import { streamProducerCoalescerCreate } from "./streamProducerCoalescerCreate.js"
+import { type ExecutionStreamEvent, executionStreamEventSchema } from "../schema/executionStreamEventSchema.js"
+import type { StreamProducerDelta } from "../schema/streamProducerDeltaSchema.js"
 import { attemptTable } from "../db/attemptTable.js"
 import { runActiveStateRepositoryDelete } from "../db/runActiveStateRepositoryDelete.js"
 import { runActiveStateRepositoryUpsert } from "../db/runActiveStateRepositoryUpsert.js"

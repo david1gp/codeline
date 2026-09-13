@@ -4,19 +4,19 @@ import { pageNameNote, type PageNameNote } from "./pageNameNote.js"
 import { pageRouteNote } from "./pageRouteNote.js"
 
 const NotesRoutePage = lazy(() =>
-  import("../../ui/NotesRoutePage.js").then((c) => ({
+  import("../ui/NotesRoutePage.js").then((c) => ({
     default: c.NotesRoutePage,
   })),
 )
 
 const NewNoteRoutePage = lazy(() =>
-  import("../../ui/NewNoteRoutePage.js").then((c) => ({
+  import("../ui/NewNoteRoutePage.js").then((c) => ({
     default: c.NewNoteRoutePage,
   })),
 )
 
 const NoteRoutePage = lazy(() =>
-  import("../../ui/NoteRoutePage.js").then((c) => ({
+  import("../ui/NoteRoutePage.js").then((c) => ({
     default: c.NoteRoutePage,
   })),
 )

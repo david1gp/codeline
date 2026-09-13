@@ -4,7 +4,7 @@ import { runSessionSnapshotFetch } from "../../run/ui/runSessionSnapshotFetch.js
 import { simulationScenarioSessionMetadata } from "../../simulation/simulationScenarioSessionMetadata.js"
 import { simulationScenarioSessionResolve } from "../../simulation/simulationScenarioSessionResolve.js"
 import { urlDashboard } from "../dashboard_url/urlDashboard.js"
-import type { SessionNavigationState } from "../sessionNavigationStateCreate.js"
+import type { SessionNavigationState } from "../../session/ui/sessionNavigationStateCreate.js"
 import { urlWorkspace } from "../workspace_url/urlWorkspace.js"
 import { workspaceScreenStateCreate } from "../workspaceScreenStateCreate.js"
 import { simulateInspectorStateCreate } from "./simulateInspectorStateCreate.js"

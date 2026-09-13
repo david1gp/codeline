@@ -1,6 +1,6 @@
 import { createResultError } from "@adaptive-ds/result"
 import type { DatabaseClient } from "../../database/databaseClient.js"
-import { projectPathReferenceResolve } from "../../project/projectPathReferenceResolve.js"
+import { projectPathReferenceResolve } from "../../project/actions/projectPathReferenceResolve.js"
 import { skillSelectionDefaultRepositoryLoad } from "../db/skillSelectionDefaultRepositoryLoad.js"
 
 export async function skillSelectionDefaultLoad(

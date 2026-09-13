@@ -1,6 +1,6 @@
 import { createResultError } from "@adaptive-ds/result"
 import type { DatabaseClient } from "../../database/databaseClient.js"
-import { projectPathReferenceResolve } from "../../project/projectPathReferenceResolve.js"
+import { projectPathReferenceResolve } from "../../project/actions/projectPathReferenceResolve.js"
 import { skillSelectionDefaultRepositoryDelete } from "../db/skillSelectionDefaultRepositoryDelete.js"
 
 export async function skillSelectionDefaultDelete(

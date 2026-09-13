@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { projectAvatarColorResolve } from "./projectAvatarColorResolve.js"
+import { projectAvatarColorResolve } from "./ui/projectAvatarColorResolve.js"
 
 test("projectAvatarColorResolve returns gray for an empty name", () => {
   expect(projectAvatarColorResolve("")).toEqual({

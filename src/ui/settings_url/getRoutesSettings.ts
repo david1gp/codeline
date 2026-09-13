@@ -4,7 +4,7 @@ import { pageNameSettings, type PageNameSettings } from "./pageNameSettings.js"
 import { pageRouteSettings } from "./pageRouteSettings.js"
 
 const SettingsRoutePage = lazy(() =>
-  import("../SettingsRoutePage.js").then((module) => ({
+  import("../../configuration/ui/SettingsRoutePage.js").then((module) => ({
     default: module.SettingsRoutePage,
   })),
 )

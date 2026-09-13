@@ -3,7 +3,7 @@ import { and, eq } from "drizzle-orm"
 import * as v from "valibot"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { uuidv7 } from "../../uuid/uuidv7.js"
-import { projectDiscoveryLimits } from "../projectDiscoveryLimits.js"
+import { projectDiscoveryLimits } from "../actions/projectDiscoveryLimits.js"
 import { type ProjectFolder, projectFolderTable } from "./projectFolderTable.js"
 
 const projectFolderRepositoryNameSchema = v.pipe(

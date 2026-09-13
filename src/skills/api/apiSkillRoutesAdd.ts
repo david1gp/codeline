@@ -9,7 +9,7 @@ import { apiRepresentationHeadersCreate } from "../../api/representation/apiRepr
 import type { DatabaseClient } from "../../database/databaseClient.js"
 import { projectDiscoveryApiProjectQuerySchema } from "../../project/api/projectDiscoveryApiProjectQuerySchema.js"
 import { projectApiProjectQuerySchema } from "../../project/api/projectApiProjectQuerySchema.js"
-import { projectResolve } from "../../project/projectResolve.js"
+import { projectResolve } from "../../project/actions/projectResolve.js"
 import type { SkillCatalogDiscoverOptions } from "../actions/skillCatalogDiscover.js"
 import { skillCatalogDiscover } from "../actions/skillCatalogDiscover.js"
 import { skillCatalogInspectionResponseCreate } from "../actions/skillCatalogInspectionResponseCreate.js"

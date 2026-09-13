@@ -24,7 +24,7 @@ import type { metricsCollectorCreate } from "../metrics/metricsCollectorCreate.j
 import { apiNoteRoutesAdd } from "../note/api/apiNoteRoutesAdd.js"
 import { apiProjectRoutesAdd } from "../project/api/apiProjectRoutesAdd.js"
 import type { projectConfiguredRootsReconcile } from "../project/db/projectConfiguredRootsReconcile.js"
-import type { ProjectLimits } from "../project/projectLimitsSchema.js"
+import type { ProjectLimits } from "../project/schema/projectLimitsSchema.js"
 import { apiProviderRoutesAdd } from "../providers/api/apiProviderRoutesAdd.js"
 import { providerDelegationToolLoopCreate } from "../providers/runtime/providerDelegationToolLoopCreate.js"
 import type { ProviderModelDiscoveryOptions } from "../providers/runtime/providerModelDiscovery.js"

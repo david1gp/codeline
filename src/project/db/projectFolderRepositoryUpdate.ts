@@ -2,8 +2,8 @@ import { createResult, createResultError, type Result } from "@adaptive-ds/resul
 import { and, eq, ne } from "drizzle-orm"
 import * as v from "valibot"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
-import { projectDiscoveryLimits } from "../projectDiscoveryLimits.js"
-import type { ProjectFolderId } from "../projectFolderIdSchema.js"
+import { projectDiscoveryLimits } from "../actions/projectDiscoveryLimits.js"
+import type { ProjectFolderId } from "../schema/projectFolderIdSchema.js"
 import { type ProjectFolder, projectFolderTable } from "./projectFolderTable.js"
 
 const projectFolderRepositoryNameSchema = v.pipe(

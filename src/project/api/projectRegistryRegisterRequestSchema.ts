@@ -1,5 +1,5 @@
 import * as v from "valibot"
-import { projectDiscoveryLimits } from "../projectDiscoveryLimits.js"
+import { projectDiscoveryLimits } from "../actions/projectDiscoveryLimits.js"
 
 export const projectRegistryRegisterRequestSchema = v.strictObject({
   displayName: v.optional(v.pipe(v.string(), v.trim(), v.maxLength(projectDiscoveryLimits.maximumLabelLength))),

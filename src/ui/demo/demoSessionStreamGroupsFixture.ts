@@ -1,4 +1,4 @@
-import type { SessionStreamGroup } from "../sessionStreamGroupsDerive.js"
+import type { SessionStreamGroup } from "../../session/ui/sessionStreamGroupsDerive.js"
 
 export const demoSessionStreamGroupsFixture: ReadonlyArray<SessionStreamGroup> = [
   {

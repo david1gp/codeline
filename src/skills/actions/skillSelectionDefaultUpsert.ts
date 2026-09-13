@@ -1,7 +1,7 @@
 import { createResultError } from "@adaptive-ds/result"
 import * as v from "valibot"
 import type { DatabaseClient } from "../../database/databaseClient.js"
-import { projectPathReferenceResolve } from "../../project/projectPathReferenceResolve.js"
+import { projectPathReferenceResolve } from "../../project/actions/projectPathReferenceResolve.js"
 import { skillSelectionDefaultRepositoryUpsert } from "../db/skillSelectionDefaultRepositoryUpsert.js"
 import { skillSelectionDefaultRequestSchema } from "../schema/skillSelectionDefaultRequestSchema.js"
 

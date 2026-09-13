@@ -1,5 +1,5 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
-import type { GlobalSummarySseFrame } from "../../stream/api/globalSummarySseFrameSchema.js"
+import type { GlobalSummarySseFrame } from "../../events/api/globalSummarySseFrameSchema.js"
 import type { journalEventTable } from "../db/journalEventTable.js"
 import type { JournalCursorCodec } from "./journalCursorCodecCreate.js"
 import { journalGlobalSummaryEventFrameCreate } from "./journalGlobalSummaryEventFrameCreate.js"

@@ -4,7 +4,7 @@ import type { AgentConfiguration } from "../agents/schema/agentConfigurationSche
 import type { RunBudget } from "../run/schema/runBudgetSchema.js"
 import type { RunExecutionSnapshot } from "../run/schema/runExecutionSnapshotSchema.js"
 import { simulationScenarioSessionMetadata } from "../simulation/simulationScenarioSessionMetadata.js"
-import type { ProjectFolderBootstrapKey } from "../project/projectFolderBootstrapKeySchema.js"
+import type { ProjectFolderBootstrapKey } from "../project/schema/projectFolderBootstrapKeySchema.js"
 
 const exampleDataProjectPaths = {
   adaptive: resolve(dirname(fileURLToPath(import.meta.url)), "../../example-projects/adaptive"),

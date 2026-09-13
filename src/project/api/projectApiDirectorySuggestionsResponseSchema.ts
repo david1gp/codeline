@@ -1,5 +1,5 @@
 import * as v from "valibot"
-import { projectDiscoveryLimits } from "../projectDiscoveryLimits.js"
+import { projectDiscoveryLimits } from "../actions/projectDiscoveryLimits.js"
 
 const projectApiDirectorySuggestionSchema = v.strictObject({
   label: v.string(),

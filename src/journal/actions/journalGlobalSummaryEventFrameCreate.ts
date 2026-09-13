@@ -1,7 +1,7 @@
 import { createResult, createResultError, createResultErrorCode, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
-import type { GlobalSummarySseFrame } from "../../stream/api/globalSummarySseFrameSchema.js"
-import { globalSummarySseFrameSchema } from "../../stream/api/globalSummarySseFrameSchema.js"
+import type { GlobalSummarySseFrame } from "../../events/api/globalSummarySseFrameSchema.js"
+import { globalSummarySseFrameSchema } from "../../events/api/globalSummarySseFrameSchema.js"
 import type { journalEventTable } from "../db/journalEventTable.js"
 import type { JournalJsonValue } from "../schema/journalJsonValueSchema.js"
 

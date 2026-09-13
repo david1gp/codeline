@@ -1,7 +1,7 @@
 import * as v from "valibot"
 import { apiPublicIdSchema } from "../api/schema/apiPublicIdSchema.js"
 import { apiRevisionSchema } from "../api/schema/apiRevisionSchema.js"
-import { eventFeedCursorSchema } from "../stream/client/eventFeedCursorSchema.js"
+import { eventFeedCursorSchema } from "../events/client/eventFeedCursorSchema.js"
 
 const uiResourceTypeSchema = v.picklist(["agent", "message", "note", "run", "server", "session", "session-list"])
 

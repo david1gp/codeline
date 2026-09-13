@@ -1,4 +1,4 @@
-import { NewSessionDialog } from "../NewSessionDialog.js"
+import { NewSessionDialog } from "../../session/ui/NewSessionDialog.js"
 import type { demoNewSessionDialogStateCreate } from "./demoNewSessionDialogStateCreate.js"
 
 export function NewSessionDialogDemo(props: { state: ReturnType<typeof demoNewSessionDialogStateCreate> }) {

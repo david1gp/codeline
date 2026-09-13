@@ -1,7 +1,7 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import { and, eq } from "drizzle-orm"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
-import type { ProjectFolderId } from "../projectFolderIdSchema.js"
+import type { ProjectFolderId } from "../schema/projectFolderIdSchema.js"
 import { projectFolderTable } from "./projectFolderTable.js"
 
 export async function projectFolderResolve(

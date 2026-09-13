@@ -2,7 +2,7 @@ import { createResult, createResultError, type Result } from "@adaptive-ds/resul
 import { apiHttpClientCreate } from "../api/client/apiHttpClientCreate.js"
 import type { EventFeedReconciliationCallbacks, EventFeedResetBootstrap } from "../events/client/eventFeedCreate.js"
 import { sessionListPageLoad } from "../session/client/sessionListPageLoad.js"
-import type { EventFeedResourceRevision, EventFeedStaleResource } from "../stream/client/eventFeedStateCreate.js"
+import type { EventFeedResourceRevision, EventFeedStaleResource } from "../events/client/eventFeedStateCreate.js"
 
 type EventFeedReconciliationCreateOptions = {
   fetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>

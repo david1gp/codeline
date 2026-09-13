@@ -1,5 +1,5 @@
 import { useLocation, useSearchParams } from "@solidjs/router"
-import { configurationEditorStateCreate } from "../configuration/configurationEditorStateCreate.js"
+import { configurationEditorStateCreate } from "../../configuration/ui/configurationEditorStateCreate.js"
 import { resizableSidebarStateCreate } from "../resizableSidebarStateCreate.js"
 import { demoCatalogRegistry } from "./demoCatalogRegistry.js"
 import { demoCatalogRouteResolve } from "./demoCatalogRouteResolve.js"

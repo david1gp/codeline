@@ -4,7 +4,7 @@ import { pageNameFiles, type PageNameFiles } from "./pageNameFiles.js"
 import { pageRouteFiles } from "./pageRouteFiles.js"
 
 const FilesRoutePage = lazy(() =>
-  import("../FilesRoutePage.js").then((c) => ({
+  import("../../project/ui/FilesRoutePage.js").then((c) => ({
     default: c.FilesRoutePage,
   })),
 )

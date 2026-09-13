@@ -1,5 +1,5 @@
 import * as v from "valibot"
-import { projectFolderIdSchema } from "../projectFolderIdSchema.js"
+import { projectFolderIdSchema } from "../schema/projectFolderIdSchema.js"
 
 export const projectRegistryApiFolderSchema = v.strictObject({
   active: v.boolean(),

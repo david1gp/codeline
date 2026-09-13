@@ -1,7 +1,7 @@
 import { createResultError, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
 import { apiHttpClientCreate } from "../../api/client/apiHttpClientCreate.js"
-import { projectIdSchema } from "../projectIdSchema.js"
+import { projectIdSchema } from "../schema/projectIdSchema.js"
 import {
   type ProjectRegistryApiProjectResponse,
   projectRegistryApiProjectResponseSchema,

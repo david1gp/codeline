@@ -4,7 +4,7 @@ import * as os from "node:os"
 import * as path from "node:path"
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
-import { projectDirectoryCanonicalPathResolve } from "../../project/projectDirectoryCanonicalPathResolve.js"
+import { projectDirectoryCanonicalPathResolve } from "../../project/actions/projectDirectoryCanonicalPathResolve.js"
 import { agentInstructionDiscoveryLimits } from "../agentInstructionDiscoveryLimits.js"
 import {
   type AgentInstructionSnapshot,

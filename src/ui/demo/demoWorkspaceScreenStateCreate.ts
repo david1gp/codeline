@@ -1,5 +1,5 @@
 import { createSignalObject } from "@adaptive-ds/solid-ui/utils/createSignalObject"
-import { activeProjectStateCreate } from "../activeProjectStateCreate.js"
+import { activeProjectStateCreate } from "../../project/ui/activeProjectStateCreate.js"
 import { applicationShellStateCreate } from "../applicationShellStateCreate.js"
 import { workspacePageStateCreate } from "../workspacePageStateCreate.js"
 import type { WorkspaceScreenView } from "../workspaceScreenView.js"

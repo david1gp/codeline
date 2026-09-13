@@ -19,7 +19,7 @@ import { urlDashboard } from "./dashboard_url/urlDashboard.js"
 import { primaryNavigationStateCreate } from "./primaryNavigationStateCreate.js"
 import { PwaStatusActions } from "./pwa/PwaStatusActions.js"
 import { pwaStatusContext } from "./pwa/pwaStatusContext.js"
-import { sessionDrawerContext } from "./sessionDrawerContext.js"
+import { sessionDrawerContext } from "../session/ui/sessionDrawerContext.js"
 import { urlSettings } from "./settings_url/urlSettings.js"
 
 export function App(props: {

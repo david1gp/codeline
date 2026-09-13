@@ -1,7 +1,7 @@
 import { createResultErrorCode } from "@adaptive-ds/result"
 import * as v from "valibot"
 import type { DatabaseClient } from "../../database/databaseClient.js"
-import { projectPathReferenceResolve } from "../../project/projectPathReferenceResolve.js"
+import { projectPathReferenceResolve } from "../../project/actions/projectPathReferenceResolve.js"
 import type { ProviderCatalog } from "../../providers/schema/providerCatalogSchema.js"
 import { sessionExecutionSelectionDefaultRepositoryUpsert } from "../db/sessionExecutionSelectionDefaultRepositoryUpsert.js"
 import { sessionExecutionSelectionErrorCodes } from "../errors/sessionExecutionSelectionErrorCodes.js"

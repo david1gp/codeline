@@ -8,7 +8,7 @@ import {
   type EventFeedOwnerRegistry,
   eventFeedOwnerRegistryCreate,
 } from "../events/client/eventFeedOwnerRegistryCreate.js"
-import type { EventFeedStaleResource } from "../stream/client/eventFeedStateCreate.js"
+import type { EventFeedStaleResource } from "../events/client/eventFeedStateCreate.js"
 import { signalObjectCreate } from "./signalObjectCreate.js"
 import type { UiDataLayerStatus } from "./uiDataLayerStatusSchema.js"
 

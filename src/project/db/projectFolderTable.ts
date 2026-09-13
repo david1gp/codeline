@@ -1,8 +1,8 @@
 import { sql } from "drizzle-orm"
 import { check, index, integer, sqliteTable, text, unique } from "drizzle-orm/sqlite-core"
 import { applicationUserTable } from "../../identity/db/applicationUserTable.js"
-import type { ProjectFolderBootstrapKey } from "../projectFolderBootstrapKeySchema.js"
-import type { ProjectFolderId } from "../projectFolderIdSchema.js"
+import type { ProjectFolderBootstrapKey } from "../schema/projectFolderBootstrapKeySchema.js"
+import type { ProjectFolderId } from "../schema/projectFolderIdSchema.js"
 
 export const projectFolderTable = sqliteTable(
   "project_folder",

@@ -1,9 +1,9 @@
 import { createSignalObject } from "@adaptive-ds/solid-ui/utils/createSignalObject"
 import { skillPresetAll } from "../../skills/skillPresetAll.js"
-import { sessionProjectSelectorOptionsDerive } from "../sessionProjectSelectorOptionsDerive.js"
-import type { SessionResourceSelectorView } from "../sessionResourceSelectorView.js"
-import { sessionResourceSkillCatalogEstimate } from "../sessionResourceSkillCatalogEstimate.js"
-import { sessionResourceSkillTreeDerive } from "../sessionResourceSkillTreeDerive.js"
+import { sessionProjectSelectorOptionsDerive } from "../../session/ui/sessionProjectSelectorOptionsDerive.js"
+import type { SessionResourceSelectorView } from "../../session/ui/sessionResourceSelectorView.js"
+import { sessionResourceSkillCatalogEstimate } from "../../session/ui/sessionResourceSkillCatalogEstimate.js"
+import { sessionResourceSkillTreeDerive } from "../../session/ui/sessionResourceSkillTreeDerive.js"
 import type { DemoSessionScreenVariant } from "./demoSessionScreenVariant.js"
 
 const demoSkills = [

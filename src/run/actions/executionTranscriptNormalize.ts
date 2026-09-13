@@ -1,6 +1,6 @@
-import type { ExecutionStreamEvent } from "../../stream/schema/executionStreamEventSchema.js"
+import type { ExecutionStreamEvent } from "../schema/executionStreamEventSchema.js"
 import type { JournalEvent } from "../../stream/schema/journalEventSchema.js"
-import type { StreamProducerDelta } from "../../stream/schema/streamProducerDeltaSchema.js"
+import type { StreamProducerDelta } from "../schema/streamProducerDeltaSchema.js"
 import type { AttemptStatus } from "../schema/attemptStatusSchema.js"
 import type { RunCancellationKind } from "../schema/runCancellationKindSchema.js"
 import type { RunFailureMetadata } from "../schema/runFailureMetadataSchema.js"

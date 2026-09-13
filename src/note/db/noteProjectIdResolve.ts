@@ -2,7 +2,7 @@ import * as path from "node:path"
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { projectRegistryRepositoryResolvePath } from "../../project/db/projectRegistryRepositoryResolvePath.js"
-import { projectDirectoryCanonicalPathResolve } from "../../project/projectDirectoryCanonicalPathResolve.js"
+import { projectDirectoryCanonicalPathResolve } from "../../project/actions/projectDirectoryCanonicalPathResolve.js"
 
 export async function noteProjectIdResolve(
   database: DatabaseExecutor,

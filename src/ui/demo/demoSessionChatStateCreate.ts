@@ -1,8 +1,8 @@
 import { createSignalObject } from "@adaptive-ds/solid-ui/utils/createSignalObject"
 import { createEffect } from "solid-js"
-import type { SessionChatState } from "../sessionChatStateCreate.js"
-import type { TransientMessage } from "../transientMessagesResolve.js"
-import { transientMessagesResolve } from "../transientMessagesResolve.js"
+import type { SessionChatState } from "../../session/ui/sessionChatStateCreate.js"
+import type { TransientMessage } from "../../session/ui/transientMessagesResolve.js"
+import { transientMessagesResolve } from "../../session/ui/transientMessagesResolve.js"
 import type { DemoSessionScreenVariant } from "./demoSessionScreenVariant.js"
 
 const streamingPending: readonly TransientMessage[] = [

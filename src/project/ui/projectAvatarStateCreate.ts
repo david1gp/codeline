@@ -1,7 +1,7 @@
 import { createMemo } from "solid-js"
 import { signalObjectCreate } from "../../ui/signalObjectCreate.js"
-import { projectAvatarColorResolve } from "../projectAvatarColorResolve.js"
-import { projectAvatarFirstGrapheme } from "../projectAvatarFirstGrapheme.js"
+import { projectAvatarColorResolve } from "./projectAvatarColorResolve.js"
+import { projectAvatarFirstGrapheme } from "./projectAvatarFirstGrapheme.js"
 
 export function projectAvatarStateCreate(input: { faviconUrl: () => string | null | undefined; name: () => string }) {
   const letter = createMemo(() => projectAvatarFirstGrapheme(input.name()).toUpperCase())

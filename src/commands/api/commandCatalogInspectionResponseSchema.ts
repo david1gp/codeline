@@ -1,6 +1,6 @@
 import * as v from "valibot"
-import { projectDiscoveryIdSchema } from "../../project/projectDiscoveryIdSchema.js"
-import { projectIdSchema } from "../../project/projectIdSchema.js"
+import { projectDiscoveryIdSchema } from "../../project/schema/projectDiscoveryIdSchema.js"
+import { projectIdSchema } from "../../project/schema/projectIdSchema.js"
 import { commandDigestSchema } from "../schema/commandDigestSchema.js"
 import { commandInspectionSnapshotSchema } from "./commandInspectionSnapshotSchema.js"
 

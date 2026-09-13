@@ -1,6 +1,6 @@
 import type { metricsCollectorCreate } from "../../metrics/metricsCollectorCreate.js"
 import type { SessionDetailSseFrame } from "../../session/api/sessionDetailSseFrameSchema.js"
-import type { GlobalSummarySseFrame } from "../api/globalSummarySseFrameSchema.js"
+import type { GlobalSummarySseFrame } from "../../events/api/globalSummarySseFrameSchema.js"
 import type { StreamSseConnectionWriterScheduler } from "./streamSseConnectionWriterScheduler.js"
 import type { StreamSseConnectionWriterSink } from "./streamSseConnectionWriterSink.js"
 import type { StreamSseConnectionWriterSource } from "./streamSseConnectionWriterSource.js"

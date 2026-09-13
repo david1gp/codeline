@@ -1,4 +1,4 @@
-import { NewSessionDialog } from "./NewSessionDialog.js"
+import { NewSessionDialog } from "../session/ui/NewSessionDialog.js"
 import { WorkspacePage } from "./WorkspacePage.js"
 import { workspaceRoutePageStateCreate } from "./workspaceRoutePageStateCreate.js"
 

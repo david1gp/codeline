@@ -9,7 +9,7 @@ import {
   type ProjectRegistryMoveRequest,
   projectRegistryMoveRequestSchema,
 } from "../api/projectRegistryMoveRequestSchema.js"
-import { projectIdSchema } from "../projectIdSchema.js"
+import { projectIdSchema } from "../schema/projectIdSchema.js"
 
 type ProjectRegistryMoveRequestDependencies = {
   fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>

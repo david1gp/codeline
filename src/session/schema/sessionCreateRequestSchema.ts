@@ -1,6 +1,6 @@
 import * as v from "valibot"
 import { commandInvocationSchema } from "../../commands/schema/commandInvocationSchema.js"
-import { projectIdSchema } from "../../project/projectIdSchema.js"
+import { projectIdSchema } from "../../project/schema/projectIdSchema.js"
 import { skillSelectionRequestSchema } from "../../skills/schema/skillSelectionRequestSchema.js"
 import { sessionAgentPromptSchema } from "./sessionAgentPromptSchema.js"
 import { sessionExecutionSelectionSchema } from "./sessionExecutionSelectionSchema.js"

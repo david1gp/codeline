@@ -1,9 +1,9 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
 import { apiRevisionSchema } from "../../api/schema/apiRevisionSchema.js"
-import type { GlobalSummarySseFrame } from "../../stream/api/globalSummarySseFrameSchema.js"
-import { eventFeedCursorSchema } from "../../stream/client/eventFeedCursorSchema.js"
-import { eventFeedEventParse } from "../../stream/client/eventFeedEventParse.js"
+import type { GlobalSummarySseFrame } from "../api/globalSummarySseFrameSchema.js"
+import { eventFeedCursorSchema } from "./eventFeedCursorSchema.js"
+import { eventFeedEventParse } from "./eventFeedEventParse.js"
 import {
   type EventFeedApplyResult,
   type EventFeedReconciliationInstruction,
@@ -11,7 +11,7 @@ import {
   type EventFeedResourceRevision,
   type EventFeedStaleResource,
   eventFeedStateCreate,
-} from "../../stream/client/eventFeedStateCreate.js"
+} from "./eventFeedStateCreate.js"
 import type { StreamEventSourceError } from "../../stream/client/streamEventSourceError.js"
 import type { StreamEventSourceEvent } from "../../stream/client/streamEventSourceEvent.js"
 import type { UiDataLayerStatus } from "../../ui/uiDataLayerStatusSchema.js"

@@ -1,5 +1,5 @@
 import * as v from "valibot"
-import { projectDiscoveryLimits } from "../project/projectDiscoveryLimits.js"
+import { projectDiscoveryLimits } from "../project/actions/projectDiscoveryLimits.js"
 
 export const projectRootConfigurationSchema = v.pipe(
   v.array(v.pipe(v.string(), v.trim(), v.minLength(1))),

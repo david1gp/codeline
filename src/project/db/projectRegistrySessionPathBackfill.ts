@@ -3,7 +3,7 @@ import { and, eq } from "drizzle-orm"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { sessionTable } from "../../session/db/sessionTable.js"
 import { uuidv7 } from "../../uuid/uuidv7.js"
-import { projectRegistryPathCanonicalize } from "../projectRegistryPathCanonicalize.js"
+import { projectRegistryPathCanonicalize } from "../actions/projectRegistryPathCanonicalize.js"
 import { projectTable } from "./projectTable.js"
 
 export async function projectRegistrySessionPathBackfill(

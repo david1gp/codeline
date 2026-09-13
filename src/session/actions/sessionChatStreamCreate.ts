@@ -12,7 +12,7 @@ import type { CliProxyApiAdapter } from "../../providers/runtime/cliProxyApiAdap
 import type { providerRuntimeAdapterCreate } from "../../providers/runtime/providerRuntimeAdapterCreate.js"
 import { providerExecutionEventFromStreamChunk } from "../../providers/runtime/providerExecutionEventFromStreamChunk.js"
 import type { RunRetryExecutionEvidence } from "../../run/schema/runRetryExecutionEvidenceSchema.js"
-import { executionStreamEventNormalize } from "../../stream/actions/executionStreamEventNormalize.js"
+import { executionStreamEventNormalize } from "../../run/actions/executionStreamEventNormalize.js"
 import { sessionChatContextPrepare } from "./sessionChatContextPrepare.js"
 
 type SessionChatStreamCreateOptions = {

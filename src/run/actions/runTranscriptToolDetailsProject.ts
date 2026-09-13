@@ -1,4 +1,4 @@
-import { executionToolPayloadBound } from "../../stream/actions/executionToolPayloadBound.js"
+import { executionToolPayloadBound } from "./executionToolPayloadBound.js"
 import type { RunToolDetail } from "../api/runToolDetailSchema.js"
 import { runToolDetailIdCreate } from "./runToolDetailIdCreate.js"
 import type { executionTranscriptProject } from "./executionTranscriptProject.js"

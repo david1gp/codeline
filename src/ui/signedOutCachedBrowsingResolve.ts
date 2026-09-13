@@ -1,5 +1,5 @@
 import { sessionLastActiveAccountRead } from "../session/client/sessionLastActiveAccountRead.js"
-import { sessionRouteResolve } from "./sessionRouteResolve.js"
+import { sessionRouteResolve } from "../session/ui/sessionRouteResolve.js"
 
 /**
  * Signed-out browsing is limited to read-only session routes belonging to the

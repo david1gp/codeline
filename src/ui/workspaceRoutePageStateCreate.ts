@@ -1,8 +1,8 @@
 import { useLocation, useNavigate } from "@solidjs/router"
 import { useContext } from "solid-js"
 import { apiFetchContext } from "./apiFetchContext.js"
-import { sessionNavigationStateCreate } from "./sessionNavigationStateCreate.js"
-import { sessionSidebarRouteStateCreate } from "./sessionSidebarRouteStateCreate.js"
+import { sessionNavigationStateCreate } from "../session/ui/sessionNavigationStateCreate.js"
+import { sessionSidebarRouteStateCreate } from "../session/ui/sessionSidebarRouteStateCreate.js"
 import { workspaceScreenStateCreate } from "./workspaceScreenStateCreate.js"
 
 export function workspaceRoutePageStateCreate() {

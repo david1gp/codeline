@@ -1,7 +1,7 @@
 import * as v from "valibot"
-import { projectDiscoveryLimits } from "../projectDiscoveryLimits.js"
-import { projectDiscoveryIdSchema } from "../projectDiscoveryIdSchema.js"
-import { projectIdSchema } from "../projectIdSchema.js"
+import { projectDiscoveryLimits } from "../actions/projectDiscoveryLimits.js"
+import { projectDiscoveryIdSchema } from "../schema/projectDiscoveryIdSchema.js"
+import { projectIdSchema } from "../schema/projectIdSchema.js"
 
 export const projectApiIdentityResponseSchema = v.strictObject({
   id: v.union([projectIdSchema, projectDiscoveryIdSchema]),

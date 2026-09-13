@@ -1,7 +1,7 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
-import { projectFolderBootstrapKeyResolve } from "../projectFolderBootstrapKeyResolve.js"
-import type { ProjectFolderBootstrapKey } from "../projectFolderBootstrapKeySchema.js"
+import { projectFolderBootstrapKeyResolve } from "../actions/projectFolderBootstrapKeyResolve.js"
+import type { ProjectFolderBootstrapKey } from "../schema/projectFolderBootstrapKeySchema.js"
 import { projectFolderBootstrapIdLoad } from "./projectFolderBootstrapIdLoad.js"
 
 type ProjectFolderAssignmentIdResolveOptions = {

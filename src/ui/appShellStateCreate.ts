@@ -1,5 +1,5 @@
 import { projectRegistryStateCreate } from "../project/ui/projectRegistryStateCreate.js"
-import { activeProjectStateCreate } from "./activeProjectStateCreate.js"
+import { activeProjectStateCreate } from "../project/ui/activeProjectStateCreate.js"
 import { appConnectionDetailsResolve } from "./appConnectionDetailsResolve.js"
 import type { AppShellView } from "./appShellView.js"
 import { appStateCreate } from "./appStateCreate.js"

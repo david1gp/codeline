@@ -1,6 +1,6 @@
 import { createResultErrorCode } from "@adaptive-ds/result"
 import type { DatabaseClient } from "../../database/databaseClient.js"
-import { projectPathReferenceResolve } from "../../project/projectPathReferenceResolve.js"
+import { projectPathReferenceResolve } from "../../project/actions/projectPathReferenceResolve.js"
 import { sessionExecutionSelectionDefaultRepositoryDelete } from "../db/sessionExecutionSelectionDefaultRepositoryDelete.js"
 import { sessionExecutionSelectionErrorCodes } from "../errors/sessionExecutionSelectionErrorCodes.js"
 

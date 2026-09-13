@@ -1,5 +1,5 @@
 import { createSignalObject } from "@adaptive-ds/solid-ui/utils/createSignalObject"
-import type { SessionTargetSelectorState } from "../sessionTargetSelectorStateCreate.js"
+import type { SessionTargetSelectorState } from "../../session/ui/sessionTargetSelectorStateCreate.js"
 import type { DemoSessionScreenVariant } from "./demoSessionScreenVariant.js"
 
 const demoServers = [

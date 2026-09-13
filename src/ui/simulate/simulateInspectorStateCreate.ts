@@ -4,7 +4,7 @@ import { onCleanup, useContext } from "solid-js"
 import type { RunFailureMetadata } from "../../run/schema/runFailureMetadataSchema.js"
 import { eventFeedCoordinatorContext } from "../eventFeedCoordinatorContext.js"
 import { httpQueryStateCreate } from "../httpQueryStateCreate.js"
-import type { SessionChatState } from "../sessionChatStateCreate.js"
+import type { SessionChatState } from "../../session/ui/sessionChatStateCreate.js"
 import { simulateInspectorBackendStateDerive } from "./simulateInspectorBackendStateDerive.js"
 
 type SimulateInspectorAttempt = {

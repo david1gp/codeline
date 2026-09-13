@@ -4,7 +4,7 @@ import type { AttemptStatus } from "../../run/schema/attemptStatusSchema.js"
 import type { RunCancellationKind } from "../../run/schema/runCancellationKindSchema.js"
 import type { RunFailureMetadata } from "../../run/schema/runFailureMetadataSchema.js"
 import type { RunStatus } from "../../run/schema/runStatusSchema.js"
-import { executionStreamEventNormalize } from "../../stream/actions/executionStreamEventNormalize.js"
+import { executionStreamEventNormalize } from "../../run/actions/executionStreamEventNormalize.js"
 
 type InspectorAttempt = {
   id: string

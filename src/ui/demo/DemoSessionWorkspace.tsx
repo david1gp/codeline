@@ -1,8 +1,8 @@
 import { Show } from "solid-js"
 import { ButtonIconOnly } from "#ui/interactive/button/ButtonIconOnly.jsx"
 import { buttonVariant } from "#ui/interactive/button/buttonCva.js"
-import { FilesPanel } from "../FilesPanel.js"
-import { SelectedSession } from "../SelectedSession.js"
+import { FilesPanel } from "../../project/ui/FilesPanel.js"
+import { SelectedSession } from "../../session/ui/SelectedSession.js"
 import { applicationIcon } from "../applicationIcon.js"
 import type { demoSessionWorkspaceStateCreate } from "./demoSessionWorkspaceStateCreate.js"
 

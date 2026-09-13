@@ -1,7 +1,7 @@
 import * as v from "valibot"
-import { projectDiscoveryLimits } from "../projectDiscoveryLimits.js"
-import { projectFolderIdSchema } from "../projectFolderIdSchema.js"
-import { projectIdSchema } from "../projectIdSchema.js"
+import { projectDiscoveryLimits } from "../actions/projectDiscoveryLimits.js"
+import { projectFolderIdSchema } from "../schema/projectFolderIdSchema.js"
+import { projectIdSchema } from "../schema/projectIdSchema.js"
 
 export const projectRegistryApiProjectSchema = v.strictObject({
   active: v.optional(v.boolean()),

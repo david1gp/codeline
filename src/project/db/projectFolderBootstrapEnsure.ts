@@ -1,7 +1,7 @@
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { uuidv7 } from "../../uuid/uuidv7.js"
-import type { ProjectFolderBootstrapKey } from "../projectFolderBootstrapKeySchema.js"
+import type { ProjectFolderBootstrapKey } from "../schema/projectFolderBootstrapKeySchema.js"
 import { projectFolderTable } from "./projectFolderTable.js"
 
 const projectFolderBootstrapDefinitions: readonly {

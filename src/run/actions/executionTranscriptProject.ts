@@ -1,10 +1,7 @@
 import * as v from "valibot"
-import {
-  type ExecutionStreamEvent,
-  executionStreamEventSchema,
-} from "../../stream/schema/executionStreamEventSchema.js"
-import type { StreamProducerDelta } from "../../stream/schema/streamProducerDeltaSchema.js"
-import { streamProducerDeltaSchema } from "../../stream/schema/streamProducerDeltaSchema.js"
+import { type ExecutionStreamEvent, executionStreamEventSchema } from "../schema/executionStreamEventSchema.js"
+import type { StreamProducerDelta } from "../schema/streamProducerDeltaSchema.js"
+import { streamProducerDeltaSchema } from "../schema/streamProducerDeltaSchema.js"
 import type { RunActiveSnapshotResponse } from "../api/runActiveSnapshotResponseSchema.js"
 import { executionTranscriptNormalize } from "./executionTranscriptNormalize.js"
 

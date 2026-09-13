@@ -5,7 +5,7 @@ import { mutationIdempotencyTable } from "../../api/db/mutationIdempotencyTable.
 import type { DatabaseExecutor } from "../../database/databaseClient.js"
 import { agentInstructionsSnapshotResolve } from "../../instructions/actions/agentInstructionsSnapshotResolve.js"
 import { messageCopyFinalizedPrefix } from "../../message/actions/messageCopyFinalizedPrefix.js"
-import { projectRegistryProjectIdResolve } from "../../project/projectRegistryProjectIdResolve.js"
+import { projectRegistryProjectIdResolve } from "../../project/actions/projectRegistryProjectIdResolve.js"
 import { runExecutionManifestSchema } from "../../run/schema/runExecutionManifestSchema.js"
 import { serverTable } from "../../servers/db/serverTable.js"
 import { skillSelectionSchema } from "../../skills/schema/skillSelectionSchema.js"
