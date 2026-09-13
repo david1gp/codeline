@@ -1,11 +1,9 @@
-import { mdiLoading } from "@adaptive-ds/mdi/mdiLoading.js"
-import { mdiPlus } from "@adaptive-ds/mdi/mdiPlus.js"
-import { mdiTrashCanOutline } from "@adaptive-ds/mdi/mdiTrashCanOutline.js"
 import { For, Show } from "solid-js"
 import { ButtonIconOnly } from "#ui/interactive/button/ButtonIconOnly.jsx"
 import { buttonVariant } from "#ui/interactive/button/buttonCva.js"
 import { Icon } from "#ui/static/icon/Icon.jsx"
 import { ProjectAvatar } from "../project/ui/ProjectAvatar.js"
+import { applicationIcon } from "./applicationIcon.js"
 import { SessionSidebarMenu } from "./SessionSidebarMenu.js"
 import type { SessionListState } from "./sessionListStateCreate.js"
 import type { SessionProjectTarget } from "./sessionProjectTarget.js"
@@ -64,7 +62,7 @@ function SessionRows(props: {
                     }
                   >
                     <Icon
-                      path={mdiLoading}
+                      path={applicationIcon.loading}
                       class="size-3 shrink-0 animate-spin fill-current text-accent dark:fill-current"
                       title="Working"
                     />
@@ -84,7 +82,7 @@ function SessionRows(props: {
                 >
                   <ButtonIconOnly
                     class="size-6 shrink-0 rounded-md text-faint hover:bg-surface-hover hover:text-strong"
-                    icon={mdiTrashCanOutline}
+                    icon={applicationIcon.delete}
                     iconClass="size-3.5 fill-current text-faint dark:fill-current"
                     title={`Delete ${row.session.title}`}
                     aria-label={`Delete ${row.session.title}`}
@@ -159,7 +157,7 @@ export function ProjectRow(props: {
           <ButtonIconOnly
             class="size-6 shrink-0 rounded-md text-faint hover:bg-transparent hover:text-faint disabled:opacity-40"
             disabled={props.project.available === false}
-            icon={mdiPlus}
+            icon={applicationIcon.sessionCreate}
             iconClass="size-3.5 fill-current text-faint dark:fill-current"
             title={
               props.project.available === false
@@ -186,7 +184,7 @@ export function ProjectRow(props: {
         </Show>
       </summary>
       <Show when={props.project.sessions.length > 0}>
-        <div class="ml-3 border-line-subtle border-l">
+        <div>
           <SessionRows
             hideProjectLabel
             rows={props.project.sessions}

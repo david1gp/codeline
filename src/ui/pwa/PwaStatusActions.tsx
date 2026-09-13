@@ -1,8 +1,7 @@
-import { mdiDownloadOutline } from "@adaptive-ds/mdi/mdiDownloadOutline.js"
-import { mdiUpdate } from "@adaptive-ds/mdi/mdiUpdate.js"
 import { Show } from "solid-js"
 import { ButtonIcon } from "#ui/interactive/button/ButtonIcon.jsx"
 import { buttonVariant } from "#ui/interactive/button/buttonCva.js"
+import { applicationIcon } from "../applicationIcon.js"
 import type { PwaStatusView } from "./pwaStatusView.js"
 
 export function PwaStatusActions(props: { placement: "settings" | "shell"; state: PwaStatusView }) {
@@ -12,7 +11,7 @@ export function PwaStatusActions(props: { placement: "settings" | "shell"; state
         <div class="flex flex-wrap items-center gap-2">
           <Show when={props.state.installable()}>
             <ButtonIcon
-              icon={mdiDownloadOutline}
+              icon={applicationIcon.download}
               iconClass="size-4 fill-current dark:fill-current"
               variant={buttonVariant.outline}
               onClick={() => void props.state.install()}
@@ -31,7 +30,7 @@ export function PwaStatusActions(props: { placement: "settings" | "shell"; state
       <Show when={props.placement === "shell" && props.state.status() === "update-ready"}>
         <div class="flex flex-wrap items-center gap-2">
           <ButtonIcon
-            icon={mdiUpdate}
+            icon={applicationIcon.update}
             iconClass="size-4 fill-current dark:fill-current"
             variant={buttonVariant.outline}
             class="border-accent-border text-accent"

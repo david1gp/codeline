@@ -1,4 +1,4 @@
-import { mdiFolderOpenOutline } from "@adaptive-ds/mdi/mdiFolderOpenOutline.js"
-import { mdiFolderOutline } from "@adaptive-ds/mdi/mdiFolderOutline.js"
+import { applicationIcon } from "../../ui/applicationIcon.js"
 
-export const projectFolderIconSelect = (open: boolean): string => (open ? mdiFolderOpenOutline : mdiFolderOutline)
+export const projectFolderIconSelect = (open: boolean): string =>
+  open ? applicationIcon.folderOpen : applicationIcon.folder

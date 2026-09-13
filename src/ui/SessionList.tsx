@@ -1,7 +1,3 @@
-import { mdiFolderMultipleOutline } from "@adaptive-ds/mdi/mdiFolderMultipleOutline.js"
-import { mdiHistory } from "@adaptive-ds/mdi/mdiHistory.js"
-import { mdiMagnify } from "@adaptive-ds/mdi/mdiMagnify.js"
-import { mdiPinOutline } from "@adaptive-ds/mdi/mdiPinOutline.js"
 import { For, Match, Show, Switch } from "solid-js"
 import { Input } from "#ui/input/input/Input.jsx"
 import { Button } from "#ui/interactive/button/Button.jsx"
@@ -10,6 +6,7 @@ import { Icon } from "#ui/static/icon/Icon.jsx"
 import { projectFolderIconSelect } from "../project/ui/projectFolderIconSelect.js"
 import type { ProjectRegistryState } from "../project/ui/projectRegistryState.js"
 import type { ActiveProjectState } from "./activeProjectStateCreate.js"
+import { applicationIcon } from "./applicationIcon.js"
 import { NewProjectDialog } from "./NewProjectDialog.js"
 import { ProjectRow } from "./ProjectRow.js"
 import { SessionSidebarDialogs } from "./SessionSidebarDialogs.js"
@@ -19,10 +16,10 @@ import type { SessionProjectTarget } from "./sessionProjectTarget.js"
 import type { SessionSidebarTab } from "./sessionSidebarTab.js"
 
 const tabs: ReadonlyArray<{ icon: string; label: string; value: SessionSidebarTab }> = [
-  { icon: mdiPinOutline, label: "Pinned", value: "pinned" },
-  { icon: mdiFolderMultipleOutline, label: "Projects", value: "projects" },
-  { icon: mdiHistory, label: "Recent", value: "recent" },
-  { icon: mdiMagnify, label: "Search", value: "search" },
+  { icon: applicationIcon.pin, label: "Pinned", value: "pinned" },
+  { icon: applicationIcon.folderGroup, label: "Projects", value: "projects" },
+  { icon: applicationIcon.history, label: "Recent", value: "recent" },
+  { icon: applicationIcon.search, label: "Search", value: "search" },
 ]
 
 export function SessionList(props: {
@@ -72,7 +69,7 @@ export function SessionList(props: {
         <label class="relative shrink-0 p-2.5" for={searchId()}>
           <span class="sr-only">Search conversations</span>
           <Icon
-            path={mdiMagnify}
+            path={applicationIcon.search}
             class="pointer-events-none absolute top-1/2 left-5 size-[13px] -translate-y-1/2 fill-current text-placeholder dark:fill-current"
           />
           <Input
@@ -129,7 +126,7 @@ export function SessionList(props: {
             <div class="px-3.5 py-4 text-xs leading-[1.5] text-faint">{props.state.emptyMessage()}</div>
           </Match>
           <Match when={true}>
-            <div class="py-1">
+            <div class="space-y-2 py-1">
               <For each={props.state.sidebar.folders()}>
                 {(folder) => (
                   <details
@@ -171,7 +168,7 @@ export function SessionList(props: {
                       </Show>
                     </summary>
                     <Show when={folder.projects.length > 0}>
-                      <div class="ml-3 border-line-subtle border-l">
+                      <div class="space-y-2">
                         <For each={folder.projects}>
                           {(project) => (
                             <ProjectRow

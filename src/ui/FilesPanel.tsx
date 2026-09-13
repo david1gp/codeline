@@ -1,9 +1,8 @@
-import { mdiDockRight } from "@adaptive-ds/mdi/mdiDockRight.js"
-import { mdiFolderOutline } from "@adaptive-ds/mdi/mdiFolderOutline.js"
 import { Show } from "solid-js"
 import { ButtonIconOnly } from "#ui/interactive/button/ButtonIconOnly.jsx"
 import { Icon } from "#ui/static/icon/Icon.jsx"
 import { ProjectBrowser } from "../project/ProjectBrowser.js"
+import { applicationIcon } from "./applicationIcon.js"
 import { FilesProjectSelector } from "./FilesProjectSelector.js"
 import type { FilesScreenView } from "./filesScreenView.js"
 
@@ -12,7 +11,7 @@ export function FilesPanel(props: { close: () => void; state: FilesScreenView })
     <div class="flex h-full min-h-0 flex-col bg-surface-sunken">
       <header class="flex h-14 shrink-0 items-center gap-2.5 border-line border-b bg-surface-raised px-3">
         <span class="flex size-8 shrink-0 items-center justify-center rounded-lg border border-accent-border bg-accent-soft text-accent">
-          <Icon class="size-4" path={mdiFolderOutline} />
+          <Icon class="size-4" path={applicationIcon.folder} />
         </span>
         <div class="min-w-0 flex-1">
           <h2 class="m-0 truncate text-sm font-semibold tracking-[-0.01em]">Project files</h2>
@@ -20,7 +19,7 @@ export function FilesPanel(props: { close: () => void; state: FilesScreenView })
         </div>
         <ButtonIconOnly
           class="size-8 shrink-0 text-faint hover:bg-surface-hover hover:text-accent"
-          icon={mdiDockRight}
+          icon={applicationIcon.rightPanel}
           iconClass="size-4 fill-current dark:fill-current"
           variant="none"
           aria-label="Close file panel"

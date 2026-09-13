@@ -1,7 +1,7 @@
-import { mdiClose } from "@adaptive-ds/mdi/mdiClose.js"
 import { For, Match, Show, Switch } from "solid-js"
 import { Button } from "#ui/interactive/button/Button.jsx"
 import { ButtonIconOnly } from "#ui/interactive/button/ButtonIconOnly.jsx"
+import { applicationIcon } from "../ui/applicationIcon.js"
 import { ProjectGitPanel } from "./ProjectGitPanel.js"
 import type { ProjectBrowserView } from "./projectBrowserView.js"
 import { projectByteSizeFormat } from "./projectByteSizeFormat.js"
@@ -140,7 +140,7 @@ export function ProjectBrowser(props: { compact?: boolean; state: ProjectBrowser
                     </Button>
                     <ButtonIconOnly
                       class="mr-1 rounded p-1 hover:bg-line hover:text-strong"
-                      icon={mdiClose}
+                      icon={applicationIcon.close}
                       iconClass="size-3 fill-current dark:fill-current"
                       variant="none"
                       aria-label={`Close ${tab.path}`}

@@ -27,3 +27,11 @@ test("project-name selection navigates without replacing the explicit create act
   expect(targetSelectorSource).toContain("options.pendingProjectTargetSet?.(projectTarget)")
   expect(targetSelectorSource).toContain("options.sessionNew?.()")
 })
+
+test("sidebar groups stay flat while preserving disclosure and group separation", () => {
+  expect(source).toContain('<div class="space-y-2 py-1">')
+  expect(source).not.toContain("ml-3 border-line-subtle border-l")
+  expect(projectRowSource).not.toContain("ml-3 border-line-subtle border-l")
+  expect(source).toContain("open={props.state.folderIsOpen(folder)}")
+  expect(projectRowSource).toContain("open={props.state.projectIsOpen(props.project)}")
+})

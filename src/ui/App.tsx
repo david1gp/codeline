@@ -1,17 +1,14 @@
-import { mdiCogOutline } from "@adaptive-ds/mdi/mdiCogOutline.js"
-import { mdiDockRight } from "@adaptive-ds/mdi/mdiDockRight.js"
-import { mdiFolderOutline } from "@adaptive-ds/mdi/mdiFolderOutline.js"
-import { mdiFolderPlusOutline } from "@adaptive-ds/mdi/mdiFolderPlusOutline.js"
-import { mdiPlus } from "@adaptive-ds/mdi/mdiPlus.js"
 import { A } from "@solidjs/router"
 import type { JSX } from "solid-js"
 import { For, Show } from "solid-js"
+import { ButtonIcon } from "#ui/interactive/button/ButtonIcon.jsx"
 import { ButtonIconOnly } from "#ui/interactive/button/ButtonIconOnly.jsx"
-import { buttonCvaIconOnly, buttonVariant } from "#ui/interactive/button/buttonCva.js"
+import { buttonCvaIconOnly, buttonSize, buttonVariant } from "#ui/interactive/button/buttonCva.js"
 import { Icon } from "#ui/static/icon/Icon.jsx"
 import { Img } from "#ui/static/img/Img.jsx"
 import { AccountPopover } from "../identity/ui/AccountPopover.js"
 import type { AuthShellView } from "../identity/ui/authShellView.js"
+import { applicationIcon } from "./applicationIcon.js"
 import { applicationNavigationContext } from "./applicationNavigationContext.js"
 import { applicationShellContext } from "./applicationShellContext.js"
 import type { applicationShellStateCreate } from "./applicationShellStateCreate.js"
@@ -38,7 +35,7 @@ export function App(props: {
       <pwaStatusContext.Provider value={props.state.pwa}>
         <div class="grid h-screen min-h-screen grid-rows-[52px_minmax(0,1fr)] max-[760px]:h-auto max-[760px]:grid-rows-[auto_minmax(0,1fr)]">
           <header
-            class="z-10 grid grid-cols-[220px_1fr_auto] items-center gap-4 bg-[var(--header-background)] px-4 backdrop-blur-[18px] max-[760px]:min-h-[52px] max-[760px]:grid-cols-[1fr_auto] max-[760px]:gap-2 max-[760px]:px-2 max-[760px]:py-2"
+            class="z-10 grid grid-cols-[minmax(220px,max-content)_minmax(0,1fr)_auto] items-center gap-4 bg-[var(--header-background)] px-4 backdrop-blur-[18px] max-[760px]:min-h-[52px] max-[760px]:grid-cols-[1fr_auto] max-[760px]:gap-2 max-[760px]:px-2 max-[760px]:py-2"
             inert={navigation.sessionDrawer.isSessionDrawerOpen()}
           >
             <div class="flex items-center gap-2">
@@ -57,16 +54,19 @@ export function App(props: {
               </A>
               <Show when={navigation.workspaceActions.isAvailable()}>
                 <div class="flex items-center gap-0.5">
-                  <ButtonIconOnly
-                    icon={mdiPlus}
+                  <ButtonIcon
+                    icon={applicationIcon.sessionCreate}
                     iconClass="size-4 fill-current dark:fill-current"
-                    variant={buttonVariant.ghost}
+                    size={buttonSize.sm}
+                    variant={buttonVariant.contrast}
                     title="New session"
                     aria-label="New session"
                     onClick={navigation.workspaceActions.sessionNew}
-                  />
+                  >
+                    New session
+                  </ButtonIcon>
                   <ButtonIconOnly
-                    icon={mdiFolderOutline}
+                    icon={applicationIcon.projectCreate}
                     iconClass="size-4 fill-current dark:fill-current"
                     variant={buttonVariant.ghost}
                     title="New project"
@@ -74,7 +74,7 @@ export function App(props: {
                     onClick={navigation.workspaceActions.projectCreateOpen}
                   />
                   <ButtonIconOnly
-                    icon={mdiFolderPlusOutline}
+                    icon={applicationIcon.folderCreate}
                     iconClass="size-4 fill-current dark:fill-current"
                     variant={buttonVariant.ghost}
                     title="New folder"
@@ -123,14 +123,14 @@ export function App(props: {
                 title="Settings"
                 aria-label="Settings"
               >
-                <Icon path={mdiCogOutline} class="size-4 fill-current dark:fill-current" />
+                <Icon path={applicationIcon.settings} class="size-4 fill-current dark:fill-current" />
               </A>
               <ConnectionStatusIndicator state={props.state.connection} />
               <PwaStatusActions placement="shell" state={props.state.pwa} />
               <Show when={props.applicationShell?.rightPanelAvailable() ? props.applicationShell : undefined}>
                 {(shell) => (
                   <ButtonIconOnly
-                    icon={mdiDockRight}
+                    icon={applicationIcon.rightPanel}
                     variant={buttonVariant.ghost}
                     classList={{ "bg-surface-hover text-foreground": shell().rightPanelOpen() }}
                     title={shell().rightPanelOpen() ? "Close right panel" : "Open right panel"}

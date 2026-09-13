@@ -1,4 +1,3 @@
-import { mdiFolderPlusOutline } from "@adaptive-ds/mdi/mdiFolderPlusOutline.js"
 import Popover from "@corvu/popover"
 import { For } from "solid-js"
 import { Input } from "#ui/input/input/Input.jsx"
@@ -7,6 +6,7 @@ import { classesButtonClickAnimation } from "#ui/interactive/button/classesButto
 import { classesPopoverContentMerge } from "#ui/interactive/popover/classesPopoverContent.js"
 import { Icon } from "#ui/static/icon/Icon.jsx"
 import { ProjectAvatar } from "../project/ui/ProjectAvatar.js"
+import { applicationIcon } from "./applicationIcon.js"
 import { projectFolderIconSelect } from "../project/ui/projectFolderIconSelect.js"
 import { sessionProjectPopoverStateCreate } from "./sessionProjectPopoverStateCreate.js"
 import type { SessionResourceSelectorView } from "./sessionResourceSelectorView.js"
@@ -103,7 +103,7 @@ export function SessionProjectPopover(props: {
             type="button"
             onClick={state.newProjectStart}
           >
-            <Icon path={mdiFolderPlusOutline} class="size-4 shrink-0" />
+            <Icon path={applicationIcon.projectCreate} class="size-4 shrink-0" />
             <span class="truncate">New Project</span>
           </button>
         </Popover.Content>

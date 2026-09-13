@@ -1,8 +1,8 @@
-import { mdiTextBoxOutline } from "@adaptive-ds/mdi/mdiTextBoxOutline.js"
 import { For, Show } from "solid-js"
 import { Textarea } from "#ui/input/textarea/Textarea.jsx"
 import { buttonVariant } from "#ui/interactive/button/buttonCva.js"
 import { CorvuPopover } from "#ui/interactive/popover/CorvuPopover.jsx"
+import { applicationIcon } from "./applicationIcon.js"
 import { sessionCreationContextPopoverStateCreate } from "./sessionCreationContextPopoverStateCreate.js"
 import type { SessionResourceSelectorView } from "./sessionResourceSelectorView.js"
 
@@ -17,7 +17,7 @@ export function SessionCreationContextPopover(props: { idPrefix?: string; state:
 
   return (
     <CorvuPopover
-      icon={mdiTextBoxOutline}
+      icon={applicationIcon.promptContext}
       buttonChildren={<span class="text-xs">Prompt and context</span>}
       variant={buttonVariant.outline}
       class="!w-full !justify-start !px-2 !py-1 !text-xs"

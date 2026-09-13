@@ -1,10 +1,10 @@
-import { mdiFolderPlusOutline } from "@adaptive-ds/mdi/mdiFolderPlusOutline.js"
 import { type JSX } from "solid-js"
 import { buttonVariant } from "#ui/interactive/button/buttonCva.js"
 import { CorvuDialog } from "#ui/interactive/dialog/CorvuDialog.jsx"
 import type { ProjectRegistryApiProject } from "../project/api/projectRegistryApiProjectSchema.js"
 import type { ProjectRegistryState } from "../project/ui/projectRegistryState.js"
 import type { ActiveProjectState } from "./activeProjectStateCreate.js"
+import { applicationIcon } from "./applicationIcon.js"
 import { NewProjectForm } from "./NewProjectForm.js"
 import { newProjectDialogStateCreate } from "./newProjectDialogStateCreate.js"
 
@@ -32,7 +32,7 @@ export function NewProjectDialog(props: {
       description="Select an existing folder. Codeline will not create a directory."
       buttonChildren={props.buttonChildren ?? "New Project"}
       class={props.buttonClass ?? "h-8 w-full justify-start px-2 text-xs font-normal text-faint"}
-      icon={mdiFolderPlusOutline}
+      icon={applicationIcon.projectCreate}
       iconClass="size-4"
       innerClass="w-[min(92vw,36rem)]"
       open={state.open()}

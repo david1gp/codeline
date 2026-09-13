@@ -1,8 +1,8 @@
-import { mdiDotsHorizontal } from "@adaptive-ds/mdi/mdiDotsHorizontal.js"
 import { Show } from "solid-js"
 import { Button } from "#ui/interactive/button/Button.jsx"
 import { buttonVariant } from "#ui/interactive/button/buttonCva.js"
 import { CorvuPopoverIcon } from "#ui/interactive/popover/CorvuPopoverIcon.jsx"
+import { applicationIcon } from "./applicationIcon.js"
 
 export function SessionSidebarMenu(props: {
   ariaLabel: string
@@ -14,7 +14,7 @@ export function SessionSidebarMenu(props: {
   return (
     <CorvuPopoverIcon
       class="size-6 shrink-0 rounded-md text-faint hover:bg-surface-hover hover:text-strong"
-      icon={mdiDotsHorizontal}
+      icon={applicationIcon.more}
       iconClass="size-3.5 fill-current text-faint dark:fill-current"
       title={props.ariaLabel}
       aria-label={props.ariaLabel}

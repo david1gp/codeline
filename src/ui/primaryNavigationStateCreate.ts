@@ -1,9 +1,7 @@
-import { mdiFolderOutline } from "@adaptive-ds/mdi/mdiFolderOutline.js"
-import { mdiHistory } from "@adaptive-ds/mdi/mdiHistory.js"
-import { mdiNoteTextOutline } from "@adaptive-ds/mdi/mdiNoteTextOutline.js"
 import { useLocation } from "@solidjs/router"
 import { useContext } from "solid-js"
 import { urlNotes } from "../note/note_url/urlNote.js"
+import { applicationIcon } from "./applicationIcon.js"
 import { pageRouteFiles } from "./files_url/pageRouteFiles.js"
 import { urlFiles } from "./files_url/urlFiles.js"
 import { primaryNavigationPathIsActive } from "./primaryNavigationPathIsActive.js"
@@ -49,7 +47,7 @@ export function primaryNavigationStateCreate() {
         description: "Resume recent, pinned, project, and searched coding sessions.",
         expanded: sessionDrawer.isSessionDrawerOpen,
         href: () => sessionSidebarDestinationResolve(href()),
-        icon: mdiHistory,
+        icon: applicationIcon.history,
         isActive: sessionsIsActive,
         label: "Sessions",
       },
@@ -59,7 +57,7 @@ export function primaryNavigationStateCreate() {
         description: "Browse and inspect files in your connected repositories.",
         expanded: undefined,
         href: urlFiles,
-        icon: mdiFolderOutline,
+        icon: applicationIcon.folder,
         isActive: () => primaryNavigationPathIsActive(pathname(), pageRouteFiles.files),
         label: "Explorer",
       },
@@ -69,7 +67,7 @@ export function primaryNavigationStateCreate() {
         description: "Capture and revisit notes alongside your coding work.",
         expanded: undefined,
         href: urlNotes,
-        icon: mdiNoteTextOutline,
+        icon: applicationIcon.note,
         isActive: () => primaryNavigationPathIsActive(pathname(), urlNotes()),
         label: "Notes",
       },

@@ -1,6 +1,6 @@
-import { mdiDockRight } from "@adaptive-ds/mdi/mdiDockRight.js"
 import { Show } from "solid-js"
 import { ButtonIconOnly } from "#ui/interactive/button/ButtonIconOnly.jsx"
+import { applicationIcon } from "./applicationIcon.js"
 import { ChildSessionConversation } from "./ChildSessionConversation.js"
 import { SessionStreamEntryList } from "./SessionStreamEntryList.js"
 import type { SelectedSessionView } from "./selectedSessionView.js"
@@ -15,7 +15,7 @@ export function SubagentThreadPanel(props: { state: SelectedSessionView }) {
         <span class="min-w-0 flex-1 truncate px-3 text-xs font-medium text-[var(--foreground)]">Subagent thread</span>
         <ButtonIconOnly
           class="h-full w-9 shrink-0 rounded-none border-[var(--border)] border-y-0 border-r-0 border-l bg-[var(--surface-hover)] p-0 text-[var(--foreground)] hover:text-[var(--accent)]"
-          icon={mdiDockRight}
+          icon={applicationIcon.rightPanel}
           iconClass="size-4 fill-current dark:fill-current"
           variant="none"
           aria-label="Close subagent thread panel"

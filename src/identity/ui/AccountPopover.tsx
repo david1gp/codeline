@@ -1,9 +1,8 @@
-import { mdiAccountCircleOutline } from "@adaptive-ds/mdi/mdiAccountCircleOutline.js"
-import { mdiLogout } from "@adaptive-ds/mdi/mdiLogout.js"
 import { Button } from "#ui/interactive/button/Button.jsx"
 import { buttonSize, buttonVariant } from "#ui/interactive/button/buttonCva.js"
 import { CorvuPopoverIcon } from "#ui/interactive/popover/CorvuPopoverIcon.jsx"
 import { Icon } from "#ui/static/icon/Icon.jsx"
+import { applicationIcon } from "../../ui/applicationIcon.js"
 import { accountPopoverStateCreate } from "./accountPopoverStateCreate.js"
 import type { AuthShellView } from "./authShellView.js"
 
@@ -12,7 +11,7 @@ export function AccountPopover(props: { auth: AuthShellView }) {
 
   return (
     <CorvuPopoverIcon
-      icon={mdiAccountCircleOutline}
+      icon={applicationIcon.account}
       title="Account"
       aria-label="Account"
       variant={buttonVariant.ghost}
@@ -32,7 +31,7 @@ export function AccountPopover(props: { auth: AuthShellView }) {
           disabled={props.auth.busy()}
           onClick={state.logout}
         >
-          <Icon path={mdiLogout} class="size-4 fill-current dark:fill-current" />
+          <Icon path={applicationIcon.signOut} class="size-4 fill-current dark:fill-current" />
           {props.auth.busy() ? "Signing out…" : "Sign out"}
         </Button>
       </div>

@@ -1,6 +1,5 @@
-import { mdiFormatListBulleted } from "@adaptive-ds/mdi/mdiFormatListBulleted.js"
-import { mdiMessageTextOutline } from "@adaptive-ds/mdi/mdiMessageTextOutline.js"
 import { ButtonIconOnly } from "#ui/interactive/button/ButtonIconOnly.jsx"
+import { applicationIcon } from "./applicationIcon.js"
 import type { sessionDisplayModeStateCreate } from "./sessionDisplayModeStateCreate.js"
 
 export function SessionDisplayModeSwitcher(props: { state: ReturnType<typeof sessionDisplayModeStateCreate> }) {
@@ -9,7 +8,7 @@ export function SessionDisplayModeSwitcher(props: { state: ReturnType<typeof ses
       <legend class="sr-only">Session display mode</legend>
       <ButtonIconOnly
         class="size-7 text-faint hover:bg-surface-hover hover:text-accent aria-pressed:bg-line-subtle aria-pressed:text-accent"
-        icon={mdiMessageTextOutline}
+        icon={applicationIcon.conversationView}
         iconClass="size-4"
         title="Conversation view"
         aria-label="Conversation view"
@@ -18,7 +17,7 @@ export function SessionDisplayModeSwitcher(props: { state: ReturnType<typeof ses
       />
       <ButtonIconOnly
         class="size-7 text-faint hover:bg-surface-hover hover:text-accent aria-pressed:bg-line-subtle aria-pressed:text-accent"
-        icon={mdiFormatListBulleted}
+        icon={applicationIcon.streamView}
         iconClass="size-4"
         title="Stream view"
         aria-label="Stream view"

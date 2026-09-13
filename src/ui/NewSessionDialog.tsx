@@ -1,10 +1,10 @@
-import { mdiPlus } from "@adaptive-ds/mdi/mdiPlus.js"
 import { For, Show } from "solid-js"
 import { Button } from "#ui/interactive/button/Button.jsx"
 import { buttonVariant } from "#ui/interactive/button/buttonCva.js"
 import { CorvuDialog } from "#ui/interactive/dialog/CorvuDialog.jsx"
 import type { ProjectRegistryState } from "../project/ui/projectRegistryState.js"
 import type { ActiveProjectState } from "./activeProjectStateCreate.js"
+import { applicationIcon } from "./applicationIcon.js"
 import { NewProjectForm } from "./NewProjectForm.js"
 import { newProjectDialogStateCreate } from "./newProjectDialogStateCreate.js"
 import { newSessionDialogStateCreate } from "./newSessionDialogStateCreate.js"
@@ -44,7 +44,7 @@ export function NewSessionDialog(props: {
       buttonChildren="New Session"
       class="h-9 w-full justify-center"
       disabled={!state.canCreateSession()}
-      icon={mdiPlus}
+      icon={applicationIcon.sessionCreate}
       iconClass="size-4"
       innerClass="w-[min(92vw,28rem)]"
       open={state.open()}

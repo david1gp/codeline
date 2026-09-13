@@ -1,11 +1,10 @@
-import { mdiPinOffOutline } from "@adaptive-ds/mdi/mdiPinOffOutline.js"
-import { mdiPinOutline } from "@adaptive-ds/mdi/mdiPinOutline.js"
 import { Match, Show, Switch } from "solid-js"
 import { ButtonIconOnly } from "#ui/interactive/button/ButtonIconOnly.jsx"
 import { Details } from "#ui/interactive/details/Details.jsx"
 import type { providerModelSelectorStateCreate } from "../providers/ui/providerModelSelectorStateCreate.js"
 import { SessionRenameControl } from "../session/ui/SessionRenameControl.js"
 import type { ActiveProjectState } from "./activeProjectStateCreate.js"
+import { applicationIcon } from "./applicationIcon.js"
 import type { applicationShellStateCreate } from "./applicationShellStateCreate.js"
 import { SessionCapturedContextInspector } from "./SessionCapturedContextInspector.js"
 import { SessionChat } from "./SessionChat.js"
@@ -116,7 +115,7 @@ export function SelectedSession(props: {
                           {(pin) => (
                             <ButtonIconOnly
                               class="size-8 text-faint hover:bg-surface-hover hover:text-accent"
-                              icon={pin().pinned() ? mdiPinOutline : mdiPinOffOutline}
+                              icon={pin().pinned() ? applicationIcon.pin : applicationIcon.pinOff}
                               iconClass="size-4"
                               isLoading={pin().isSaving()}
                               title={pin().pinned() ? "Unpin session" : "Pin session"}

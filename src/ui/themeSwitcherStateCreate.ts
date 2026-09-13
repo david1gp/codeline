@@ -1,9 +1,7 @@
-import { mdiBrightnessAuto } from "@adaptive-ds/mdi/mdiBrightnessAuto.js"
-import { mdiWeatherNight } from "@adaptive-ds/mdi/mdiWeatherNight.js"
-import { mdiWhiteBalanceSunny } from "@adaptive-ds/mdi/mdiWhiteBalanceSunny.js"
 import { createSignalObject } from "@adaptive-ds/solid-ui/utils/createSignalObject"
 import { onCleanup, onMount } from "solid-js"
 import * as v from "valibot"
+import { applicationIcon } from "./applicationIcon.js"
 
 export const themeVariant = {
   light: "light",
@@ -19,19 +17,19 @@ export const themeLocalStorageKey = "theme"
 export const themeOptions = [
   {
     description: "Always use a light appearance.",
-    icon: mdiWhiteBalanceSunny,
+    icon: applicationIcon.themeLight,
     label: "Light",
     value: themeVariant.light,
   },
   {
     description: "Always use a dark appearance.",
-    icon: mdiWeatherNight,
+    icon: applicationIcon.themeDark,
     label: "Dark",
     value: themeVariant.dark,
   },
   {
     description: "Follow your operating system preference.",
-    icon: mdiBrightnessAuto,
+    icon: applicationIcon.themeAuto,
     label: "System",
     value: themeVariant.os,
   },
@@ -53,11 +51,11 @@ export function nextTheme3(current: string | undefined): ThemeVariant {
 export function themeIcon(t: string | undefined): string {
   switch (t) {
     case themeVariant.light:
-      return mdiWhiteBalanceSunny
+      return applicationIcon.themeLight
     case themeVariant.dark:
-      return mdiWeatherNight
+      return applicationIcon.themeDark
     default:
-      return mdiBrightnessAuto
+      return applicationIcon.themeAuto
   }
 }
 
