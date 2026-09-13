@@ -85,6 +85,15 @@ test("PWA installation is Settings-only while update reload remains in the shell
   expect(pwaActionsSource).toContain("props.state.reloadForUpdate")
 })
 
+test("workspace actions keep the prominent session action and centralized project icon", async () => {
+  const appSource = await Bun.file(new URL("../src/ui/App.tsx", import.meta.url)).text()
+
+  expect(appSource).toContain("<ButtonIcon")
+  expect(appSource).toContain("variant={buttonVariant.contrast}")
+  expect(appSource).toContain("New session\n                  </ButtonIcon>")
+  expect(appSource).toContain("icon={applicationIcon.projectCreate}")
+  expect(appSource).toContain("grid-cols-[minmax(220px,max-content)_minmax(0,1fr)_auto]")
+})
 
 test("right-side header controls share the ghost utility-button treatment", async () => {
   const appSource = await Bun.file(new URL("../src/ui/App.tsx", import.meta.url)).text()
