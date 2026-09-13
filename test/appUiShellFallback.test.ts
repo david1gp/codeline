@@ -25,6 +25,7 @@ test("known application, demo, and simulation paths resolve to the UI shell", as
     "/demo/screens/conversation/",
     "/demo/screens/written-files",
     "/demo/components",
+    "/demo/config",
     "/demo/chatarea",
     "/demo/screens/workspace-screen",
     "/demo/screens/session-completed",
@@ -47,6 +48,7 @@ test("known-route resolution rejects unknown paths and malformed parameter paths
   expect(appKnownRouteResolve("/unknown")).toBe(false)
   expect(appKnownRouteResolve("/demo/unknown")).toBe(false)
   expect(appKnownRouteResolve("/demo/chatarea")).toBe(true)
+  expect(appKnownRouteResolve("/demo/config")).toBe(true)
   expect(appKnownRouteResolve("/demo/screens/note-workspace-screen")).toBe(true)
   expect(appKnownRouteResolve("/demo/screens/session-completed")).toBe(true)
   expect(appKnownRouteResolve("/demo/screens/session-generating")).toBe(true)

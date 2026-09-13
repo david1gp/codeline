@@ -21,7 +21,7 @@ const applicationRoutePaths = [
   pageRouteWorkspace.sessions,
   pageRouteSettings.settings,
 ] as const
-const demoSectionPaths = [urlDemoSection("components"), urlDemoSection("screens")] as const
+const demoSectionPaths = [urlDemoSection("components"), urlDemoSection("screens"), urlDemoSection("config")] as const
 const noteViewPrefix = pageRouteNote.noteView.replace(":noteId", "")
 const demoPathPrefix = `${pageRouteDemo.demo}/`
 
