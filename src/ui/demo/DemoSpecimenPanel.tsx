@@ -21,6 +21,7 @@ import { SessionTargetSelector } from "../SessionTargetSelector.js"
 import { ThemeSwitcher } from "../ThemeSwitcher.js"
 import { WorkspacePage } from "../WorkspacePage.js"
 import { ChatAreaDemo } from "./ChatAreaDemo.js"
+import { NewSessionDialogDemo } from "./NewSessionDialogDemo.js"
 import type { DemoSpecimen } from "./demoSpecimen.js"
 import type { demoSpecimenStateCreate } from "./demoSpecimenStateCreate.js"
 
@@ -32,6 +33,9 @@ export function DemoSpecimenPanel(props: {
     <Switch>
       <Match when={props.specimen.slug === "chatarea"}>
         <ChatAreaDemo state={props.state.chatArea} />
+      </Match>
+      <Match when={props.specimen.slug === "new-session-dialog"}>
+        <NewSessionDialogDemo state={props.state.newSessionDialog} />
       </Match>
       <Match when={props.specimen.slug === "workspace-screen"}>
         <WorkspacePage state={props.state.workspace} />

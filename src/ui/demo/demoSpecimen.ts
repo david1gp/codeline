@@ -13,6 +13,7 @@ export interface DemoSpecimen {
     | "note-back-link"
     | "note-screen"
     | "new-note-screen"
+    | "new-session-dialog"
     | "note-content-field"
     | "note-view-mode-switcher"
     | "note-workspace-screen"

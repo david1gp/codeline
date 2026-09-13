@@ -3,6 +3,7 @@ import { demoChatAreaStateCreate } from "./demoChatAreaStateCreate.js"
 import { demoFilesScreenStateCreate } from "./demoFilesScreenStateCreate.js"
 import { demoFinalizedMessageStateCreate } from "./demoFinalizedMessageStateCreate.js"
 import { demoNewNoteScreenStateCreate } from "./demoNewNoteScreenStateCreate.js"
+import { demoNewSessionDialogStateCreate } from "./demoNewSessionDialogStateCreate.js"
 import { demoNoteScreenStateCreate } from "./demoNoteScreenStateCreate.js"
 import { demoNotesScreenStateCreate } from "./demoNotesScreenStateCreate.js"
 import { demoNoteWorkspaceScreenStateCreate } from "./demoNoteWorkspaceScreenStateCreate.js"
@@ -20,6 +21,7 @@ export function demoSpecimenStateCreate(variant: () => DemoSessionScreenVariant)
     chatArea: demoChatAreaStateCreate(),
     files,
     newNote,
+    newSessionDialog: demoNewSessionDialogStateCreate(),
     projectBrowser,
     appShell: demoAppShellStateCreate(variant),
     finalizedMessages: demoFinalizedMessageStateCreate(variant),

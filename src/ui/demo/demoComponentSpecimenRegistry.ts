@@ -1,5 +1,6 @@
 import { urlDemoItem } from "../demo_url/urlDemo.js"
 import { urlDemoChatArea } from "../demo_url/urlDemoChatArea.js"
+import { urlDemoNewSessionDialog } from "../demo_url/urlDemoNewSessionDialog.js"
 import type { DemoSpecimen } from "./demoSpecimen.js"
 
 export const demoComponentSpecimenRegistry = [
@@ -8,6 +9,13 @@ export const demoComponentSpecimenRegistry = [
     href: urlDemoChatArea(),
     label: "Chat area",
     slug: "chatarea",
+    variants: ["ready"],
+  },
+  {
+    description: "Searchable project selection with keyboard navigation, unavailable entries, and empty results.",
+    href: urlDemoNewSessionDialog(),
+    label: "New session dialog",
+    slug: "new-session-dialog",
     variants: ["ready"],
   },
   {
