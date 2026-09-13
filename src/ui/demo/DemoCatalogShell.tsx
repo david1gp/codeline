@@ -31,7 +31,10 @@ export function DemoCatalogShell(props: { state: ReturnType<typeof demoAppStateC
         </nav>
       </header>
 
-      <div class="grid h-full min-h-0 grid-cols-[260px_minmax(0,1fr)] max-[760px]:h-[calc(100dvh-48px)] max-[760px]:grid-cols-1">
+      <div
+        class="demo-catalog-layout grid h-full min-h-0 max-[760px]:h-[calc(100dvh-48px)] max-[760px]:grid-cols-1"
+        style={{ "--demo-catalog-sidebar-width": `${props.state.sidebar.width()}px` }}
+      >
         <aside
           class="flex min-h-0 flex-col border-line border-r bg-surface max-[760px]:hidden"
           aria-label="Demo catalog directory"
@@ -58,8 +61,12 @@ export function DemoCatalogShell(props: { state: ReturnType<typeof demoAppStateC
                   <For each={section.items}>
                     {(item) => (
                       <A
-                        class="block rounded-md px-2 py-2 text-xs text-faint no-underline hover:bg-surface-hover hover:text-foreground"
-                        classList={{ "bg-accent-soft text-accent": props.state.activeSlug() === item.slug }}
+                        class="block rounded-md border border-transparent px-2.5 py-2 text-sm no-underline transition-colors hover:border-line hover:bg-surface-hover hover:text-foreground focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-border"
+                        classList={{
+                          "border-accent-border bg-accent-soft font-medium text-foreground":
+                            props.state.activeSlug() === item.slug,
+                          "text-subtle": props.state.activeSlug() !== item.slug,
+                        }}
                         href={item.href}
                         aria-current={props.state.activeSlug() === item.slug ? "page" : undefined}
                       >
@@ -75,6 +82,22 @@ export function DemoCatalogShell(props: { state: ReturnType<typeof demoAppStateC
             Fixtures only · no providers
           </p>
         </aside>
+        <hr
+          class="application-shell-resize-handle demo-catalog-sidebar-resize-handle"
+          classList={{ "is-resizing": props.state.sidebar.isResizing() }}
+          tabIndex={0}
+          aria-label="Resize demo catalog sidebar"
+          aria-orientation="vertical"
+          aria-valuemin={props.state.sidebar.minimumWidth()}
+          aria-valuemax={props.state.sidebar.maximumWidth()}
+          aria-valuenow={props.state.sidebar.width()}
+          onKeyDown={props.state.sidebar.resizeKeyDown}
+          onPointerCancel={props.state.sidebar.resizeCancel}
+          onPointerDown={props.state.sidebar.resizeStart}
+          onLostPointerCapture={props.state.sidebar.resizeEnd}
+          onPointerMove={props.state.sidebar.resizeMove}
+          onPointerUp={props.state.sidebar.resizeEnd}
+        />
 
         <section class="min-h-0 min-w-0 overflow-hidden">
           <Switch

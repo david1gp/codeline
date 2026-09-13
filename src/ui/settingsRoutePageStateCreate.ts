@@ -4,6 +4,7 @@ import * as v from "valibot"
 import { appShellContext } from "./appShellContext.js"
 import { configurationEditorStateCreate } from "./configuration/configurationEditorStateCreate.js"
 import { pwaStatusContext } from "./pwa/pwaStatusContext.js"
+import { resizableSidebarStateCreate } from "./resizableSidebarStateCreate.js"
 import { settingsSectionSchema } from "./settingsSectionSchema.js"
 
 export function settingsRoutePageStateCreate() {
@@ -12,6 +13,12 @@ export function settingsRoutePageStateCreate() {
   const subagents = configurationEditorStateCreate("subagents", "codeline-config-subagents")
   const skills = configurationEditorStateCreate("skills", "codeline-config-skills")
   const commands = configurationEditorStateCreate("commands", "codeline-config-commands")
+  const sidebar = resizableSidebarStateCreate({
+    defaultWidth: 240,
+    maximumWidth: 360,
+    minimumWidth: 184,
+    storageKey: "codeline-settings-sidebar-width",
+  })
   const activeSection = () => {
     const parsed = v.safeParse(settingsSectionSchema, searchParams.section)
     return parsed.success ? parsed.output : "general"
@@ -30,6 +37,7 @@ export function settingsRoutePageStateCreate() {
     connection: appShell?.connection,
     projectRegistry: appShell?.projectRegistry,
     pwa: useContext(pwaStatusContext),
+    sidebar,
     theme: appShell?.theme,
   }
 }

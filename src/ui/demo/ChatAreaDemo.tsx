@@ -6,7 +6,7 @@ import type { demoChatAreaStateCreate } from "./demoChatAreaStateCreate.js"
 export function ChatAreaDemo(props: { state: ReturnType<typeof demoChatAreaStateCreate> }) {
   return (
     <section
-      class="flex h-[calc(100dvh-48px)] min-h-[560px] flex-col overflow-hidden bg-[radial-gradient(circle_at_50%_-20%,var(--accent-soft),transparent_46%)] max-[760px]:h-[calc(100dvh-92px)]"
+      class="flex h-[calc(100dvh-48px)] min-h-0 flex-col overflow-hidden bg-[radial-gradient(circle_at_50%_-20%,var(--accent-soft),transparent_46%)] max-[760px]:h-[calc(100dvh-92px)]"
       aria-label="Chat area demo"
     >
       <header class="flex h-14 shrink-0 items-center gap-3 border-line border-b bg-surface/85 px-5 backdrop-blur-xl max-[640px]:px-4">

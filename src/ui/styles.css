@@ -279,6 +279,30 @@
     background: color-mix(in srgb, var(--muted-foreground) 70%, var(--border));
   }
 
+  .settings-layout {
+    position: relative;
+    grid-template-columns: var(--settings-sidebar-width, 240px) minmax(0, 1fr);
+  }
+
+  .demo-catalog-layout {
+    position: relative;
+    grid-template-columns: var(--demo-catalog-sidebar-width, 260px) minmax(0, 1fr);
+  }
+
+  .settings-sidebar-resize-handle,
+  .demo-catalog-sidebar-resize-handle {
+    position: absolute;
+    inset-block: 0;
+  }
+
+  .settings-sidebar-resize-handle {
+    left: var(--settings-sidebar-width, 240px);
+  }
+
+  .demo-catalog-sidebar-resize-handle {
+    left: var(--demo-catalog-sidebar-width, 260px);
+  }
+
   .session-context-panel {
     width: var(--session-context-width, 320px);
     min-width: var(--session-context-width, 320px);
@@ -333,9 +357,19 @@
 }
 
 @media (max-width: 760px) {
+  .settings-layout,
+  .demo-catalog-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .application-shell {
     display: block;
     overflow: visible;
+  }
+
+  .settings-sidebar-resize-handle,
+  .demo-catalog-sidebar-resize-handle {
+    display: none;
   }
 
   .application-shell-sidebar,

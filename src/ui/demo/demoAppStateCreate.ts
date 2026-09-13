@@ -1,5 +1,6 @@
 import { useLocation, useSearchParams } from "@solidjs/router"
 import { configurationEditorStateCreate } from "../configuration/configurationEditorStateCreate.js"
+import { resizableSidebarStateCreate } from "../resizableSidebarStateCreate.js"
 import { demoCatalogRegistry } from "./demoCatalogRegistry.js"
 import { demoCatalogRouteResolve } from "./demoCatalogRouteResolve.js"
 import type { DemoScenarioFixture } from "./demoScenarioFixture.js"
@@ -18,6 +19,12 @@ export function demoAppStateCreate() {
     skills: configurationEditorStateCreate("skills", "codeline-demo-config-skills"),
     subagents: configurationEditorStateCreate("subagents", "codeline-demo-config-subagents"),
   }
+  const sidebar = resizableSidebarStateCreate({
+    defaultWidth: 260,
+    maximumWidth: 380,
+    minimumWidth: 200,
+    storageKey: "codeline-demo-catalog-sidebar-width",
+  })
   const configuration = () => {
     const resolved = route()
     return resolved.kind === "configuration" ? resolved.configuration : undefined
@@ -63,6 +70,7 @@ export function demoAppStateCreate() {
     scenario,
     sessionWorkspaceState,
     sections: demoCatalogRegistry,
+    sidebar,
     specimen,
     specimenState: demoSpecimenStateCreate(variant),
     variant,

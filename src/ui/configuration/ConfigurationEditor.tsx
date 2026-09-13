@@ -20,8 +20,8 @@ export function ConfigurationEditor(props: { state: ReturnType<typeof configurat
           Add {props.state.details.itemLabel}
         </Button>
       </header>
-      <div class="grid min-h-[430px] grid-cols-[220px_minmax(0,1fr)] overflow-hidden rounded-xl border border-line bg-surface-raised shadow-[0_8px_30px_var(--shadow-color)] max-[700px]:grid-cols-1">
-        <div class="border-line border-r bg-surface p-2 max-[700px]:border-r-0 max-[700px]:border-b">
+      <div class="grid min-h-[430px] grid-cols-[minmax(190px,220px)_minmax(0,1fr)] overflow-hidden rounded-xl border border-line bg-surface-raised shadow-[0_8px_30px_var(--shadow-color)] max-[700px]:grid-cols-1">
+        <div class="border-line border-r bg-surface-sunken p-2 max-[700px]:border-r-0 max-[700px]:border-b">
           <p class="m-0 px-2 py-1.5 text-[10px] tracking-[0.08em] text-faint uppercase">
             {props.state.entries().length} configured
           </p>
@@ -30,16 +30,15 @@ export function ConfigurationEditor(props: { state: ReturnType<typeof configurat
               {(entry) => (
                 <button
                   type="button"
-                  class="grid min-h-10 w-full gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface-hover"
+                  class="grid min-h-11 w-full gap-0.5 rounded-md border border-transparent px-2.5 py-2 text-left text-foreground transition-colors hover:border-line hover:bg-surface-hover focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-border"
                   classList={{
-                    "bg-accent-soft text-accent": props.state.selectedId() === entry.id,
-                    "text-faint": props.state.selectedId() !== entry.id,
+                    "border-accent-border bg-accent-soft": props.state.selectedId() === entry.id,
                   }}
                   aria-pressed={props.state.selectedId() === entry.id}
                   onClick={() => props.state.entrySelect(entry.id)}
                 >
-                  <span class="truncate font-medium text-xs">{entry.name}</span>
-                  <span class="truncate text-[10px] opacity-75">{entry.enabled ? "Enabled" : "Disabled"}</span>
+                  <span class="truncate font-medium text-sm">{entry.name}</span>
+                  <span class="truncate text-[11px] text-subtle">{entry.enabled ? "Enabled" : "Disabled"}</span>
                 </button>
               )}
             </For>
@@ -57,7 +56,12 @@ export function ConfigurationEditor(props: { state: ReturnType<typeof configurat
                 <label class="font-medium text-xs" for={`${props.state.section}-name`}>
                   Name
                 </label>
-                <Input id={`${props.state.section}-name`} value={entry().name} onInput={props.state.nameInput} />
+                <Input
+                  id={`${props.state.section}-name`}
+                  class="border-line bg-surface text-foreground placeholder:text-placeholder hover:border-line-strong focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent-border focus-visible:ring-offset-1 focus-visible:ring-offset-surface-raised"
+                  value={entry().name}
+                  onInput={props.state.nameInput}
+                />
               </div>
               <div class="grid gap-1.5">
                 <label class="font-medium text-xs" for={`${props.state.section}-description`}>
@@ -65,7 +69,7 @@ export function ConfigurationEditor(props: { state: ReturnType<typeof configurat
                 </label>
                 <Textarea
                   id={`${props.state.section}-description`}
-                  class="min-h-20 text-sm"
+                  class="min-h-24 resize-y border-line bg-surface text-sm text-foreground placeholder:text-placeholder hover:border-line-strong focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent-border focus-visible:ring-offset-1 focus-visible:ring-offset-surface-raised"
                   value={entry().description}
                   onInput={props.state.descriptionInput}
                 />
@@ -76,7 +80,7 @@ export function ConfigurationEditor(props: { state: ReturnType<typeof configurat
                 </label>
                 <Textarea
                   id={`${props.state.section}-content`}
-                  class="min-h-36 font-mono text-xs leading-5"
+                  class="min-h-40 resize-y border-line bg-surface font-mono text-xs leading-5 text-foreground placeholder:text-placeholder hover:border-line-strong focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent-border focus-visible:ring-offset-1 focus-visible:ring-offset-surface-raised"
                   value={entry().content}
                   onInput={props.state.contentInput}
                 />

@@ -29,10 +29,9 @@ export function SettingsSidebar(props: { activeSection: SettingsSection }) {
                 <For each={group.items}>
                   {(item) => (
                     <A
-                      class="flex h-8 items-center gap-2 rounded-md px-2 text-xs no-underline transition-colors hover:bg-surface-hover hover:text-foreground"
+                      class="flex min-h-9 items-center gap-2 rounded-md border border-transparent px-2.5 text-sm text-foreground no-underline transition-colors hover:border-line hover:bg-surface-hover focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-border"
                       classList={{
-                        "bg-accent-soft font-medium text-accent": props.activeSection === item.section,
-                        "text-faint": props.activeSection !== item.section,
+                        "border-accent-border bg-accent-soft font-medium": props.activeSection === item.section,
                       }}
                       href={urlSettings(item.section)}
                       aria-current={props.activeSection === item.section ? "page" : undefined}
