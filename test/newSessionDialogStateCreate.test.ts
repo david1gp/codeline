@@ -173,6 +173,37 @@ test("the selected project handoff does not change the active project", () => {
   expect(projectPathOverride.get()).toBe("/workspace/other")
 })
 
+test("a controlled dialog closes after project handoff without clearing its pending project", () => {
+  const [dialogOpen, setDialogOpen] = createSignal(false)
+  const activeProject = activeProjectStateCreate()
+  const projectPathOverride = signalObjectCreate<string | null>(null)
+  const newSessionStarts: number[] = []
+  const state = newSessionDialogStateCreate({
+    activeProject,
+    onOpenChange: setDialogOpen,
+    open: dialogOpen,
+    projectPathOverride,
+    projects: () => [{ projectLabel: "Other", projectPath: "/workspace/other" }],
+    sessionTarget: {
+      canCreateSession: () => true,
+      isCreatingSession: () => false,
+      sessionCreateErrorMessage: () => undefined,
+      selectedSessionId: () => null,
+      sessionCreateStart: async () => "session-id",
+      sessionCreateStatus: () => "idle" as const,
+      sessionNew: () => newSessionStarts.push(1),
+    } as unknown as SessionTargetSelectorState,
+  })
+
+  state.openChange(true)
+  state.projectChange("/workspace/other")
+  state.formSubmit({ preventDefault: () => undefined } as SubmitEvent)
+
+  expect(dialogOpen()).toBe(false)
+  expect(projectPathOverride.get()).toBe("/workspace/other")
+  expect(newSessionStarts).toHaveLength(1)
+})
+
 test("New Session lists registered projects with 0 sessions and sets projectIdOverride", () => {
   const activeProject = activeProjectStateCreate({
     id: "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc1",
@@ -242,7 +273,8 @@ test("New Session lists registered projects with 0 sessions and sets projectIdOv
   })
 
   state.openChange(true)
-  expect(state.projects()).toHaveLength(2)
+  expect(state.projects()).toHaveLength(3)
+  expect(state.projects().find((project) => project.id === "0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc3")?.disabled).toBe(true)
   expect(state.selectedProjectId()).toBe("0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc1")
 
   // Selecting available project with 0 sessions
@@ -326,7 +358,7 @@ test("New Session when active project is unavailable selects first available pro
   })
 
   state.openChange(true)
-  expect(state.projects()).toHaveLength(1)
+  expect(state.projects()).toHaveLength(2)
   expect(state.selectedProjectId()).toBe("0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc5")
   expect(projectIdOverride.get()).toBe("0198e6b5-8c2a-7b1d-9e4f-2a6c8d0e1fc5")
   expect(state.canCreateSession()).toBe(true)

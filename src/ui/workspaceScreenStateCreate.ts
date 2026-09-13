@@ -64,6 +64,7 @@ export function workspaceScreenStateCreate(
     },
   }
   const projectIdOverrideState = signalObjectCreate<string | null>(null)
+  const newSessionDialogOpenState = signalObjectCreate(false)
   const projectCreateOpenState = signalObjectCreate(false)
   const projectIdOverride: SessionProjectIdOverride = {
     get: projectIdOverrideState.get,
@@ -168,7 +169,7 @@ export function workspaceScreenStateCreate(
   const workspaceActionsUnregister = applicationNavigation?.workspaceActions.register({
     folderCreateOpen: sessionList.actions.folderCreateOpen,
     projectCreateOpen: () => projectCreateOpenState.set(true),
-    sessionNew: () => sessionTargetSelector.sessionNew?.(),
+    sessionNew: () => newSessionDialogOpenState.set(true),
   })
   if (workspaceActionsUnregister !== undefined) onCleanup(workspaceActionsUnregister)
   shell.rightPanelEnable()
@@ -184,6 +185,8 @@ export function workspaceScreenStateCreate(
     projectCreateOpenChange: projectCreateOpenState.set,
     projectPathOverride,
     projectRegistry,
+    newSessionDialogOpen: newSessionDialogOpenState.get,
+    newSessionDialogOpenChange: newSessionDialogOpenState.set,
     providerModelSelector,
     selectedSession: selectedSessionState,
     sessionList,

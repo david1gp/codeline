@@ -1,4 +1,4 @@
-import { type Accessor, useContext } from "solid-js"
+import { createEffect, type Accessor, useContext } from "solid-js"
 import type { ProjectRegistryApiProject } from "../project/api/projectRegistryApiProjectSchema.js"
 import type { ProjectRegistryState } from "../project/ui/projectRegistryState.js"
 import { appShellContext } from "./appShellContext.js"
@@ -20,13 +20,20 @@ export type NewSessionProject =
 
 type NewSessionProjectItem = {
   available: boolean
+  description?: string
+  disabled?: boolean
+  disabledReason?: string
+  faviconUrl?: string | null
   id: string
+  keywords?: readonly string[]
   label: string
   path?: string
 }
 
 type NewSessionDialogStateOptions = {
   activeProject: ActiveProjectState
+  onOpenChange?: (open: boolean) => void
+  open?: Accessor<boolean>
   projectIdOverride?: SessionProjectIdOverride
   projectPathOverride: SessionProjectPathOverride
   projectRegistry?: ProjectRegistryState
@@ -47,7 +54,20 @@ function projectItemNormalize(item: NewSessionProject): NewSessionProjectItem {
         : id
   const available = "available" in item && typeof item.available === "boolean" ? item.available : true
   const path = "projectPath" in item && typeof item.projectPath === "string" ? item.projectPath : undefined
-  return { available, id, label, path }
+  const parentPath = "parentFolder" in item ? item.parentFolder?.label : undefined
+  const displayPath = path ?? (parentPath ? `${parentPath.replace(/\/$/, "")}/${label}` : label)
+  const faviconUrl = "faviconUrl" in item ? item.faviconUrl : undefined
+  return {
+    available,
+    description: displayPath,
+    disabled: !available,
+    disabledReason: available ? undefined : "Unavailable",
+    faviconUrl,
+    id,
+    keywords: parentPath ? [parentPath] : undefined,
+    label,
+    path,
+  }
 }
 
 export function newSessionDialogStateCreate(options: NewSessionDialogStateOptions) {
@@ -57,22 +77,27 @@ export function newSessionDialogStateCreate(options: NewSessionDialogStateOption
   const newProjectOpen = signalObjectCreate(false)
   const newProjectSelected = signalObjectCreate(false)
   const selectedProjectOverrideId = signalObjectCreate<string | null>(null)
+  let externalOpen: boolean | undefined
 
   const projects = (): readonly NewSessionProjectItem[] => {
     const raw: readonly NewSessionProject[] = projectRegistry
-      ? projectRegistry.availableProjects()
+      ? projectRegistry.projects()
       : options.projects
-        ? options.projects().filter((project) => ("available" in project ? project.available !== false : true))
+        ? options.projects()
         : []
-    const normalized = raw.map(projectItemNormalize).filter((project) => project.available)
+    const normalized = raw.map(projectItemNormalize)
     const current = options.activeProject.project()
     const activeItem: NewSessionProjectItem = {
       available: true,
+      description: current.path,
       id: current.id ?? current.path,
       label: current.label,
       path: current.path,
     }
-    const all: readonly NewSessionProjectItem[] = projectRegistry ? normalized : [activeItem, ...normalized]
+    const normalizedActive = normalized.find((project) => project.id === activeItem.id || project.path === current.path)
+    const all: readonly NewSessionProjectItem[] = projectRegistry
+      ? normalized
+      : [normalizedActive ?? activeItem, ...normalized]
     const seen = new Set<string>()
     return all.filter((project) => {
       if (project.id.length === 0 || seen.has(project.id)) return false
@@ -115,8 +140,9 @@ export function newSessionDialogStateCreate(options: NewSessionDialogStateOption
     return options.projectPathOverride.get() ?? options.activeProject.project().path
   }
 
-  const openChange = (nextOpen: boolean) => {
+  const openChange = (nextOpen: boolean, notifyExternal = true) => {
     open.set(nextOpen)
+    if (notifyExternal) options.onOpenChange?.(nextOpen)
     if (nextOpen) {
       newProjectSelected.set(false)
       selectedProjectOverrideId.set(null)
@@ -148,6 +174,14 @@ export function newSessionDialogStateCreate(options: NewSessionDialogStateOption
     }
   }
 
+  createEffect(() => {
+    const nextOpen = options.open?.()
+    if (nextOpen === undefined || nextOpen === externalOpen) return
+    externalOpen = nextOpen
+    if (nextOpen) openChange(true, false)
+    else open.set(false)
+  })
+
   // The project form is shown inside the same dialog, so only one modal is ever
   // open and the nested overlays cannot dismiss each other.
   const newProjectStart = () => newProjectOpen.set(true)
@@ -177,6 +211,7 @@ export function newSessionDialogStateCreate(options: NewSessionDialogStateOption
     options.projectIdOverride?.set(match.id)
     options.projectPathOverride.set(match.path ?? null)
     open.set(false)
+    options.onOpenChange?.(false)
     options.sessionTarget.sessionNew?.()
   }
 
@@ -210,7 +245,7 @@ export function newSessionDialogStateCreate(options: NewSessionDialogStateOption
       if (selectedProjectId() === newProjectOptionValue) return "New Project"
       return "Use project"
     },
-    open: open.get,
+    open: options.open ?? open.get,
     openChange,
     projectChange,
     projectSelectionConfirm,
@@ -225,6 +260,15 @@ export function newSessionDialogStateCreate(options: NewSessionDialogStateOption
       }
       projectChange(projectPath)
     },
+    pickerItems: () => [
+      ...projects(),
+      {
+        available: true,
+        description: "Register an existing folder",
+        id: newProjectOptionValue,
+        label: "New Project",
+      },
+    ],
     projects,
     selectedProjectId,
     selectedProjectPath,

@@ -5,13 +5,18 @@ const state = await Bun.file(new URL("../src/ui/newSessionDialogStateCreate.ts",
 const sidebar = await Bun.file(new URL("../src/ui/SessionSidebar.tsx", import.meta.url)).text()
 const app = await Bun.file(new URL("../src/ui/App.tsx", import.meta.url)).text()
 const navigation = await Bun.file(new URL("../src/ui/primaryNavigationStateCreate.ts", import.meta.url)).text()
+const workspace = await Bun.file(new URL("../src/ui/workspaceScreenStateCreate.ts", import.meta.url)).text()
+const route = await Bun.file(new URL("../src/ui/WorkspaceRoutePage.tsx", import.meta.url)).text()
 
-test("New Session navigates directly instead of opening the project dialog", () => {
+test("New Session opens the production project dialog through workspace registration", () => {
   expect(sidebar).not.toContain("NewSessionDialog")
   expect(sidebar).not.toContain("CorvuDialog")
   expect(app).toContain('aria-label="New session"')
   expect(app).toContain("onClick={navigation.workspaceActions.sessionNew}")
   expect(navigation).toContain("sessionNew: () => workspaceActions.get()?.sessionNew()")
+  expect(workspace).toContain("sessionNew: () => newSessionDialogOpenState.set(true)")
+  expect(route).toContain('from "./NewSessionDialog.js"')
+  expect(route).toContain('buttonClass="hidden"')
 })
 
 test("the existing-project dialog action hands off to the no-session workspace", () => {

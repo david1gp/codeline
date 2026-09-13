@@ -19,6 +19,8 @@ export type WorkspaceScreenView = {
   activeProject: ActiveProjectState
   drawer: ReturnType<typeof workspacePageStateCreate>
   files: FilesScreenView
+  newSessionDialogOpen?: () => boolean
+  newSessionDialogOpenChange?: (open: boolean) => void
   projectIdOverride?: SessionProjectIdOverride
   projectCreateOpen: () => boolean
   projectCreateOpenChange: (open: boolean) => void

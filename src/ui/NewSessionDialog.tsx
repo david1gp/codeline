@@ -1,20 +1,28 @@
-import { For, Show } from "solid-js"
+import { Show, type Accessor } from "solid-js"
 import { Button } from "#ui/interactive/button/Button.jsx"
 import { buttonVariant } from "#ui/interactive/button/buttonCva.js"
 import { CorvuDialog } from "#ui/interactive/dialog/CorvuDialog.jsx"
+import { Icon } from "#ui/static/icon/Icon.jsx"
+import { ProjectAvatar } from "../project/ui/ProjectAvatar.js"
 import type { ProjectRegistryState } from "../project/ui/projectRegistryState.js"
 import type { ActiveProjectState } from "./activeProjectStateCreate.js"
 import { applicationIcon } from "./applicationIcon.js"
 import { NewProjectForm } from "./NewProjectForm.js"
 import { newProjectDialogStateCreate } from "./newProjectDialogStateCreate.js"
 import { newSessionDialogStateCreate } from "./newSessionDialogStateCreate.js"
+import { SearchablePicker } from "./SearchablePicker.js"
 import type { SessionProjectIdOverride } from "./sessionProjectIdOverride.js"
 import type { SessionProjectPathOverride } from "./sessionProjectPathOverride.js"
 import type { SessionTargetSelectorState } from "./sessionTargetSelectorStateCreate.js"
 
 export function NewSessionDialog(props: {
   activeProject: ActiveProjectState
+  buttonClass?: string
+  fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
   idPrefix: string
+  newProjectRegistry?: ProjectRegistryState
+  onOpenChange?: (open: boolean) => void
+  open?: Accessor<boolean>
   projectIdOverride?: SessionProjectIdOverride
   projectPathOverride: SessionProjectPathOverride
   projectRegistry?: ProjectRegistryState
@@ -23,6 +31,8 @@ export function NewSessionDialog(props: {
 }) {
   const state = newSessionDialogStateCreate({
     activeProject: props.activeProject,
+    onOpenChange: props.onOpenChange,
+    open: props.open,
     projectIdOverride: props.projectIdOverride,
     projectPathOverride: props.projectPathOverride,
     projectRegistry: props.projectRegistry,
@@ -32,9 +42,10 @@ export function NewSessionDialog(props: {
   const projectState = newProjectDialogStateCreate({
     activeProject: props.activeProject,
     idPrefix: `${props.idPrefix}-new-project`,
+    fetch: props.fetch,
     onProjectConfirmed: state.projectConfirmed,
     open: state.newProjectOpen,
-    projectRegistry: props.projectRegistry,
+    projectRegistry: props.newProjectRegistry ?? props.projectRegistry,
   })
 
   return (
@@ -42,7 +53,7 @@ export function NewSessionDialog(props: {
       title={state.dialogTitle()}
       description={state.dialogDescription()}
       buttonChildren="New Session"
-      class="h-9 w-full justify-center"
+      class={props.buttonClass ?? "h-9 w-full justify-center"}
       disabled={!state.canCreateSession()}
       icon={applicationIcon.sessionCreate}
       iconClass="size-4"
@@ -55,18 +66,23 @@ export function NewSessionDialog(props: {
         when={state.newProjectOpen()}
         fallback={
           <form class="grid gap-3" onSubmit={state.formSubmit}>
-            <label class="text-sm font-medium" for={`${props.idPrefix}-project`}>
-              Project
-            </label>
-            <select
-              id={`${props.idPrefix}-project`}
-              class="h-9 rounded-[7px] border border-line bg-surface-raised px-2 text-sm text-strong outline-none focus:border-accent-border"
-              value={state.selectedProjectId()}
-              onChange={(event) => state.projectChange(event.currentTarget.value)}
-            >
-              <For each={state.projects()}>{(project) => <option value={project.id}>{project.label}</option>}</For>
-              <option value={state.newProjectOptionValue}>New project</option>
-            </select>
+            <SearchablePicker
+              active={state.open() && !state.newProjectOpen()}
+              ariaLabel="Projects"
+              emptyText="No projects match your search."
+              idPrefix={`${props.idPrefix}-project`}
+              items={state.pickerItems()}
+              onSelect={(project) => state.projectChange(project.id)}
+              placeholder="Search projects…"
+              selectedId={state.selectedProjectId()}
+              renderLeading={(project) =>
+                project.id === state.newProjectOptionValue ? (
+                  <Icon class="size-5 text-faint" path={applicationIcon.projectCreate} />
+                ) : (
+                  <ProjectAvatar class="size-5" name={project.label} faviconUrl={project.faviconUrl} />
+                )
+              }
+            />
 
             <Show when={state.sessionCreateErrorMessage()}>
               {(message) => (
