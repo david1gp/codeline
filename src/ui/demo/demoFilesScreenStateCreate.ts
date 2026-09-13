@@ -6,8 +6,11 @@ import { demoProjectsFixture } from "./demoProjectsFixture.js"
 import type { DemoSessionScreenVariant } from "./demoSessionScreenVariant.js"
 
 /** Serves files screen state from fixtures so specimens never call the API. */
-export function demoFilesScreenStateCreate(variant: () => DemoSessionScreenVariant): FilesScreenView {
-  const browser = demoProjectBrowserStateCreate(variant)
+export function demoFilesScreenStateCreate(
+  variant: () => DemoSessionScreenVariant,
+  browserVariant: () => DemoSessionScreenVariant = variant,
+): FilesScreenView {
+  const browser = demoProjectBrowserStateCreate(browserVariant)
   const selectedProjectId = createSignalObject<string>(demoProjectsFixture[0].id)
   const projects = () => (variant() === "empty" ? [] : demoProjectsFixture)
   const hasProjects = () => variant() !== "empty" && variant() !== "error" && variant() !== "loading"

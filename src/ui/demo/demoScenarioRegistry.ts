@@ -33,6 +33,42 @@ export const demoScenarioRegistry = [
     slug: "workspace",
   },
   {
+    description: "Completed response, recent activity, and a selected source file in the production workspace.",
+    href: urlDemoItem("screens", "session-completed"),
+    label: "Session · completed",
+    slug: "session-completed",
+  },
+  {
+    description: "Active generation with live activity and a rendered Markdown file.",
+    href: urlDemoItem("screens", "session-generating"),
+    label: "Session · generating",
+    slug: "session-generating",
+  },
+  {
+    description: "Input request with recent activity and an empty project directory.",
+    href: urlDemoItem("screens", "session-waiting"),
+    label: "Session · waiting",
+    slug: "session-waiting",
+  },
+  {
+    description: "Unavailable session and failed file preview with deterministic retry controls.",
+    href: urlDemoItem("screens", "session-error"),
+    label: "Session · error",
+    slug: "session-error",
+  },
+  {
+    description: "Conversation and project browser loading states in the production workspace.",
+    href: urlDemoItem("screens", "session-loading"),
+    label: "Session · loading",
+    slug: "session-loading",
+  },
+  {
+    description: "New-session surface with no available file project.",
+    href: urlDemoItem("screens", "session-empty"),
+    label: "Session · empty",
+    slug: "session-empty",
+  },
+  {
     description: "Expandable project tree, Git states, uploads, tabs, and source selection.",
     href: urlDemoItem("screens", "files"),
     label: "Files",

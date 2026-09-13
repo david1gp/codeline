@@ -1,4 +1,5 @@
 import { createSignalObject } from "@adaptive-ds/solid-ui/utils/createSignalObject"
+import { createEffect } from "solid-js"
 import type { SessionChatState } from "../sessionChatStateCreate.js"
 import type { TransientMessage } from "../transientMessagesResolve.js"
 import { transientMessagesResolve } from "../transientMessagesResolve.js"
@@ -20,10 +21,19 @@ const streamingPending: readonly TransientMessage[] = [
 export function demoSessionChatStateCreate(variant: () => DemoSessionScreenVariant): SessionChatState {
   const draft = createSignalObject("")
   const sent = createSignalObject<readonly TransientMessage[]>([])
-  const isStreaming = () => variant() === "streaming"
+  const stopped = createSignalObject(false)
+  let previousVariant = variant()
+  createEffect(() => {
+    const currentVariant = variant()
+    if (currentVariant === previousVariant) return
+    previousVariant = currentVariant
+    stopped.set(false)
+  })
+  const isStreaming = () => variant() === "streaming" && !stopped.get()
   const submit = async () => {
     const prompt = draft.get().trim()
     if (prompt.length === 0) return
+    stopped.set(false)
     draft.set("")
     sent.set([...sent.get(), { content: prompt, id: `demo-sent-${sent.get().length}`, role: "user" }])
   }
@@ -33,7 +43,7 @@ export function demoSessionChatStateCreate(variant: () => DemoSessionScreenVaria
     canSubmit: () => draft.get().trim().length > 0 && !isStreaming(),
     command: undefined,
     failures: () => [],
-    isAborted: () => false,
+    isAborted: stopped.get,
     isThinking: isStreaming,
     draft: draft.get,
     draftUpdate: draft.set,
@@ -48,7 +58,9 @@ export function demoSessionChatStateCreate(variant: () => DemoSessionScreenVaria
     pendingMessages: () =>
       transientMessagesResolve(isStreaming() ? [...streamingPending, ...sent.get()] : sent.get(), []),
     recoveryStatus: () => (isStreaming() ? "streaming" : "idle"),
-    stopHandle: () => undefined,
+    stopHandle: () => {
+      if (variant() === "streaming") stopped.set(true)
+    },
     submit,
     submitHandle: (event: Event) => {
       event.preventDefault()

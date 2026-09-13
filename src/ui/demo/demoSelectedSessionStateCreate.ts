@@ -8,6 +8,7 @@ import { demoSessionChatStateCreate } from "./demoSessionChatStateCreate.js"
 import { demoSessionMessagesFixture } from "./demoSessionMessagesFixture.js"
 import { demoSessionRenameFetch } from "./demoSessionRenameFetch.js"
 import type { DemoSessionScreenVariant } from "./demoSessionScreenVariant.js"
+import { demoSessionSemanticFixtures } from "./demoSessionSemanticFixtures.js"
 import { demoSessionStreamGroupsFixture } from "./demoSessionStreamGroupsFixture.js"
 import { demoWorkspaceSessionsFixture } from "./demoWorkspaceSessionsFixture.js"
 
@@ -30,7 +31,9 @@ export function demoSelectedSessionStateCreate(options: DemoSelectedSessionState
   const renameStates = new Map<string, ReturnType<typeof sessionRenameControlStateCreate>>()
   const pinStates = new Map<string, ReturnType<typeof sessionPinToggleStateCreate>>()
   const session = () => {
-    if (options.variant() === "empty") return undefined
+    if (options.variant() === "empty" || options.variant() === "error" || options.variant() === "loading") {
+      return undefined
+    }
     const sessionId = options.selectedSessionId.get()
     const current = demoWorkspaceSessionsFixture.find((candidate) => candidate.id === sessionId)
     return current === undefined ? undefined : { ...current, pinned: true }
@@ -78,15 +81,15 @@ export function demoSelectedSessionStateCreate(options: DemoSelectedSessionState
     isMessagesEmpty: () => messages().length === 0,
     isMessagesError: () => options.variant() === "error",
     isMessagesLoading: () => options.variant() === "loading",
-    isMessagesRefreshing: () => options.variant() === "streaming",
+    isMessagesRefreshing: () => chat.isBusy(),
     isOlderHistoryError: () => false,
     isOlderHistoryLoading: () => false,
-    isSessionError: () => false,
+    isSessionError: () => options.variant() === "error",
     isSessionLoading: () => options.variant() === "loading",
     messages,
-    latestAnswer: () => null,
-    compactState: () => undefined,
-    semanticSteps: () => [],
+    latestAnswer: () => demoSessionSemanticFixtures[options.variant()].latestAnswer,
+    compactState: () => demoSessionSemanticFixtures[options.variant()].compactState,
+    semanticSteps: () => demoSessionSemanticFixtures[options.variant()].steps,
     throughPosition: () => undefined,
     hasOlderHistory: () => false,
     loadOlderHistory: () => undefined,

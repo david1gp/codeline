@@ -1,4 +1,5 @@
 import type { DemoSurfaceFixture } from "./demoSurfaceFixture.js"
+import type { DemoSessionWorkspaceFixture } from "./demoSessionWorkspaceFixture.js"
 import type { DemoWorkspaceFixture } from "./demoWorkspaceFixture.js"
 
 export interface DemoScenarioFixture {
@@ -49,6 +50,7 @@ export interface DemoScenarioFixture {
     meta: string
     running?: boolean
   }[]
+  sessionWorkspace?: DemoSessionWorkspaceFixture
   surface?: DemoSurfaceFixture
   workspace?: DemoWorkspaceFixture
 }

@@ -1,7 +1,9 @@
 import { useLocation, useSearchParams } from "@solidjs/router"
 import { demoCatalogRegistry } from "./demoCatalogRegistry.js"
 import { demoCatalogRouteResolve } from "./demoCatalogRouteResolve.js"
+import type { DemoScenarioFixture } from "./demoScenarioFixture.js"
 import { demoScenarioFixtures } from "./demoScenarioFixtures.js"
+import { demoSessionWorkspaceStateCreate } from "./demoSessionWorkspaceStateCreate.js"
 import { demoSpecimenStateCreate } from "./demoSpecimenStateCreate.js"
 import { demoWorkspaceFixtures } from "./demoWorkspaceFixtures.js"
 import { demoWorkspacePanelStateCreate } from "./demoWorkspacePanelStateCreate.js"
@@ -22,7 +24,7 @@ export function demoAppStateCreate() {
     const resolved = route()
     return resolved.kind === "specimen" ? resolved.variant : "ready"
   }
-  const fixture = () => {
+  const fixture = (): DemoScenarioFixture | undefined => {
     const selected = scenario()
     return selected ? demoScenarioFixtures[selected.slug] : undefined
   }
@@ -30,6 +32,7 @@ export function demoAppStateCreate() {
     const selected = fixture()
     return selected && "workspace" in selected && selected.workspace ? selected.workspace : demoWorkspaceFixtures.files
   })
+  const sessionWorkspaceState = demoSessionWorkspaceStateCreate(() => fixture()?.sessionWorkspace)
   const indexSections = () => {
     const resolved = route()
     if (resolved.kind !== "index" || !resolved.section) return demoCatalogRegistry
@@ -42,6 +45,7 @@ export function demoAppStateCreate() {
     fixture,
     indexSections,
     scenario,
+    sessionWorkspaceState,
     sections: demoCatalogRegistry,
     specimen,
     specimenState: demoSpecimenStateCreate(variant),

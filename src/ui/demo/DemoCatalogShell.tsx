@@ -2,6 +2,7 @@ import { A } from "@solidjs/router"
 import { For, Match, Switch } from "solid-js"
 import { urlDemo, urlDemoSection } from "../demo_url/urlDemo.js"
 import { DemoCatalogIndex } from "./DemoCatalogIndex.js"
+import { DemoSessionWorkspace } from "./DemoSessionWorkspace.js"
 import { DemoShell } from "./DemoShell.js"
 import { DemoSpecimenPanel } from "./DemoSpecimenPanel.js"
 import type { demoAppStateCreate } from "./demoAppStateCreate.js"
@@ -119,7 +120,11 @@ export function DemoCatalogShell(props: { state: ReturnType<typeof demoAppStateC
                       Screen scenario
                     </span>
                   </div>
-                  <DemoShell fixture={props.state.fixture()!} workspacePanelState={props.state.workspacePanelState} />
+                  {props.state.fixture()!.sessionWorkspace ? (
+                    <DemoSessionWorkspace state={props.state.sessionWorkspaceState} />
+                  ) : (
+                    <DemoShell fixture={props.state.fixture()!} workspacePanelState={props.state.workspacePanelState} />
+                  )}
                 </div>
               )}
             </Match>

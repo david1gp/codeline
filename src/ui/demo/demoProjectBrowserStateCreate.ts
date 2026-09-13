@@ -97,7 +97,7 @@ export function demoProjectBrowserStateCreate(variant: () => DemoSessionScreenVa
       if (activePath.get() === path) activePath.set(remaining.at(-1)?.path ?? null)
     },
     tabSelect: (path: string) => activePath.set(path),
-    tabs: tabs.get,
+    tabs: () => (isEmpty() ? [] : tabs.get()),
     textPreview: () => {
       const value = preview()
       return value?.kind === "text" ? value : null

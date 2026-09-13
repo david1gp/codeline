@@ -61,6 +61,21 @@ const surfaceScenarioFixture = {
   ],
 } as const satisfies DemoScenarioFixture
 
+const sessionWorkspaceScenarioFixture = {
+  activeFile: null,
+  activeSession: "Workspace shell review",
+  eyebrow: "Production workspace · deterministic fixture",
+  files: [],
+  heading: "Workspace shell review",
+  messages: [],
+  composer: {
+    action: "Send",
+    placeholder: "Ask a follow-up…",
+    status: "Fixture state",
+  },
+  sessions: [],
+} as const satisfies DemoScenarioFixture
+
 export const demoScenarioFixtures = {
   welcome: {
     activeFile: null,
@@ -328,6 +343,37 @@ export const demoScenarioFixtures = {
       { label: "Review responsive layout", meta: "1h" },
       { label: "Plan file preview states", meta: "yesterday", running: true },
     ],
+  },
+  "session-completed": {
+    ...sessionWorkspaceScenarioFixture,
+    heading: "Session area refresh",
+    sessionWorkspace: { browserVariant: "ready", filesVariant: "ready", sessionVariant: "ready" },
+  },
+  "session-generating": {
+    ...sessionWorkspaceScenarioFixture,
+    heading: "Compare responsive session states",
+    sessionWorkspace: { browserVariant: "editing", filesVariant: "ready", sessionVariant: "streaming" },
+  },
+  "session-waiting": {
+    ...sessionWorkspaceScenarioFixture,
+    heading: "Confirm the release note audience",
+    sessionWorkspace: { browserVariant: "empty", filesVariant: "ready", sessionVariant: "waiting" },
+  },
+  "session-error": {
+    ...sessionWorkspaceScenarioFixture,
+    heading: "Unavailable workspace session",
+    sessionWorkspace: { browserVariant: "error", filesVariant: "ready", sessionVariant: "error" },
+  },
+  "session-loading": {
+    ...sessionWorkspaceScenarioFixture,
+    heading: "Loading workspace session",
+    sessionWorkspace: { browserVariant: "loading", filesVariant: "ready", sessionVariant: "loading" },
+  },
+  "session-empty": {
+    ...sessionWorkspaceScenarioFixture,
+    activeSession: null,
+    heading: "Start a new workspace session",
+    sessionWorkspace: { browserVariant: "empty", filesVariant: "empty", sessionVariant: "empty" },
   },
   files: { ...fileScenarioFixture, workspace: demoWorkspaceFixtures.files },
   markdown: { ...fileScenarioFixture, activeFile: "workspace-guide.md", workspace: demoWorkspaceFixtures.markdown },
