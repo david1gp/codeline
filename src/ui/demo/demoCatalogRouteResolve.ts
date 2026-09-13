@@ -2,12 +2,17 @@ import { pageRouteDemo } from "../demo_url/pageRouteDemo.js"
 import { demoCatalogRegistry } from "./demoCatalogRegistry.js"
 import { demoComponentSpecimenRegistry } from "./demoComponentSpecimenRegistry.js"
 import type { DemoCatalogRoute } from "./demoCatalogRoute.js"
+import type { DemoConfiguration } from "./demoConfiguration.js"
 import { demoScenarioRegistry } from "./demoScenarioRegistry.js"
 import { demoSessionScreenVariantParse } from "./demoSessionScreenVariantParse.js"
 import type { DemoSpecimen } from "./demoSpecimen.js"
 
 function demoSpecimenIs(item: { slug: string }): item is DemoSpecimen {
   return "variants" in item
+}
+
+function demoConfigurationIs(item: { slug: string }): item is DemoConfiguration {
+  return "kind" in item && item.kind === "configuration"
 }
 
 export function demoCatalogRouteResolve(pathname: string, variant?: unknown): DemoCatalogRoute {
@@ -21,6 +26,7 @@ export function demoCatalogRouteResolve(pathname: string, variant?: unknown): De
   if (section && segments.length === 1) return { kind: "index", section: section.slug }
   if (section && segments.length === 2) {
     const item = section.items.find((candidate) => candidate.slug === segments[1])
+    if (item && demoConfigurationIs(item)) return { configuration: item, kind: "configuration" }
     if (item && demoSpecimenIs(item)) {
       return { kind: "specimen", specimen: item, variant: demoSessionScreenVariantParse(item, variant) }
     }

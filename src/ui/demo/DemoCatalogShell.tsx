@@ -1,5 +1,6 @@
 import { A } from "@solidjs/router"
 import { For, Match, Switch } from "solid-js"
+import { ConfigurationEditor } from "../configuration/ConfigurationEditor.js"
 import { urlDemo, urlDemoSection } from "../demo_url/urlDemo.js"
 import { DemoCatalogIndex } from "./DemoCatalogIndex.js"
 import { DemoSessionWorkspace } from "./DemoSessionWorkspace.js"
@@ -23,6 +24,9 @@ export function DemoCatalogShell(props: { state: ReturnType<typeof demoAppStateC
           </A>
           <A class="rounded-md px-2 py-1.5 no-underline hover:bg-surface-hover" href={urlDemoSection("components")}>
             Components
+          </A>
+          <A class="rounded-md px-2 py-1.5 no-underline hover:bg-surface-hover" href={urlDemoSection("config")}>
+            Config
           </A>
         </nav>
       </header>
@@ -73,7 +77,32 @@ export function DemoCatalogShell(props: { state: ReturnType<typeof demoAppStateC
         </aside>
 
         <section class="min-h-0 min-w-0 overflow-hidden">
-          <Switch fallback={<DemoCatalogIndex sections={props.state.indexSections()} />}>
+          <Switch
+            fallback={
+              <div class="h-full min-h-0 overflow-auto">
+                <DemoCatalogIndex sections={props.state.indexSections()} />
+              </div>
+            }
+          >
+            <Match when={props.state.configuration()}>
+              {(configuration) => (
+                <div class="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]">
+                  <div class="flex min-h-12 items-center gap-3 border-line border-b bg-surface px-4 max-[760px]:min-h-11">
+                    <A class="text-xs text-faint no-underline hover:text-foreground" href={urlDemo()}>
+                      Catalog
+                    </A>
+                    <span class="text-placeholder">/</span>
+                    <strong class="text-xs">{configuration().label}</strong>
+                    <span class="ml-auto font-mono text-[9px] tracking-[0.08em] text-faint uppercase">
+                      Local fixture editor
+                    </span>
+                  </div>
+                  <div class="min-h-0 overflow-auto bg-background p-6 text-foreground max-[640px]:p-4">
+                    <ConfigurationEditor state={props.state.configurationState()!} />
+                  </div>
+                </div>
+              )}
+            </Match>
             <Match when={props.state.specimen()}>
               {(specimen) => (
                 <div class="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]">
@@ -109,7 +138,7 @@ export function DemoCatalogShell(props: { state: ReturnType<typeof demoAppStateC
             </Match>
             <Match when={props.state.scenario()}>
               {(scenario) => (
-                <div class="h-full">
+                <div class="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
                   <div class="flex min-h-12 items-center gap-3 border-line border-b bg-surface px-4 max-[760px]:min-h-11">
                     <A class="text-xs text-faint no-underline hover:text-foreground" href={urlDemo()}>
                       Catalog

@@ -138,6 +138,7 @@ test("route builders preserve URLs and encode dynamic parameters", () => {
   expect(urlDashboard()).toBe("/")
   expect(urlFiles()).toBe("/explorer")
   expect(urlSettings()).toBe("/settings")
+  expect(urlSettings("subagents")).toBe("/settings?section=subagents")
   expect(urlNotes()).toBe("/notes")
   expect(urlNoteNew()).toBe("/notes/new")
   expect(urlNoteView("note/id?")).toBe("/notes/note%2Fid%3F")
@@ -145,6 +146,7 @@ test("route builders preserve URLs and encode dynamic parameters", () => {
   expect(urlDemo()).toBe("/demo")
   expect(urlDemoSection("section one")).toBe("/demo/section%20one")
   expect(urlDemoItem("section one", "item/2?")).toBe("/demo/section%20one/item%2F2%3F")
+  expect(urlDemoItem("config", "commands")).toBe("/demo/config/commands")
   expect(urlDemoUnknown("section/item with?")).toBe("/demo/section/item%20with%3F")
   expect(urlDemoUnknown("")).toBe("/demo")
 

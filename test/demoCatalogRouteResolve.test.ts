@@ -16,6 +16,22 @@ test("demo catalog resolves its index, sections, canonical scenarios, and legacy
   expect(demoCatalogRouteResolve("/demo/not-a-real-scenario")).toEqual({ kind: "index" })
 })
 
+test("demo catalog registers and resolves backend-independent configuration editors", () => {
+  expect(demoCatalogRouteResolve("/demo/config")).toEqual({ kind: "index", section: "config" })
+  expect(demoCatalogRouteResolve("/demo/config/subagents")).toMatchObject({
+    configuration: { href: "/demo/config/subagents", slug: "subagents" },
+    kind: "configuration",
+  })
+  expect(demoCatalogRouteResolve("/demo/config/skills")).toMatchObject({
+    configuration: { href: "/demo/config/skills", slug: "skills" },
+    kind: "configuration",
+  })
+  expect(demoCatalogRouteResolve("/demo/config/commands")).toMatchObject({
+    configuration: { href: "/demo/config/commands", slug: "commands" },
+    kind: "configuration",
+  })
+})
+
 test("demo catalog resolves specimens with a validated variant", () => {
   expect(demoCatalogRouteResolve("/demo/chatarea")).toMatchObject({
     kind: "specimen",
@@ -42,6 +58,7 @@ test("demo catalog resolves specimens with a validated variant", () => {
   })
   expect(demoCatalogRouteResolve("/demo/components/session-list", "nonsense")).toMatchObject({ variant: "ready" })
 })
+
 
 test("demo catalog resolves the note screen family and its editing variant", () => {
   expect(demoCatalogRouteResolve("/demo/screens/notes-screen", "empty")).toMatchObject({

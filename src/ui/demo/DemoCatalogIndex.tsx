@@ -8,8 +8,8 @@ export function DemoCatalogIndex(props: { sections: readonly DemoCatalogSection[
       <p class="m-0 font-mono text-[11px] tracking-[0.12em] text-accent uppercase">Component catalog</p>
       <h1 class="mt-2 mb-3 text-3xl font-semibold tracking-[-0.04em]">Codeline interface inventory</h1>
       <p class="m-0 max-w-2xl text-sm leading-6 text-faint">
-        Deterministic screen scenarios and real reusable components, rendered without application providers or backend
-        services.
+        Deterministic screen scenarios, reusable components, and local visual editors rendered without application
+        providers or backend services.
       </p>
 
       <div class="mt-10 grid grid-cols-2 gap-5 max-[760px]:grid-cols-1">

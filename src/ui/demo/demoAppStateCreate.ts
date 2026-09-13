@@ -1,4 +1,5 @@
 import { useLocation, useSearchParams } from "@solidjs/router"
+import { configurationEditorStateCreate } from "../configuration/configurationEditorStateCreate.js"
 import { demoCatalogRegistry } from "./demoCatalogRegistry.js"
 import { demoCatalogRouteResolve } from "./demoCatalogRouteResolve.js"
 import type { DemoScenarioFixture } from "./demoScenarioFixture.js"
@@ -12,6 +13,19 @@ export function demoAppStateCreate() {
   const location = useLocation()
   const [searchParams, searchParamsSet] = useSearchParams()
   const route = () => demoCatalogRouteResolve(location.pathname, searchParams.variant)
+  const configurationStates = {
+    commands: configurationEditorStateCreate("commands", "codeline-demo-config-commands"),
+    skills: configurationEditorStateCreate("skills", "codeline-demo-config-skills"),
+    subagents: configurationEditorStateCreate("subagents", "codeline-demo-config-subagents"),
+  }
+  const configuration = () => {
+    const resolved = route()
+    return resolved.kind === "configuration" ? resolved.configuration : undefined
+  }
+  const configurationState = () => {
+    const selected = configuration()
+    return selected ? configurationStates[selected.slug] : undefined
+  }
   const scenario = () => {
     const resolved = route()
     return resolved.kind === "scenario" ? resolved.scenario : undefined
@@ -38,10 +52,12 @@ export function demoAppStateCreate() {
     if (resolved.kind !== "index" || !resolved.section) return demoCatalogRegistry
     return demoCatalogRegistry.filter((section) => section.slug === resolved.section)
   }
-  const activeSlug = () => scenario()?.slug ?? specimen()?.slug
+  const activeSlug = () => configuration()?.slug ?? scenario()?.slug ?? specimen()?.slug
 
   return {
     activeSlug,
+    configuration,
+    configurationState,
     fixture,
     indexSections,
     scenario,
