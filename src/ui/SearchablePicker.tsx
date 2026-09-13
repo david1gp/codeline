@@ -8,9 +8,12 @@ import { searchablePickerStateCreate } from "./searchablePickerStateCreate.js"
 export function SearchablePicker<T extends SearchablePickerItem>(props: {
   active?: boolean
   ariaLabel: string
+  autofocus?: boolean
   emptyText: string
   idPrefix: string
+  inputRef?: (element: HTMLInputElement) => void
   items: readonly T[]
+  onEnter?: (item: T) => void
   onSelect: (item: T) => void
   placeholder: string
   renderLeading?: (item: T) => JSX.Element
@@ -20,6 +23,7 @@ export function SearchablePicker<T extends SearchablePickerItem>(props: {
     active: () => props.active !== false,
     idPrefix: () => props.idPrefix,
     items: () => props.items,
+    onEnter: () => props.onEnter,
     onSelect: (item) => props.onSelect(item),
     selectedId: () => props.selectedId,
   })
@@ -32,7 +36,11 @@ export function SearchablePicker<T extends SearchablePickerItem>(props: {
           path={applicationIcon.search}
         />
         <Input
-          ref={state.inputRef}
+          ref={(element) => {
+            state.inputRef(element)
+            props.inputRef?.(element)
+          }}
+          autofocus={props.autofocus}
           id={`${props.idPrefix}-search`}
           class="!w-full !pl-8"
           type="search"
@@ -51,7 +59,7 @@ export function SearchablePicker<T extends SearchablePickerItem>(props: {
 
       <div
         id={state.listboxId()}
-        class="grid max-h-[45vh] grid-cols-1 gap-1 overflow-y-auto rounded-md border border-line-subtle p-1"
+        class="grid max-h-[45vh] grid-cols-1 gap-1 overflow-y-auto rounded-md border border-line-subtle p-0.5"
         role="listbox"
         aria-label={props.ariaLabel}
       >
@@ -66,8 +74,11 @@ export function SearchablePicker<T extends SearchablePickerItem>(props: {
           {(item) => (
             <button
               id={state.optionId(item.id)}
-              class="flex min-h-12 w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-foreground hover:bg-surface-raised disabled:cursor-not-allowed disabled:opacity-45"
-              classList={{ "bg-surface-raised ring-1 ring-accent-border": state.highlightedId() === item.id }}
+              class="flex min-h-12 w-full min-w-0 items-center gap-2 rounded-md border border-transparent px-2 py-1.5 text-left text-sm text-foreground hover:bg-surface-raised disabled:cursor-not-allowed disabled:opacity-45"
+              classList={{
+                "border-accent-border bg-accent-soft text-accent": props.selectedId === item.id,
+                "ring-2 ring-accent-border": state.highlightedId() === item.id,
+              }}
               type="button"
               role="option"
               tabindex={-1}
@@ -98,23 +109,6 @@ export function SearchablePicker<T extends SearchablePickerItem>(props: {
             </button>
           )}
         </For>
-      </div>
-
-      <div
-        class="hidden items-center justify-between border-line-subtle border-t pt-2 text-xs text-faint sm:flex"
-        aria-hidden="true"
-      >
-        <span>
-          <kbd>↑</kbd>
-          <kbd>↓</kbd> Navigate
-        </span>
-        <span>
-          <kbd>Home</kbd>
-          <kbd>End</kbd> Jump
-        </span>
-        <span>
-          <kbd>↵</kbd> Select
-        </span>
       </div>
     </div>
   )

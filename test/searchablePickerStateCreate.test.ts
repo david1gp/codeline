@@ -6,6 +6,7 @@ mock.module("solid-js", () => solidRuntime)
 
 const { searchablePickerStateCreate } = await import("../src/ui/searchablePickerStateCreate.js")
 const pickerSource = await Bun.file(new URL("../src/ui/SearchablePicker.tsx", import.meta.url)).text()
+const pickerStateSource = await Bun.file(new URL("../src/ui/searchablePickerStateCreate.ts", import.meta.url)).text()
 
 const items = [
   { description: "/workspace/alpha", id: "alpha", label: "Alpha" },
@@ -78,6 +79,64 @@ test("selection ignores disabled entries and selects enabled entries", () => {
   picker.dispose()
 })
 
+test("Enter uses the optional action while generic selection remains the default", () => {
+  const selections: string[] = []
+  const enterSelections: string[] = []
+  const root = createRoot((dispose) => ({
+    dispose,
+    state: searchablePickerStateCreate({
+      active: () => false,
+      idPrefix: () => "test-picker",
+      items: () => items,
+      onEnter: () => (item) => enterSelections.push(item.id),
+      onSelect: (item) => selections.push(item.id),
+      selectedId: () => null,
+    }),
+  }))
+
+  root.state.highlightedEnter()
+  expect(selections).toEqual([])
+  expect(enterSelections).toEqual(["alpha"])
+
+  root.dispose()
+
+  const genericSelections: string[] = []
+  const genericRoot = createRoot((dispose) => ({
+    dispose,
+    state: searchablePickerStateCreate({
+      active: () => false,
+      idPrefix: () => "test-picker",
+      items: () => items,
+      onSelect: (item) => genericSelections.push(item.id),
+      selectedId: () => null,
+    }),
+  }))
+
+  genericRoot.state.highlightedEnter()
+  expect(genericSelections).toEqual(["alpha"])
+  genericRoot.dispose()
+})
+
+test("Enter does not invoke a custom action when every result is disabled", () => {
+  const entered: string[] = []
+  const root = createRoot((dispose) => ({
+    dispose,
+    state: searchablePickerStateCreate({
+      active: () => false,
+      idPrefix: () => "test-picker",
+      items: () => [items[1]!],
+      onEnter: () => (item) => entered.push(item.id),
+      onSelect: () => undefined,
+      selectedId: () => null,
+    }),
+  }))
+
+  root.state.highlightedEnter()
+  expect(entered).toEqual([])
+
+  root.dispose()
+})
+
 test("a disabled-only search result cannot be highlighted or selected", () => {
   const picker = pickerCreate()
 
@@ -95,4 +154,7 @@ test("a disabled-only search result cannot be highlighted or selected", () => {
 test("the picker exposes its actual active state through aria-expanded", () => {
   expect(pickerSource).toContain("aria-expanded={props.active !== false}")
   expect(pickerSource).not.toContain('aria-expanded="true"')
+  expect(pickerSource).toContain("autofocus={props.autofocus}")
+  expect(pickerStateSource).toContain("target: inputElement.get()")
+  expect(pickerSource).not.toContain("Navigate")
 })

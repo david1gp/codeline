@@ -9,6 +9,7 @@ type SearchablePickerStateOptions<T extends SearchablePickerItem> = {
   active: () => boolean
   idPrefix: () => string
   items: () => readonly T[]
+  onEnter?: () => ((item: T) => void) | undefined
   onSelect: (item: T) => void
   selectedId: () => string | null
 }
@@ -19,6 +20,7 @@ export function searchablePickerStateCreate<T extends SearchablePickerItem>(opti
   const query = signalObjectCreate("")
   const highlightedIdOverride = signalObjectCreate<string | null>(null)
   let wasActive = false
+  let focusedInput: HTMLInputElement | null = null
 
   const filteredItems = (): readonly T[] => {
     const normalizedQuery = query.get().trim().toLocaleLowerCase()
@@ -86,14 +88,27 @@ export function searchablePickerStateCreate<T extends SearchablePickerItem>(opti
     options.onSelect(item)
   }
 
+  const highlightedEnter = (): void => {
+    const item = highlightedItem()
+    if (item === undefined || item.disabled === true) return
+    const onEnter = options.onEnter?.()
+    if (onEnter !== undefined) {
+      onEnter(item)
+      return
+    }
+    options.onSelect(item)
+  }
+
   createEffect(() => {
     const active = options.active()
-    if (active && !wasActive) {
+    const input = inputElement.get()
+    if (active && (!wasActive || input !== focusedInput)) {
       query.set("")
       highlightedIdOverride.set(null)
       queueMicrotask(() => inputElement.get()?.focus())
     }
     wasActive = active
+    focusedInput = input
   })
 
   createHotkeys(
@@ -102,7 +117,7 @@ export function searchablePickerStateCreate<T extends SearchablePickerItem>(opti
       { hotkey: "ArrowUp" as const, callback: () => navigationMove("ArrowUp") },
       { hotkey: "Home" as const, callback: () => navigationMove("Home") },
       { hotkey: "End" as const, callback: () => navigationMove("End") },
-      { hotkey: "Enter" as const, callback: highlightedSelect },
+      { hotkey: "Enter" as const, callback: highlightedEnter },
     ],
     () => ({
       enabled: options.active(),
@@ -119,6 +134,7 @@ export function searchablePickerStateCreate<T extends SearchablePickerItem>(opti
       return highlighted === undefined ? undefined : optionId(highlighted.id)
     },
     filteredItems,
+    highlightedEnter,
     highlightedId: () => highlightedItem()?.id ?? null,
     highlightedSelect,
     inputRef: (element: HTMLInputElement) => inputElement.set(element),
