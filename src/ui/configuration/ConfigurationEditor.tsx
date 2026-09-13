@@ -22,27 +22,29 @@ export function ConfigurationEditor(props: { state: ReturnType<typeof configurat
       </header>
       <div class="grid min-h-[430px] grid-cols-[minmax(190px,220px)_minmax(0,1fr)] overflow-hidden rounded-xl border border-line bg-surface-raised shadow-[0_8px_30px_var(--shadow-color)] max-[700px]:grid-cols-1">
         <div class="border-line border-r bg-surface-sunken p-2 max-[700px]:border-r-0 max-[700px]:border-b">
-          <p class="m-0 px-2 py-1.5 text-[10px] tracking-[0.08em] text-faint uppercase">
+          <p class="m-0 px-2 py-1.5 text-[10px] tracking-[0.08em] text-subtle uppercase">
             {props.state.entries().length} configured
           </p>
-          <div class="grid gap-1" role="list">
+          <ul class="m-0 grid list-none gap-1 p-0">
             <For each={props.state.entries()}>
               {(entry) => (
-                <button
-                  type="button"
-                  class="grid min-h-11 w-full gap-0.5 rounded-md border border-transparent px-2.5 py-2 text-left text-foreground transition-colors hover:border-line hover:bg-surface-hover focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-border"
-                  classList={{
-                    "border-accent-border bg-accent-soft": props.state.selectedId() === entry.id,
-                  }}
-                  aria-pressed={props.state.selectedId() === entry.id}
-                  onClick={() => props.state.entrySelect(entry.id)}
-                >
-                  <span class="truncate font-medium text-sm">{entry.name}</span>
-                  <span class="truncate text-[11px] text-subtle">{entry.enabled ? "Enabled" : "Disabled"}</span>
-                </button>
+                <li>
+                  <button
+                    type="button"
+                    class="grid min-h-11 w-full gap-0.5 rounded-md border border-transparent px-2.5 py-2 text-left text-foreground transition-colors hover:border-line hover:bg-surface-hover focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-border"
+                    classList={{
+                      "border-accent-border bg-accent-soft": props.state.selectedId() === entry.id,
+                    }}
+                    aria-pressed={props.state.selectedId() === entry.id}
+                    onClick={() => props.state.entrySelect(entry.id)}
+                  >
+                    <span class="truncate font-medium text-sm">{entry.name}</span>
+                    <span class="truncate text-[11px] text-subtle">{entry.enabled ? "Enabled" : "Disabled"}</span>
+                  </button>
+                </li>
               )}
             </For>
-          </div>
+          </ul>
         </div>
         <Show
           when={props.state.activeEntry()}
@@ -86,10 +88,19 @@ export function ConfigurationEditor(props: { state: ReturnType<typeof configurat
                 />
               </div>
               <div class="flex flex-wrap items-center justify-between gap-3 border-line border-t pt-4">
-                <Checkbox checked={entry().enabled} onChange={props.state.enabledChange}>
+                <Checkbox
+                  id={`${props.state.section}-enabled`}
+                  checked={entry().enabled}
+                  onChange={props.state.enabledChange}
+                >
                   <span class="text-sm">Enabled</span>
                 </Checkbox>
-                <Button variant={buttonVariant.outlineRed} size={buttonSize.sm} onClick={props.state.entryDelete}>
+                <Button
+                  class="!text-danger"
+                  variant={buttonVariant.outlineRed}
+                  size={buttonSize.sm}
+                  onClick={props.state.entryDelete}
+                >
                   Delete
                 </Button>
               </div>
