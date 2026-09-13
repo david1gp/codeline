@@ -19,4 +19,4 @@
 ## Tasks
 1. Completed: implement settings sidebar, consistent navigation, visual configuration sections, demo routes and catalog entries.
 2. Completed: verify implementation with focused checks and live managed-preview browser testing; fix identified issues.
-3. In progress: use a Luna subagent with the commits skill, then deploy and report review URLs.
+3. Completed: use a Luna subagent with the commits skill, then deploy and report review URLs.

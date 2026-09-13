@@ -21,4 +21,4 @@ Inspect the local T3 Code reference and current creation state, implement the sh
 2. Completed: implement the generic searchable picker integrated into the existing new-session dialog and focused behavior tests.
 3. Completed: add the interactive demo route and catalog entry using the shared dialog; integrate the files project selector and session project popover.
 4. Completed: verify types, focused tests, and demo browser interactions through managed preview; production integration covered by focused tests.
-5. In progress: delegate conventional commits and deployment to fresh Luna subagents using the commits skill and repository deployment workflow.
+5. Completed: delegate conventional commits and deployment to fresh Luna subagents using the commits skill and repository deployment workflow.
