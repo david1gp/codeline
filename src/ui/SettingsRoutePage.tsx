@@ -1,112 +1,24 @@
-import { For, Show } from "solid-js"
-import { Icon } from "#ui/static/icon/Icon.jsx"
-import { ProjectRegistryImportActions } from "../project/ui/ProjectRegistryImportActions.js"
-import { ConnectionStatusDetails } from "./ConnectionStatusDetails.js"
-import { PwaStatusActions } from "./pwa/PwaStatusActions.js"
+import { Show } from "solid-js"
+import { ConfigurationEditor } from "./configuration/ConfigurationEditor.js"
+import { SettingsGeneralPanel } from "./SettingsGeneralPanel.js"
 import { settingsRoutePageStateCreate } from "./settingsRoutePageStateCreate.js"
+import { SettingsSidebar } from "./SettingsSidebar.js"
 
 export function SettingsRoutePage() {
   const state = settingsRoutePageStateCreate()
 
   return (
-    <main class="min-h-0 overflow-y-auto px-6 py-8 max-[760px]:px-4" aria-labelledby="settings-title">
-      <div class="mx-auto grid w-full max-w-3xl gap-6">
-        <header>
-          <h1 id="settings-title" class="font-semibold text-2xl text-foreground">
-            Settings
-          </h1>
-          <p class="mt-1 text-faint text-sm">Manage this Codeline installation.</p>
-        </header>
-
-        <Show when={state.theme}>
-          {(theme) => (
-            <section
-              class="grid gap-4 rounded-lg border border-line bg-surface-raised p-5"
-              aria-labelledby="appearance-settings-title"
-            >
-              <div>
-                <h2 id="appearance-settings-title" class="font-medium text-foreground text-lg">
-                  Appearance
-                </h2>
-                <p class="mt-1 text-faint text-sm">Choose how Codeline should look.</p>
-              </div>
-              <fieldset class="grid gap-3 border-0 p-0 sm:grid-cols-3">
-                <legend class="sr-only">Theme</legend>
-                <For each={theme().themeOptions}>
-                  {(option) => {
-                    const selected = () => theme().currentTheme() === option.value
-
-                    return (
-                      <button
-                        class="flex min-h-28 flex-col items-start gap-3 rounded-lg border p-4 text-left transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                        classList={{
-                          "border-accent bg-accent-soft text-foreground": selected(),
-                          "border-line bg-surface hover:border-accent-border hover:bg-surface-hover": !selected(),
-                        }}
-                        type="button"
-                        aria-pressed={selected()}
-                        onClick={() => theme().themeSelect(option.value)}
-                      >
-                        <Icon path={option.icon} class="size-5 fill-current text-accent" />
-                        <span class="font-medium text-sm">{option.label}</span>
-                        <span class="text-faint text-xs">{option.description}</span>
-                      </button>
-                    )
-                  }}
-                </For>
-              </fieldset>
-            </section>
-          )}
-        </Show>
-
-        <section
-          class="grid gap-3 rounded-lg border border-line bg-surface-raised p-5"
-          aria-labelledby="projects-settings-title"
-        >
-          <div>
-            <h2 id="projects-settings-title" class="font-medium text-foreground text-lg">
-              Projects
-            </h2>
-            <p class="mt-1 text-faint text-sm">Import existing OpenCode projects into your registry.</p>
-          </div>
-          <ProjectRegistryImportActions projectRegistry={state.projectRegistry} />
-        </section>
-
-        <section
-          class="grid gap-3 rounded-lg border border-line bg-surface-raised p-5"
-          aria-labelledby="connection-settings-title"
-        >
-          <div>
-            <h2 id="connection-settings-title" class="font-medium text-foreground text-lg">
-              Connection
-            </h2>
-            <p class="mt-1 text-faint text-sm">Status of the app, sync, and API connections.</p>
-          </div>
-          <Show
-            when={state.connection}
-            fallback={<p class="text-faint text-sm">Connection status is unavailable in this context.</p>}
-          >
-            {(connection) => <ConnectionStatusDetails state={connection()} />}
+    <main
+      class="grid min-h-0 grid-cols-[240px_minmax(0,1fr)] overflow-hidden max-[760px]:grid-cols-1 max-[760px]:grid-rows-[auto_minmax(0,1fr)]"
+      aria-label="Settings"
+    >
+      <SettingsSidebar activeSection={state.activeSection()} />
+      <div class="min-h-0 overflow-y-auto px-6 py-8 max-[760px]:px-4 max-[760px]:py-6">
+        <div class="mx-auto w-full max-w-4xl">
+          <Show when={state.configuration()} fallback={<SettingsGeneralPanel state={state} />}>
+            {(configuration) => <ConfigurationEditor state={configuration()} />}
           </Show>
-        </section>
-
-        <section
-          class="grid gap-3 rounded-lg border border-line bg-surface-raised p-5"
-          aria-labelledby="app-settings-title"
-        >
-          <div>
-            <h2 id="app-settings-title" class="font-medium text-foreground text-lg">
-              App
-            </h2>
-            <p class="mt-1 text-faint text-sm">Install Codeline when it is available in this browser.</p>
-          </div>
-          <Show
-            when={state.pwa}
-            fallback={<p class="text-faint text-sm">PWA installation is unavailable in this context.</p>}
-          >
-            {(pwa) => <PwaStatusActions placement="settings" state={pwa()} />}
-          </Show>
-        </section>
+        </div>
       </div>
     </main>
   )
