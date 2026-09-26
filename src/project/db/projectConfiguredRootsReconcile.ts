@@ -209,6 +209,8 @@ export async function projectConfiguredRootsReconcile(
       const discovered = await projectConfiguredRootEntriesRead(canonicalRoot.data)
       if (!discovered.success) return createResultError(op, discovered.errorMessage)
       for (const entry of discovered.data) {
+        // Fixture command directories are run-owned, not shared configured-root projects.
+        if (path.basename(entry.canonicalPath).startsWith(".e2e-command-")) continue
         const project = await projectConfiguredRootProjectReconcile(
           database,
           userId,

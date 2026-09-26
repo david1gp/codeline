@@ -108,6 +108,63 @@ test("stale runs are cleaned before a fresh run and target mismatch never resume
   }
 })
 
+test("a checkpoint with a different target is rejected even when its origin matches", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "e2e-runner-"))
+  try {
+    const store = e2eCheckpointStoreCreate(directory)
+    const mismatchedStore = {
+      ...store,
+      load: async (target: E2eCheckpoint["target"]) =>
+        target === "production" ? checkpoint({ target: "dev" }) : undefined,
+      targets: async () => [] as const,
+    }
+    let ran = false
+    await expect(
+      e2eSuitesRun({
+        target: "production",
+        origin,
+        suites: [suite("e2e/first.spec.ts")],
+        store: mismatchedStore,
+        cleanup: async () => {
+          throw new Error("must not clean mismatched data")
+        },
+        suiteRun: async () => {
+          ran = true
+        },
+      }),
+    ).rejects.toThrow("target mismatch")
+    expect(ran).toBe(false)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test("a run exactly 24 hours old is cleaned before a fresh run starts", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "e2e-runner-"))
+  try {
+    const store = e2eCheckpointStoreCreate(directory)
+    await store.save(checkpoint({ createdAt: "2026-09-24T13:00:00.000Z" }))
+    const events: string[] = []
+    await e2eSuitesRun({
+      target: "production",
+      origin,
+      suites: [suite("e2e/first.spec.ts")],
+      store,
+      now: () => new Date("2026-09-25T13:00:00.000Z"),
+      runIdCreate: () => "freshrun123",
+      cleanup: async (state) => {
+        events.push(`clean:${state.runId}`)
+      },
+      suiteRun: async (_suite, state) => {
+        events.push(`suite:${state.runId}`)
+      },
+    })
+    expect(events).toEqual(["clean:runone123", "suite:freshrun123", "clean:freshrun123"])
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
 test("cleanup failure retains checkpoint, invalid data is rejected, and a lock prevents concurrent runners", async () => {
   const directory = await mkdtemp(join(tmpdir(), "e2e-runner-"))
   try {

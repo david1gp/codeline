@@ -79,21 +79,34 @@ export async function e2eSampleProjectPathsOperate(
       if (!stat.isDirectory() || (await fs.realpath(target)) !== target)
         return createResultError(op, "The sample project directory is not owned by this run.")
       const entries = (await fs.readdir(target)).sort()
-      if (entries.join("\0") !== [".e2e-owner", "README.md"].join("\0"))
+      if (
+        operation === "remove" || operation === "purge-status"
+          ? entries.some((entry) => entry !== ".e2e-owner" && entry !== "README.md") || !entries.includes(".e2e-owner")
+          : entries.join("\0") !== [".e2e-owner", "README.md"].join("\0")
+      )
         return createResultError(op, "The sample project directory contains unowned entries.")
       const marker = path.join(target, ".e2e-owner")
       const readme = path.join(target, "README.md")
       if (
         !(await fs.lstat(marker)).isFile() ||
-        !(await fs.lstat(readme)).isFile() ||
         (await fs.readFile(marker, "utf8")) !== runId ||
-        !(await fs.readFile(readme)).equals(await fs.readFile(sourceReadme))
+        (entries.includes("README.md") &&
+          (!(await fs.lstat(readme)).isFile() || !(await fs.readFile(readme)).equals(await fs.readFile(sourceReadme))))
       )
         return createResultError(op, "The sample project directory is not readable or owned by this run.")
     }
     if (operation === "remove") {
       for (const target of presentTargets) {
-        await fs.unlink(path.join(target, "README.md"))
+        if (
+          await fs.lstat(path.join(target, "README.md")).then(
+            () => true,
+            (error: NodeJS.ErrnoException) => {
+              if (error.code === "ENOENT") return false
+              throw error
+            },
+          )
+        )
+          await fs.unlink(path.join(target, "README.md"))
         await fs.unlink(path.join(target, ".e2e-owner"))
         await fs.rmdir(target)
       }

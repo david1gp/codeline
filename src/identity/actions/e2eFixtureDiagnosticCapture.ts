@@ -33,7 +33,7 @@ export async function e2eFixtureDiagnosticCapture(
         transaction,
         config,
         candidate.runId,
-        "status",
+        "member-status",
         new Date(),
         undefined,
         projectRootDirs,

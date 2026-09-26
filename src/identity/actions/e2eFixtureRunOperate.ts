@@ -21,8 +21,9 @@ import { identitySessionExpire } from "./identitySessionExpire.js"
 import { oidcIdentityUpsert } from "./oidcIdentityUpsert.js"
 import { e2eSampleSessionsOperate } from "./e2eSampleSessionsOperate.js"
 import { e2eCommandProjectOperate } from "./e2eCommandProjectOperate.js"
+import { e2eFixtureRunMembersVerify } from "./e2eFixtureRunMembersVerify.js"
 
-type FixtureOperation = "issue" | "status" | "expire" | "prune-journal" | "purge"
+type FixtureOperation = "issue" | "status" | "member-status" | "expire" | "prune-journal" | "purge"
 type FixtureConfig = { issuer: string; organizationExternalId: string }
 type FixtureMember = { displayName: string; expiresAt: string; token: string; userId: string }
 type FixtureResult = {
@@ -37,40 +38,6 @@ type FixtureResult = {
 }
 
 const subjectPrefix = (runId: string) => `e2e-organization-member-${runId}-`
-
-async function fixtureVerify(
-  database: DatabaseExecutor,
-  run: typeof e2eFixtureRunTable.$inferSelect,
-): Promise<boolean> {
-  const userIds = [run.firstUserId, run.secondUserId]
-  if (userIds[0] === userIds[1]) return false
-  const users = await database.select().from(applicationUserTable).where(inArray(applicationUserTable.id, userIds))
-  const identities = await database
-    .select()
-    .from(externalIdentityTable)
-    .where(inArray(externalIdentityTable.userId, userIds))
-  const memberships = await database
-    .select()
-    .from(organizationMemberTable)
-    .where(inArray(organizationMemberTable.userId, userIds))
-  if (users.length !== 2 || identities.length !== 2 || memberships.length !== 2) return false
-  return userIds.every((userId, index) => {
-    const subject = `${subjectPrefix(run.runId)}${index + 1}`
-    const user = users.find((row) => row.id === userId)
-    const identity = identities.find((row) => row.userId === userId)
-    const membership = memberships.find((row) => row.userId === userId)
-    return (
-      user?.displayName === `E2E Member ${index + 1} ${run.runId}` &&
-      user.email === `${subject}@example.test` &&
-      user.createdAt.getTime() >= run.createdAt.getTime() - 1000 &&
-      identity?.issuer === run.issuer &&
-      identity.subject === subject &&
-      membership?.issuer === run.issuer &&
-      membership.subject === subject &&
-      membership.organizationId === run.organizationId
-    )
-  })
-}
 
 /** The only API-owned identity lifecycle; never use the legacy prefix-based local purge here. */
 export async function e2eFixtureRunOperate(
@@ -159,9 +126,19 @@ export async function e2eFixtureRunOperate(
         stored.issuer !== config.issuer ||
         stored.organizationExternalId !== config.organizationExternalId ||
         organization?.id !== stored.organizationId ||
-        !(await fixtureVerify(transaction, stored))
+        !(await e2eFixtureRunMembersVerify(transaction, stored))
       )
         return createResultError(op, "The fixture run ownership could not be verified.")
+
+      // Diagnostic capture only needs the verified member marker. Checking all
+      // cloned sessions and projects while holding its write lock can starve a
+      // concurrent chat run's first provider delta.
+      if (operation === "member-status")
+        return createResult({
+          createdAt: stored.createdAt.toISOString(),
+          exists: true,
+          userIds: [stored.firstUserId, stored.secondUserId],
+        })
 
       const [sample] = await transaction
         .select()
@@ -228,13 +205,15 @@ export async function e2eFixtureRunOperate(
         if (foreignDiagnostic !== undefined)
           return createResultError(op, "The fixture diagnostic ownership could not be verified.")
         await transaction.delete(e2eFixtureDiagnosticTable).where(eq(e2eFixtureDiagnosticTable.runId, runId))
+        // Clear verified registrations (including other runs' imports) while the
+        // owner marker and both members still exist. Sessions have no project FK.
+        if (commandProject !== undefined) {
+          const removed = await e2eCommandProjectOperate(transaction, stored, projectRootDirs, "remove")
+          if (!removed.success) return removed
+        }
         await transaction.delete(applicationUserTable).where(inArray(applicationUserTable.id, userIds))
         if (sample !== undefined) {
           const removed = await e2eSampleSessionsOperate(transaction, stored, "remove")
-          if (!removed.success) return removed
-        }
-        if (commandProject !== undefined) {
-          const removed = await e2eCommandProjectOperate(transaction, stored, projectRootDirs, "remove")
           if (!removed.success) return removed
         }
         await transaction.delete(e2eFixtureRunTable).where(eq(e2eFixtureRunTable.runId, runId))

@@ -345,6 +345,27 @@ test("purge tolerates verified missing run-owned paths but refuses an existing f
   }
 })
 
+test("purge completes a partially removed sample clone before clearing its ownership marker", async () => {
+  const runId = "samplepartialtwo"
+  expect((await request("POST", "/runs", { runId })).status).toBe(201)
+  const issued = await request("POST", `/runs/${runId}/sample-sessions`)
+  expect(issued.status).toBe(201)
+  const { mapping } = (await issued.json()) as { mapping: Record<string, string> }
+  const targets = exampleDataFixture.projects.map((project) => mapping[`path:${project.path}`]!)
+  await rm(path.join(targets[0]!, "README.md"))
+  expect((await request("DELETE", `/runs/${runId}`)).status).toBe(200)
+  for (const target of targets)
+    expect(
+      await lstat(target).then(
+        () => true,
+        () => false,
+      ),
+    ).toBe(false)
+  expect(
+    await connection.db.select().from(e2eSampleSessionsTable).where(eq(e2eSampleSessionsTable.runId, runId)),
+  ).toEqual([])
+})
+
 test("tampered manifest or ownership blocks sample status, retry, and run purge", async () => {
   expect((await request("POST", "/runs", { runId: "sampletwo" })).status).toBe(201)
   expect((await request("POST", "/runs/sampletwo/sample-sessions")).status).toBe(201)

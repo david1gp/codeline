@@ -14,6 +14,7 @@ import { databaseMigrate } from "../../../src/database/databaseMigrate.js"
 import { applicationUserTable } from "../../../src/identity/db/applicationUserTable.js"
 import { e2eFixtureRunTable } from "../../../src/identity/db/e2eFixtureRunTable.js"
 import { e2eFixtureDiagnosticTable } from "../../../src/identity/db/e2eFixtureDiagnosticTable.js"
+import { e2eSampleSessionsTable } from "../../../src/identity/db/e2eSampleSessionsTable.js"
 import { externalIdentityTable } from "../../../src/identity/db/externalIdentityTable.js"
 import { identitySessionTable } from "../../../src/identity/db/identitySessionTable.js"
 import { organizationMemberTable } from "../../../src/identity/db/organizationMemberTable.js"
@@ -496,4 +497,65 @@ test("verified members store only sanitized bounded run-owned diagnostics; ordin
   expect((await read(otherRunId)).json().then((body) => body.entries)).resolves.toHaveLength(1)
   expect((await request("DELETE", `/runs/${otherRunId}`)).status).toBe(200)
   await connection.db.delete(applicationUserTable).where(eq(applicationUserTable.id, unrelated))
+})
+
+test("diagnostic capture verifies fixture membership without validating cloned data and rejects tampered members", async () => {
+  const runId = "diagnosticmember"
+  const issued = (await (await request("POST", "/runs", { runId })).json()) as {
+    members: { userId: string }[]
+  }
+  const userId = issued.members[0]!.userId
+  const journal: unknown[] = []
+  const api = new Hono<AppEnvironment>()
+  api.use("*", async (context, next) => {
+    context.set("requestIdentity", { userId: context.req.header("X-Test-User") ?? "" })
+    await next()
+  })
+  apiDiagnosticsRoutesAdd(api, {
+    configuration: config,
+    database: connection.db,
+    clientLogJournalWrite: async (entry) => {
+      journal.push(entry)
+    },
+  })
+  const ingest = () =>
+    api.request("https://preview.codeline.work/diagnostics/logs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Test-User": userId },
+      body: JSON.stringify({ logs: [{ level: "error", source: "console.error", message: "verified" }] }),
+    })
+
+  // An invalid cloned-data manifest makes full run status fail. Diagnostic
+  // ownership only depends on the fixture's verified member marker.
+  await connection.db.insert(e2eSampleSessionsTable).values({
+    runId,
+    createdAt: new Date(),
+    userId,
+    issuer: config.oidcIssuer,
+    organizationId: "fixture-organization",
+    mapping: {},
+  })
+  expect((await request("GET", `/runs/${runId}`)).status).toBe(409)
+  expect((await ingest()).status).toBe(200)
+  expect(
+    await connection.db.select().from(e2eFixtureDiagnosticTable).where(eq(e2eFixtureDiagnosticTable.runId, runId)),
+  ).toHaveLength(1)
+  expect(journal).toEqual([])
+
+  await connection.db.delete(e2eSampleSessionsTable).where(eq(e2eSampleSessionsTable.runId, runId))
+  await connection.db
+    .update(organizationMemberTable)
+    .set({ subject: "tampered-diagnostic-member" })
+    .where(eq(organizationMemberTable.userId, userId))
+  expect((await ingest()).status).toBe(500)
+  expect(
+    await connection.db.select().from(e2eFixtureDiagnosticTable).where(eq(e2eFixtureDiagnosticTable.runId, runId)),
+  ).toHaveLength(1)
+  expect(journal).toEqual([])
+
+  await connection.db
+    .update(organizationMemberTable)
+    .set({ subject: `e2e-organization-member-${runId}-1` })
+    .where(eq(organizationMemberTable.userId, userId))
+  expect((await request("DELETE", `/runs/${runId}`)).status).toBe(200)
 })

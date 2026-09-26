@@ -3,6 +3,7 @@ import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
 import { createResult, createResultError } from "@adaptive-ds/result"
+import { eq } from "drizzle-orm"
 import { Hono } from "hono"
 import type { AppEnvironment } from "../../../src/api/appEnvironment.js"
 import { databaseConnectionClose } from "../../../src/database/databaseConnectionClose.js"
@@ -169,10 +170,12 @@ describe("project registry list configured-root reconciliation gate", () => {
     expect(calls).toBe(2)
   })
 
-  test("makes configured-root projects visible in the first registry list", async () => {
+  test("lists configured-root projects on first load without registering run-owned command directories", async () => {
     const configuredRoot = path.join(rootDirectory, "configured-root")
     const projectPath = path.join(configuredRoot, "first-load-project")
+    const commandPath = path.join(configuredRoot, ".e2e-command-runowned")
     await fs.mkdir(projectPath, { recursive: true })
+    await fs.mkdir(commandPath)
 
     const listed = await registryListRequest(registryApp({ rootDirs: [configuredRoot] }), visibilityUserId)
     expect(listed.status).toBe(200)
@@ -180,5 +183,11 @@ describe("project registry list configured-root reconciliation gate", () => {
       folders: [expect.objectContaining({ label: "configured-root" })],
       projects: [expect.objectContaining({ label: "first-load-project" })],
     })
+    expect(
+      await database
+        .select({ path: projectTable.path })
+        .from(projectTable)
+        .where(eq(projectTable.userId, visibilityUserId)),
+    ).toEqual([{ path: projectPath }])
   })
 })

@@ -108,26 +108,39 @@ export async function e2eCommandProjectPathsOperate(
     if (!(await fs.lstat(target)).isDirectory() || (await fs.realpath(target)) !== target)
       return createResultError(op, "The command project directory changed.")
     const entries = (await fs.readdir(target)).sort()
+    const removable = operation === "rollback" || operation === "remove" || operation === "purge-status"
+    const rootEntries = [".agents", ".e2e-owner", "README.md"]
     if (
-      operation === "rollback"
-        ? entries.some((name) => ![".agents", ".e2e-owner", "README.md"].includes(name))
-        : entries.join("\0") !== [".agents", ".e2e-owner", "README.md"].sort().join("\0")
+      (removable && entries.some((name) => !rootEntries.includes(name))) ||
+      (!removable && entries.join("\0") !== rootEntries.sort().join("\0")) ||
+      ((operation === "remove" || operation === "purge-status") && !entries.includes(".e2e-owner"))
     )
       return createResultError(op, "The command project contains unknown entries.")
     for (const directory of [".agents", ".agents/commands", ".agents/commands/git"]) {
       const full = path.join(target, directory)
-      if (operation === "rollback" && (await absent(full))) continue
+      if (removable && (await absent(full))) continue
       if (!(await fs.lstat(full)).isDirectory() || (await fs.realpath(full)) !== full)
         return createResultError(op, "The command project contains an unknown directory.")
     }
+    const commandNames = [...files.map((file) => path.basename(file)).filter((name) => name !== "status.md"), "git"]
+    const agentsEntries = (await absent(path.join(target, ".agents")))
+      ? []
+      : await fs.readdir(path.join(target, ".agents"))
+    const commandsEntries = (await absent(path.join(target, ".agents/commands")))
+      ? []
+      : await fs.readdir(path.join(target, ".agents/commands"))
+    const gitEntries = (await absent(path.join(target, ".agents/commands/git")))
+      ? []
+      : await fs.readdir(path.join(target, ".agents/commands/git"))
     if (
-      operation !== "rollback" &&
-      ((await fs.readdir(path.join(target, ".agents"))).join("\0") !== "commands" ||
-        (await fs.readdir(path.join(target, ".agents/commands"))).sort().join("\0") !==
-          [...files.map((file) => path.basename(file)).filter((name) => name !== "status.md"), "git"]
-            .sort()
-            .join("\0") ||
-        (await fs.readdir(path.join(target, ".agents/commands/git"))).join("\0") !== "status.md")
+      (!removable &&
+        (agentsEntries.join("\0") !== "commands" ||
+          commandsEntries.sort().join("\0") !== [...commandNames].sort().join("\0") ||
+          gitEntries.join("\0") !== "status.md")) ||
+      (operation === "remove" &&
+        (agentsEntries.some((name) => name !== "commands") ||
+          commandsEntries.some((name) => !commandNames.includes(name)) ||
+          gitEntries.some((name) => name !== "status.md")))
     )
       return createResultError(op, "The command project contains unknown entries.")
     if (operation === "rollback") {
@@ -146,16 +159,19 @@ export async function e2eCommandProjectPathsOperate(
     }
     for (const name of expected) {
       const full = path.join(target, name)
-      if (operation === "rollback" && (await absent(full))) continue
+      if (removable && (await absent(full))) {
+        if ((operation === "remove" || operation === "purge-status") && name === ".e2e-owner")
+          return createResultError(op, "The command project ownership marker is missing.")
+        continue
+      }
       if (!(await fs.lstat(full)).isFile() || digest(await fs.readFile(full)) !== manifest[name])
         return createResultError(op, "The command project content or ownership marker changed.")
     }
     if (operation === "remove" || operation === "rollback") {
       for (const name of expected)
-        if (operation === "remove" || !(await absent(path.join(target, name)))) await fs.unlink(path.join(target, name))
+        if (!(await absent(path.join(target, name)))) await fs.unlink(path.join(target, name))
       for (const directory of [".agents/commands/git", ".agents/commands", ".agents", ""])
-        if (operation === "remove" || !(await absent(path.join(target, directory))))
-          await fs.rmdir(path.join(target, directory))
+        if (!(await absent(path.join(target, directory)))) await fs.rmdir(path.join(target, directory))
       if (!(await absent(target))) return createResultError(op, "The command project was not removed.")
     }
     return createResult({ path: target, manifest })

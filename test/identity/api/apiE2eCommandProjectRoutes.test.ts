@@ -12,7 +12,11 @@ import { apiE2eFixtureRoutesAdd } from "../../../src/identity/api/apiE2eFixtureR
 import { e2eCommandProjectTable } from "../../../src/identity/db/e2eCommandProjectTable.js"
 import { applicationUserTable } from "../../../src/identity/db/applicationUserTable.js"
 import { organizationTable } from "../../../src/identity/db/organizationTable.js"
+import { e2eFixtureRunTable } from "../../../src/identity/db/e2eFixtureRunTable.js"
+import { organizationMemberTable } from "../../../src/identity/db/organizationMemberTable.js"
 import { projectTable } from "../../../src/project/db/projectTable.js"
+import { serverTable } from "../../../src/servers/db/serverTable.js"
+import { sessionTable } from "../../../src/session/db/sessionTable.js"
 
 const token = "c".repeat(48)
 const configuration = {
@@ -169,7 +173,19 @@ test("a changed file or substituted symlink blocks purge and an absent owned dir
   expect(await exists(issued.path)).toBe(false)
 })
 
-test("a tampered stored path or foreign user's registration cannot authorize a deletion", async () => {
+test("purge finishes a partially removed command project before clearing its ownership marker", async () => {
+  const runId = "commandpartial"
+  expect((await request("POST", "/runs", `Bearer ${token}`, JSON.stringify({ runId }))).status).toBe(201)
+  const issued = (await (await request("POST", `/runs/${runId}/command-project`)).json()) as { path: string }
+  await rm(path.join(issued.path, ".agents/commands/review.md"))
+  expect((await request("DELETE", `/runs/${runId}`)).status).toBe(200)
+  expect(await exists(issued.path)).toBe(false)
+  expect(
+    await connection.db.select().from(e2eCommandProjectTable).where(eq(e2eCommandProjectTable.runId, runId)),
+  ).toEqual([])
+})
+
+test("a tampered stored path or unmarked E2E-looking user's registration cannot authorize a deletion", async () => {
   const runId = "commandregistry"
   expect((await request("POST", "/runs", `Bearer ${token}`, JSON.stringify({ runId }))).status).toBe(201)
   const endpoint = `/runs/${runId}/command-project`
@@ -183,7 +199,11 @@ test("a tampered stored path or foreign user's registration cannot authorize a d
     .update(e2eCommandProjectTable)
     .set({ path: issued.path })
     .where(eq(e2eCommandProjectTable.runId, runId))
-  await connection.db.insert(applicationUserTable).values({ id: "foreign-command-user", displayName: "Not a fixture" })
+  await connection.db.insert(applicationUserTable).values({
+    id: "foreign-command-user",
+    displayName: "E2E Member 1 commandfake",
+    email: "e2e-organization-member-commandfake-1@example.test",
+  })
   await connection.db
     .insert(projectTable)
     .values({ id: "foreign-command-project", userId: "foreign-command-user", path: issued.path })
@@ -194,4 +214,104 @@ test("a tampered stored path or foreign user's registration cannot authorize a d
   await connection.db.delete(applicationUserTable).where(eq(applicationUserTable.id, "foreign-command-user"))
   expect((await request("DELETE", `/runs/${runId}`)).status).toBe(200)
   expect(await exists(issued.path)).toBe(false)
+})
+
+test("purge removes exact-path registrations of verified other runs without deleting their sessions or their own projects", async () => {
+  const ownerId = "commandcrossowner"
+  const otherId = "commandcrossother"
+  const owner = (await (
+    await request("POST", "/runs", `Bearer ${token}`, JSON.stringify({ runId: ownerId }))
+  ).json()) as {
+    members: { userId: string }[]
+  }
+  const other = (await (
+    await request("POST", "/runs", `Bearer ${token}`, JSON.stringify({ runId: otherId }))
+  ).json()) as {
+    members: { userId: string }[]
+  }
+  const ownedPath = ((await (await request("POST", `/runs/${ownerId}/command-project`)).json()) as { path: string })
+    .path
+  const otherPath = ((await (await request("POST", `/runs/${otherId}/command-project`)).json()) as { path: string })
+    .path
+  await connection.db.insert(projectTable).values([
+    { id: "cross-owner", userId: owner.members[0]!.userId, path: ownedPath },
+    { id: "cross-first", userId: other.members[0]!.userId, path: ownedPath },
+    { id: "cross-second", userId: other.members[1]!.userId, path: ownedPath },
+    { id: "cross-independent", userId: other.members[0]!.userId, path: otherPath },
+  ])
+  await connection.db.insert(serverTable).values({
+    id: "cross-server",
+    organizationId: "fixture-organization",
+    name: "Cross-run server",
+    endpoint: "https://example.test",
+  })
+  await connection.db.insert(sessionTable).values({
+    id: "cross-session",
+    userId: other.members[0]!.userId,
+    serverId: "cross-server",
+    primaryAgentId: "cross-agent",
+    projectPath: ownedPath,
+    title: "Other run session",
+    clientRequestId: "cross-request",
+  })
+
+  expect((await request("GET", `/runs/${ownerId}`)).status).toBe(200)
+  expect((await request("GET", `/runs/${ownerId}/command-project`)).status).toBe(200)
+  expect((await request("DELETE", `/runs/${ownerId}`)).status).toBe(200)
+  expect(await exists(ownedPath)).toBe(false)
+  expect(await connection.db.select().from(projectTable).where(eq(projectTable.path, ownedPath))).toEqual([])
+  expect(await connection.db.select().from(sessionTable).where(eq(sessionTable.id, "cross-session"))).toHaveLength(1)
+  expect(await connection.db.select().from(projectTable).where(eq(projectTable.id, "cross-independent"))).toHaveLength(
+    1,
+  )
+  expect((await request("GET", `/runs/${otherId}`)).status).toBe(200)
+  expect((await request("DELETE", `/runs/${ownerId}`)).status).toBe(200)
+  expect((await request("DELETE", `/runs/${otherId}`)).status).toBe(200)
+  expect(await connection.db.select().from(sessionTable).where(eq(sessionTable.id, "cross-session"))).toEqual([])
+  expect(await exists(otherPath)).toBe(false)
+  await connection.db.delete(serverTable).where(eq(serverTable.id, "cross-server"))
+})
+
+test("a foreign fixture marker or membership mismatch blocks exact-path registration cleanup until verified", async () => {
+  const ownerId = "commandverifyowner"
+  const otherId = "commandverifyother"
+  expect((await request("POST", "/runs", `Bearer ${token}`, JSON.stringify({ runId: ownerId }))).status).toBe(201)
+  const other = (await (
+    await request("POST", "/runs", `Bearer ${token}`, JSON.stringify({ runId: otherId }))
+  ).json()) as {
+    members: { userId: string }[]
+  }
+  const target = ((await (await request("POST", `/runs/${ownerId}/command-project`)).json()) as { path: string }).path
+  const userId = other.members[0]!.userId
+  await connection.db.insert(projectTable).values({ id: "cross-tampered", userId, path: target })
+  const [marker] = await connection.db.select().from(e2eFixtureRunTable).where(eq(e2eFixtureRunTable.runId, otherId))
+  expect(marker).toBeDefined()
+  await connection.db.delete(e2eFixtureRunTable).where(eq(e2eFixtureRunTable.runId, otherId))
+  expect((await request("DELETE", `/runs/${ownerId}`)).status).toBe(409)
+  expect(await connection.db.select().from(projectTable).where(eq(projectTable.id, "cross-tampered"))).toHaveLength(1)
+  await connection.db.insert(e2eFixtureRunTable).values(marker!)
+  await connection.db
+    .update(e2eFixtureRunTable)
+    .set({ issuer: "https://other.test/" })
+    .where(eq(e2eFixtureRunTable.runId, otherId))
+  expect((await request("DELETE", `/runs/${ownerId}`)).status).toBe(409)
+  expect(await exists(target)).toBe(true)
+  expect(await connection.db.select().from(projectTable).where(eq(projectTable.id, "cross-tampered"))).toHaveLength(1)
+  await connection.db
+    .update(e2eFixtureRunTable)
+    .set({ issuer: configuration.oidcIssuer })
+    .where(eq(e2eFixtureRunTable.runId, otherId))
+  await connection.db
+    .update(organizationMemberTable)
+    .set({ subject: "wrong-subject" })
+    .where(eq(organizationMemberTable.userId, userId))
+  expect((await request("GET", `/runs/${ownerId}`)).status).toBe(409)
+  expect((await request("DELETE", `/runs/${ownerId}`)).status).toBe(409)
+  expect(await connection.db.select().from(projectTable).where(eq(projectTable.id, "cross-tampered"))).toHaveLength(1)
+  await connection.db
+    .update(organizationMemberTable)
+    .set({ subject: `e2e-organization-member-${otherId}-1` })
+    .where(eq(organizationMemberTable.userId, userId))
+  expect((await request("DELETE", `/runs/${ownerId}`)).status).toBe(200)
+  expect((await request("DELETE", `/runs/${otherId}`)).status).toBe(200)
 })

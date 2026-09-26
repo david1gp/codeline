@@ -25,7 +25,7 @@ export async function e2eSuitesRun(options: {
   const release = await options.store.lock()
   const now = options.now ?? (() => new Date())
   const expired = (checkpoint: E2eCheckpoint) =>
-    now().getTime() - Date.parse(checkpoint.createdAt) > 24 * 60 * 60 * 1000
+    now().getTime() - Date.parse(checkpoint.createdAt) >= 24 * 60 * 60 * 1000
   let current: E2eCheckpoint | undefined
   let success = false
   let failure: unknown
@@ -54,6 +54,8 @@ export async function e2eSuitesRun(options: {
     )
       throw new Error("Invalid E2E suite manifest")
     current = await options.store.load(options.target)
+    if (current !== undefined && current.target !== options.target)
+      throw new Error("E2E checkpoint target mismatch; refuse to resume or discard owned resources")
     if (current !== undefined && current.origin !== options.origin)
       throw new Error("E2E checkpoint target origin mismatch; refuse to resume or discard owned resources")
     if (current === undefined) {
@@ -87,7 +89,11 @@ export async function e2eSuitesRun(options: {
       }
       // The child registers fixtures on disk, including when the suite fails.
       const registered = await options.store.load(options.target)
-      if (registered?.runId !== current.runId || registered.origin !== current.origin)
+      if (
+        registered?.runId !== current.runId ||
+        registered.target !== current.target ||
+        registered.origin !== current.origin
+      )
         throw new Error("E2E checkpoint changed while running a suite")
       if (
         JSON.stringify(registered.suiteManifest) !== JSON.stringify(manifest) ||
