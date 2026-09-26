@@ -115,7 +115,10 @@ export function demoSessionTargetSelectorStateCreate(
     selectedPresetId: () => null,
     presetSelect: () => undefined,
     selectedModelId: demoModel.get,
-    modelChange: (model: string) => { demoModel.set(model); return model },
+    modelChange: (model: string) => {
+      demoModel.set(model)
+      return model
+    },
     selectedAgentId: selectedAgentId.get,
     selectedAgentName: () =>
       agents().find((agent) => agent.id === selectedAgentId.get())?.name ?? "Local execution agent",

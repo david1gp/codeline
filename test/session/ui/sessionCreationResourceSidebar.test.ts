@@ -3,7 +3,9 @@ import { expect, test } from "bun:test"
 const sidebarSource = await Bun.file(
   new URL("../../../src/session/ui/SessionCreationResourceSidebar.tsx", import.meta.url),
 ).text()
-const sidebarStateSource = await Bun.file(new URL("../../../src/session/ui/sessionCreationResourceSidebarStateCreate.ts", import.meta.url)).text()
+const sidebarStateSource = await Bun.file(
+  new URL("../../../src/session/ui/sessionCreationResourceSidebarStateCreate.ts", import.meta.url),
+).text()
 const selectedSessionSource = await Bun.file(
   new URL("../../../src/session/ui/SelectedSession.tsx", import.meta.url),
 ).text()

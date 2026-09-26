@@ -127,10 +127,7 @@ export async function sessionRepositoryListSnapshot(
         const asOfCursor = dependencies.cursorCodec.encodeGlobalSequence(user.id, highestSequence.data)
         if (!asOfCursor.success) return createResultError(op, asOfCursor.errorMessage)
 
-        const conditions = [
-          eq(sessionTable.userId, user.id),
-          eq(serverTable.organizationId, organizationId),
-        ]
+        const conditions = [eq(sessionTable.userId, user.id), eq(serverTable.organizationId, organizationId)]
         if (!parsedOptions.output.includeArchived) conditions.push(isNull(sessionTable.archivedAt))
         if (validatedCursor.data !== undefined) {
           const cursorTimestamp = new Date(validatedCursor.data.updatedAt)
@@ -158,7 +155,10 @@ export async function sessionRepositoryListSnapshot(
           .select({ agent: agentTable, projectId: projectTable.id, server: serverTable, session: sessionTable })
           .from(sessionTable)
           .innerJoin(serverTable, eq(sessionTable.serverId, serverTable.id))
-          .leftJoin(agentTable, and(eq(sessionTable.primaryAgentId, agentTable.id), eq(agentTable.serverId, sessionTable.serverId)))
+          .leftJoin(
+            agentTable,
+            and(eq(sessionTable.primaryAgentId, agentTable.id), eq(agentTable.serverId, sessionTable.serverId)),
+          )
           .leftJoin(
             projectTable,
             and(eq(projectTable.userId, sessionTable.userId), eq(projectTable.path, sessionTable.projectPath)),

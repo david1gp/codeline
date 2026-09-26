@@ -54,8 +54,11 @@ export function chatCommandComposerStateCreate(options: ChatCommandComposerState
     )
     const allowedNames = allowed === undefined ? null : new Set(allowed)
     const projectNames = new Set(commands.filter(({ source }) => source === "project").map(({ name }) => name))
-    return commands.filter((command) => command.source === "project" ||
-      (!projectNames.has(command.name) && (allowedNames === null || allowedNames.has(command.name))))
+    return commands.filter(
+      (command) =>
+        command.source === "project" ||
+        (!projectNames.has(command.name) && (allowedNames === null || allowedNames.has(command.name))),
+    )
   }
   const commandFind = (name: string) => availableCommands().find((command) => command.name === name)
 

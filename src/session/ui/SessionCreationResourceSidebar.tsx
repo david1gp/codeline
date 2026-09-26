@@ -43,7 +43,9 @@ export function SessionCreationResourceSidebar(props: {
         style={{ "--session-context-width": `${state.width()}px` }}
         aria-labelledby={`${state.prefix()}-heading`}
       >
-        <h3 id={`${state.prefix()}-heading`} class="m-0 text-sm font-semibold">New session</h3>
+        <h3 id={`${state.prefix()}-heading`} class="m-0 text-sm font-semibold">
+          New session
+        </h3>
         <label class="grid gap-1.5 text-xs font-semibold text-faint" for={`${state.prefix()}-preset`}>
           Agent preset
           <SelectSingleNative
@@ -55,29 +57,57 @@ export function SessionCreationResourceSidebar(props: {
           />
         </label>
         <Show when={props.target.presetStatus() === "loading"}>
-          <p class="m-0 text-xs text-faint" role="status">Loading agent presets…</p>
+          <p class="m-0 text-xs text-faint" role="status">
+            Loading agent presets…
+          </p>
         </Show>
         <Show when={props.target.presetStatus() === "error"}>
           <div role="alert">
-            <p class="text-xs text-danger">{props.target.presetErrorMessage() ?? "Agent presets could not be loaded."}</p>
-            <Button variant="outlineRed" size="sm" onClick={props.target.presetRetry}>Retry</Button>
+            <p class="text-xs text-danger">
+              {props.target.presetErrorMessage() ?? "Agent presets could not be loaded."}
+            </p>
+            <Button variant="outlineRed" size="sm" onClick={props.target.presetRetry}>
+              Retry
+            </Button>
           </div>
         </Show>
         <p class="m-0 text-xs text-faint">Execution agent: {props.target.selectedAgentName()}</p>
         <Show when={props.target.presetAgentUnavailable()}>
-          <p class="m-0 text-xs text-danger" role="alert">The preset execution agent is unavailable. Choose another preset, or select a server and agent below to start without this preset.</p>
-          <Button variant="outline" size="sm" onClick={() => props.target.presetSelect("")}>Use current agent without preset</Button>
+          <p class="m-0 text-xs text-danger" role="alert">
+            The preset execution agent is unavailable. Choose another preset, or select a server and agent below to
+            start without this preset.
+          </p>
+          <Button variant="outline" size="sm" onClick={() => props.target.presetSelect("")}>
+            Use current agent without preset
+          </Button>
         </Show>
         <label class="grid gap-1.5 text-xs font-semibold text-faint" for={`${state.prefix()}-server`}>
           Alternative server (clears preset)
-          <SelectSingleNative id={`${state.prefix()}-server`} valueSignal={state.server} getOptions={state.serverOptions} valueText={state.serverOptionText} />
+          <SelectSingleNative
+            id={`${state.prefix()}-server`}
+            valueSignal={state.server}
+            getOptions={state.serverOptions}
+            valueText={state.serverOptionText}
+          />
         </label>
         <label class="grid gap-1.5 text-xs font-semibold text-faint" for={`${state.prefix()}-agent`}>
           Alternative agent (clears preset)
-          <SelectSingleNative id={`${state.prefix()}-agent`} valueSignal={state.agent} getOptions={state.agentOptions} valueText={state.agentOptionText} />
+          <SelectSingleNative
+            id={`${state.prefix()}-agent`}
+            valueSignal={state.agent}
+            getOptions={state.agentOptions}
+            valueText={state.agentOptionText}
+          />
         </label>
         <Show when={props.target.projectAgentsErrorMessage()}>
-          {(message) => <div role="alert"><p class="text-xs text-danger">{message()}</p><Button variant="outlineRed" size="sm" onClick={props.target.projectAgentsRetry}>Retry project agents</Button></div>}
+          {(message) => (
+            <div role="alert">
+              <p class="text-xs text-danger">{message()}</p>
+              <Button variant="outlineRed" size="sm" onClick={props.target.projectAgentsRetry}>
+                Retry project agents
+              </Button>
+            </div>
+          )}
         </Show>
         <label class="grid gap-1.5 text-xs font-semibold text-faint" for={`${state.prefix()}-model`}>
           Model
@@ -88,7 +118,9 @@ export function SessionCreationResourceSidebar(props: {
           />
         </label>
         <Show when={props.target.selectedPresetId() !== null && props.target.selectedModelId().trim() === ""}>
-          <p class="m-0 text-xs text-danger" role="alert">Enter an available model before starting this preset.</p>
+          <p class="m-0 text-xs text-danger" role="alert">
+            Enter an available model before starting this preset.
+          </p>
         </Show>
         <div class="grid gap-1.5">
           <p class="m-0 text-xs font-semibold text-faint">Prompt and context</p>

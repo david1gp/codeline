@@ -101,7 +101,10 @@ test("slash suggestions react to changed preset command membership", () => {
   const [allowed, setAllowed] = createSignal<readonly string[]>(["audit"])
   const { dispose, setDraft, state } = stateCreate({
     allowedGlobalCommandNames: () => allowed(),
-    catalog: [commandCreate("audit", "Audit", { source: "global" }), commandCreate("release", "Release", { source: "global" })],
+    catalog: [
+      commandCreate("audit", "Audit", { source: "global" }),
+      commandCreate("release", "Release", { source: "global" }),
+    ],
   })
   setDraft("/")
   expect(state.suggestions().map(({ name }) => name)).toEqual(["audit"])

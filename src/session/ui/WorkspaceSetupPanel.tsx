@@ -5,9 +5,7 @@ import type { SessionTargetConfigurationView } from "./sessionTargetConfiguratio
 
 const fieldClass = "grid gap-1.5 text-xs font-semibold text-faint"
 
-export function WorkspaceSetupPanel(props: {
-  configuration: SessionTargetConfigurationView
-}) {
+export function WorkspaceSetupPanel(props: { configuration: SessionTargetConfigurationView }) {
   return (
     <div class="flex min-h-0 min-w-0 flex-1 items-start justify-center overflow-y-auto px-5 py-8 max-[760px]:px-4">
       <section

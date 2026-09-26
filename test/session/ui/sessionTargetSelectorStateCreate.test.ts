@@ -139,11 +139,36 @@ const agentDetails: Record<string, unknown> = {
 
 const globalPresets = {
   version: 1,
-  categories: Object.fromEntries(["skills", "commands", "tools", "subagents"].map((key) => [key, {
-    defaultSetId: `default-${key}`,
-    sets: [{ id: `default-${key}`, name: "Default", resourceNames: [], includeNewResources: true, includeAllResources: key === "commands" }],
-  }])),
-  presets: [{ id: "review", name: "Review", executionAgentId: "example-agent-local-review", modelId: "review-default", skillSetIds: [], commandSetIds: [], toolSetIds: [], subagentSetIds: [], subagentNames: [] }],
+  categories: Object.fromEntries(
+    ["skills", "commands", "tools", "subagents"].map((key) => [
+      key,
+      {
+        defaultSetId: `default-${key}`,
+        sets: [
+          {
+            id: `default-${key}`,
+            name: "Default",
+            resourceNames: [],
+            includeNewResources: true,
+            includeAllResources: key === "commands",
+          },
+        ],
+      },
+    ]),
+  ),
+  presets: [
+    {
+      id: "review",
+      name: "Review",
+      executionAgentId: "example-agent-local-review",
+      modelId: "review-default",
+      skillSetIds: [],
+      commandSetIds: [],
+      toolSetIds: [],
+      subagentSetIds: [],
+      subagentNames: [],
+    },
+  ],
 }
 
 test("global preset prefills the execution agent and model, and a model override is sent on creation", async () => {
@@ -170,7 +195,11 @@ test("global preset prefills the execution agent and model, and a model override
   expect(state?.selectedModelId()).toBe("review-default")
   state?.modelChange("review-custom")
   await state?.sessionCreateStart()
-  expect(requests[0]).toMatchObject({ globalAgentPresetId: "review", modelId: "review-custom", primaryAgentId: "example-agent-local-review" })
+  expect(requests[0]).toMatchObject({
+    globalAgentPresetId: "review",
+    modelId: "review-custom",
+    primaryAgentId: "example-agent-local-review",
+  })
   expect(requests[0]).not.toHaveProperty("skillSelection")
   expect(requests[0]).not.toHaveProperty("executionSelection")
   state?.presetSelect("")
@@ -184,9 +213,22 @@ test("selecting a preset on another server switches to its execution agent", asy
   const dispose = createRoot((rootDispose) => {
     state = sessionTargetSelectorStateCreate({
       accountId: accountIdCreate(),
-      fetch: (input, init) => String(input) === "/api/global/agent-presets"
-        ? Promise.resolve(response({ ...globalPresets, presets: [{ ...globalPresets.presets[0], id: "remote", executionAgentId: "example-agent-remote", modelId: "remote-preset" }] }))
-        : fetchDefaultCreate([])(input, init),
+      fetch: (input, init) =>
+        String(input) === "/api/global/agent-presets"
+          ? Promise.resolve(
+              response({
+                ...globalPresets,
+                presets: [
+                  {
+                    ...globalPresets.presets[0],
+                    id: "remote",
+                    executionAgentId: "example-agent-remote",
+                    modelId: "remote-preset",
+                  },
+                ],
+              }),
+            )
+          : fetchDefaultCreate([])(input, init),
       selectedSessionId: () => null,
       sessionSelect: () => undefined,
     })
@@ -207,9 +249,11 @@ test("an unavailable preset agent blocks creation until an explicit alternative 
     state = sessionTargetSelectorStateCreate({
       accountId: accountIdCreate(),
       fetch: async (input, init) => {
-        if (String(input) === "/api/global/agent-presets") return response({
-          ...globalPresets, presets: [{ ...globalPresets.presets[0], executionAgentId: "missing-agent" }],
-        })
+        if (String(input) === "/api/global/agent-presets")
+          return response({
+            ...globalPresets,
+            presets: [{ ...globalPresets.presets[0], executionAgentId: "missing-agent" }],
+          })
         if (String(input) === "/api/sessions" && init?.method === "POST") bodies.push(JSON.parse(String(init.body)))
         return fetchDefaultCreate([])(input, init)
       },
@@ -242,13 +286,27 @@ test("a preset model can be replaced explicitly without changing the preset agen
     state = sessionTargetSelectorStateCreate({
       accountId: accountIdCreate(),
       fetch: async (input, init) => {
-        if (String(input) === "/api/global/agent-presets") return response({
-          ...globalPresets,
-          categories: { ...globalPresets.categories, commands: {
-            defaultSetId: "default-commands", sets: [{ id: "default-commands", name: "Default", resourceNames: ["allowed"], excludedResourceNames: ["excluded"], includeNewResources: false, includeAllResources: false }],
-          } },
-          presets: [{ ...globalPresets.presets[0], commandSetIds: ["default-commands"] }],
-        })
+        if (String(input) === "/api/global/agent-presets")
+          return response({
+            ...globalPresets,
+            categories: {
+              ...globalPresets.categories,
+              commands: {
+                defaultSetId: "default-commands",
+                sets: [
+                  {
+                    id: "default-commands",
+                    name: "Default",
+                    resourceNames: ["allowed"],
+                    excludedResourceNames: ["excluded"],
+                    includeNewResources: false,
+                    includeAllResources: false,
+                  },
+                ],
+              },
+            },
+            presets: [{ ...globalPresets.presets[0], commandSetIds: ["default-commands"] }],
+          })
         if (String(input) === "/api/sessions" && init?.method === "POST") bodies.push(JSON.parse(String(init.body)))
         return fetchDefaultCreate([])(input, init)
       },
@@ -266,7 +324,13 @@ test("a preset model can be replaced explicitly without changing the preset agen
   expect(bodies).toEqual([])
   state?.modelChange("review-alternative")
   await state?.sessionCreateStart()
-  expect(bodies).toEqual([expect.objectContaining({ globalAgentPresetId: "review", modelId: "review-alternative", primaryAgentId: "example-agent-local-review" })])
+  expect(bodies).toEqual([
+    expect.objectContaining({
+      globalAgentPresetId: "review",
+      modelId: "review-alternative",
+      primaryAgentId: "example-agent-local-review",
+    }),
+  ])
   dispose()
 })
 
@@ -281,28 +345,38 @@ test("project agent picker includes local primaries, replaces same-name globals,
   let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
   const dispose = createRoot((rootDispose) => {
     state = sessionTargetSelectorStateCreate({
-      accountId: accountIdCreate(), activeProjectId: projectId,
+      accountId: accountIdCreate(),
+      activeProjectId: projectId,
       fetch: (input, init) => {
         const url = String(input)
         if (url === "/api/global/agent-presets") return Promise.resolve(response(globalPresets))
-        if (url === "/api/project/agents?project=project-one") return Promise.resolve(response({
-          agents: [
-            { id: "example-agent-local", mode: "primary", enabled: true, description: "Project override" },
-            { id: "only-here", mode: "primary", enabled: true, description: "Project only" },
-            { id: "helper", mode: "subagent", enabled: true },
-          ],
-          projectAgentIds: ["example-agent-local", "only-here", "helper"],
-        }))
-        if (url === "/api/project/agents?project=project-two") return Promise.resolve(response({ agents: [], projectAgentIds: [] }))
+        if (url === "/api/project/agents?project=project-one")
+          return Promise.resolve(
+            response({
+              agents: [
+                { id: "example-agent-local", mode: "primary", enabled: true, description: "Project override" },
+                { id: "only-here", mode: "primary", enabled: true, description: "Project only" },
+                { id: "helper", mode: "subagent", enabled: true },
+              ],
+              projectAgentIds: ["example-agent-local", "only-here", "helper"],
+            }),
+          )
+        if (url === "/api/project/agents?project=project-two")
+          return Promise.resolve(response({ agents: [], projectAgentIds: [] }))
         if (url === "/api/sessions") requests.push(JSON.parse(String(init?.body)))
         return fetchDefault(input, init)
       },
-      selectedSessionId: () => null, sessionSelect: () => undefined,
+      selectedSessionId: () => null,
+      sessionSelect: () => undefined,
     })
     return rootDispose
   })
   await effectsSettle()
-  expect(state?.agents().map(({ id }) => id)).toEqual(["example-agent-local-review", "example-agent-local", "only-here"])
+  expect(state?.agents().map(({ id }) => id)).toEqual([
+    "example-agent-local-review",
+    "example-agent-local",
+    "only-here",
+  ])
   expect(state?.agents().find(({ id }) => id === "example-agent-local")?.name).toBe("Project override")
   state?.alternativeAgentSelect("only-here")
   expect(state?.selectedAgentId()).toBe("only-here")
@@ -316,7 +390,11 @@ test("project agent picker includes local primaries, replaces same-name globals,
   state?.presetSelect("review")
   state?.modelChange("custom-review")
   await state?.sessionCreateStart()
-  expect(requests[1]).toMatchObject({ globalAgentPresetId: "review", modelId: "custom-review", projectId: "project-two" })
+  expect(requests[1]).toMatchObject({
+    globalAgentPresetId: "review",
+    modelId: "custom-review",
+    projectId: "project-two",
+  })
   dispose()
 })
 
@@ -324,16 +402,23 @@ test("project-only primary remains selectable when the server has no registered 
   let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
   const dispose = createRoot((rootDispose) => {
     state = sessionTargetSelectorStateCreate({
-      accountId: accountIdCreate(), activeProjectId: () => "empty-server-project",
+      accountId: accountIdCreate(),
+      activeProjectId: () => "empty-server-project",
       fetch: (input, init) => {
         const url = String(input)
-        if (url === "/api/project/agents?project=empty-server-project") return Promise.resolve(response({
-          agents: [{ id: "project-primary", mode: "primary", enabled: true }], projectAgentIds: ["project-primary"],
-        }))
-        if (url === "/api/servers/example-server-local/agents") return Promise.resolve(response(representation({ agents: [] })))
+        if (url === "/api/project/agents?project=empty-server-project")
+          return Promise.resolve(
+            response({
+              agents: [{ id: "project-primary", mode: "primary", enabled: true }],
+              projectAgentIds: ["project-primary"],
+            }),
+          )
+        if (url === "/api/servers/example-server-local/agents")
+          return Promise.resolve(response(representation({ agents: [] })))
         return fetchDefaultCreate([])(input, init)
       },
-      selectedSessionId: () => null, sessionSelect: () => undefined,
+      selectedSessionId: () => null,
+      sessionSelect: () => undefined,
     })
     return rootDispose
   })

@@ -17,26 +17,39 @@ export async function sessionRepositoryCreateReplayLoad(
   userId: string,
   organizationId: string,
   input: { idempotencyKey?: string; requestHash?: string },
-): Promise<Result<{
-  created: false
-  replayed: true
-  responseBody: SessionCreateMutationResponse
-  session: typeof sessionTable.$inferSelect
-} | undefined>> {
+): Promise<
+  Result<
+    | {
+        created: false
+        replayed: true
+        responseBody: SessionCreateMutationResponse
+        session: typeof sessionTable.$inferSelect
+      }
+    | undefined
+  >
+> {
   const op = "sessionRepositoryCreate"
   if (input.idempotencyKey === undefined) return createResult(undefined)
   if (input.requestHash === undefined) return createResultError(op, "The idempotency request hash is required.")
 
   try {
-    const [idempotent] = await database.select().from(mutationIdempotencyTable).where(and(
-      eq(mutationIdempotencyTable.userId, userId),
-      eq(mutationIdempotencyTable.operation, "session.create"),
-      eq(mutationIdempotencyTable.idempotencyKey, input.idempotencyKey),
-    )).limit(1)
+    const [idempotent] = await database
+      .select()
+      .from(mutationIdempotencyTable)
+      .where(
+        and(
+          eq(mutationIdempotencyTable.userId, userId),
+          eq(mutationIdempotencyTable.operation, "session.create"),
+          eq(mutationIdempotencyTable.idempotencyKey, input.idempotencyKey),
+        ),
+      )
+      .limit(1)
     if (idempotent === undefined) return createResult(undefined)
     if (idempotent.requestHash !== input.requestHash) {
       const conflict = createResultErrorCode(
-        op, "The idempotency key was already used for a different request.", "idempotency_conflict",
+        op,
+        "The idempotency key was already used for a different request.",
+        "idempotency_conflict",
       )
       conflict.statusCode = 409
       return conflict
@@ -44,9 +57,15 @@ export async function sessionRepositoryCreateReplayLoad(
 
     const response = v.safeParse(sessionCreateMutationResponseSchema, idempotent.responseBody)
     if (!response.success) return createResultError(op, "The stored idempotency response is invalid.")
-    const [session] = await database.select({ session: sessionTable }).from(sessionTable)
-      .innerJoin(serverTable, and(eq(sessionTable.serverId, serverTable.id), eq(serverTable.organizationId, organizationId)))
-      .where(and(eq(sessionTable.id, idempotent.resourceId), eq(sessionTable.userId, userId))).limit(1)
+    const [session] = await database
+      .select({ session: sessionTable })
+      .from(sessionTable)
+      .innerJoin(
+        serverTable,
+        and(eq(sessionTable.serverId, serverTable.id), eq(serverTable.organizationId, organizationId)),
+      )
+      .where(and(eq(sessionTable.id, idempotent.resourceId), eq(sessionTable.userId, userId)))
+      .limit(1)
     if (session === undefined) return createResultError(op, "The session could not be found.")
     const projectId = await projectRegistryProjectIdResolve(database, userId, session.session.projectPath)
     if (!projectId.success) return createResultError(op, projectId.errorMessage)
@@ -57,7 +76,12 @@ export async function sessionRepositoryCreateReplayLoad(
       userId,
     })
     if (!currentResponse.success) return currentResponse
-    return createResult({ created: false, replayed: true, responseBody: currentResponse.data, session: session.session })
+    return createResult({
+      created: false,
+      replayed: true,
+      responseBody: currentResponse.data,
+      session: session.session,
+    })
   } catch {
     return createResultError(op, "The session could not be created.")
   }

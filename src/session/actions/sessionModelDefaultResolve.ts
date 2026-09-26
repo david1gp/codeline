@@ -27,17 +27,25 @@ export async function sessionModelDefaultResolve(
   if (selected.data.provider.id !== "cliproxyapi" && selected.data.provider.id !== "codex-lb")
     return createResultError(op, "The session model provider is unsupported.")
 
-  const [configured] = await database.select({ configuration: agentTable.configuration }).from(agentTable)
-    .where(and(eq(agentTable.id, input.agentId), eq(agentTable.serverId, input.serverId))).limit(1)
-  const projectConfiguration = configured === undefined ? providerAgentCatalogConfigurationResolve(catalog, input.agentId) : undefined
+  const [configured] = await database
+    .select({ configuration: agentTable.configuration })
+    .from(agentTable)
+    .where(and(eq(agentTable.id, input.agentId), eq(agentTable.serverId, input.serverId)))
+    .limit(1)
+  const projectConfiguration =
+    configured === undefined ? providerAgentCatalogConfigurationResolve(catalog, input.agentId) : undefined
   if (projectConfiguration !== undefined && !projectConfiguration.success) return projectConfiguration
   const execution: CodelineExecution = {
     agentId: input.agentId,
     model: selected.data.model.id,
     provider: selected.data.provider.id,
   }
-  const resolved = providerAgentCatalogExecutionResolve(catalog, input.agentId,
-    configured?.configuration ?? projectConfiguration?.data, execution)
+  const resolved = providerAgentCatalogExecutionResolve(
+    catalog,
+    input.agentId,
+    configured?.configuration ?? projectConfiguration?.data,
+    execution,
+  )
   if (!resolved.success) return createResultError(op, `The session model is invalid: ${resolved.errorMessage}`)
   return createResult(execution)
 }

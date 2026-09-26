@@ -254,197 +254,305 @@ beforeAll(async () => {
   })
 })
 
-test.skipIf(!databaseAvailable)("session creation binds the canonical model default to idempotency and run admission", async () => {
-  const loaded = await providerAgentCatalogLoad(path.resolve(import.meta.dir, "../../.."))
-  if (!loaded.success) throw new Error(loaded.errorMessage)
-  const catalog = {
-    ...loaded.data,
-    agents: [{ id: agentId, enabled: true, prompt: "Test agent", mode: "primary" as const,
-      tools: { bash: false, webfetch: false } }],
-  }
-  const modelApp = appCreate({
-    ...appSseTestDependenciesCreate(journalCursorCodec.data),
-    configuration,
-    configurationStore: runConfigurationStore,
-    database,
-    developmentIdentityUpsert: testDevelopmentIdentityUpsert,
-    journalCursorCodec: journalCursorCodec.data,
-    providerAgentCatalog: catalog,
-    sessionChatAdapter: sessionChatAdapterCreate,
-  })
-  const input = { clientRequestId: `model-default-${uuidv7()}`, modelId: "cliproxyapi/grok-4.5",
-    primaryAgentId: agentId, serverId, title: "Model choice" }
-  const create = (body: unknown) => modelApp.request("http://codeline.test/api/sessions", {
-    body: JSON.stringify(body), headers: { "Content-Type": "application/json" }, method: "POST",
-  })
-  const created = await create(input)
-  expect(created.status).toBe(201)
-  const sessionId = ((await created.json()) as { session: { id: string } }).session.id
-  expect((await create(input)).status).toBe(200)
-  expect((await create({ ...input, modelId: "codex-lb/gpt-5.6-luna" })).status).toBe(409)
-  expect((await create({ ...input, modelId: "codex-lb/not-real" })).status).toBe(409)
-  expect((await create({ ...input, clientRequestId: `bad-model-${uuidv7()}`, modelId: "cliproxyapi/gpt-5.6-luna" })).status).toBe(400)
-  const [session] = await database.select().from(sessionTable).where(eq(sessionTable.id, sessionId))
-  expect(session?.metadata.sessionModelDefault).toEqual({ agentId, provider: "cliproxyapi", model: "grok-4.5" })
-
-  const runId = `model-run-${uuidv7()}`
-  const chat = await modelApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
-    body: JSON.stringify({ messages: [{ content: "hello", id: runId, role: "user" }], runId, threadId: sessionId }),
-    headers: { "Content-Type": "application/json" }, method: "POST",
-  })
-  expect(chat.status).toBe(200)
-  const [run] = await database.select().from(runTable).where(eq(runTable.clientRunId, runId))
-  expect(run?.snapshot).toMatchObject({ configuration: { model: "grok-4.5", provider: "cliproxyapi" } })
-  const overrideRunId = `model-override-run-${uuidv7()}`
-  const overrideChat = await modelApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
-    body: JSON.stringify({
-      forwardedProps: { codelineExecution: { model: "gpt-5.6-luna", provider: "codex-lb" } },
-      messages: [{ content: "override", id: overrideRunId, role: "user" }],
-      runId: overrideRunId, threadId: sessionId,
-    }),
-    headers: { "Content-Type": "application/json" }, method: "POST",
-  })
-  expect(overrideChat.status).toBe(200)
-  const [overrideRun] = await database.select().from(runTable).where(eq(runTable.clientRunId, overrideRunId))
-  expect(overrideRun?.snapshot).toMatchObject({ configuration: { model: "gpt-5.6-luna", provider: "codex-lb" } })
-})
-
-test.skipIf(!databaseAvailable)("chat admission uses the captured project agent instead of the current global catalog or changed file", async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "codeline-project-agent-chat-"))
-  const project = path.join(root, "project")
-  const agentsPath = path.join(project, ".agents", "agents")
-  await fs.mkdir(agentsPath, { recursive: true })
-  const agentPath = path.join(agentsPath, `${agentId}.md`)
-  await fs.writeFile(agentPath, "---\nprovider: codex-lb\nmodel: gpt-5.6-luna\nmode: primary\n---\nOriginal project agent prompt")
-  try {
+test.skipIf(!databaseAvailable)(
+  "session creation binds the canonical model default to idempotency and run admission",
+  async () => {
     const loaded = await providerAgentCatalogLoad(path.resolve(import.meta.dir, "../../.."))
     if (!loaded.success) throw new Error(loaded.errorMessage)
-    const original = { ...loaded.data, agents: [{ id: agentId, enabled: true, prompt: "Global prompt",
-      mode: "primary" as const, tools: { bash: false, webfetch: false } }] }
-    const created = await sessionCreate(database, userId, { clientRequestId: `project-agent-chat-${uuidv7()}`,
-      primaryAgentId: agentId, projectPath: project, serverId, title: "Captured agent" }, {
-      organizationId: userId, projectRootDirs: [root], providerAgentCatalog: original,
-    })
-    expect(created.success).toBe(true)
-    if (!created.success) return
-    await fs.writeFile(agentPath, "---\nmode: primary\n---\nChanged project agent prompt")
-    const changedCatalog = { ...loaded.data, agents: [] }
-    const chatApp = appCreate({
-      ...appSseTestDependenciesCreate(journalCursorCodec.data), configuration,
-      configurationStore: runConfigurationStore, database,
+    const catalog = {
+      ...loaded.data,
+      agents: [
+        {
+          id: agentId,
+          enabled: true,
+          prompt: "Test agent",
+          mode: "primary" as const,
+          tools: { bash: false, webfetch: false },
+        },
+      ],
+    }
+    const modelApp = appCreate({
+      ...appSseTestDependenciesCreate(journalCursorCodec.data),
+      configuration,
+      configurationStore: runConfigurationStore,
+      database,
       developmentIdentityUpsert: testDevelopmentIdentityUpsert,
-      journalCursorCodec: journalCursorCodec.data, providerAgentCatalog: changedCatalog,
+      journalCursorCodec: journalCursorCodec.data,
+      providerAgentCatalog: catalog,
       sessionChatAdapter: sessionChatAdapterCreate,
     })
-    const runId = `project-agent-chat-run-${uuidv7()}`
-    const response = await chatApp.request(`http://codeline.test/api/sessions/${created.data.session.id}/chat`, {
-      body: JSON.stringify({ messages: [{ content: "hello", id: runId, role: "user" }],
-        runId, threadId: created.data.session.id }),
-      headers: { "Content-Type": "application/json" }, method: "POST",
-    })
-    expect(response.status).toBe(200)
-    const [run] = await database.select().from(runTable).where(eq(runTable.clientRunId, runId))
-    expect(run?.snapshot).toMatchObject({ agentPrompt: "Original project agent prompt",
-      configuration: { model: "gpt-5.6-luna", provider: "codex-lb" } })
-  } finally {
-    await fs.rm(root, { force: true, recursive: true })
-  }
-})
-
-test.skipIf(!databaseAvailable)("chat admits a cloned simulation agent absent from the configuration store and global catalog", async () => {
-  const sample = exampleDataFixture.sessions.find(({ id }) => id === "example-session-simulation-streaming")!
-  const sampleAgent = exampleDataFixture.agents.find(({ id }) => id === sample.primaryAgentId)!
-  const suffix = uuidv7()
-  const cloneServerId = `e2e-${suffix}-${sample.serverId}`
-  const cloneAgentId = `e2e-${suffix}-${sample.primaryAgentId}`
-  const cloneSessionId = `e2e-${suffix}-${sample.id}`
-  const catalog = await providerAgentCatalogLoad(path.resolve(import.meta.dir, "../../.."))
-  if (!catalog.success) throw new Error(catalog.errorMessage)
-  const chatApp = appCreate({
-    ...appSseTestDependenciesCreate(journalCursorCodec.data), configuration,
-    configurationStore: runConfigurationStore, database,
-    developmentIdentityUpsert: testDevelopmentIdentityUpsert,
-    journalCursorCodec: journalCursorCodec.data, providerAgentCatalog: catalog.data,
-    sessionChatAdapter: sessionChatAdapterCreate,
-  })
-  await database.insert(serverTable).values({
-    id: cloneServerId, name: "Cloned simulation server", organizationId: userId,
-    endpoint: "http://cloned-simulation.test",
-  })
-  try {
-    await database.insert(agentTable).values({
-      id: cloneAgentId, serverId: cloneServerId, name: sampleAgent.name,
-      role: sampleAgent.role, configuration: sampleAgent.configuration,
-    })
-    await database.insert(sessionTable).values({
-      id: cloneSessionId, userId, serverId: cloneServerId, primaryAgentId: cloneAgentId,
-      projectPath: sample.projectPath, title: sample.title,
-      clientRequestId: `e2e-${suffix}-${sample.clientRequestId}`, metadata: sample.metadata,
-    })
-    const runId = `e2e-${suffix}-markdown-run`
-    const response = await chatApp.request(`http://codeline.test/api/sessions/${cloneSessionId}/chat`, {
-      body: JSON.stringify({ messages: [{ content: "# Markdown", id: runId, role: "user" }],
-        runId, threadId: cloneSessionId }),
-      headers: { "Content-Type": "application/json" }, method: "POST",
-    })
-    expect(response.status).toBe(200)
-    const [run] = await database.select().from(runTable).where(eq(runTable.clientRunId, runId))
-    expect(run?.snapshot).toMatchObject({ configuration: sampleAgent.configuration,
-      target: { agentId: cloneAgentId, serverId: cloneServerId } })
-  } finally {
-    await database.delete(sessionTable).where(eq(sessionTable.id, cloneSessionId))
-    await database.delete(agentTable).where(eq(agentTable.id, cloneAgentId))
-    await database.delete(serverTable).where(eq(serverTable.id, cloneServerId))
-  }
-})
-
-test.skipIf(!databaseAvailable)("HTTP creation authorizes project-only primary and runs from its captured catalog", async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "codeline-http-project-primary-"))
-  const project = path.join(root, "project")
-  const agents = path.join(project, ".agents", "agents")
-  await fs.mkdir(agents, { recursive: true })
-  const id = `http-project-primary-${uuidv7()}`
-  const file = path.join(agents, `${id}.md`)
-  await fs.writeFile(file, "---\nmode: primary\nprovider: codex-lb\nmodel: gpt-5.6-luna\n---\nCaptured project primary")
-  try {
-    const registered = await projectRegistryRepositoryUpsert(database, userId, project)
-    if (!registered.success) throw new Error(registered.errorMessage)
-    const catalog = await providerAgentCatalogLoad(path.resolve(import.meta.dir, "../../.."))
-    if (!catalog.success) throw new Error(catalog.errorMessage)
-    const projectApp = appCreate({ ...appSseTestDependenciesCreate(journalCursorCodec.data), configuration,
-      configurationStore: runConfigurationStore, database, developmentIdentityUpsert: testDevelopmentIdentityUpsert,
-      journalCursorCodec: journalCursorCodec.data, projectRootDirs: [root], providerAgentCatalog: catalog.data,
-      sessionChatAdapter: sessionChatAdapterCreate })
-    const input = { clientRequestId: `http-project-primary-${uuidv7()}`, primaryAgentId: id,
-      serverId, title: "HTTP local primary" }
-    const create = (body: unknown) => projectApp.request("http://codeline.test/api/sessions", {
-      body: JSON.stringify(body), headers: { "Content-Type": "application/json" }, method: "POST",
-    })
-    expect((await create({ ...input, clientRequestId: `unscoped-${uuidv7()}` })).status).toBe(404)
-    expect((await create({ ...input, clientRequestId: `other-project-${uuidv7()}`, projectId: uuidv7() })).status).toBe(404)
-    const created = await create({ ...input, projectId: registered.data.id })
+    const input = {
+      clientRequestId: `model-default-${uuidv7()}`,
+      modelId: "cliproxyapi/grok-4.5",
+      primaryAgentId: agentId,
+      serverId,
+      title: "Model choice",
+    }
+    const create = (body: unknown) =>
+      modelApp.request("http://codeline.test/api/sessions", {
+        body: JSON.stringify(body),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      })
+    const created = await create(input)
     expect(created.status).toBe(201)
     const sessionId = ((await created.json()) as { session: { id: string } }).session.id
-    expect(await database.select().from(agentTable).where(eq(agentTable.id, id))).toEqual([])
-    await fs.rm(file)
-    expect((await projectApp.request(`http://codeline.test/api/sessions/${sessionId}`)).status).toBe(200)
-    const list = await projectApp.request("http://codeline.test/api/sessions")
-    expect(JSON.stringify(await list.json())).toContain(sessionId)
-    const runId = `http-project-primary-run-${uuidv7()}`
-    const chat = await projectApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+    expect((await create(input)).status).toBe(200)
+    expect((await create({ ...input, modelId: "codex-lb/gpt-5.6-luna" })).status).toBe(409)
+    expect((await create({ ...input, modelId: "codex-lb/not-real" })).status).toBe(409)
+    expect(
+      (await create({ ...input, clientRequestId: `bad-model-${uuidv7()}`, modelId: "cliproxyapi/gpt-5.6-luna" }))
+        .status,
+    ).toBe(400)
+    const [session] = await database.select().from(sessionTable).where(eq(sessionTable.id, sessionId))
+    expect(session?.metadata.sessionModelDefault).toEqual({ agentId, provider: "cliproxyapi", model: "grok-4.5" })
+
+    const runId = `model-run-${uuidv7()}`
+    const chat = await modelApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
       body: JSON.stringify({ messages: [{ content: "hello", id: runId, role: "user" }], runId, threadId: sessionId }),
-      headers: { "Content-Type": "application/json" }, method: "POST",
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
     })
     expect(chat.status).toBe(200)
     const [run] = await database.select().from(runTable).where(eq(runTable.clientRunId, runId))
-    expect(run?.snapshot).toMatchObject({ agentPrompt: "Captured project primary",
-      configuration: { provider: "codex-lb", model: "gpt-5.6-luna" } })
-    const messages = await database.select().from(messageTable).where(eq(messageTable.sessionId, sessionId))
-    expect(messages.some(({ agentId: messageAgentId }) => messageAgentId === id)).toBe(true)
-  } finally {
-    await fs.rm(root, { recursive: true, force: true })
-  }
-})
+    expect(run?.snapshot).toMatchObject({ configuration: { model: "grok-4.5", provider: "cliproxyapi" } })
+    const overrideRunId = `model-override-run-${uuidv7()}`
+    const overrideChat = await modelApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+      body: JSON.stringify({
+        forwardedProps: { codelineExecution: { model: "gpt-5.6-luna", provider: "codex-lb" } },
+        messages: [{ content: "override", id: overrideRunId, role: "user" }],
+        runId: overrideRunId,
+        threadId: sessionId,
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+    expect(overrideChat.status).toBe(200)
+    const [overrideRun] = await database.select().from(runTable).where(eq(runTable.clientRunId, overrideRunId))
+    expect(overrideRun?.snapshot).toMatchObject({ configuration: { model: "gpt-5.6-luna", provider: "codex-lb" } })
+  },
+)
+
+test.skipIf(!databaseAvailable)(
+  "chat admission uses the captured project agent instead of the current global catalog or changed file",
+  async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "codeline-project-agent-chat-"))
+    const project = path.join(root, "project")
+    const agentsPath = path.join(project, ".agents", "agents")
+    await fs.mkdir(agentsPath, { recursive: true })
+    const agentPath = path.join(agentsPath, `${agentId}.md`)
+    await fs.writeFile(
+      agentPath,
+      "---\nprovider: codex-lb\nmodel: gpt-5.6-luna\nmode: primary\n---\nOriginal project agent prompt",
+    )
+    try {
+      const loaded = await providerAgentCatalogLoad(path.resolve(import.meta.dir, "../../.."))
+      if (!loaded.success) throw new Error(loaded.errorMessage)
+      const original = {
+        ...loaded.data,
+        agents: [
+          {
+            id: agentId,
+            enabled: true,
+            prompt: "Global prompt",
+            mode: "primary" as const,
+            tools: { bash: false, webfetch: false },
+          },
+        ],
+      }
+      const created = await sessionCreate(
+        database,
+        userId,
+        {
+          clientRequestId: `project-agent-chat-${uuidv7()}`,
+          primaryAgentId: agentId,
+          projectPath: project,
+          serverId,
+          title: "Captured agent",
+        },
+        {
+          organizationId: userId,
+          projectRootDirs: [root],
+          providerAgentCatalog: original,
+        },
+      )
+      expect(created.success).toBe(true)
+      if (!created.success) return
+      await fs.writeFile(agentPath, "---\nmode: primary\n---\nChanged project agent prompt")
+      const changedCatalog = { ...loaded.data, agents: [] }
+      const chatApp = appCreate({
+        ...appSseTestDependenciesCreate(journalCursorCodec.data),
+        configuration,
+        configurationStore: runConfigurationStore,
+        database,
+        developmentIdentityUpsert: testDevelopmentIdentityUpsert,
+        journalCursorCodec: journalCursorCodec.data,
+        providerAgentCatalog: changedCatalog,
+        sessionChatAdapter: sessionChatAdapterCreate,
+      })
+      const runId = `project-agent-chat-run-${uuidv7()}`
+      const response = await chatApp.request(`http://codeline.test/api/sessions/${created.data.session.id}/chat`, {
+        body: JSON.stringify({
+          messages: [{ content: "hello", id: runId, role: "user" }],
+          runId,
+          threadId: created.data.session.id,
+        }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      })
+      expect(response.status).toBe(200)
+      const [run] = await database.select().from(runTable).where(eq(runTable.clientRunId, runId))
+      expect(run?.snapshot).toMatchObject({
+        agentPrompt: "Original project agent prompt",
+        configuration: { model: "gpt-5.6-luna", provider: "codex-lb" },
+      })
+    } finally {
+      await fs.rm(root, { force: true, recursive: true })
+    }
+  },
+)
+
+test.skipIf(!databaseAvailable)(
+  "chat admits a cloned simulation agent absent from the configuration store and global catalog",
+  async () => {
+    const sample = exampleDataFixture.sessions.find(({ id }) => id === "example-session-simulation-streaming")!
+    const sampleAgent = exampleDataFixture.agents.find(({ id }) => id === sample.primaryAgentId)!
+    const suffix = uuidv7()
+    const cloneServerId = `e2e-${suffix}-${sample.serverId}`
+    const cloneAgentId = `e2e-${suffix}-${sample.primaryAgentId}`
+    const cloneSessionId = `e2e-${suffix}-${sample.id}`
+    const catalog = await providerAgentCatalogLoad(path.resolve(import.meta.dir, "../../.."))
+    if (!catalog.success) throw new Error(catalog.errorMessage)
+    const chatApp = appCreate({
+      ...appSseTestDependenciesCreate(journalCursorCodec.data),
+      configuration,
+      configurationStore: runConfigurationStore,
+      database,
+      developmentIdentityUpsert: testDevelopmentIdentityUpsert,
+      journalCursorCodec: journalCursorCodec.data,
+      providerAgentCatalog: catalog.data,
+      sessionChatAdapter: sessionChatAdapterCreate,
+    })
+    await database.insert(serverTable).values({
+      id: cloneServerId,
+      name: "Cloned simulation server",
+      organizationId: userId,
+      endpoint: "http://cloned-simulation.test",
+    })
+    try {
+      await database.insert(agentTable).values({
+        id: cloneAgentId,
+        serverId: cloneServerId,
+        name: sampleAgent.name,
+        role: sampleAgent.role,
+        configuration: sampleAgent.configuration,
+      })
+      await database.insert(sessionTable).values({
+        id: cloneSessionId,
+        userId,
+        serverId: cloneServerId,
+        primaryAgentId: cloneAgentId,
+        projectPath: sample.projectPath,
+        title: sample.title,
+        clientRequestId: `e2e-${suffix}-${sample.clientRequestId}`,
+        metadata: sample.metadata,
+      })
+      const runId = `e2e-${suffix}-markdown-run`
+      const response = await chatApp.request(`http://codeline.test/api/sessions/${cloneSessionId}/chat`, {
+        body: JSON.stringify({
+          messages: [{ content: "# Markdown", id: runId, role: "user" }],
+          runId,
+          threadId: cloneSessionId,
+        }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      })
+      expect(response.status).toBe(200)
+      const [run] = await database.select().from(runTable).where(eq(runTable.clientRunId, runId))
+      expect(run?.snapshot).toMatchObject({
+        configuration: sampleAgent.configuration,
+        target: { agentId: cloneAgentId, serverId: cloneServerId },
+      })
+    } finally {
+      await database.delete(sessionTable).where(eq(sessionTable.id, cloneSessionId))
+      await database.delete(agentTable).where(eq(agentTable.id, cloneAgentId))
+      await database.delete(serverTable).where(eq(serverTable.id, cloneServerId))
+    }
+  },
+)
+
+test.skipIf(!databaseAvailable)(
+  "HTTP creation authorizes project-only primary and runs from its captured catalog",
+  async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "codeline-http-project-primary-"))
+    const project = path.join(root, "project")
+    const agents = path.join(project, ".agents", "agents")
+    await fs.mkdir(agents, { recursive: true })
+    const id = `http-project-primary-${uuidv7()}`
+    const file = path.join(agents, `${id}.md`)
+    await fs.writeFile(
+      file,
+      "---\nmode: primary\nprovider: codex-lb\nmodel: gpt-5.6-luna\n---\nCaptured project primary",
+    )
+    try {
+      const registered = await projectRegistryRepositoryUpsert(database, userId, project)
+      if (!registered.success) throw new Error(registered.errorMessage)
+      const catalog = await providerAgentCatalogLoad(path.resolve(import.meta.dir, "../../.."))
+      if (!catalog.success) throw new Error(catalog.errorMessage)
+      const projectApp = appCreate({
+        ...appSseTestDependenciesCreate(journalCursorCodec.data),
+        configuration,
+        configurationStore: runConfigurationStore,
+        database,
+        developmentIdentityUpsert: testDevelopmentIdentityUpsert,
+        journalCursorCodec: journalCursorCodec.data,
+        projectRootDirs: [root],
+        providerAgentCatalog: catalog.data,
+        sessionChatAdapter: sessionChatAdapterCreate,
+      })
+      const input = {
+        clientRequestId: `http-project-primary-${uuidv7()}`,
+        primaryAgentId: id,
+        serverId,
+        title: "HTTP local primary",
+      }
+      const create = (body: unknown) =>
+        projectApp.request("http://codeline.test/api/sessions", {
+          body: JSON.stringify(body),
+          headers: { "Content-Type": "application/json" },
+          method: "POST",
+        })
+      expect((await create({ ...input, clientRequestId: `unscoped-${uuidv7()}` })).status).toBe(404)
+      expect(
+        (await create({ ...input, clientRequestId: `other-project-${uuidv7()}`, projectId: uuidv7() })).status,
+      ).toBe(404)
+      const created = await create({ ...input, projectId: registered.data.id })
+      expect(created.status).toBe(201)
+      const sessionId = ((await created.json()) as { session: { id: string } }).session.id
+      expect(await database.select().from(agentTable).where(eq(agentTable.id, id))).toEqual([])
+      await fs.rm(file)
+      expect((await projectApp.request(`http://codeline.test/api/sessions/${sessionId}`)).status).toBe(200)
+      const list = await projectApp.request("http://codeline.test/api/sessions")
+      expect(JSON.stringify(await list.json())).toContain(sessionId)
+      const runId = `http-project-primary-run-${uuidv7()}`
+      const chat = await projectApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
+        body: JSON.stringify({ messages: [{ content: "hello", id: runId, role: "user" }], runId, threadId: sessionId }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      })
+      expect(chat.status).toBe(200)
+      const [run] = await database.select().from(runTable).where(eq(runTable.clientRunId, runId))
+      expect(run?.snapshot).toMatchObject({
+        agentPrompt: "Captured project primary",
+        configuration: { provider: "codex-lb", model: "gpt-5.6-luna" },
+      })
+      const messages = await database.select().from(messageTable).where(eq(messageTable.sessionId, sessionId))
+      expect(messages.some(({ agentId: messageAgentId }) => messageAgentId === id)).toBe(true)
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  },
+)
 
 afterAll(async () => {
   if (databaseAvailable) await database.delete(applicationUserTable).where(eq(applicationUserTable.id, userId))

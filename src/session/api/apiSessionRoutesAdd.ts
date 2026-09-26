@@ -569,14 +569,19 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
         return badRequest(context, result.errorMessage)
       if (result.errorMessage.includes("execution selection"))
         return badRequest(context, "The session execution selection is invalid.")
-      if (result.errorMessage.includes("global agent preset") &&
-        (result.errorMessage.includes("unavailable.") || result.errorMessage.includes("could not be read.")))
+      if (
+        result.errorMessage.includes("global agent preset") &&
+        (result.errorMessage.includes("unavailable.") || result.errorMessage.includes("could not be read."))
+      )
         return internalServerError(context)
       if (result.errorMessage.includes("global agent preset")) return badRequest(context, result.errorMessage)
       if (result.errorMessage.includes("instruction override")) return badRequest(context, result.errorMessage)
       if (result.errorMessage === "The session model catalog is unavailable.") return internalServerError(context)
-      if (result.errorMessage.includes("command") || result.errorMessage.includes("model override") ||
-        result.errorMessage.includes("session model"))
+      if (
+        result.errorMessage.includes("command") ||
+        result.errorMessage.includes("model override") ||
+        result.errorMessage.includes("session model")
+      )
         return badRequest(context, result.errorMessage)
       if (result.errorMessage.includes("project path"))
         return badRequest(context, "The session project path is invalid.")
@@ -639,14 +644,16 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
       return loaded.errorMessage.includes("could not be found") ? notFound(context) : internalServerError(context)
     if (loaded.data.session.archivedAt !== null) return conflict(context, "The session is archived.")
     const storedProjectCatalog = loaded.data.session.metadata.projectAgentCatalog
-    const parsedProjectCatalog = storedProjectCatalog === undefined ? undefined
-      : v.safeParse(providerCatalogSchema, storedProjectCatalog)
+    const parsedProjectCatalog =
+      storedProjectCatalog === undefined ? undefined : v.safeParse(providerCatalogSchema, storedProjectCatalog)
     if (parsedProjectCatalog !== undefined && !parsedProjectCatalog.success) return internalServerError(context)
     const effectiveCatalog = parsedProjectCatalog?.success ? parsedProjectCatalog.output : options.providerAgentCatalog
-    const projectPrimary = parsedProjectCatalog?.success &&
+    const projectPrimary =
+      parsedProjectCatalog?.success &&
       parsedProjectCatalog.output.agents.some(({ id }) => id === loaded.data.session.primaryAgentId) &&
       loaded.data.agent.configuration === null
-      ? providerAgentCatalogConfigurationResolve(effectiveCatalog, loaded.data.session.primaryAgentId) : undefined
+        ? providerAgentCatalogConfigurationResolve(effectiveCatalog, loaded.data.session.primaryAgentId)
+        : undefined
     if (projectPrimary !== undefined && !projectPrimary.success) return internalServerError(context)
     const primaryConfiguration = projectPrimary?.data ?? loaded.data.agent.configuration
     const manualCompactionRequested = originalPrompt === "/compact"
@@ -655,12 +662,12 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
       loaded.data.session.primaryAgentId,
     )
     const storedModelDefault = loaded.data.session.metadata.sessionModelDefault
-    const parsedModelDefault = storedModelDefault === undefined
-      ? undefined
-      : v.safeParse(codelineExecutionSchema, storedModelDefault)
-    const modelDefault = parsedModelDefault?.success &&
-      parsedModelDefault.output.agentId === loaded.data.session.primaryAgentId
-      ? parsedModelDefault.output : undefined
+    const parsedModelDefault =
+      storedModelDefault === undefined ? undefined : v.safeParse(codelineExecutionSchema, storedModelDefault)
+    const modelDefault =
+      parsedModelDefault?.success && parsedModelDefault.output.agentId === loaded.data.session.primaryAgentId
+        ? parsedModelDefault.output
+        : undefined
     let runtimeInstructionContext = sessionInstructionContextCreate(
       loaded.data.session.projectPath,
       loaded.data.session.instructionSnapshot,
@@ -693,9 +700,13 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
         if (command === undefined) return badRequest(context, "The requested command could not be found.")
         const presetCommands = loaded.data.session.metadata.globalAgentPreset
         if (presetCommands !== undefined) {
-          if (typeof presetCommands !== "object" || presetCommands === null ||
-            !("commandNames" in presetCommands) || !Array.isArray(presetCommands.commandNames) ||
-            !presetCommands.commandNames.every((name) => typeof name === "string"))
+          if (
+            typeof presetCommands !== "object" ||
+            presetCommands === null ||
+            !("commandNames" in presetCommands) ||
+            !Array.isArray(presetCommands.commandNames) ||
+            !presetCommands.commandNames.every((name) => typeof name === "string")
+          )
             return internalServerError(context)
           if (!presetCommands.commandNames.includes(command.name))
             return badRequest(context, "The requested command is unavailable in this session.")
@@ -801,8 +812,10 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
         loaded.data.session.instructionSnapshot,
         loaded.data.session.agentPrompt,
         effectiveCatalog,
-        projectPrimary?.data ?? (effectiveCatalog?.agents.some(({ id }) => id === loaded.data.session.primaryAgentId)
-          ? undefined : loaded.data.agent.configuration ?? undefined),
+        projectPrimary?.data ??
+          (effectiveCatalog?.agents.some(({ id }) => id === loaded.data.session.primaryAgentId)
+            ? undefined
+            : (loaded.data.agent.configuration ?? undefined)),
         options,
         runLoadAction,
       )
@@ -849,7 +862,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
           effectiveCatalog,
           loaded.data.session.primaryAgentId,
           primaryConfiguration,
-           commandForwardedExecution ?? parsed.data.forwardedProps?.codelineExecution ?? modelDefault,
+          commandForwardedExecution ?? parsed.data.forwardedProps?.codelineExecution ?? modelDefault,
         )
         if (!resolved.success) return badRequest(context, resolved.errorMessage)
         runtimeConfiguration = resolved.data.configuration
@@ -858,7 +871,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
       } else {
         const resolvedConfiguration = agentConfigurationExecutionResolve(
           primaryConfiguration,
-           commandForwardedExecution ?? parsed.data.forwardedProps?.codelineExecution ?? modelDefault,
+          commandForwardedExecution ?? parsed.data.forwardedProps?.codelineExecution ?? modelDefault,
           loaded.data.session.primaryAgentId,
         )
         if (!resolvedConfiguration.success) {

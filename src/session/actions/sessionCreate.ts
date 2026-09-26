@@ -115,21 +115,32 @@ export async function sessionCreate(
   if (!projectCatalog.success) return createResultError("sessionCreate", projectCatalog.errorMessage)
   const effectiveCatalog = projectCatalog.data.catalog
   const projectPrimary = projectCatalog.data.projectAgentIds.includes(input.primaryAgentId)
-    ? effectiveCatalog?.agents.find(({ id }) => id === input.primaryAgentId) : undefined
+    ? effectiveCatalog?.agents.find(({ id }) => id === input.primaryAgentId)
+    : undefined
   if (projectPrimary !== undefined && (!projectPrimary.enabled || projectPrimary.mode !== "primary"))
     return createResultError("sessionCreate", "The project primary agent is unavailable.")
-  const projectConfiguration = projectPrimary === undefined ? undefined
-    : providerAgentCatalogConfigurationResolve(effectiveCatalog, projectPrimary.id)
+  const projectConfiguration =
+    projectPrimary === undefined
+      ? undefined
+      : providerAgentCatalogConfigurationResolve(effectiveCatalog, projectPrimary.id)
   if (projectConfiguration !== undefined && !projectConfiguration.success) return projectConfiguration
-  const projectSubagents = effectiveCatalog?.agents.filter(({ id, enabled, mode }) =>
-    projectCatalog.data.projectAgentIds.includes(id) && enabled && mode !== "primary" && id !== input.primaryAgentId) ?? []
+  const projectSubagents =
+    effectiveCatalog?.agents.filter(
+      ({ id, enabled, mode }) =>
+        projectCatalog.data.projectAgentIds.includes(id) &&
+        enabled &&
+        mode !== "primary" &&
+        id !== input.primaryAgentId,
+    ) ?? []
 
   // The document is read at creation time; clients never provide effective resource lists.
   let presetDocument: GlobalAgentPresetDocument | undefined
   if (input.globalAgentPresetId !== undefined) {
     if (options.configurationStore === undefined)
       return createResultError("sessionCreate", "The global agent preset store is unavailable.")
-    const read = await (options.globalAgentPresetDocumentRead ?? globalAgentPresetDocumentRead)(options.configurationStore.gitStore)
+    const read = await (options.globalAgentPresetDocumentRead ?? globalAgentPresetDocumentRead)(
+      options.configurationStore.gitStore,
+    )
     if (!read.success) return createResultError("sessionCreate", "The global agent preset document could not be read.")
     presetDocument = read.data
   }
@@ -137,16 +148,29 @@ export async function sessionCreate(
   if (input.globalAgentPresetId !== undefined && selectedPreset === undefined)
     return createResultError("sessionCreate", "The global agent preset could not be found.")
   if (selectedPreset !== undefined && (input.executionSelection !== undefined || input.skillSelection !== undefined))
-    return createResultError("sessionCreate", "The global agent preset cannot be combined with client resource selections.")
+    return createResultError(
+      "sessionCreate",
+      "The global agent preset cannot be combined with client resource selections.",
+    )
   if (selectedPreset !== undefined && selectedPreset.executionAgentId !== input.primaryAgentId)
-    return createResultError("sessionCreate", "The global agent preset execution agent does not match the requested agent.")
+    return createResultError(
+      "sessionCreate",
+      "The global agent preset execution agent does not match the requested agent.",
+    )
 
   const modelId = input.modelId ?? selectedPreset?.modelId
-  const modelDefault = modelId === undefined ? undefined : await sessionModelDefaultResolve(database, {
-    agentId: input.primaryAgentId,
-    modelId,
-    serverId: input.serverId,
-  }, effectiveCatalog)
+  const modelDefault =
+    modelId === undefined
+      ? undefined
+      : await sessionModelDefaultResolve(
+          database,
+          {
+            agentId: input.primaryAgentId,
+            modelId,
+            serverId: input.serverId,
+          },
+          effectiveCatalog,
+        )
   if (modelDefault !== undefined && !modelDefault.success) return modelDefault
 
   const discoveredInstructions = await (options.agentInstructionsDiscover ?? agentInstructionsDiscover)({
@@ -173,20 +197,26 @@ export async function sessionCreate(
     return createResultError("sessionCreate", "The command catalog could not be resolved.")
   const globalCommandNames = [
     ...discoveredCommands.data.commands.filter(({ source }) => source === "global").map(({ name }) => name),
-    ...discoveredCommands.data.collisions.filter(({ candidates }) =>
-      candidates.some(({ source }) => source === "global")).map(({ name }) => name),
+    ...discoveredCommands.data.collisions
+      .filter(({ candidates }) => candidates.some(({ source }) => source === "global"))
+      .map(({ name }) => name),
   ]
-  const allowedCommandNames = selectedPreset === undefined || presetDocument === undefined
-    ? undefined
-    : new Set([
-        ...(globalAgentPresetResourcesResolveForPreset(
-          presetDocument, "commands", selectedPreset.id,
-          globalCommandNames,
-        ) ?? []),
-        ...discoveredCommands.data.commands.filter(({ source }) => source === "project").map(({ name }) => name),
-      ])
-  if (allowedCommandNames !== undefined && [...allowedCommandNames].some((name) =>
-    !discoveredCommands.data.commands.some((command) => command.name === name)))
+  const allowedCommandNames =
+    selectedPreset === undefined || presetDocument === undefined
+      ? undefined
+      : new Set([
+          ...(globalAgentPresetResourcesResolveForPreset(
+            presetDocument,
+            "commands",
+            selectedPreset.id,
+            globalCommandNames,
+          ) ?? []),
+          ...discoveredCommands.data.commands.filter(({ source }) => source === "project").map(({ name }) => name),
+        ])
+  if (
+    allowedCommandNames !== undefined &&
+    [...allowedCommandNames].some((name) => !discoveredCommands.data.commands.some((command) => command.name === name))
+  )
     return createResultError("sessionCreate", "The global agent preset references an unavailable command.")
   let primaryAgentId = input.primaryAgentId
   let commandMetadata: Record<string, unknown> = {}
@@ -195,8 +225,10 @@ export async function sessionCreate(
   let commandOverrides: Awaited<ReturnType<typeof commandExecutionOverridesValidate>> | undefined
   let commandSubtaskAgentId: string | undefined
   if (input.command !== undefined) {
-    const command = discoveredCommands.data.commands.find(({ name }) =>
-      name === input.command?.name && (allowedCommandNames === undefined || allowedCommandNames.has(name)))
+    const command = discoveredCommands.data.commands.find(
+      ({ name }) =>
+        name === input.command?.name && (allowedCommandNames === undefined || allowedCommandNames.has(name)),
+    )
     if (command === undefined) return createResultError("sessionCreate", "The requested command could not be found.")
     commandSnapshot = command
     const expanded = commandExpand({
@@ -212,9 +244,14 @@ export async function sessionCreate(
         primaryAgentId: input.primaryAgentId,
         serverId: input.serverId,
       },
-      { allowAgentOverride: true, catalog: effectiveCatalog,
-        ...(projectConfiguration === undefined || expanded.data.overrides.agent !== undefined &&
-          expanded.data.overrides.agent !== input.primaryAgentId ? {} : { configuration: projectConfiguration.data }) },
+      {
+        allowAgentOverride: true,
+        catalog: effectiveCatalog,
+        ...(projectConfiguration === undefined ||
+        (expanded.data.overrides.agent !== undefined && expanded.data.overrides.agent !== input.primaryAgentId)
+          ? {}
+          : { configuration: projectConfiguration.data }),
+      },
     )
     if (!overrides.success) return createResultError("sessionCreate", overrides.errorMessage)
     if (overrides.data.overrides.subtask === true) commandSubtaskAgentId = overrides.data.agentId
@@ -228,17 +265,24 @@ export async function sessionCreate(
     projectRoot: instructionProjectRoot,
   })
   if (!discoveredSkills.success) return createResultError("sessionCreate", "The skill catalog could not be resolved.")
-  const presetSkills = selectedPreset === undefined || presetDocument === undefined
-    ? undefined
-    : [...new Set([
-        ...(globalAgentPresetResourcesResolveForPreset(
-          presetDocument, "skills", selectedPreset.id,
-          discoveredSkills.data.bundles.filter(({ source }) => source === "global").map(({ name }) => name),
-        ) ?? []),
-        ...discoveredSkills.data.skills.filter(({ source }) => source === "project").map(({ name }) => name),
-      ])]
-  if (presetSkills !== undefined && presetSkills.some((name) =>
-    !discoveredSkills.data.skills.some((skill) => skill.name === name)))
+  const presetSkills =
+    selectedPreset === undefined || presetDocument === undefined
+      ? undefined
+      : [
+          ...new Set([
+            ...(globalAgentPresetResourcesResolveForPreset(
+              presetDocument,
+              "skills",
+              selectedPreset.id,
+              discoveredSkills.data.bundles.filter(({ source }) => source === "global").map(({ name }) => name),
+            ) ?? []),
+            ...discoveredSkills.data.skills.filter(({ source }) => source === "project").map(({ name }) => name),
+          ]),
+        ]
+  if (
+    presetSkills !== undefined &&
+    presetSkills.some((name) => !discoveredSkills.data.skills.some((skill) => skill.name === name))
+  )
     return createResultError("sessionCreate", "The global agent preset references an unavailable skill.")
   let skillSelection: ReturnType<typeof skillSelectionResolve> | undefined
   if (presetSkills !== undefined) {
@@ -303,23 +347,37 @@ export async function sessionCreate(
   if (!resolvedExecutionSelection.success) return resolvedExecutionSelection
   let executionSelection = resolvedExecutionSelection.data
   if (selectedPreset !== undefined && presetDocument !== undefined) {
-    const toolNames = globalAgentPresetResourcesResolveForPreset(
-      presetDocument, "tools", selectedPreset.id, ["bash", "webfetch", "read", "write", "edit"],
-    ) ?? []
+    const toolNames =
+      globalAgentPresetResourcesResolveForPreset(presetDocument, "tools", selectedPreset.id, [
+        "bash",
+        "webfetch",
+        "read",
+        "write",
+        "edit",
+      ]) ?? []
     if (toolNames.some((name) => !["bash", "webfetch", "read", "write", "edit"].includes(name)))
       return createResultError("sessionCreate", "The global agent preset references an unavailable tool.")
-    const subagentNames = globalAgentPresetResourcesResolveForPreset(
-      presetDocument, "subagents", selectedPreset.id,
-      effectiveCatalog?.agents.filter(({ id, enabled, mode }) => id !== primaryAgentId && enabled && mode !== "primary")
-        .map(({ id }) => id) ?? [],
-    ) ?? []
+    const subagentNames =
+      globalAgentPresetResourcesResolveForPreset(
+        presetDocument,
+        "subagents",
+        selectedPreset.id,
+        effectiveCatalog?.agents
+          .filter(({ id, enabled, mode }) => id !== primaryAgentId && enabled && mode !== "primary")
+          .map(({ id }) => id) ?? [],
+      ) ?? []
     if (subagentNames.includes(primaryAgentId))
       return createResultError("sessionCreate", "The global agent preset references the primary agent as a subagent.")
-    if (subagentNames.some((name) => !effectiveCatalog?.agents.some(({ id, enabled, mode }) =>
-      id === name && enabled && mode !== "primary")))
+    if (
+      subagentNames.some(
+        (name) =>
+          !effectiveCatalog?.agents.some(({ id, enabled, mode }) => id === name && enabled && mode !== "primary"),
+      )
+    )
       return createResultError("sessionCreate", "The global agent preset references an unavailable subagent.")
     const subagents = [...new Set([...subagentNames, ...projectSubagents.map(({ id }) => id)])]
-      .filter((agentId) => agentId !== primaryAgentId).map((agentId) => ({
+      .filter((agentId) => agentId !== primaryAgentId)
+      .map((agentId) => ({
         agentId,
         tools: effectiveCatalog?.agents.find(({ id }) => id === agentId)?.tools ?? { bash: false, webfetch: false },
       }))
@@ -329,8 +387,9 @@ export async function sessionCreate(
         tools: {
           primary: {
             agentId: primaryAgentId,
-            tools: Object.fromEntries(["bash", "webfetch", "read", "write", "edit"].map((name) =>
-              [name, toolNames.includes(name)])),
+            tools: Object.fromEntries(
+              ["bash", "webfetch", "read", "write", "edit"].map((name) => [name, toolNames.includes(name)]),
+            ),
           },
           selectableSubagents: subagents,
         },
@@ -347,11 +406,16 @@ export async function sessionCreate(
     if (added.length > 0) {
       const resolved = sessionExecutionSelectionResolve({
         catalog: effectiveCatalog,
-        explicit: { ...executionSelection, tools: {
-          ...executionSelection.tools,
-          selectableSubagents: [...executionSelection.tools.selectableSubagents,
-            ...added.map(({ id, tools }) => ({ agentId: id, tools }))],
-        } },
+        explicit: {
+          ...executionSelection,
+          tools: {
+            ...executionSelection.tools,
+            selectableSubagents: [
+              ...executionSelection.tools.selectableSubagents,
+              ...added.map(({ id, tools }) => ({ agentId: id, tools })),
+            ],
+          },
+        },
         primaryAgentId,
       })
       if (!resolved.success) return resolved
@@ -436,9 +500,12 @@ export async function sessionCreate(
     projectId: _projectId,
     ...repositoryInput
   } = input
-  const { sessionModelDefault: _untrustedModelDefault, projectAgentCatalog: _untrustedProjectCatalog,
+  const {
+    sessionModelDefault: _untrustedModelDefault,
+    projectAgentCatalog: _untrustedProjectCatalog,
     globalAgentPreset: _untrustedPreset,
-    ...clientMetadata } = input.metadata ?? {}
+    ...clientMetadata
+  } = input.metadata ?? {}
   const mutation = (transaction: Parameters<typeof sessionRepositoryCreate>[0]) =>
     sessionRepositoryCreate(transaction, userId, options.organizationId, {
       ...repositoryInput,
@@ -452,10 +519,13 @@ export async function sessionCreate(
         ...commandMetadata,
         ...(projectCatalog.data.projectAgentIds.length === 0 ? {} : { projectAgentCatalog: effectiveCatalog }),
         ...(modelDefault?.success === true && primaryAgentId === input.primaryAgentId
-          ? { sessionModelDefault: modelDefault.data } : {}),
-        ...(selectedPreset === undefined ? {} : {
-          globalAgentPreset: { id: selectedPreset.id, commandNames: [...(allowedCommandNames ?? [])].sort() },
-        }),
+          ? { sessionModelDefault: modelDefault.data }
+          : {}),
+        ...(selectedPreset === undefined
+          ? {}
+          : {
+              globalAgentPreset: { id: selectedPreset.id, commandNames: [...(allowedCommandNames ?? [])].sort() },
+            }),
       },
       pinned: true,
       projectPath: projectPath.data,

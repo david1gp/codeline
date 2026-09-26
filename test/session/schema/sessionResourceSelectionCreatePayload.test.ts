@@ -228,9 +228,15 @@ test("session create accepts a chosen global preset ID but rejects client-comput
     serverId: "example-server",
     title: "Preset session",
   }
-  expect(v.safeParse(sessionCreateRequestSchema, request)).toMatchObject({ success: true, output: { globalAgentPresetId: "focused" } })
+  expect(v.safeParse(sessionCreateRequestSchema, request)).toMatchObject({
+    success: true,
+    output: { globalAgentPresetId: "focused" },
+  })
   expect(v.safeParse(sessionCreateRequestSchema, { ...request, globalAgentPresetId: "  " }).success).toBe(false)
-  expect(v.safeParse(sessionCreateRequestSchema, { ...request, modelId: "cliproxyapi/grok-4.5" })).toMatchObject({ success: true, output: { modelId: "cliproxyapi/grok-4.5" } })
+  expect(v.safeParse(sessionCreateRequestSchema, { ...request, modelId: "cliproxyapi/grok-4.5" })).toMatchObject({
+    success: true,
+    output: { modelId: "cliproxyapi/grok-4.5" },
+  })
   expect(v.safeParse(sessionCreateRequestSchema, { ...request, modelId: "  " }).success).toBe(false)
   expect(v.safeParse(sessionCreateRequestSchema, { ...request, effectiveTools: ["bash"] }).success).toBe(false)
 })
