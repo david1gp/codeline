@@ -141,11 +141,8 @@ test("catalog selection groups and sorts providers and models while excluding un
       expect(state.effortOptions()).toEqual(["high", "medium"])
       expect(state.codelineExecution()).toBeNull()
       state.modelSelect("cliproxyapi", "shared")
-      expect(state.codelineExecution()).toEqual({
-        model: "shared",
-        provider: "cliproxyapi",
-        reasoningEffort: "medium",
-      })
+      expect(state.selectedProvider()).toBe("cliproxyapi")
+      expect(state.codelineExecution()).toBeNull()
     })
     return rootDispose
   })
@@ -343,6 +340,7 @@ test("legacy provider persistence migrates without losing exact provider and mod
       expect(state.selectedProvider()).toBe("codex-lb")
       expect(state.selectedModel()).toBe("shared")
       expect(state.codelineExecution()).toEqual({
+        agentId: "agent-1",
         model: "shared",
         provider: "codex-lb",
         reasoningEffort: "high",
@@ -375,11 +373,7 @@ test("catalog fallback chooses the first sorted selectable model when configurat
     void effectsSettle().then(() => {
       expect(state.selectedProvider()).toBe("cliproxyapi")
       expect(state.selectedModel()).toBe("alpha")
-      expect(state.codelineExecution()).toEqual({
-        model: "alpha",
-        provider: "cliproxyapi",
-        reasoningEffort: "medium",
-      })
+      expect(state.codelineExecution()).toBeNull()
     })
     return rootDispose
   })
@@ -402,5 +396,69 @@ test("selector reports an error when the catalog is unavailable", async () => {
     return rootDispose
   })
   await effectsSettle()
+  dispose()
+})
+
+test("a cloned deterministic session never receives a persisted codex-lb override while details are pending or resolved", async () => {
+  let resolveSession!: (value: Response) => void
+  let resolveAgent!: (value: Response) => void
+  const session = new Promise<Response>((resolve) => {
+    resolveSession = resolve
+  })
+  const agent = new Promise<Response>((resolve) => {
+    resolveAgent = resolve
+  })
+  const { dispose, state } = createRoot((rootDispose) => ({
+    dispose: rootDispose,
+    state: providerModelSelectorStateCreate({
+      accountId: accountIdCreate(),
+      agentId: () => "sidebar-agent",
+      fetch: async (input) => {
+        const url = String(input)
+        if (url.includes("/api/providers/catalog"))
+          return response({
+            providers: [
+              catalogProvider("codex-lb", [catalogModel("codex-lb", "persisted")]),
+              catalogProvider("deterministic", [catalogModel("deterministic", "fixture")]),
+            ],
+            revision: catalogRevision,
+          })
+        if (url.includes("/agents/")) return agent
+        if (url.includes("/api/sessions/")) return session
+        return response({ error: "unavailable" }, 500)
+      },
+      isOnline: () => true,
+      sessionId: () => "cloned-session",
+      storage: {
+        getItem: () =>
+          JSON.stringify({
+            selectedProvider: "codex-lb",
+            selections: [{ model: "persisted", provider: "codex-lb", reasoningEffort: "medium" }],
+          }),
+        setItem: () => {},
+      },
+    }),
+  }))
+  await effectsSettle()
+  expect(state.status()).toBe("ready")
+  expect(state.selectedProvider()).toBe("codex-lb")
+  expect(state.codelineExecution()).toBeNull()
+
+  resolveSession(response(sessionDetail("cloned-session")))
+  await effectsSettle()
+  expect(state.codelineExecution()).toBeNull()
+
+  resolveAgent(response(agentDetail("deterministic", "fixture")))
+  await effectsSettle()
+  expect(state.provider()).toBe("deterministic")
+  expect(state.selectedProvider()).toBe("codex-lb")
+  expect(state.codelineExecution()).toBeNull()
+  state.modelSelect("deterministic", "fixture")
+  expect(state.codelineExecution()).toEqual({
+    agentId: "agent-1",
+    model: "fixture",
+    provider: "deterministic",
+    reasoningEffort: "medium",
+  })
   dispose()
 })
