@@ -101,16 +101,26 @@ export function apiSkillRoutesAdd(api: Hono<AppEnvironment>, options: ApiSkillRo
   api.get("/global/skills", async (context) => {
     if (requestUserId(context) === undefined) return unauthorized(context)
     const result = await globalAgentFileCatalogRequest(options.globalSkillsPath ?? "~/.agents/skills", {
-      kind: "skill", operation: "list",
+      kind: "skill",
+      operation: "list",
     })
     return result.success ? context.json({ skills: result.data.names }) : internalServerError(context)
   })
   api.post("/global/skills", async (context) => {
     if (requestUserId(context) === undefined) return unauthorized(context)
     const body = await context.req.json<unknown>().catch(() => undefined)
-    if (typeof body !== "object" || body === null || typeof (body as { name?: unknown }).name !== "string" || typeof (body as { content?: unknown }).content !== "string") return badRequest(context)
+    if (
+      typeof body !== "object" ||
+      body === null ||
+      typeof (body as { name?: unknown }).name !== "string" ||
+      typeof (body as { content?: unknown }).content !== "string"
+    )
+      return badRequest(context)
     const result = await globalAgentFileCatalogRequest(options.globalSkillsPath ?? "~/.agents/skills", {
-      kind: "skill", operation: "create", name: (body as { name: string }).name, content: (body as { content: string }).content,
+      kind: "skill",
+      operation: "create",
+      name: (body as { name: string }).name,
+      content: (body as { content: string }).content,
     })
     if (!result.success) return context.json({ error: { code: "bad_request", message: result.errorMessage } }, 400)
     return context.json({ name: (body as { name: string }).name, content: result.data.content }, 201)
@@ -119,17 +129,25 @@ export function apiSkillRoutesAdd(api: Hono<AppEnvironment>, options: ApiSkillRo
     if (requestUserId(context) === undefined) return unauthorized(context)
     const name = context.req.param("name")
     const result = await globalAgentFileCatalogRequest(options.globalSkillsPath ?? "~/.agents/skills", {
-      kind: "skill", operation: "get", name,
+      kind: "skill",
+      operation: "get",
+      name,
     })
-    return result.success ? context.json({ name, content: result.data.content }) : context.json({ error: { code: "not_found", message: result.errorMessage } }, 404)
+    return result.success
+      ? context.json({ name, content: result.data.content })
+      : context.json({ error: { code: "not_found", message: result.errorMessage } }, 404)
   })
   api.put("/global/skills/:name", async (context) => {
     if (requestUserId(context) === undefined) return unauthorized(context)
     const body = await context.req.json<unknown>().catch(() => undefined)
-    if (typeof body !== "object" || body === null || typeof (body as { content?: unknown }).content !== "string") return badRequest(context)
+    if (typeof body !== "object" || body === null || typeof (body as { content?: unknown }).content !== "string")
+      return badRequest(context)
     const name = context.req.param("name")
     const result = await globalAgentFileCatalogRequest(options.globalSkillsPath ?? "~/.agents/skills", {
-      kind: "skill", operation: "update", name, content: (body as { content: string }).content,
+      kind: "skill",
+      operation: "update",
+      name,
+      content: (body as { content: string }).content,
     })
     if (!result.success) return context.json({ error: { code: "bad_request", message: result.errorMessage } }, 400)
     return context.json({ name, content: result.data.content })
@@ -137,9 +155,13 @@ export function apiSkillRoutesAdd(api: Hono<AppEnvironment>, options: ApiSkillRo
   api.delete("/global/skills/:name", async (context) => {
     if (requestUserId(context) === undefined) return unauthorized(context)
     const result = await globalAgentFileCatalogRequest(options.globalSkillsPath ?? "~/.agents/skills", {
-      kind: "skill", operation: "delete", name: context.req.param("name"),
+      kind: "skill",
+      operation: "delete",
+      name: context.req.param("name"),
     })
-    return result.success ? new Response(null, { status: 204 }) : context.json({ error: { code: "not_found", message: result.errorMessage } }, 404)
+    return result.success
+      ? new Response(null, { status: 204 })
+      : context.json({ error: { code: "not_found", message: result.errorMessage } }, 404)
   })
   api.get("/project/skills/catalog", async (context) => {
     if (requestUserId(context) === undefined) return unauthorized(context)

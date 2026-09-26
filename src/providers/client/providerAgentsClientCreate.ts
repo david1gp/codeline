@@ -6,6 +6,12 @@ export function providerAgentsClientCreate(
 ) {
   const client = apiHttpClientCreate({ fetch: fetcher })
   return {
-    list: () => client.get({ cache: "no-store", op: "providerAgentsList", path: "/api/providers/agents", responseSchema: providerApiAgentsResponseSchema }),
+    list: () =>
+      client.get({
+        cache: "no-store",
+        op: "providerAgentsList",
+        path: "/api/providers/agents",
+        responseSchema: providerApiAgentsResponseSchema,
+      }),
   }
 }

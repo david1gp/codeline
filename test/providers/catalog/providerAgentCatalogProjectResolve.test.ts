@@ -16,13 +16,18 @@ test("project agent files override global agents by ID and retain global models"
     const collision = global.data.agents[0]
     expect(collision).toBeDefined()
     if (collision === undefined) return
-    await fs.writeFile(path.join(directory, `${collision.id}.md`), "---\nmode: subagent\ntools:\n  bash: true\n  webfetch: false\n---\nProject prompt")
+    await fs.writeFile(
+      path.join(directory, `${collision.id}.md`),
+      "---\nmode: subagent\ntools:\n  bash: true\n  webfetch: false\n---\nProject prompt",
+    )
     await fs.writeFile(path.join(directory, "local.md"), "---\nmode: subagent\n---\nLocal prompt")
     const resolved = await providerAgentCatalogProjectResolve(root, global.data)
     expect(resolved.success).toBe(true)
     if (!resolved.success) return
     expect(resolved.data.projectAgentIds).toEqual(["local", collision.id].sort())
-    expect(resolved.data.catalog?.agents.filter(({ id }) => id === collision.id)).toEqual([expect.objectContaining({ prompt: "Project prompt" })])
+    expect(resolved.data.catalog?.agents.filter(({ id }) => id === collision.id)).toEqual([
+      expect.objectContaining({ prompt: "Project prompt" }),
+    ])
     expect(resolved.data.catalog?.agents.find(({ id }) => id === "local")?.prompt).toBe("Local prompt")
     expect(resolved.data.catalog?.providers).toEqual(global.data.providers)
     expect(resolved.data.catalog?.revision).not.toEqual(global.data.revision)

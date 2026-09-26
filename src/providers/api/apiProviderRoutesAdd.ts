@@ -74,15 +74,21 @@ export function apiProviderRoutesAdd(api: Hono<AppEnvironment>, options: ApiProv
     if (!requestAuthorized(context)) return unauthorized(context)
     if (options.providerAgentCatalog === undefined) return catalogUnavailable(context)
     const catalog = options.providerAgentCatalog
-    const response = { agents: catalog.agents.map((agent) => {
-      const { id, description, enabled, mode } = agent
-      const resolved = providerAgentCatalogModelResolve(catalog, agent)
-      return {
-        id, ...(description === undefined ? {} : { description }), enabled,
-        ...(mode === undefined ? {} : { mode }),
-        ...(resolved.success ? { provider: resolved.data.provider.id, model: resolved.data.model.id } : {}),
-      }
-    }).sort((a, b) => a.id.localeCompare(b.id)) }
+    const response = {
+      agents: catalog.agents
+        .map((agent) => {
+          const { id, description, enabled, mode } = agent
+          const resolved = providerAgentCatalogModelResolve(catalog, agent)
+          return {
+            id,
+            ...(description === undefined ? {} : { description }),
+            enabled,
+            ...(mode === undefined ? {} : { mode }),
+            ...(resolved.success ? { provider: resolved.data.provider.id, model: resolved.data.model.id } : {}),
+          }
+        })
+        .sort((a, b) => a.id.localeCompare(b.id)),
+    }
     if (!v.safeParse(providerApiAgentsResponseSchema, response).success) return catalogUnavailable(context)
     context.header("Cache-Control", "private, no-cache")
     context.header("Vary", "Cookie")

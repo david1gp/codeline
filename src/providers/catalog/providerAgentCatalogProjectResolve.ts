@@ -19,7 +19,7 @@ export async function providerAgentCatalogProjectResolve(
   for (const directory of [path.join(project.data, ".agents"), agentsRoot]) {
     try {
       const stat = await fs.lstat(directory)
-      if (!stat.isDirectory() || stat.isSymbolicLink() || await fs.realpath(directory) !== directory)
+      if (!stat.isDirectory() || stat.isSymbolicLink() || (await fs.realpath(directory)) !== directory)
         return createResultError(op, "The project agent directory is unsafe.")
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT")
@@ -37,8 +37,7 @@ export async function providerAgentCatalogProjectResolve(
       if (!entry.isFile() || entry.isSymbolicLink())
         return createResultError(op, "Project agent files must be regular files, not symbolic links.")
       const filePath = path.join(agentsRoot, entry.name)
-      if (await fs.realpath(filePath) !== filePath)
-        return createResultError(op, "The project agent file is unsafe.")
+      if ((await fs.realpath(filePath)) !== filePath) return createResultError(op, "The project agent file is unsafe.")
       const handle = await fs.open(filePath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW)
       try {
         const stat = await handle.stat()
@@ -68,7 +67,9 @@ export async function providerAgentCatalogProjectResolve(
     const projectAgentIds = agents.map(({ id }) => id)
     const ids = new Set(projectAgentIds)
     const withoutRevision = {
-      agents: [...globalCatalog.agents.filter(({ id }) => !ids.has(id)), ...agents].sort((a, b) => a.id.localeCompare(b.id)),
+      agents: [...globalCatalog.agents.filter(({ id }) => !ids.has(id)), ...agents].sort((a, b) =>
+        a.id.localeCompare(b.id),
+      ),
       providers: globalCatalog.providers,
     }
     const validated = v.safeParse(providerCatalogSchema, {

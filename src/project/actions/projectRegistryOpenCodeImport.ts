@@ -31,6 +31,13 @@ function openCodeProjectDirectoryTableMissing(error: unknown): boolean {
   return error instanceof Error && error.message.includes("no such table: project_directory")
 }
 
+function projectRegistryOpenCodeCommandProjectPath(pathname: string): boolean {
+  return path
+    .resolve(pathname)
+    .split(path.sep)
+    .some((segment) => segment.startsWith(".e2e-command-"))
+}
+
 function projectRegistryOpenCodeSourcePathsRead(openCodeDatabasePath: string): Result<string[]> {
   const op = "projectRegistryOpenCodeSourcePathsRead"
   let database: Database | undefined
@@ -77,7 +84,9 @@ export async function projectRegistryOpenCodeImport(
   const canonicalPaths = new Set<string>()
   for (const sourcePath of sourcePaths.data) {
     const canonical = await projectRegistryPathCanonicalize(sourcePath, rootDirs)
-    if (canonical.success) canonicalPaths.add(canonical.data)
+    if (canonical.success && !projectRegistryOpenCodeCommandProjectPath(canonical.data)) {
+      canonicalPaths.add(canonical.data)
+    }
   }
 
   for (const projectPath of canonicalPaths) {

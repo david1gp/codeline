@@ -9,9 +9,9 @@ import { databaseConnectionClose } from "../../../src/database/databaseConnectio
 import { databaseConnectionCreate } from "../../../src/database/databaseConnectionCreate.js"
 import { databaseMigrate } from "../../../src/database/databaseMigrate.js"
 import { applicationUserTable } from "../../../src/identity/db/applicationUserTable.js"
+import { projectRegistryOpenCodeImport } from "../../../src/project/actions/projectRegistryOpenCodeImport.js"
 import { apiProjectRoutesAdd } from "../../../src/project/api/apiProjectRoutesAdd.js"
 import { projectTable } from "../../../src/project/db/projectTable.js"
-import { projectRegistryOpenCodeImport } from "../../../src/project/actions/projectRegistryOpenCodeImport.js"
 
 async function codelineDatabaseCreate() {
   const directoryPath = await fs.mkdtemp(path.join(os.tmpdir(), "codeline-opencode-import-codeline."))
@@ -184,6 +184,57 @@ test("falls back to non-global project worktrees only when the directory table i
     await openCode.dispose()
     await fs.rm(rootsDirectory, { force: true, recursive: true })
     await fs.rm(outsideDirectory, { force: true, recursive: true })
+  }
+})
+
+test("excludes run-owned command-project paths without changing regular or foreign registrations", async () => {
+  const rootsDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "codeline-opencode-command-roots."))
+  const commandDirectory = path.join(rootsDirectory, ".e2e-command-run-owned")
+  const projectDirectory = path.join(rootsDirectory, "regular-project")
+  const codeline = await codelineDatabaseCreate()
+  const openCode = await openCodeDatabaseCreate(async (client) => {
+    await openCodeProjectTablesCreate(client)
+    await client.execute("INSERT INTO project_directory (project_id, directory) VALUES (?, ?), (?, ?)", [
+      "command-project",
+      commandDirectory,
+      "regular-project",
+      projectDirectory,
+    ])
+  })
+
+  try {
+    await fs.mkdir(commandDirectory)
+    await fs.mkdir(projectDirectory)
+    await codeline.database.insert(applicationUserTable).values([
+      { displayName: "OpenCode Import User", id: "opencode-command-import-user" },
+      { displayName: "Foreign Registration User", id: "opencode-command-foreign-user" },
+    ])
+    await codeline.database.insert(projectTable).values({
+      id: "foreign-command-project-registration",
+      path: commandDirectory,
+      userId: "opencode-command-foreign-user",
+    })
+
+    const imported = await projectRegistryOpenCodeImport(
+      codeline.database,
+      "opencode-command-import-user",
+      openCode.filePath,
+      [rootsDirectory],
+    )
+    expect(imported).toEqual({ success: true, data: { importedCount: 1 } })
+    expect(
+      await codeline.database
+        .select({ path: projectTable.path, userId: projectTable.userId })
+        .from(projectTable)
+        .orderBy(projectTable.userId),
+    ).toEqual([
+      { path: commandDirectory, userId: "opencode-command-foreign-user" },
+      { path: projectDirectory, userId: "opencode-command-import-user" },
+    ])
+  } finally {
+    await codeline.dispose()
+    await openCode.dispose()
+    await fs.rm(rootsDirectory, { force: true, recursive: true })
   }
 })
 

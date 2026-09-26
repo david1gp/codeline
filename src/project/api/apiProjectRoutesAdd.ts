@@ -746,10 +746,14 @@ export function apiProjectRoutesAdd(api: Hono<AppEnvironment>, options: ApiProje
     const resolved = await providerAgentCatalogProjectResolve(project.data.rootDir, options.providerAgentCatalog)
     if (!resolved.success || resolved.data.catalog === undefined) return registryInternalServerError(context)
     const response = {
-      agents: resolved.data.catalog.agents.map(({ id, description, enabled, mode }) => ({
-        id, ...(description === undefined ? {} : { description }), enabled,
-        ...(mode === undefined ? {} : { mode }),
-      })).sort((a, b) => a.id.localeCompare(b.id)),
+      agents: resolved.data.catalog.agents
+        .map(({ id, description, enabled, mode }) => ({
+          id,
+          ...(description === undefined ? {} : { description }),
+          enabled,
+          ...(mode === undefined ? {} : { mode }),
+        }))
+        .sort((a, b) => a.id.localeCompare(b.id)),
       projectAgentIds: resolved.data.projectAgentIds,
     }
     if (!v.safeParse(projectApiAgentsResponseSchema, response).success) return registryInternalServerError(context)

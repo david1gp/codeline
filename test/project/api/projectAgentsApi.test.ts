@@ -26,14 +26,21 @@ test("project agent catalog authenticates, isolates projects and redacts local e
   const globalId = catalog.data.agents[0]?.id
   expect(globalId).toBeDefined()
   if (globalId === undefined) return
-  await fs.writeFile(path.join(first, ".agents", "agents", `${globalId}.md`), "---\nmode: primary\ndescription: Project override\n---\nPrivate prompt")
-  await fs.writeFile(path.join(first, ".agents", "agents", "project-only.md"), "---\nmode: primary\n---\nPrivate prompt")
+  await fs.writeFile(
+    path.join(first, ".agents", "agents", `${globalId}.md`),
+    "---\nmode: primary\ndescription: Project override\n---\nPrivate prompt",
+  )
+  await fs.writeFile(
+    path.join(first, ".agents", "agents", "project-only.md"),
+    "---\nmode: primary\n---\nPrivate prompt",
+  )
   const migrated = await databaseMigrate(databasePath)
   expect(migrated.success).toBe(true)
   const connection = databaseConnectionCreate(databasePath)
   try {
     await connection.db.insert(applicationUserTable).values([
-      { id: "agent-owner", displayName: "Owner" }, { id: "agent-outsider", displayName: "Outsider" },
+      { id: "agent-owner", displayName: "Owner" },
+      { id: "agent-outsider", displayName: "Outsider" },
     ])
     let userId = "agent-owner"
     const app = new Hono<AppEnvironment>()
@@ -44,7 +51,9 @@ test("project agent catalog authenticates, isolates projects and redacts local e
     apiProjectRoutesAdd(app, { database: connection.db, rootDirs: [root], providerAgentCatalog: catalog.data })
     const register = async (projectPath: string) => {
       const result = await app.request("http://codeline.test/project/registry", {
-        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path: projectPath }),
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path: projectPath }),
       })
       expect(result.status).toBe(200)
       return ((await result.json()) as { project: { id: string } }).project.id
