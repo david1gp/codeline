@@ -19,13 +19,15 @@ export function globalAgentPresetDocumentDefaults(): GlobalAgentPresetDocument {
       commands: category("commands", true),
       tools: {
         defaultSetId: "default-tools",
-        sets: [{
-          id: "default-tools",
-          name: "Default",
-          resourceNames: ["bash", "webfetch", "read", "write", "edit"],
-          includeNewResources: false,
-          includeAllResources: false,
-        }],
+        sets: [
+          {
+            id: "default-tools",
+            name: "Default",
+            resourceNames: ["bash", "webfetch", "read", "write", "edit"],
+            includeNewResources: false,
+            includeAllResources: false,
+          },
+        ],
       },
       subagents: category("subagents"),
     },

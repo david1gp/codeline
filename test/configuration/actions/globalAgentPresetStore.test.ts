@@ -7,7 +7,10 @@ import { configurationStoreCreate } from "../../../src/configuration/configurati
 import { globalAgentPresetDefaultMembershipAdd } from "../../../src/configuration/globalAgentPresetDefaultMembershipAdd.js"
 import { globalAgentPresetDocumentDefaults } from "../../../src/configuration/globalAgentPresetDocumentDefaults.js"
 import { globalAgentPresetDocumentSchema } from "../../../src/configuration/globalAgentPresetDocumentSchema.js"
-import { globalAgentPresetResourcesResolve, globalAgentPresetResourcesResolveForPreset } from "../../../src/configuration/globalAgentPresetResourcesResolve.js"
+import {
+  globalAgentPresetResourcesResolve,
+  globalAgentPresetResourcesResolveForPreset,
+} from "../../../src/configuration/globalAgentPresetResourcesResolve.js"
 import {
   globalAgentPresetDocumentFilePath,
   globalAgentPresetDocumentRead,
@@ -47,39 +50,67 @@ describe("global agent preset model and store", () => {
     expect(defaults.categories.commands.sets[0]?.includeAllResources).toBe(true)
     expect(defaults.categories.skills.sets[0]?.includeAllResources).toBe(false)
     expect(defaults.categories.skills.sets[0]?.includeNewResources).toBe(true)
-    expect(globalAgentPresetResourcesResolve(defaults, "tools", ["default-tools"], ["bash", "webfetch", "read", "write", "edit"]))
-      .toEqual(["bash", "webfetch", "read", "write", "edit"])
+    expect(
+      globalAgentPresetResourcesResolve(
+        defaults,
+        "tools",
+        ["default-tools"],
+        ["bash", "webfetch", "read", "write", "edit"],
+      ),
+    ).toEqual(["bash", "webfetch", "read", "write", "edit"])
     const toggled = structuredClone(defaults)
     toggled.categories.tools.sets[0]!.resourceNames = ["read"]
-    expect(globalAgentPresetResourcesResolve(toggled, "tools", ["default-tools"], ["bash", "webfetch", "read", "write", "edit"]))
-      .toEqual(["read"])
-    expect(globalAgentPresetResourcesResolve(defaults, "skills", ["default-skills"], ["review", "review"]))
-      .toEqual(["review"])
+    expect(
+      globalAgentPresetResourcesResolve(
+        toggled,
+        "tools",
+        ["default-tools"],
+        ["bash", "webfetch", "read", "write", "edit"],
+      ),
+    ).toEqual(["read"])
+    expect(globalAgentPresetResourcesResolve(defaults, "skills", ["default-skills"], ["review", "review"])).toEqual([
+      "review",
+    ])
     const explicit = structuredClone(defaults)
     explicit.categories.skills.sets[0]!.includeNewResources = false
     const withSkill = globalAgentPresetDefaultMembershipAdd(explicit, "skills", "review")
     expect(withSkill.categories.skills.sets[0]?.resourceNames).toEqual(["review"])
-    expect(globalAgentPresetDefaultMembershipAdd(withSkill, "skills", "review").categories.skills.sets[0]?.resourceNames)
-      .toEqual(["review"])
+    expect(
+      globalAgentPresetDefaultMembershipAdd(withSkill, "skills", "review").categories.skills.sets[0]?.resourceNames,
+    ).toEqual(["review"])
     const dynamic = structuredClone(defaults)
-    expect(globalAgentPresetDefaultMembershipAdd(dynamic, "skills", "review").categories.skills.sets[0]?.resourceNames)
-      .toEqual([])
-    expect(globalAgentPresetResourcesResolve(dynamic, "skills", ["default-skills"], ["review", "review"]))
-      .toEqual(["review"])
-    expect(globalAgentPresetResourcesResolve(defaults, "commands", ["default-commands"], ["test", "test", "build"]))
-      .toEqual(["test", "build"])
+    expect(
+      globalAgentPresetDefaultMembershipAdd(dynamic, "skills", "review").categories.skills.sets[0]?.resourceNames,
+    ).toEqual([])
+    expect(globalAgentPresetResourcesResolve(dynamic, "skills", ["default-skills"], ["review", "review"])).toEqual([
+      "review",
+    ])
+    expect(
+      globalAgentPresetResourcesResolve(defaults, "commands", ["default-commands"], ["test", "test", "build"]),
+    ).toEqual(["test", "build"])
   })
 
   test("validates preset refs and resolves unique resource unions including individual subagents", () => {
     const document = globalAgentPresetDocumentDefaults()
     document.categories.skills.sets.push({
-      id: "core", name: "Core", resourceNames: ["review", "review"], includeNewResources: false, includeAllResources: false,
+      id: "core",
+      name: "Core",
+      resourceNames: ["review", "review"],
+      includeNewResources: false,
+      includeAllResources: false,
     })
     expect(v.safeParse(globalAgentPresetDocumentSchema, document).success).toBe(false)
     document.categories.skills.sets[1]!.resourceNames = ["review"]
     document.presets.push({
-      id: "work", name: "Work", skillSetIds: ["core", "default-skills"], commandSetIds: [], toolSetIds: [],
-      subagentSetIds: [], subagentNames: ["planner", "reviewer"], executionAgentId: "base-agent", modelId: "model-x",
+      id: "work",
+      name: "Work",
+      skillSetIds: ["core", "default-skills"],
+      commandSetIds: [],
+      toolSetIds: [],
+      subagentSetIds: [],
+      subagentNames: ["planner", "reviewer"],
+      executionAgentId: "base-agent",
+      modelId: "model-x",
     })
     expect(v.safeParse(globalAgentPresetDocumentSchema, document).success).toBe(true)
     expect(globalAgentPresetResourcesResolveForPreset(document, "skills", "work")).toEqual(["review"])
@@ -102,25 +133,40 @@ describe("global agent preset model and store", () => {
     const document = globalAgentPresetDocumentDefaults()
     document.categories.skills.sets[0]!.resourceNames = ["review"]
     document.categories.skills.sets[0]!.excludedResourceNames = ["review"]
-    document.categories.skills.sets.push({ id: "selected", name: "Selected", resourceNames: ["review"], includeNewResources: false, includeAllResources: false })
-    expect(globalAgentPresetResourcesResolve(document, "skills", ["default-skills"], ["review", "future", "future"]))
-      .toEqual(["future"])
-    expect(globalAgentPresetResourcesResolve(document, "skills", ["default-skills", "selected"], ["review", "future"]))
-      .toEqual(["future", "review"])
+    document.categories.skills.sets.push({
+      id: "selected",
+      name: "Selected",
+      resourceNames: ["review"],
+      includeNewResources: false,
+      includeAllResources: false,
+    })
+    expect(
+      globalAgentPresetResourcesResolve(document, "skills", ["default-skills"], ["review", "future", "future"]),
+    ).toEqual(["future"])
+    expect(
+      globalAgentPresetResourcesResolve(document, "skills", ["default-skills", "selected"], ["review", "future"]),
+    ).toEqual(["future", "review"])
     document.categories.commands.sets[0]!.includeNewResources = false
     document.categories.commands.sets[0]!.includeAllResources = false
     document.categories.commands.sets[0]!.excludedResourceNames = ["test"]
-    expect(globalAgentPresetResourcesResolve(document, "commands", ["default-commands"], ["test", "build", "build"]))
-      .toEqual(["build"])
+    expect(
+      globalAgentPresetResourcesResolve(document, "commands", ["default-commands"], ["test", "build", "build"]),
+    ).toEqual(["build"])
   })
 
   test("new default resources clear prior exclusions while retaining dynamic inclusion", () => {
     const document = globalAgentPresetDocumentDefaults()
     document.categories.skills.sets[0]!.excludedResourceNames = ["review"]
     const next = globalAgentPresetDefaultMembershipAdd(document, "skills", "review")
-    expect(next.categories.skills.sets[0]).toMatchObject({ includeNewResources: true, resourceNames: [], excludedResourceNames: [] })
-    expect(globalAgentPresetResourcesResolve(next, "skills", ["default-skills"], ["review", "future"]))
-      .toEqual(["review", "future"])
+    expect(next.categories.skills.sets[0]).toMatchObject({
+      includeNewResources: true,
+      resourceNames: [],
+      excludedResourceNames: [],
+    })
+    expect(globalAgentPresetResourcesResolve(next, "skills", ["default-skills"], ["review", "future"])).toEqual([
+      "review",
+      "future",
+    ])
   })
 
   test("reads defaults before first write and persists validated data separately", async () => {
@@ -132,8 +178,15 @@ describe("global agent preset model and store", () => {
 
     const document = globalAgentPresetDocumentDefaults()
     document.presets.push({
-      id: "default", name: "Default", skillSetIds: [], commandSetIds: [], toolSetIds: [], subagentSetIds: [],
-      subagentNames: [], executionAgentId: "agent-base", modelId: "model-base",
+      id: "default",
+      name: "Default",
+      skillSetIds: [],
+      commandSetIds: [],
+      toolSetIds: [],
+      subagentSetIds: [],
+      subagentNames: [],
+      executionAgentId: "agent-base",
+      modelId: "model-base",
     })
     const written = await globalAgentPresetDocumentWrite(store.gitStore, document)
     expect(written.success).toBe(true)
@@ -161,7 +214,12 @@ describe("global agent preset model and store", () => {
 
   test("returns defaults only when the document is absent and reports Git read failures", async () => {
     const store = await createStore()
-    const unrelated = await gitStoreWrite(store.gitStore, "unrelated.json", { present: true }, "test: add unrelated file")
+    const unrelated = await gitStoreWrite(
+      store.gitStore,
+      "unrelated.json",
+      { present: true },
+      "test: add unrelated file",
+    )
     expect(unrelated.success).toBe(true)
     const absent = await globalAgentPresetDocumentRead(store.gitStore)
     expect(absent.success).toBe(true)

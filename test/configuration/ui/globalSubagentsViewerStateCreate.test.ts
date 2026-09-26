@@ -4,7 +4,9 @@ import { createRoot } from "solid-js/dist/solid.js"
 import { providerAgentsClientCreate } from "../../../src/providers/client/providerAgentsClientCreate.js"
 
 mock.module("solid-js", () => solidRuntime)
-const { globalSubagentsViewerStateCreate } = await import("../../../src/configuration/ui/globalSubagentsViewerStateCreate.js")
+const { globalSubagentsViewerStateCreate } = await import(
+  "../../../src/configuration/ui/globalSubagentsViewerStateCreate.js"
+)
 
 test("global subagent viewer loads authenticated catalog identities instead of browser drafts", async () => {
   const requests: string[] = []
@@ -16,17 +18,25 @@ test("global subagent viewer loads authenticated catalog identities instead of b
   try {
     await root.state.load()
     expect(requests).toContain("GET /api/providers/agents")
-    expect(root.state.agents()).toEqual([{ id: "explore", enabled: true, mode: "subagent", description: "Explore code" }])
+    expect(root.state.agents()).toEqual([
+      { id: "explore", enabled: true, mode: "subagent", description: "Explore code" },
+    ])
     expect(root.state.error()).toBe("")
-  } finally { root.dispose() }
+  } finally {
+    root.dispose()
+  }
 })
 
 test("global subagent viewer reports catalog fetch failures without inventing entries", async () => {
-  const client = providerAgentsClientCreate(async () => Response.json({ error: { code: "unauthorized", message: "Authentication is required." } }, { status: 401 }))
+  const client = providerAgentsClientCreate(async () =>
+    Response.json({ error: { code: "unauthorized", message: "Authentication is required." } }, { status: 401 }),
+  )
   const root = createRoot((dispose) => ({ dispose, state: globalSubagentsViewerStateCreate(client) }))
   try {
     await root.state.load()
     expect(root.state.agents()).toEqual([])
     expect(root.state.error()).not.toBe("")
-  } finally { root.dispose() }
+  } finally {
+    root.dispose()
+  }
 })

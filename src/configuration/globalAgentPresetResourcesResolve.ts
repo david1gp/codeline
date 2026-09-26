@@ -15,7 +15,11 @@ export function globalAgentPresetResourcesResolve(
     if (!selected.has(set.id)) continue
     const excluded = new Set(set.excludedResourceNames ?? [])
     names.push(...set.resourceNames.filter((name) => !excluded.has(name)))
-    if (set.includeAllResources || set.includeNewResources || (category === "commands" && set.id === document.categories.commands.defaultSetId)) {
+    if (
+      set.includeAllResources ||
+      set.includeNewResources ||
+      (category === "commands" && set.id === document.categories.commands.defaultSetId)
+    ) {
       names.push(...discoveredNames.filter((name) => !excluded.has(name)))
     }
   }
@@ -30,13 +34,14 @@ export function globalAgentPresetResourcesResolveForPreset(
 ): string[] | undefined {
   const preset = document.presets.find(({ id }) => id === presetId)
   if (preset === undefined) return undefined
-  const setIds = category === "skills"
-    ? preset.skillSetIds
-    : category === "commands"
-      ? preset.commandSetIds
-      : category === "tools"
-        ? preset.toolSetIds
-        : preset.subagentSetIds
+  const setIds =
+    category === "skills"
+      ? preset.skillSetIds
+      : category === "commands"
+        ? preset.commandSetIds
+        : category === "tools"
+          ? preset.toolSetIds
+          : preset.subagentSetIds
   const names = globalAgentPresetResourcesResolve(document, category, setIds, discoveredNames)
   return category === "subagents" ? [...new Set([...names, ...preset.subagentNames])] : names
 }

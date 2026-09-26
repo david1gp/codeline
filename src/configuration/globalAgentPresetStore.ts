@@ -2,10 +2,7 @@ import { type GitStore, gitStoreRun, gitStoreWrite } from "@adaptive-ds/git-stor
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
 import { globalAgentPresetDocumentDefaults } from "./globalAgentPresetDocumentDefaults.js"
-import {
-  type GlobalAgentPresetDocument,
-  globalAgentPresetDocumentSchema,
-} from "./globalAgentPresetDocumentSchema.js"
+import { type GlobalAgentPresetDocument, globalAgentPresetDocumentSchema } from "./globalAgentPresetDocumentSchema.js"
 
 export const globalAgentPresetDocumentFilePath = "global-agent-presets.json"
 

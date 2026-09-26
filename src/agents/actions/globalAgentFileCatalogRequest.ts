@@ -22,7 +22,10 @@ const maxBytes = skillDiscoveryLimits.maximumFileBytes
 
 function validContent(kind: GlobalAgentFileKind, name: string, content: string): boolean {
   if (Buffer.byteLength(content, "utf8") > maxBytes || content.includes("\0")) return false
-  const lines = content.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").split("\n")
+  const lines = content
+    .replace(/^\uFEFF/, "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
   if (lines[0] !== "---") return false
   const end = lines.findIndex((line, index) => index > 0 && (line === "---" || line === "..."))
   if (end < 0) return false
@@ -98,11 +101,15 @@ export async function globalAgentFileCatalogRequest(
 ): Promise<Result<{ content?: string; names?: string[] }>> {
   const op = "globalAgentFileCatalogRequest"
   try {
-    const canonicalRoot = path.resolve(root === "~" ? os.homedir() : root.startsWith("~/") ? path.join(os.homedir(), root.slice(2)) : root)
+    const canonicalRoot = path.resolve(
+      root === "~" ? os.homedir() : root.startsWith("~/") ? path.join(os.homedir(), root.slice(2)) : root,
+    )
     try {
-      if ((await fs.lstat(canonicalRoot)).isSymbolicLink()) return createResultError(op, "The global resource root is unsafe.")
+      if ((await fs.lstat(canonicalRoot)).isSymbolicLink())
+        return createResultError(op, "The global resource root is unsafe.")
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") return createResultError(op, "The global resource root is unsafe.")
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT")
+        return createResultError(op, "The global resource root is unsafe.")
     }
     if (request.operation === "list") {
       const names: string[] = []
@@ -133,14 +140,16 @@ export async function globalAgentFileCatalogRequest(
     const target = targetPath(canonicalRoot, request.kind, request.name)
     if (!target) return createResultError(op, "The resource name is invalid.")
     if (request.operation === "get") {
-      if (!(await pathCheck(canonicalRoot, target))) return createResultError(op, "The resource was not found or is unsafe.")
+      if (!(await pathCheck(canonicalRoot, target)))
+        return createResultError(op, "The resource was not found or is unsafe.")
       const content = await boundedContentRead(target)
       if (content === undefined || !validContent(request.kind, request.name, content))
         return createResultError(op, "The resource was not found or is invalid.")
       return createResult({ content })
     }
     if (request.operation === "delete") {
-      if (!(await pathCheck(canonicalRoot, target))) return createResultError(op, "The resource was not found or is unsafe.")
+      if (!(await pathCheck(canonicalRoot, target)))
+        return createResultError(op, "The resource was not found or is unsafe.")
       await fs.unlink(target)
       return createResult({})
     }

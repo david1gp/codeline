@@ -14,8 +14,9 @@ export function globalAgentPresetDefaultMembershipAdd(
       ...document.categories,
       [category]: {
         ...target,
-        sets: target.sets.map((set) => set.id === target.defaultSetId
-          ? globalAgentPresetSetMembershipChange(set, resourceName, true) : set),
+        sets: target.sets.map((set) =>
+          set.id === target.defaultSetId ? globalAgentPresetSetMembershipChange(set, resourceName, true) : set,
+        ),
       },
     },
   }

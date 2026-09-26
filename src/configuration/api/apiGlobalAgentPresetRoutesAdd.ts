@@ -15,7 +15,9 @@ export function apiGlobalAgentPresetRoutesAdd(
   api.get("/global/agent-presets", async (context) => {
     const userId = context.var.requestIdentity?.userId
     if (typeof userId !== "string" || userId.length === 0) {
-      const response = { error: { code: "unauthorized", message: "Authentication is required." } } satisfies ApiErrorResponse
+      const response = {
+        error: { code: "unauthorized", message: "Authentication is required." },
+      } satisfies ApiErrorResponse
       return context.json(response, 401)
     }
     if (options.configurationStore === undefined) return internalServerError(context)
@@ -27,7 +29,9 @@ export function apiGlobalAgentPresetRoutesAdd(
   api.put("/global/agent-presets", async (context) => {
     const userId = context.var.requestIdentity?.userId
     if (typeof userId !== "string" || userId.length === 0) {
-      const response = { error: { code: "unauthorized", message: "Authentication is required." } } satisfies ApiErrorResponse
+      const response = {
+        error: { code: "unauthorized", message: "Authentication is required." },
+      } satisfies ApiErrorResponse
       return context.json(response, 401)
     }
     if (options.configurationStore === undefined) return internalServerError(context)
@@ -45,7 +49,9 @@ export function apiGlobalAgentPresetRoutesAdd(
 }
 
 function badRequest(context: Context<AppEnvironment>) {
-  const response = { error: { code: "bad_request", message: "The global agent preset document is invalid." } } satisfies ApiErrorResponse
+  const response = {
+    error: { code: "bad_request", message: "The global agent preset document is invalid." },
+  } satisfies ApiErrorResponse
   return context.json(response, 400)
 }
 

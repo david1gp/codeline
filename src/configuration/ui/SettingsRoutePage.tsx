@@ -45,11 +45,21 @@ export function SettingsRoutePage() {
           <Show when={state.activeSection() === "tools"}>
             <SettingsToolsPanel />
           </Show>
-          <Show when={state.activeSection() === "skill-sets"}><GlobalAgentSetEditor category="skills" /></Show>
-          <Show when={state.activeSection() === "command-sets"}><GlobalAgentSetEditor category="commands" /></Show>
-          <Show when={state.activeSection() === "tool-sets"}><GlobalAgentSetEditor category="tools" /></Show>
-          <Show when={state.activeSection() === "subagent-sets"}><GlobalAgentSetEditor category="subagents" /></Show>
-          <Show when={state.activeSection() === "agent-presets"}><GlobalAgentPresetEditor /></Show>
+          <Show when={state.activeSection() === "skill-sets"}>
+            <GlobalAgentSetEditor category="skills" />
+          </Show>
+          <Show when={state.activeSection() === "command-sets"}>
+            <GlobalAgentSetEditor category="commands" />
+          </Show>
+          <Show when={state.activeSection() === "tool-sets"}>
+            <GlobalAgentSetEditor category="tools" />
+          </Show>
+          <Show when={state.activeSection() === "subagent-sets"}>
+            <GlobalAgentSetEditor category="subagents" />
+          </Show>
+          <Show when={state.activeSection() === "agent-presets"}>
+            <GlobalAgentPresetEditor />
+          </Show>
           <Show when={state.activeSection() === "subagents"}>
             <GlobalSubagentsViewer />
           </Show>

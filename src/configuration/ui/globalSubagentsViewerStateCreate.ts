@@ -15,6 +15,8 @@ export function globalSubagentsViewerStateCreate(client = providerAgentsClientCr
     else error.set(result.errorMessage)
     loading.set(false)
   }
-  onMount(() => { void load() })
+  onMount(() => {
+    void load()
+  })
   return { agents: () => agents.get(), loading: () => loading.get(), error: () => error.get(), load }
 }
