@@ -21,7 +21,7 @@ export async function lunaLowEffortChatAssert(page: Page, sessionId: string, cha
     tools: [],
   })
   const recentActivity = page.getByRole("list", { name: "Recent semantic activity", exact: true })
-  const latestAnswer = page.getByRole("region", { name: "Latest agent answer", exact: true })
+  const latestAnswer = page.getByRole("region", { name: "Response", exact: true })
   const userMessages = recentActivity.locator("li[data-session-message-role='user']")
   await expect(latestAnswer).toHaveCount(1, { timeout: 120_000 })
   await expect(userMessages).toHaveCount(1, { timeout: 120_000 })

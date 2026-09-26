@@ -135,7 +135,7 @@ async function parallelTabsRunsAssert(browser: Browser): Promise<void> {
 
     for (const tab of tabs) {
       const recentActivity = tab.page.getByRole("list", { name: "Recent semantic activity", exact: true })
-      const latestAnswer = tab.page.getByRole("region", { name: "Latest agent answer", exact: true })
+      const latestAnswer = tab.page.getByRole("region", { name: "Response", exact: true })
       await expect(latestAnswer).toContainText(tab.assistantText, { timeout: syncTimeout })
       await expect(recentActivity.getByText(tab.prompt, { exact: true })).toBeVisible({ timeout: syncTimeout })
     }
@@ -169,7 +169,7 @@ async function parallelTabsRunsAssert(browser: Browser): Promise<void> {
     const first = tabs[0]
     if (first === undefined) throw new Error("The parallel tab fixture requires two tabs.")
     await first.page.reload()
-    const reloadedLatestAnswer = first.page.getByRole("region", { name: "Latest agent answer", exact: true })
+    const reloadedLatestAnswer = first.page.getByRole("region", { name: "Response", exact: true })
     await expect(reloadedLatestAnswer).toHaveCount(1, { timeout: syncTimeout })
     await expect(reloadedLatestAnswer).toContainText(first.assistantText)
     expect(await eventFeedSourceUrlsRead(first.page)).toHaveLength(1)
@@ -255,7 +255,7 @@ async function sameSessionTabsConvergenceAssert(browser: Browser): Promise<void>
     // Both tabs settle on the same authoritative transcript, each exactly once.
     for (const page of [first, second]) {
       const recentActivity = page.getByRole("list", { name: "Recent semantic activity", exact: true })
-      const latestAnswer = page.getByRole("region", { name: "Latest agent answer", exact: true })
+      const latestAnswer = page.getByRole("region", { name: "Response", exact: true })
       await expect(latestAnswer).toHaveCount(1, { timeout: syncTimeout })
       await expect(latestAnswer).toContainText(convergenceScenario.finalText)
       await expect(recentActivity.getByText(prompt, { exact: true })).toHaveCount(1, { timeout: syncTimeout })

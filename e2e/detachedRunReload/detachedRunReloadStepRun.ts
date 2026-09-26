@@ -210,10 +210,9 @@ async function detachedRunReloadAssert(browser: Browser): Promise<void> {
     expect(new URL(attachedUrl, baseOrigin).searchParams.get("after")).toBe(boundedSnapshotAfterReload.detailCursor)
 
     // Eventual completion is rendered from the authoritative HTTP snapshot.
-    await expect(page.getByRole("region", { name: "Latest agent answer", exact: true })).toContainText(
-      scenario.finalText,
-      { timeout: syncTimeout },
-    )
+    await expect(page.getByRole("region", { name: "Response", exact: true })).toContainText(scenario.finalText, {
+      timeout: syncTimeout,
+    })
     await expect(
       page.getByRole("list", { name: "Recent semantic activity", exact: true }).getByText(prompt, { exact: true }),
     ).toBeVisible({ timeout: syncTimeout })
@@ -313,7 +312,7 @@ async function detachedToolActivityReloadAssert(browser: Browser): Promise<void>
     })
 
     await page.getByRole("button", { name: "Conversation view" }).click()
-    const latestAnswer = page.getByRole("region", { name: "Latest agent answer", exact: true })
+    const latestAnswer = page.getByRole("region", { name: "Response", exact: true })
     await expect(latestAnswer).toContainText(toolScenario.finalText, { timeout: syncTimeout })
 
     const finalSnapshot = await activeRunSnapshotRead(context, sessionId, detachedRunId)

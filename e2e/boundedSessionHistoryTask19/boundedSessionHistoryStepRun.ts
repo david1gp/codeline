@@ -149,10 +149,40 @@ async function fixturePromptAppend(page: Page, prompt: string): Promise<void> {
   const composer = page.getByRole("form", { name: "Chat composer" })
   const input = composer.getByLabel("Message")
   await expect(input).toBeEnabled({ timeout: 30_000 })
+  await expect(composer.getByRole("button", { name: "Send", exact: true })).toBeVisible({ timeout: 30_000 })
+  const sessionId = new URL(page.url()).pathname.split("/").at(-1)
+  if (sessionId === undefined) throw new Error("The bounded history fixture session URL is invalid.")
   await input.fill(prompt)
+  const commandUrl = `${baseOrigin}/api/sessions/${encodeURIComponent(sessionId)}/chat`
+  const commandResponsePromise = page.waitForResponse(
+    (response) => response.request().method() === "POST" && response.url() === commandUrl,
+    { timeout: 30_000 },
+  )
   await composer.getByRole("button", { name: "Send" }).click()
+  const commandResponse = await commandResponsePromise
+  expect(commandResponse.status()).toBe(200)
+  const command = (await commandResponse.json()) as { runId: string; sessionId: string }
   await expect(page.getByRole("article").filter({ hasText: prompt })).toBeVisible({ timeout: 30_000 })
-  await expect(input).toBeEnabled({ timeout: 30_000 })
+  if (command.sessionId !== sessionId || !command.runId)
+    throw new Error("The bounded history fixture chat command did not start the expected run.")
+  await expect
+    .poll(
+      async () => {
+        const response = await page.request.get(
+          `${baseOrigin}/api/sessions/${encodeURIComponent(sessionId)}/runs/${encodeURIComponent(command.runId)}/snapshot`,
+        )
+        if (!response.ok()) return `HTTP ${response.status()}`
+        const snapshot = (await response.json()) as { status: string }
+        return snapshot.status
+      },
+      {
+        message: "The bounded history fixture prompt run should succeed before the next prompt is submitted.",
+        timeout: 30_000,
+      },
+    )
+    .toBe("succeeded")
+  await expect(page.getByRole("list", { name: "In-flight messages" })).toHaveCount(0, { timeout: 30_000 })
+  await expect(composer.getByRole("button", { name: "Send", exact: true })).toBeVisible({ timeout: 30_000 })
 }
 
 async function boundedSessionHistoryPageAssert(browser: Browser): Promise<void> {

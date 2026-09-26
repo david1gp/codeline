@@ -1,6 +1,7 @@
 import { type Browser, type BrowserContext, expect, type Page } from "@playwright/test"
 import { e2eMemberSessionsIssue } from "../e2eMemberSessionsIssue.js"
 import { e2eMemberSessionsPurge } from "../e2eMemberSessionsPurge.js"
+import { e2eRepositoryRoot } from "../e2eRepositoryRoot.js"
 import { e2eRunIdCreate } from "../e2eRunIdCreate.js"
 import { e2eSessionCreate } from "../e2eSessionCreate.js"
 
@@ -54,8 +55,12 @@ async function memberContextOpen(browser: Browser, token: string): Promise<Brows
   return context
 }
 
-async function sessionCreate(context: BrowserContext, body: Record<string, unknown>): Promise<string> {
-  const response = await e2eSessionCreate(context, baseOrigin, { serverId, ...body })
+async function sessionCreate(
+  context: BrowserContext,
+  body: Record<string, unknown>,
+  projectPath?: string,
+): Promise<string> {
+  const response = await e2eSessionCreate(context, baseOrigin, { serverId, ...body }, projectPath)
   expect(response.ok(), await response.text()).toBe(true)
   return ((await response.json()) as { session: { id: string } }).session.id
 }
@@ -141,10 +146,9 @@ async function retryAttemptReloadAssert(browser: Browser): Promise<void> {
     expect(afterReload.runs[0]?.status).toBe("running")
 
     const recentActivity = page.getByRole("list", { name: "Recent semantic activity", exact: true })
-    await expect(page.getByRole("region", { name: "Latest agent answer", exact: true })).toContainText(
-      retryScenario.finalText,
-      { timeout: syncTimeout },
-    )
+    await expect(page.getByRole("region", { name: "Response", exact: true })).toContainText(retryScenario.finalText, {
+      timeout: syncTimeout,
+    })
     await expect(recentActivity.getByText(retryScenario.discardedText)).toHaveCount(0)
     await expect(recentActivity.getByText(prompt, { exact: true })).toBeVisible({ timeout: syncTimeout })
 
@@ -227,7 +231,7 @@ async function cancellationReloadAssert(browser: Browser): Promise<void> {
     // the abort preempted never reaches the conversation.
     const recentActivity = page.getByRole("list", { name: "Recent semantic activity", exact: true })
     await expect(recentActivity.getByText(prompt, { exact: true })).toBeVisible({ timeout: syncTimeout })
-    await expect(page.getByRole("region", { name: "Latest agent answer", exact: true })).toHaveCount(0, {
+    await expect(page.getByRole("region", { name: "Response", exact: true })).toHaveCount(0, {
       timeout: syncTimeout,
     })
     await expect(page.getByText(cancellationScenario.delayedText)).toHaveCount(0)
@@ -255,23 +259,27 @@ async function capturedResourcesReloadAssert(browser: Browser): Promise<void> {
     context = await memberContextOpen(browser, issued.members[0].token)
     // Resolved before creation and captured in the immutable manifest: the session
     // can never be reconfigured afterwards, only inspected.
-    const sessionId = await sessionCreate(context, {
-      clientRequestId: `e2e-resources-${runId}`,
-      executionSelection: {
-        tools: {
-          primary: { agentId: resourceScenario.agentId, tools: { bash: true, webfetch: false } },
-          selectableSubagents: [{ agentId: resourceScenario.subagentId, tools: { bash: false, webfetch: true } }],
+    const sessionId = await sessionCreate(
+      context,
+      {
+        clientRequestId: `e2e-resources-${runId}`,
+        executionSelection: {
+          tools: {
+            primary: { agentId: resourceScenario.agentId, tools: { bash: true, webfetch: false } },
+            selectableSubagents: [{ agentId: resourceScenario.subagentId, tools: { bash: false, webfetch: true } }],
+          },
+          version: 1,
         },
-        version: 1,
+        primaryAgentId: resourceScenario.agentId,
+        skillSelection: { presetName: resourceScenario.presetName },
+        title: `Immutable resources ${runId}`,
       },
-      primaryAgentId: resourceScenario.agentId,
-      skillSelection: { presetName: resourceScenario.presetName },
-      title: `Immutable resources ${runId}`,
-    })
+      e2eRepositoryRoot,
+    )
 
     const page = await context.newPage()
     const capturedAssert = async (): Promise<void> => {
-      await page.locator("summary", { hasText: "Captured execution context" }).click()
+      await page.locator("summary", { hasText: "Session context" }).click()
       // The workspace can also host the still-mutable pre-session panel, so the
       // assertions are scoped to the opened session's own captured section.
       const panel = page.locator('section[aria-labelledby="selected-session-context-heading"]')

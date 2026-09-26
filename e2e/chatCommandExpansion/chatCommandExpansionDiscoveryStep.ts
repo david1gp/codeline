@@ -172,9 +172,10 @@ export async function chatCommandExpansionDiscoveryStep(browser: Browser): Promi
     await expect(recentActivity.getByText("Review src/index.ts with a focus on naming.", { exact: true })).toBeVisible({
       timeout: syncTimeout,
     })
-    await expect(page.getByRole("region", { name: "Latest agent answer", exact: true })).toContainText(scenarioText, {
+    await expect(page.getByRole("region", { name: "Response", exact: true })).toContainText(scenarioText, {
       timeout: syncTimeout,
     })
+    await expect(composer.getByRole("status")).toHaveText("Response complete.", { timeout: syncTimeout })
     // The composer is cleared, so the expansion is not resubmitted.
     await expect(input).toHaveValue("")
 

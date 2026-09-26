@@ -10,7 +10,7 @@ export async function managedOriginAuthBaselineAssert(page: Page, settledSession
   await expect(
     page
       .getByRole("main")
-      .getByRole("region", { name: "Recent activity", exact: true })
+      .getByRole("region", { name: "Activity", exact: true })
       .getByRole("list", { name: "Recent semantic activity", exact: true })
       .getByText("Create a focused workspace shell for local development.", { exact: true }),
   ).toBeVisible()

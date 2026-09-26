@@ -15,14 +15,18 @@ export async function asyncMarkdownRenderingAction(page: Page, simulationSession
   const composer = page.getByRole("form", { name: "Chat composer" })
   const markdownPrompt = "# Browser worker Markdown\n\n**bold fallback**"
   await composer.getByLabel("Message").fill(markdownPrompt)
-  const chatRequestPromise = page.waitForRequest(
-    (request) =>
-      request.method() === "POST" && request.url().includes("/api/sessions/") && request.url().endsWith("/chat"),
+  const chatResponsePromise = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      response.url().includes("/api/sessions/") &&
+      response.url().endsWith("/chat"),
   )
-  const submittedRunIdPromise = chatRequestPromise.then((request) => {
-    const requestBody = request.postDataJSON() as { runId?: unknown } | null
-    if (typeof requestBody?.runId !== "string") throw new Error("Expected chat POST request body to include runId")
-    return requestBody.runId
+  // The server assigns the snapshot run ID; the POST body's client run ID is different.
+  const submittedRunIdPromise = chatResponsePromise.then(async (response) => {
+    if (!response.ok()) return undefined
+    const body = (await response.json()) as { runId?: unknown } | null
+    if (typeof body?.runId !== "string") throw new Error("Expected chat POST response body to include runId")
+    return body.runId
   })
   let releaseRunSnapshot: (() => void) | undefined
   const runSnapshotGate = new Promise<void>((resolve) => {
@@ -32,17 +36,13 @@ export async function asyncMarkdownRenderingAction(page: Page, simulationSession
     const submittedRunId = await submittedRunIdPromise
     const snapshotPath = new URL(route.request().url()).pathname
     const relevantSnapshot =
-      route.request().method() === "GET" && snapshotPath.endsWith(`/runs/${submittedRunId}/snapshot`)
+      submittedRunId !== undefined &&
+      route.request().method() === "GET" &&
+      snapshotPath.endsWith(`/runs/${submittedRunId}/snapshot`)
     if (relevantSnapshot) await runSnapshotGate
     const response = await route.fetch()
     await route.fulfill({ response })
   })
-  const chatResponsePromise = page.waitForResponse(
-    (response) =>
-      response.request().method() === "POST" &&
-      response.url().includes("/api/sessions/") &&
-      response.url().endsWith("/chat"),
-  )
   const inFlightMessages = page.getByRole("list", { name: "In-flight messages", exact: true })
   const submittedInFlightMessage = inFlightMessages
     .locator(":scope > li")
@@ -50,12 +50,12 @@ export async function asyncMarkdownRenderingAction(page: Page, simulationSession
     .first()
   try {
     await composer.getByRole("button", { name: "Send" }).click()
-    const submittedRunId = await submittedRunIdPromise
     const chatResponse = await chatResponsePromise
     const chatFailure = chatResponse.ok()
       ? ""
       : `Chat POST returned ${chatResponse.status()}: ${(await chatResponse.text()).slice(0, 512)}`
     expect(chatResponse.ok(), chatFailure).toBe(true)
+    const submittedRunId = await submittedRunIdPromise
     expect(submittedRunId).toEqual(expect.any(String))
 
     await asyncMarkdownWorkerAssert(submittedInFlightMessage)

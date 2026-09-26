@@ -26,7 +26,7 @@ export async function lunaChildThreadAssert(page: Page, childRunId: string): Pro
   const childStream = panel.getByRole("region", { name: "Subagent execution stream" })
   await expect(childStream).toBeVisible()
   await expect(childStream).toContainText("No live child stream is available.")
-  const latestAnswer = page.getByRole("region", { name: "Latest agent answer", exact: true })
+  const latestAnswer = page.getByRole("region", { name: "Response", exact: true })
   await expect(latestAnswer).toHaveCount(1, { timeout: syncTimeout })
   await expect(latestAnswer.locator(".markdown-content--message")).toHaveText(/^ok$/, { timeout: syncTimeout })
 }

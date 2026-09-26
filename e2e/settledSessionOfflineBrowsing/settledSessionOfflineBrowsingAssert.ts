@@ -55,7 +55,7 @@ function sessionBody(page: Page) {
 
 function semanticHistory(page: Page) {
   return sessionBody(page)
-    .getByRole("region", { name: "Recent activity", exact: true })
+    .getByRole("region", { name: "Activity", exact: true })
     .getByRole("list", { name: "Recent semantic activity", exact: true })
 }
 

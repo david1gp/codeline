@@ -11,7 +11,9 @@ export async function asyncMarkdownRenderingSetup(browser: Browser, runId: strin
     runId,
   })
   const baseOrigin = process.env.PUBLIC_ORIGIN ?? "https://preview.codeline.work"
-  const context: BrowserContext = await browser.newContext({ baseURL: baseOrigin })
+  // Playwright cannot route fetches handled by a service worker. Keep the
+  // snapshot gate in the test authoritative; module Markdown workers still run.
+  const context: BrowserContext = await browser.newContext({ baseURL: baseOrigin, serviceWorkers: "block" })
   await context.addCookies([
     {
       domain: new URL(baseOrigin).hostname,

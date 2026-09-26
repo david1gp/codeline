@@ -17,7 +17,7 @@ export async function contextCompactionFollowUpAssert(
   await expect(activity.locator(':scope > li[data-session-message-role="assistant"]')).toHaveCount(historyLength + 1, {
     timeout: 45_000,
   })
-  await expect(page.getByRole("region", { name: "Latest agent answer", exact: true })).toContainText(
+  await expect(page.getByRole("region", { name: "Response", exact: true })).toContainText(
     "Summary generation completed.",
     { timeout: 45_000 },
   )

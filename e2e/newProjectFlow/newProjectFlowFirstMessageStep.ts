@@ -24,7 +24,12 @@ export async function newProjectFlowFirstMessageStep(browser: Browser): Promise<
       },
     )
     context = setup.context
-    const { page, sessionId, prompt } = await newProjectFlowFirstMessageAction(context, setup.agentId, runId)
+    const { page, sessionId, prompt } = await newProjectFlowFirstMessageAction(
+      context,
+      setup.serverId,
+      setup.agentId,
+      runId,
+    )
     await newProjectFlowFirstMessageAssert(context, page, sessionId, prompt)
   } finally {
     await context?.close()

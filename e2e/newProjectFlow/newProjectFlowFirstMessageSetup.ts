@@ -9,7 +9,7 @@ export async function newProjectFlowFirstMessageSetup(
   runId: string,
   onSeeded: () => void,
   onContext: (context: BrowserContext) => void,
-): Promise<{ context: BrowserContext; agentId: string }> {
+): Promise<{ context: BrowserContext; agentId: string; serverId: string }> {
   const issued = await e2eMemberSessionsIssue(runId)
   const [member] = issued.members
   const mapping = await e2eExampleDataSeedForMember({
@@ -21,7 +21,8 @@ export async function newProjectFlowFirstMessageSetup(
   const context = await newProjectFlowMemberContextOpen(browser, member.token)
   onContext(context)
   const agentId = mapping["agent:example-agent-simulation-streaming"]!
-  await context.route(`**/api/servers/${mapping["server:example-server-local"]!}/agents`, async (route) => {
+  const serverId = mapping["server:example-server-local"]!
+  await context.route(`**/api/servers/${serverId}/agents`, async (route) => {
     const response = await route.fetch()
     const body = (await response.json()) as {
       agents: Array<{ id: string; name: string; parentAgentId: string | null; role: string; serverId: string }>
@@ -39,5 +40,5 @@ export async function newProjectFlowFirstMessageSetup(
     headers: { origin: baseOrigin },
   })
   expect(response.ok(), await response.text()).toBe(true)
-  return { context, agentId }
+  return { context, agentId, serverId }
 }
