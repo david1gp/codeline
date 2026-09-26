@@ -53,6 +53,7 @@
     "db:seed": "bun scripts/managedDatabaseResetLockRun.ts -- sh -c 'bun run db:migrate && bun scripts/dbSeed.ts \"$@\"' --",
     "db:reset": "bun scripts/dbReset.ts",
     "db:reset-seed": "bun scripts/managedDatabaseResetLockRun.ts -- sh -c 'bun scripts/dbReset.ts && bun run db:migrate && bun scripts/dbSeed.ts --reset'",
+    "db:inspect-organization": "bun scripts/dbInspectOrganization.ts",
     "db:check": "drizzle-kit check --config drizzle.config.ts",
     "format": "biome format --write src test e2e scripts ui index.html vite.config.ts playwright.config.ts package.json release-inputs.json tsconfig.json tsconfig.build.json biome.json bunfig.toml drizzle.config.ts",
     "format:check": "biome format src test e2e scripts ui index.html vite.config.ts playwright.config.ts package.json release-inputs.json tsconfig.json tsconfig.build.json biome.json bunfig.toml drizzle.config.ts",
