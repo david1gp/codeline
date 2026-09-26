@@ -167,6 +167,7 @@ export function apiRoutesAdd(
     clientLogJournalWrite: options.clientLogJournalWrite,
     configuration: options.configuration,
     database: options.database,
+    projectRootDirs: options.projectRootDirs,
   })
   if (options.metricsCollector !== undefined) apiMetricsRoutesAdd(api, options.metricsCollector)
   apiAuthRoutesAdd(api, {

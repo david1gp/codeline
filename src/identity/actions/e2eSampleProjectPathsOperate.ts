@@ -4,7 +4,7 @@ import path from "node:path"
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import { exampleDataFixture } from "../../database/exampleDataFixture.js"
 
-type Operation = "issue" | "status" | "remove" | "rollback"
+type Operation = "issue" | "status" | "purge-status" | "remove" | "rollback"
 
 /** Owns only the named, newly created clone directories, never their shared source directories. */
 export async function e2eSampleProjectPathsOperate(
@@ -55,6 +55,7 @@ export async function e2eSampleProjectPathsOperate(
       }
       return createResult(undefined)
     }
+    const presentTargets: string[] = []
     for (const { source, target } of paths) {
       const sourceStat = await fs.lstat(source)
       if (!sourceStat.isDirectory() || (await fs.realpath(source)) !== source)
@@ -69,7 +70,12 @@ export async function e2eSampleProjectPathsOperate(
         await fs.writeFile(path.join(target, ".e2e-owner"), runId, { flag: "wx" })
         await fs.copyFile(sourceReadme, path.join(target, "README.md"), constants.COPYFILE_EXCL)
       }
-      const stat = await fs.lstat(target)
+      const stat = await fs.lstat(target).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT" && (operation === "purge-status" || operation === "remove")) return undefined
+        throw error
+      })
+      if (stat === undefined) continue
+      presentTargets.push(target)
       if (!stat.isDirectory() || (await fs.realpath(target)) !== target)
         return createResultError(op, "The sample project directory is not owned by this run.")
       const entries = (await fs.readdir(target)).sort()
@@ -86,17 +92,17 @@ export async function e2eSampleProjectPathsOperate(
         return createResultError(op, "The sample project directory is not readable or owned by this run.")
     }
     if (operation === "remove") {
-      for (const { target } of paths) {
+      for (const target of presentTargets) {
         await fs.unlink(path.join(target, "README.md"))
         await fs.unlink(path.join(target, ".e2e-owner"))
         await fs.rmdir(target)
-        if (
-          await fs.lstat(target).then(
-            () => true,
-            () => false,
-          )
-        )
-          return createResultError(op, "The sample project directory was not removed.")
+      }
+      for (const { target } of paths) {
+        const remaining = await fs.lstat(target).catch((error: NodeJS.ErrnoException) => {
+          if (error.code === "ENOENT") return undefined
+          throw error
+        })
+        if (remaining !== undefined) return createResultError(op, "The sample project directory was not removed.")
       }
     }
     return createResult(undefined)

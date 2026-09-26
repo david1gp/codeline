@@ -181,6 +181,7 @@ export function appCreate(options: AppCreateOptions = {}): App {
       configuration: options.configuration,
       database: options.database,
       token: options.fixtureApiToken,
+      projectRootDirs: options.projectRootDirs ?? [],
     })
     app.use(
       "/api/*",

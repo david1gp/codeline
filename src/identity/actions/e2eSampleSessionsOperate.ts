@@ -23,7 +23,7 @@ import { e2eSampleProjectPathsOperate } from "./e2eSampleProjectPathsOperate.js"
 
 type Run = typeof e2eFixtureRunTable.$inferSelect
 type Mapping = Record<string, string>
-type Operation = "issue" | "status" | "remove"
+type Operation = "issue" | "status" | "purge-status" | "remove"
 
 const date = (value: string) => new Date(value)
 const sources = {
@@ -466,8 +466,6 @@ export async function e2eSampleSessionsOperate(
       !manifestValid(run.runId, map)
     )
       return createResultError(op, "Sample ownership manifest is invalid.")
-    const paths = await e2eSampleProjectPathsOperate(run.runId, map, "status")
-    if (!paths.success) return paths
     const checks = await Promise.all([
       database
         .select()
@@ -735,7 +733,8 @@ export async function e2eSampleSessionsOperate(
               row.sourceDetailId === id("tool", delegation.delegationKey),
           ),
       ) ||
-      views.length !== exampleDataFixture.sessionViews.length ||
+      views.length < exampleDataFixture.sessionViews.length ||
+      views.some((row) => row.userId !== run.firstUserId) ||
       exampleDataFixture.sessionViews.some(
         (source) =>
           !views.some((row) => row.userId === run.firstUserId && row.sessionId === id("session", source.sessionId)),
@@ -744,6 +743,14 @@ export async function e2eSampleSessionsOperate(
       attachedSessions.some((row) => row.userId !== run.firstUserId)
     )
       return createResultError(op, "Sample derived rows could not be verified.")
+    // Missing directories are safe to tolerate only for purge, after the complete
+    // run-bound manifest and database graph have been verified.
+    const paths = await e2eSampleProjectPathsOperate(
+      run.runId,
+      map,
+      operation === "purge-status" ? "purge-status" : "status",
+    )
+    if (!paths.success) return paths
     return createResult({
       exists: true,
       createdAt: stored.createdAt.toISOString(),

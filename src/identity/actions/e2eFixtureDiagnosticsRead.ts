@@ -9,13 +9,22 @@ export async function e2eFixtureDiagnosticsRead(
   database: DatabaseClient,
   config: { issuer: string; organizationExternalId: string },
   runId: string,
+  projectRootDirs: readonly string[] = [],
 ): Promise<Result<{ exists: boolean; entries: Record<string, unknown>[] }>> {
   const op = "e2eFixtureDiagnosticsRead"
   try {
     return await databaseTransactionRun<{ exists: boolean; entries: Record<string, unknown>[] }>(
       database,
       async (transaction) => {
-        const verified = await e2eFixtureRunOperate(transaction, config, runId, "status")
+        const verified = await e2eFixtureRunOperate(
+          transaction,
+          config,
+          runId,
+          "status",
+          new Date(),
+          undefined,
+          projectRootDirs,
+        )
         if (!verified.success) return createResultError(op, "The fixture run ownership could not be verified.")
         if (!verified.data.exists) return createResult({ exists: false, entries: [] })
         const [foreign] = await transaction

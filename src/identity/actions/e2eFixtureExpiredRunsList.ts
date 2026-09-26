@@ -9,6 +9,7 @@ export async function e2eFixtureExpiredRunsList(
   database: DatabaseClient,
   config: { issuer: string; organizationExternalId: string },
   now = new Date(),
+  projectRootDirs: readonly string[] = [],
 ): Promise<Result<{ runIds: string[] }>> {
   const op = "e2eFixtureExpiredRunsList"
   if (!Number.isFinite(now.getTime())) return createResultError(op, "The fixture clock is invalid.")
@@ -20,7 +21,15 @@ export async function e2eFixtureExpiredRunsList(
       .orderBy(asc(e2eFixtureRunTable.createdAt), asc(e2eFixtureRunTable.runId))
       .limit(100)
     for (const row of rows) {
-      const verified = await e2eFixtureRunOperate(database, config, row.runId, "status", now)
+      const verified = await e2eFixtureRunOperate(
+        database,
+        config,
+        row.runId,
+        "status",
+        now,
+        undefined,
+        projectRootDirs,
+      )
       if (!verified.success || !verified.data.exists || verified.data.createdAt !== row.createdAt.toISOString())
         return createResultError(op, "An expired fixture run ownership could not be verified.")
     }

@@ -14,23 +14,30 @@ let directory: string
 let requests: Array<{ url: string; init: RequestInit }>
 let sampleResponse: unknown
 
-const mapping = Object.fromEntries(Object.entries({
-  server: exampleDataFixture.servers.map((item) => item.id),
-  agent: exampleDataFixture.agents.map((item) => item.id),
-  project: exampleDataFixture.projects.map((item) => item.id),
-  folder: exampleDataFixture.projects.map((item) => item.folderKey),
-  path: exampleDataFixture.projects.map((item) => item.path),
-  session: exampleDataFixture.sessions.map((item) => item.id),
-  sessionRequest: exampleDataFixture.sessions.map((item) => item.clientRequestId),
-  message: exampleDataFixture.sessions.flatMap((item) => item.messages.map((message) => message.id)),
-  messageRequest: exampleDataFixture.sessions.flatMap((item) => item.messages.map((message) => message.clientRequestId)),
-  run: exampleDataFixture.runs.map((item) => item.id),
-  runClient: exampleDataFixture.runs.map((item) => item.clientRunId),
-  stream: [...new Set([...exampleDataFixture.runs, ...exampleDataFixture.attempts].map((item) => item.streamId))],
-  attempt: exampleDataFixture.attempts.map((item) => item.id),
-  delegation: exampleDataFixture.delegations.map((item) => item.id),
-  tool: [...exampleDataFixture.tools.map((item) => item.toolCallId), ...exampleDataFixture.delegations.map((item) => item.delegationKey)],
-}).flatMap(([kind, ids]) => ids.map((source) => [`${kind}:${source}`, `e2e-${runId}-${source}`])))
+const mapping = Object.fromEntries(
+  Object.entries({
+    server: exampleDataFixture.servers.map((item) => item.id),
+    agent: exampleDataFixture.agents.map((item) => item.id),
+    project: exampleDataFixture.projects.map((item) => item.id),
+    folder: exampleDataFixture.projects.map((item) => item.folderKey),
+    path: exampleDataFixture.projects.map((item) => item.path),
+    session: exampleDataFixture.sessions.map((item) => item.id),
+    sessionRequest: exampleDataFixture.sessions.map((item) => item.clientRequestId),
+    message: exampleDataFixture.sessions.flatMap((item) => item.messages.map((message) => message.id)),
+    messageRequest: exampleDataFixture.sessions.flatMap((item) =>
+      item.messages.map((message) => message.clientRequestId),
+    ),
+    run: exampleDataFixture.runs.map((item) => item.id),
+    runClient: exampleDataFixture.runs.map((item) => item.clientRunId),
+    stream: [...new Set([...exampleDataFixture.runs, ...exampleDataFixture.attempts].map((item) => item.streamId))],
+    attempt: exampleDataFixture.attempts.map((item) => item.id),
+    delegation: exampleDataFixture.delegations.map((item) => item.id),
+    tool: [
+      ...exampleDataFixture.tools.map((item) => item.toolCallId),
+      ...exampleDataFixture.delegations.map((item) => item.delegationKey),
+    ],
+  }).flatMap(([kind, ids]) => ids.map((source) => [`${kind}:${source}`, `e2e-${runId}-${source}`])),
+)
 
 beforeAll(async () => {
   directory = await mkdtemp(join(tmpdir(), "e2e-sample-helper-"))
@@ -43,11 +50,12 @@ beforeAll(async () => {
     PUBLIC_ORIGIN: origin,
   })
   await e2eCheckpointStoreCreate(directory).save({
-    version: 1,
+    version: 2,
     target: "production",
     origin,
     runId: "e2eparent123",
     createdAt: new Date().toISOString(),
+    suiteManifest: [],
     completedSuites: [],
     resourceIds: { fixtureRunIds: [runId] },
   })
@@ -85,13 +93,16 @@ test("runner mode clones registered sample data through its authenticated API an
 
 test("runner mode rejects unregistered runs and mismatched or incomplete clone manifests", async () => {
   requests = []
-  await expect(e2eExampleDataSeedForMember({ subject: "subject1", userId: "owner1", runId: "e2eother123" }))
-    .rejects.toThrow("Unregistered")
+  await expect(
+    e2eExampleDataSeedForMember({ subject: "subject1", userId: "owner1", runId: "e2eother123" }),
+  ).rejects.toThrow("Unregistered")
   expect(requests).toHaveLength(0)
   sampleResponse = { exists: true, userId: "other", mapping }
-  await expect(e2eExampleDataSeedForMember({ subject: "subject1", userId: "owner1", runId }))
-    .rejects.toThrow("owner mismatch")
+  await expect(e2eExampleDataSeedForMember({ subject: "subject1", userId: "owner1", runId })).rejects.toThrow(
+    "owner mismatch",
+  )
   sampleResponse = { exists: true, userId: "owner1", mapping: { "session:example-session-active-1": "clone" } }
-  await expect(e2eExampleDataSeedForMember({ subject: "subject1", userId: "owner1", runId }))
-    .rejects.toThrow("manifest is incomplete")
+  await expect(e2eExampleDataSeedForMember({ subject: "subject1", userId: "owner1", runId })).rejects.toThrow(
+    "manifest is incomplete",
+  )
 })

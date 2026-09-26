@@ -11,6 +11,7 @@ import { applicationUserTable } from "../db/applicationUserTable.js"
 import { e2eFixtureRunTable } from "../db/e2eFixtureRunTable.js"
 import { e2eFixtureDiagnosticTable } from "../db/e2eFixtureDiagnosticTable.js"
 import { e2eSampleSessionsTable } from "../db/e2eSampleSessionsTable.js"
+import { e2eCommandProjectTable } from "../db/e2eCommandProjectTable.js"
 import { externalIdentityTable } from "../db/externalIdentityTable.js"
 import { identitySessionTable } from "../db/identitySessionTable.js"
 import { organizationMemberTable } from "../db/organizationMemberTable.js"
@@ -19,6 +20,7 @@ import { identitySessionCreate } from "./identitySessionCreate.js"
 import { identitySessionExpire } from "./identitySessionExpire.js"
 import { oidcIdentityUpsert } from "./oidcIdentityUpsert.js"
 import { e2eSampleSessionsOperate } from "./e2eSampleSessionsOperate.js"
+import { e2eCommandProjectOperate } from "./e2eCommandProjectOperate.js"
 
 type FixtureOperation = "issue" | "status" | "expire" | "prune-journal" | "purge"
 type FixtureConfig = { issuer: string; organizationExternalId: string }
@@ -78,6 +80,7 @@ export async function e2eFixtureRunOperate(
   operation: FixtureOperation,
   now = new Date(),
   selectedUserId?: string,
+  projectRootDirs: readonly string[] = [],
 ): Promise<Result<FixtureResult>> {
   const op = "e2eFixtureRunOperate"
   if (!/^[0-9a-z]{6,40}$/.test(runId) || !Number.isFinite(now.getTime()))
@@ -165,9 +168,27 @@ export async function e2eFixtureRunOperate(
         .from(e2eSampleSessionsTable)
         .where(eq(e2eSampleSessionsTable.runId, runId))
       if (sample !== undefined) {
-        const verified = await e2eSampleSessionsOperate(transaction, stored, "status")
+        const verified = await e2eSampleSessionsOperate(
+          transaction,
+          stored,
+          operation === "purge" ? "purge-status" : "status",
+        )
         if (!verified.success || !verified.data.exists)
           return createResultError(op, "The sample fixture ownership could not be verified.")
+      }
+      const [commandProject] = await transaction
+        .select()
+        .from(e2eCommandProjectTable)
+        .where(eq(e2eCommandProjectTable.runId, runId))
+      if (commandProject !== undefined) {
+        const verified = await e2eCommandProjectOperate(
+          transaction,
+          stored,
+          projectRootDirs,
+          operation === "purge" ? "purge-status" : "status",
+        )
+        if (!verified.success || !verified.data.exists || verified.data.path !== commandProject.path)
+          return createResultError(op, "The command project ownership could not be verified.")
       }
       const userIds = [stored.firstUserId, stored.secondUserId]
       if (operation === "expire" || operation === "prune-journal") {
@@ -212,6 +233,10 @@ export async function e2eFixtureRunOperate(
           const removed = await e2eSampleSessionsOperate(transaction, stored, "remove")
           if (!removed.success) return removed
         }
+        if (commandProject !== undefined) {
+          const removed = await e2eCommandProjectOperate(transaction, stored, projectRootDirs, "remove")
+          if (!removed.success) return removed
+        }
         await transaction.delete(e2eFixtureRunTable).where(eq(e2eFixtureRunTable.runId, runId))
         const [remainingDiagnostic] = await transaction
           .select({ id: e2eFixtureDiagnosticTable.id })
@@ -226,6 +251,10 @@ export async function e2eFixtureRunOperate(
           .select({ runId: e2eSampleSessionsTable.runId })
           .from(e2eSampleSessionsTable)
           .where(eq(e2eSampleSessionsTable.runId, runId))
+        const [remainingCommandProject] = await transaction
+          .select({ runId: e2eCommandProjectTable.runId })
+          .from(e2eCommandProjectTable)
+          .where(eq(e2eCommandProjectTable.runId, runId))
         const remaining = await transaction
           .select({ id: applicationUserTable.id })
           .from(applicationUserTable)
@@ -242,6 +271,7 @@ export async function e2eFixtureRunOperate(
           remainingDiagnostic !== undefined ||
           remainingRun !== undefined ||
           remainingSample !== undefined ||
+          remainingCommandProject !== undefined ||
           remaining.length !== 0 ||
           linkedRows.some((rows) => rows.length !== 0)
         )

@@ -74,9 +74,11 @@ export function e2eCheckpointStoreCreate(directory = "/tmp/opencode/codeline/e2e
               throw readError
             })
             if (contents === undefined) continue
-            if (!/^[1-9][0-9]*\n$/.test(contents)) throw new Error("E2E runner lock has unknown owner; operator review required")
+            if (!/^[1-9][0-9]*\n$/.test(contents))
+              throw new Error("E2E runner lock has unknown owner; operator review required")
             const pid = Number(contents.trim())
-            if (!Number.isSafeInteger(pid)) throw new Error("E2E runner lock has unknown owner; operator review required")
+            if (!Number.isSafeInteger(pid))
+              throw new Error("E2E runner lock has unknown owner; operator review required")
             try {
               process.kill(pid, 0)
               throw new Error(`E2E runner is already active (PID ${pid})`)

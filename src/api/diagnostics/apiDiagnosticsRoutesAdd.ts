@@ -19,6 +19,7 @@ type ApiDiagnosticsRoutesOptions = {
   clientLogJournalWrite?: typeof apiClientLogJournalWrite
   configuration?: RuntimeConfiguration
   database?: DatabaseClient
+  projectRootDirs?: readonly string[]
 }
 
 function unauthorized(context: ApiContext) {
@@ -127,6 +128,7 @@ export function apiDiagnosticsRoutesAdd(api: Hono<AppEnvironment>, options: ApiD
             fixtureConfig,
             identity.userId,
             journalEntry as Record<string, unknown>,
+            options.projectRootDirs ?? [],
           )
           if (!captured.success) return internalServerError(context)
           if (captured.data) continue

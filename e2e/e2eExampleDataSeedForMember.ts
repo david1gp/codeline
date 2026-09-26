@@ -7,7 +7,11 @@ import { e2eFixtureRequest } from "./e2eFixtureRequest.js"
 import { e2eRepositoryRoot } from "./e2eRepositoryRoot.js"
 
 const execFileAsync = promisify(execFile)
-const sampleSchema = v.object({ exists: v.literal(true), userId: v.string(), mapping: v.record(v.string(), v.string()) })
+const sampleSchema = v.object({
+  exists: v.literal(true),
+  userId: v.string(),
+  mapping: v.record(v.string(), v.string()),
+})
 
 const sources = {
   server: exampleDataFixture.servers.map((item) => item.id),
@@ -26,7 +30,10 @@ const sources = {
   stream: [...new Set([...exampleDataFixture.runs, ...exampleDataFixture.attempts].map((item) => item.streamId))],
   attempt: exampleDataFixture.attempts.map((item) => item.id),
   delegation: exampleDataFixture.delegations.map((item) => item.id),
-  tool: [...exampleDataFixture.tools.map((item) => item.toolCallId), ...exampleDataFixture.delegations.map((item) => item.delegationKey)],
+  tool: [
+    ...exampleDataFixture.tools.map((item) => item.toolCallId),
+    ...exampleDataFixture.delegations.map((item) => item.delegationKey),
+  ],
 } as const
 
 export type E2eExampleDataMapping = Record<`${keyof typeof sources}:${string}`, string>
@@ -42,7 +49,11 @@ export async function e2eExampleDataSeedForMember(input: {
     if (!context.checkpoint.resourceIds.fixtureRunIds.includes(input.runId))
       throw new Error("Unregistered E2E sample fixture run")
     const sample = await e2eFixtureRequest(
-      context.origin, context.token, `/${input.runId}/sample-sessions`, sampleSchema, "POST",
+      context.origin,
+      context.token,
+      `/${input.runId}/sample-sessions`,
+      sampleSchema,
+      "POST",
     )
     if (sample.userId !== input.userId) throw new Error("E2E sample fixture owner mismatch")
     const keys = Object.entries(sources).flatMap(([kind, ids]) => ids.map((source) => `${kind}:${source}`))
@@ -63,9 +74,9 @@ export async function e2eExampleDataSeedForMember(input: {
     cwd: e2eRepositoryRoot,
     env: fixtureEnvironment,
   })
-  return Object.fromEntries(Object.entries(sources).flatMap(([kind, ids]) =>
-    ids.map((source) => [`${kind}:${source}`, source]),
-  )) as E2eExampleDataMapping
+  return Object.fromEntries(
+    Object.entries(sources).flatMap(([kind, ids]) => ids.map((source) => [`${kind}:${source}`, source])),
+  ) as E2eExampleDataMapping
 }
 
 /** Restore shared data only after a legacy local run; runner teardown belongs to the fixture API. */

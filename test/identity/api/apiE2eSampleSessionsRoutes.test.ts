@@ -24,6 +24,7 @@ import { runTable } from "../../../src/run/db/runTable.js"
 import { serverTable } from "../../../src/servers/db/serverTable.js"
 import { sessionHistoryEntryTable } from "../../../src/session/db/sessionHistoryEntryTable.js"
 import { sessionTable } from "../../../src/session/db/sessionTable.js"
+import { sessionViewTable } from "../../../src/session/db/sessionViewTable.js"
 
 const secret = "s".repeat(48)
 const config = {
@@ -191,6 +192,71 @@ test("sample sessions require a verified run and clone the entire example graph 
   expect(await connection.db.select().from(messageTable)).toEqual([])
 })
 
+test("additional first-member views of mapped sessions allow sample status and purge, but seeded views remain required", async () => {
+  const runId = "sampleviewsowned"
+  expect((await request("POST", "/runs", { runId })).status).toBe(201)
+  const issued = await request("POST", `/runs/${runId}/sample-sessions`)
+  expect(issued.status).toBe(201)
+  const { mapping, userId } = (await issued.json()) as { mapping: Record<string, string>; userId: string }
+  const seededSessionIds = new Set(exampleDataFixture.sessionViews.map((view) => mapping[`session:${view.sessionId}`]!))
+  const extraSession = exampleDataFixture.sessions.find(
+    (session) => !seededSessionIds.has(mapping[`session:${session.id}`]!),
+  )
+  expect(extraSession).toBeDefined()
+  const extraSessionId = mapping[`session:${extraSession!.id}`]!
+  await connection.db.insert(sessionViewTable).values({
+    userId,
+    sessionId: extraSessionId,
+    acknowledgedFinishedAt: new Date(),
+  })
+  expect((await request("GET", `/runs/${runId}/sample-sessions`)).status).toBe(200)
+  expect((await request("GET", `/runs/${runId}`)).status).toBe(200)
+
+  const seededSessionId = mapping[`session:${exampleDataFixture.sessionViews[0]!.sessionId}`]!
+  const [seeded] = await connection.db
+    .select()
+    .from(sessionViewTable)
+    .where(eq(sessionViewTable.sessionId, seededSessionId))
+  expect(seeded).toBeDefined()
+  await connection.db.delete(sessionViewTable).where(eq(sessionViewTable.sessionId, seededSessionId))
+  expect((await request("GET", `/runs/${runId}/sample-sessions`)).status).toBe(409)
+  expect((await request("DELETE", `/runs/${runId}`)).status).toBe(409)
+  await connection.db.insert(sessionViewTable).values(seeded!)
+  expect((await request("DELETE", `/runs/${runId}`)).status).toBe(200)
+  expect(
+    await connection.db.select().from(sessionViewTable).where(eq(sessionViewTable.sessionId, extraSessionId)),
+  ).toEqual([])
+})
+
+test("a foreign-owner view on a mapped session blocks sample status and purge", async () => {
+  const runId = "sampleviewsforeign"
+  expect((await request("POST", "/runs", { runId })).status).toBe(201)
+  const issued = await request("POST", `/runs/${runId}/sample-sessions`)
+  expect(issued.status).toBe(201)
+  const { mapping, userId } = (await issued.json()) as { mapping: Record<string, string>; userId: string }
+  const sessionId = mapping[`session:${exampleDataFixture.sessions[0]!.id}`]!
+  // Deliberately simulate a corrupted graph: the composite owner/session FK normally prevents this row.
+  await connection.client.execute("PRAGMA foreign_keys = OFF")
+  try {
+    await connection.db.insert(sessionViewTable).values({
+      userId: exampleDataFixture.user.id,
+      sessionId,
+      acknowledgedFinishedAt: new Date(),
+    })
+  } finally {
+    await connection.client.execute("PRAGMA foreign_keys = ON")
+  }
+  expect((await request("GET", `/runs/${runId}/sample-sessions`)).status).toBe(409)
+  expect((await request("GET", `/runs/${runId}`)).status).toBe(409)
+  expect((await request("DELETE", `/runs/${runId}`)).status).toBe(409)
+  expect(
+    await connection.db.select().from(sessionViewTable).where(eq(sessionViewTable.sessionId, sessionId)),
+  ).toContainEqual(expect.objectContaining({ userId: exampleDataFixture.user.id }))
+  await connection.db.delete(sessionViewTable).where(eq(sessionViewTable.userId, exampleDataFixture.user.id))
+  expect((await request("DELETE", `/runs/${runId}`)).status).toBe(200)
+  expect(await connection.db.select().from(sessionViewTable).where(eq(sessionViewTable.userId, userId))).toEqual([])
+})
+
 test("preexisting clone paths are not adopted or removed when sample issuance fails", async () => {
   const source = exampleDataFixture.projects[1]!.path
   const occupied = path.join(source, ".e2e-pathoccupiedtwo")
@@ -233,6 +299,50 @@ test("unexpected entries in a clone block status and purge instead of deleting f
       () => false,
     ),
   ).toBe(false)
+})
+
+test("purge tolerates verified missing run-owned paths but refuses an existing foreign path", async () => {
+  const runId = "missingownedpaths"
+  expect((await request("POST", "/runs", { runId })).status).toBe(201)
+  const issued = await request("POST", `/runs/${runId}/sample-sessions`)
+  expect(issued.status).toBe(201)
+  const { mapping, userId } = (await issued.json()) as { mapping: Record<string, string>; userId: string }
+  const targets = exampleDataFixture.projects.map((project) => mapping[`path:${project.path}`]!)
+  await rm(targets[0]!, { recursive: true })
+  await rm(targets[2]!, { recursive: true })
+  expect((await request("GET", `/runs/${runId}`)).status).toBe(409)
+  const projectId = mapping[`project:${exampleDataFixture.projects[0]!.id}`]!
+  await connection.db
+    .update(projectTable)
+    .set({ path: "/unrelated/foreign-project" })
+    .where(eq(projectTable.id, projectId))
+  expect((await request("DELETE", `/runs/${runId}`)).status).toBe(409)
+  await connection.db.update(projectTable).set({ path: targets[0]! }).where(eq(projectTable.id, projectId))
+  const foreign = path.join(targets[1]!, "foreign.txt")
+  await writeFile(foreign, "foreign data")
+  try {
+    expect((await request("DELETE", `/runs/${runId}`)).status).toBe(409)
+    expect(await readFile(foreign, "utf8")).toBe("foreign data")
+    expect(await connection.db.select().from(projectTable).where(eq(projectTable.userId, userId))).toHaveLength(
+      exampleDataFixture.projects.length,
+    )
+  } finally {
+    await rm(foreign)
+  }
+  expect((await request("DELETE", `/runs/${runId}`)).status).toBe(200)
+  expect(await (await request("GET", `/runs/${runId}`)).json()).toEqual({ exists: false })
+  expect(await connection.db.select().from(projectTable).where(eq(projectTable.userId, userId))).toEqual([])
+  expect(
+    await connection.db.select().from(e2eSampleSessionsTable).where(eq(e2eSampleSessionsTable.runId, runId)),
+  ).toEqual([])
+  for (const target of targets) {
+    expect(
+      await lstat(target).then(
+        () => true,
+        () => false,
+      ),
+    ).toBe(false)
+  }
 })
 
 test("tampered manifest or ownership blocks sample status, retry, and run purge", async () => {

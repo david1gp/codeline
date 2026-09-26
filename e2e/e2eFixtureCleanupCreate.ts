@@ -34,7 +34,9 @@ export function e2eFixtureCleanupCreate(
         }
         if ((await status(url)).exists) throw new Error("Fixture still exists after cleanup")
       } catch (error) {
-        errors.push(new Error(`Fixture ${id}: ${error instanceof Error ? error.message : String(error)}`, { cause: error }))
+        errors.push(
+          new Error(`Fixture ${id}: ${error instanceof Error ? error.message : String(error)}`, { cause: error }),
+        )
       }
     }
     if (errors.length > 0) throw new AggregateError(errors, `E2E fixture cleanup failed for ${errors.length} run(s)`)

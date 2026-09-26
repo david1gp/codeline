@@ -36,10 +36,13 @@ export function e2eExpiredFixturesCleanupCreate(
           if (deleted.exists || v.parse(statusSchema, await request(url)).exists)
             throw new Error("Fixture still exists after deletion")
         } catch (error) {
-          errors.push(new Error(`Fixture ${id}: ${error instanceof Error ? error.message : String(error)}`, { cause: error }))
+          errors.push(
+            new Error(`Fixture ${id}: ${error instanceof Error ? error.message : String(error)}`, { cause: error }),
+          )
         }
       }
-      if (errors.length > 0) throw new AggregateError(errors, `Expired E2E fixture cleanup failed for ${errors.length} run(s)`)
+      if (errors.length > 0)
+        throw new AggregateError(errors, `Expired E2E fixture cleanup failed for ${errors.length} run(s)`)
     }
     throw new Error("Expired fixture cleanup exceeded 100 pages")
   }

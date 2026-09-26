@@ -15,6 +15,7 @@ export async function e2eFixtureDiagnosticCapture(
   config: { issuer: string; organizationExternalId: string },
   userId: string,
   entry: Record<string, unknown>,
+  projectRootDirs: readonly string[] = [],
 ): Promise<Result<boolean>> {
   const op = "e2eFixtureDiagnosticCapture"
   try {
@@ -28,7 +29,15 @@ export async function e2eFixtureDiagnosticCapture(
     if (Buffer.byteLength(serialized, "utf8") > maxEntryBytes)
       return createResultError(op, "The fixture diagnostic exceeds its storage bound.")
     return await databaseTransactionRun(database, async (transaction) => {
-      const verified = await e2eFixtureRunOperate(transaction, config, candidate.runId, "status")
+      const verified = await e2eFixtureRunOperate(
+        transaction,
+        config,
+        candidate.runId,
+        "status",
+        new Date(),
+        undefined,
+        projectRootDirs,
+      )
       if (!verified.success || !verified.data.exists || !verified.data.userIds?.includes(userId))
         return createResultError(op, "The fixture diagnostic owner could not be verified.")
       // The sanitizer returns null-prototype objects; Drizzle's entity check requires plain JSON objects.

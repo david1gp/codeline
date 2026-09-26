@@ -23,11 +23,12 @@ beforeAll(async () => {
     PUBLIC_ORIGIN: origin,
   })
   await e2eCheckpointStoreCreate(directory).save({
-    version: 1,
+    version: 2,
     target: "production",
     origin,
     runId: "e2eparent123",
     createdAt: new Date().toISOString(),
+    suiteManifest: [],
     completedSuites: [],
     resourceIds: { fixtureRunIds: [runId] },
   })

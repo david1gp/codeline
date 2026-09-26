@@ -3,11 +3,12 @@ import { e2eFixtureCleanupCreate } from "../../e2e/e2eFixtureCleanupCreate.js"
 import type { E2eCheckpoint } from "../../e2e/e2eCheckpointSchema.js"
 
 const checkpoint: E2eCheckpoint = {
-  version: 1,
+  version: 2,
   target: "production",
   origin: "https://preview.codeline.work",
   runId: "e2eruntest123",
   createdAt: "2026-09-25T12:00:00.000Z",
+  suiteManifest: [],
   completedSuites: [],
   resourceIds: { fixtureRunIds: ["e2efirst123", "e2esecond123"] },
 }
@@ -26,9 +27,11 @@ test("cleanup checks, deletes, and verifies every registered fixture ID", async 
     return Response.json({ exists: existing.has(id) })
   })
   await cleanup(checkpoint)
-  expect(calls).toEqual(checkpoint.resourceIds.fixtureRunIds.flatMap((id) =>
-    ["GET", "DELETE", "GET"].map((method) => `${method} ${checkpoint.origin}/api/_e2e/fixtures/runs/${id}`),
-  ))
+  expect(calls).toEqual(
+    checkpoint.resourceIds.fixtureRunIds.flatMap((id) =>
+      ["GET", "DELETE", "GET"].map((method) => `${method} ${checkpoint.origin}/api/_e2e/fixtures/runs/${id}`),
+    ),
+  )
 })
 
 test("no-data cleanup makes no requests; an already absent marker is verified without DELETE", async () => {
@@ -50,8 +53,12 @@ test("cleanup refuses target mismatch and invalid registered IDs without request
     return Response.json({ exists: false })
   })
   await expect(cleanup({ ...checkpoint, origin: "https://other.example.test" })).rejects.toThrow("target mismatch")
-  await expect(cleanup({ ...checkpoint, resourceIds: { fixtureRunIds: ["notowned"] } })).rejects.toThrow("Invalid registered")
-  await expect(cleanup({ ...checkpoint, resourceIds: { fixtureRunIds: ["e2efirst123", "e2efirst123"] } })).rejects.toThrow("Invalid registered")
+  await expect(cleanup({ ...checkpoint, resourceIds: { fixtureRunIds: ["notowned"] } })).rejects.toThrow(
+    "Invalid registered",
+  )
+  await expect(
+    cleanup({ ...checkpoint, resourceIds: { fixtureRunIds: ["e2efirst123", "e2efirst123"] } }),
+  ).rejects.toThrow("Invalid registered")
   expect(requests).toBe(0)
 })
 
@@ -64,6 +71,10 @@ test("one unverified deletion does not prevent attempting the other registered f
   })
   await expect(cleanup(checkpoint)).rejects.toThrow("cleanup failed for 1 run")
   expect(calls).toEqual([
-    "GET e2efirst123", "DELETE e2efirst123", "GET e2esecond123", "DELETE e2esecond123", "GET e2esecond123",
+    "GET e2efirst123",
+    "DELETE e2efirst123",
+    "GET e2esecond123",
+    "DELETE e2esecond123",
+    "GET e2esecond123",
   ])
 })

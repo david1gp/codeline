@@ -4,6 +4,7 @@ import { sessionCompactionTable } from "../compaction/db/sessionCompactionTable.
 import { applicationUserTable } from "../identity/db/applicationUserTable.js"
 import { e2eFixtureRunTable } from "../identity/db/e2eFixtureRunTable.js"
 import { e2eFixtureDiagnosticTable } from "../identity/db/e2eFixtureDiagnosticTable.js"
+import { e2eCommandProjectTable } from "../identity/db/e2eCommandProjectTable.js"
 import { e2eSampleSessionsTable } from "../identity/db/e2eSampleSessionsTable.js"
 import { externalIdentityTable } from "../identity/db/externalIdentityTable.js"
 import { identitySessionTable } from "../identity/db/identitySessionTable.js"
@@ -36,6 +37,7 @@ export const databaseSchema = {
   attemptTable,
   applicationUserTable,
   e2eFixtureDiagnosticTable,
+  e2eCommandProjectTable,
   e2eFixtureRunTable,
   e2eSampleSessionsTable,
   externalIdentityTable,

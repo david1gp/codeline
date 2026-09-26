@@ -1,4 +1,5 @@
 import type { E2eCheckpoint } from "./e2eCheckpointSchema.js"
+import type { E2eSuite } from "./e2eSuiteSchema.js"
 import { e2eRunIdCreate } from "./e2eRunIdCreate.js"
 
 type Store = {
@@ -13,11 +14,11 @@ type Store = {
 export async function e2eSuitesRun(options: {
   target: E2eCheckpoint["target"]
   origin: string
-  suites: readonly string[]
+  suites: readonly E2eSuite[]
   store: Store
   cleanup(checkpoint: E2eCheckpoint): Promise<void>
   cleanupExpiredServerRuns?(target: E2eCheckpoint["target"], origin: string): Promise<void>
-  suiteRun(suite: string, checkpoint: E2eCheckpoint): Promise<void>
+  suiteRun(suite: E2eSuite, checkpoint: E2eCheckpoint): Promise<void>
   now?: () => Date
   runIdCreate?: () => string
 }): Promise<void> {
@@ -39,26 +40,43 @@ export async function e2eSuitesRun(options: {
       if (checkpoint !== undefined && expired(checkpoint)) await clean(checkpoint)
     }
     if (options.cleanupExpiredServerRuns) await options.cleanupExpiredServerRuns(options.target, options.origin)
+    const manifest = options.suites.map(({ id, steps }) => ({ id, steps: [...steps] }))
+    const ids = new Set(manifest.map((suite) => suite.id))
+    if (
+      manifest.length === 0 ||
+      ids.size !== manifest.length ||
+      manifest.some(
+        (suite) =>
+          suite.steps.length === 0 ||
+          new Set(suite.steps).size !== suite.steps.length ||
+          suite.steps.some((step) => step !== suite.id && !step.startsWith(`${suite.id}/`)),
+      )
+    )
+      throw new Error("Invalid E2E suite manifest")
     current = await options.store.load(options.target)
     if (current !== undefined && current.origin !== options.origin)
       throw new Error("E2E checkpoint target origin mismatch; refuse to resume or discard owned resources")
     if (current === undefined) {
       current = {
-        version: 1,
+        version: 2,
         target: options.target,
         origin: options.origin,
         runId: (options.runIdCreate ?? e2eRunIdCreate)(),
         createdAt: now().toISOString(),
+        suiteManifest: manifest,
         completedSuites: [],
         resourceIds: { fixtureRunIds: [] },
       }
       await options.store.save(current)
     }
-    const suites = new Set(options.suites)
-    if (suites.size !== options.suites.length || current.completedSuites.some((suite) => !suites.has(suite)))
+    if (
+      JSON.stringify(current.suiteManifest) !== JSON.stringify(manifest) ||
+      new Set(current.completedSuites).size !== current.completedSuites.length ||
+      current.completedSuites.some((suite) => !ids.has(suite))
+    )
       throw new Error("E2E suite inventory changed; checkpoint requires operator review")
     for (const suite of options.suites) {
-      if (current.completedSuites.includes(suite)) continue
+      if (current.completedSuites.includes(suite.id)) continue
       let suiteFailed = false
       let suiteFailure: unknown
       try {
@@ -71,9 +89,14 @@ export async function e2eSuitesRun(options: {
       const registered = await options.store.load(options.target)
       if (registered?.runId !== current.runId || registered.origin !== current.origin)
         throw new Error("E2E checkpoint changed while running a suite")
+      if (
+        JSON.stringify(registered.suiteManifest) !== JSON.stringify(manifest) ||
+        JSON.stringify(registered.completedSuites) !== JSON.stringify(current.completedSuites)
+      )
+        throw new Error("E2E checkpoint suite manifest changed while running a suite")
       current = registered
       if (suiteFailed) throw suiteFailure
-      current = { ...current, completedSuites: [...current.completedSuites, suite] }
+      current = { ...current, completedSuites: [...current.completedSuites, suite.id] }
       await options.store.save(current)
     }
     success = true

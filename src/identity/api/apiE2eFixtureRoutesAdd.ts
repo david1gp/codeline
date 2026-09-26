@@ -16,6 +16,8 @@ import { e2eSampleSessionsTable } from "../db/e2eSampleSessionsTable.js"
 import { oidcIssuerCanonicalize } from "../oidc/oidcIssuerCanonicalize.js"
 import { e2eFixtureExpiredRunsList } from "../actions/e2eFixtureExpiredRunsList.js"
 import { e2eFixtureDiagnosticsRead } from "../actions/e2eFixtureDiagnosticsRead.js"
+import { e2eCommandProjectOperate } from "../actions/e2eCommandProjectOperate.js"
+import { e2eCommandProjectPathsOperate } from "../actions/e2eCommandProjectPathsOperate.js"
 
 const runIdSchema = v.pipe(v.string(), v.regex(/^[0-9a-z]{6,40}$/))
 const issueSchema = v.strictObject({ runId: runIdSchema })
@@ -24,7 +26,13 @@ const expireSchema = v.strictObject({ userId: v.string() })
 /** Mounted before cookie authentication; this route accepts only its dedicated server-side bearer secret. */
 export function apiE2eFixtureRoutesAdd(
   app: Hono<AppEnvironment>,
-  options: { configuration: RuntimeConfiguration; database: DatabaseClient; token?: string; now?: () => Date },
+  options: {
+    configuration: RuntimeConfiguration
+    database: DatabaseClient
+    token?: string
+    now?: () => Date
+    projectRootDirs?: readonly string[]
+  },
 ): void {
   const token = options.token
   const issuerValue = options.configuration.oidcIssuer ?? options.configuration.oidcProviders?.authworks?.issuer
@@ -81,6 +89,7 @@ export function apiE2eFixtureRoutesAdd(
       options.database,
       { issuer: issuer.data, organizationExternalId },
       options.now?.() ?? new Date(),
+      options.projectRootDirs ?? [],
     )
     if (!result.success)
       return context.json({ error: { code: "fixtures.conflict", message: result.errorMessage } }, 409)
@@ -95,11 +104,77 @@ export function apiE2eFixtureRoutesAdd(
       options.database,
       { issuer: issuer.data, organizationExternalId },
       parsed.output,
+      options.projectRootDirs ?? [],
     )
     if (!result.success)
       return context.json({ error: { code: "fixtures.conflict", message: result.errorMessage } }, 409)
     return context.json(result.data)
   })
+
+  for (const method of ["GET", "POST"] as const) {
+    const handler = async (context: Context<AppEnvironment>) => {
+      const parsed = v.safeParse(runIdSchema, context.req.param("runId"))
+      if (!parsed.success)
+        return context.json({ error: { code: "fixtures.invalid-input", message: "Invalid run identifier." } }, 400)
+      if (method === "POST" && (await context.req.text()).length !== 0)
+        return context.json(
+          { error: { code: "fixtures.invalid-input", message: "Command fixture takes no body." } },
+          400,
+        )
+      const createdPaths: string[] = []
+      const createdProject: { value?: { path: string; createdAt: Date; manifest: Record<string, string> } } = {}
+      const roots = options.projectRootDirs ?? []
+      const result = await databaseTransactionRun(options.database, async (transaction) => {
+        const verified = await e2eFixtureRunOperate(
+          transaction,
+          { issuer: issuer.data, organizationExternalId },
+          parsed.output,
+          "status",
+          new Date(),
+          undefined,
+          roots,
+        )
+        if (!verified.success) return verified
+        if (!verified.data.exists) {
+          if (method === "GET") return createResult({ exists: false, created: false })
+          return createResultError("e2eCommandProjectOperate", "The fixture run does not exist.")
+        }
+        const [run] = await transaction
+          .select()
+          .from(e2eFixtureRunTable)
+          .where(eq(e2eFixtureRunTable.runId, parsed.output))
+        if (
+          run === undefined ||
+          run.firstUserId !== verified.data.userIds?.[0] ||
+          run.issuer !== issuer.data ||
+          run.organizationExternalId !== organizationExternalId
+        )
+          return createResultError("e2eCommandProjectOperate", "Fixture ownership changed.")
+        const command = await e2eCommandProjectOperate(
+          transaction,
+          run,
+          roots,
+          method === "POST" ? "issue" : "status",
+          options.now?.() ?? new Date(),
+          createdPaths,
+          createdProject,
+        )
+        if (!command.success) return command
+        return createResult({ ...command.data, created: method === "POST" && createdPaths.length > 0 })
+      })
+      if (!result.success && createdPaths.length > 0 && createdProject.value !== undefined) {
+        const rolledBack = await e2eCommandProjectPathsOperate(parsed.output, roots, "rollback", createdProject.value)
+        if (!rolledBack.success)
+          return context.json({ error: { code: "fixtures.conflict", message: rolledBack.errorMessage } }, 409)
+      }
+      if (!result.success)
+        return context.json({ error: { code: "fixtures.conflict", message: result.errorMessage } }, 409)
+      const { created, ...data } = result.data
+      return context.json(data, created ? 201 : 200)
+    }
+    if (method === "POST") routes.post("/runs/:runId/command-project", handler)
+    if (method === "GET") routes.get("/runs/:runId/command-project", handler)
+  }
 
   for (const method of ["GET", "POST"] as const) {
     const handler = async (context: Context<AppEnvironment>) => {
@@ -119,6 +194,9 @@ export function apiE2eFixtureRoutesAdd(
           { issuer: issuer.data, organizationExternalId },
           parsed.output,
           "status",
+          new Date(),
+          undefined,
+          options.projectRootDirs ?? [],
         )
         if (!verified.success) return verified
         if (!verified.data.exists)
@@ -207,6 +285,7 @@ export function apiE2eFixtureRoutesAdd(
         operation,
         new Date(),
         userId,
+        options.projectRootDirs ?? [],
       )
       if (!result.success)
         return context.json({ error: { code: "fixtures.conflict", message: result.errorMessage } }, 409)

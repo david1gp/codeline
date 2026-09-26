@@ -1,12 +1,15 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
+import type { BrowserContext } from "@playwright/test"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { e2eCheckpointStoreCreate } from "../../e2e/e2eCheckpointStoreCreate.js"
+import { e2eCommandProjectIssue } from "../../e2e/e2eCommandProjectIssue.js"
 import { e2eMemberSessionsExpire } from "../../e2e/e2eMemberSessionsExpire.js"
 import { e2eMemberSessionsIssue } from "../../e2e/e2eMemberSessionsIssue.js"
 import { e2eMemberSessionsPurge } from "../../e2e/e2eMemberSessionsPurge.js"
 import { e2eRunIdCreate } from "../../e2e/e2eRunIdCreate.js"
+import { e2eSessionCreate } from "../../e2e/e2eSessionCreate.js"
 
 const origin = "https://preview.codeline.work"
 const savedEnvironment = { ...process.env }
@@ -33,11 +36,12 @@ beforeAll(async () => {
     OIDC_ORGANIZATION_ID: "fixture-org",
   })
   await e2eCheckpointStoreCreate(directory).save({
-    version: 1,
+    version: 2,
     target: "production",
     origin,
     runId: "e2eparent123",
     createdAt: new Date().toISOString(),
+    suiteManifest: [],
     completedSuites: [],
     resourceIds: { fixtureRunIds: [] },
   })
@@ -119,16 +123,65 @@ test("a lost issue response keeps the ID for suite cleanup and never reissues it
   expect(requests).toHaveLength(1)
 })
 
+test("command project issuance requires a checkpoint-registered member run and sends no payload", async () => {
+  requests = []
+  const runId = e2eRunIdCreate()
+  await expect(e2eCommandProjectIssue(runId)).rejects.toThrow("Unregistered")
+  expect(requests).toHaveLength(0)
+  response = async (_url, init) => {
+    if (init.method === "POST" && init.body !== undefined)
+      return Response.json({
+        exists: true,
+        organizationId: "org",
+        subjectPrefix: `e2e-${runId}`,
+        members: [member(1), member(2)],
+      })
+    expect(init.method).toBe("POST")
+    expect(init.body).toBeUndefined()
+    expect(init.headers).toEqual({ Authorization: `Bearer ${"x".repeat(40)}` })
+    expect((await e2eCheckpointStoreCreate(directory).load("production"))?.resourceIds.fixtureRunIds).toContain(runId)
+    return Response.json({ exists: true, path: `/server/projects/.e2e-command-${runId}` }, { status: 201 })
+  }
+  await e2eMemberSessionsIssue(runId)
+  expect(await e2eCommandProjectIssue(runId)).toBe(`/server/projects/.e2e-command-${runId}`)
+  expect(requests.at(-1)?.url).toBe(`${origin}/api/_e2e/fixtures/runs/${runId}/command-project`)
+})
+
+test("sessions select an available server-owned project without issuing command data", async () => {
+  const calls: Array<{ url: string; body?: unknown }> = []
+  const api = {
+    get: async (url: string) => {
+      calls.push({ url })
+      return {
+        ok: () => true,
+        text: async () => "",
+        json: async () => ({ projects: [{ id: "server-project", available: true }] }),
+      }
+    },
+    post: async (url: string, options: { data: unknown }) => {
+      calls.push({ url, body: options.data })
+      return { ok: () => true, text: async () => "", json: async () => ({ session: { id: "session" } }) }
+    },
+  }
+  const context = { request: api } as unknown as BrowserContext
+  await e2eSessionCreate(context, origin, { title: "test", projectId: "untrusted", projectPath: "/runner" })
+  expect(calls).toEqual([
+    { url: `${origin}/api/project/registry/list` },
+    { url: `${origin}/api/sessions`, body: { title: "test", projectId: "server-project" } },
+  ])
+})
+
 test("a configured dev checkpoint uses its own HTTPS origin without using the local script", async () => {
   const devOrigin = "https://dev.example.test"
   const runId = e2eRunIdCreate()
   requests = []
   await e2eCheckpointStoreCreate(directory).save({
-    version: 1,
+    version: 2,
     target: "dev",
     origin: devOrigin,
     runId: "e2eparentdev123",
     createdAt: new Date().toISOString(),
+    suiteManifest: [],
     completedSuites: [],
     resourceIds: { fixtureRunIds: [] },
   })
