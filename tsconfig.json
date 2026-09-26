@@ -1,0 +1,43 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "paths": {
+      "@adaptive-ds/solid-ui/static/badge/Badge": ["./ui/static/badge/Badge.tsx"],
+      "@adaptive-ds/solid-ui/static/badge/badgeCva": ["./ui/static/badge/badgeCva.tsx"],
+      "@adaptive-ds/solid-ui/utils/createSignalObject": ["./ui/utils/createSignalObject.ts"],
+      "@corvu/popover": ["./node_modules/@corvu/popover/dist/index.d.ts"],
+      "#ui/*": ["./ui/*"],
+      "solid-js": ["./node_modules/solid-js/types/index.d.ts"],
+      "solid-js/jsx-runtime": ["./node_modules/solid-js/types/jsx.d.ts"],
+      "solid-js/*": ["./node_modules/solid-js/*"]
+    },
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "types": ["bun"],
+    "jsx": "preserve",
+    "jsxImportSource": "solid-js",
+    "noEmit": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "incremental": true,
+    "tsBuildInfoFile": "./build/tsconfig.tsbuildinfo",
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "useDefineForClassFields": true,
+    "moduleDetection": "force",
+    "noUncheckedSideEffectImports": true,
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noImplicitAny": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["src", "test", "e2e", "scripts", "playwright.config.ts"],
+  "exclude": [".github", ".idea", ".vscode", "build", "dist", "docs", "node_modules", "ops"]
+}

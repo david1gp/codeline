@@ -1,0 +1,9 @@
+version: 1
+name: review
+description: Review-focused skills for TypeScript and documentation changes.
+includeFolders:
+  - review
+includeSkills:
+  - code-style
+excludeSkills:
+  - review-docs

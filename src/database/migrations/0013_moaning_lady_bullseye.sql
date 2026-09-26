@@ -1,0 +1,2 @@
+DROP INDEX `journal_event_compact_retention_idx`;--> statement-breakpoint
+CREATE INDEX `journal_event_compact_retention_idx` ON `journal_event` (`user_id`,`created_at`,`sequence`,`id`) WHERE "journal_event"."event_type" in ('invalidate', 'run-started', 'run-completed', 'run-failed', 'run-cancelled', 'run-interrupted');

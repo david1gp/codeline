@@ -1,0 +1,43 @@
+provider: cliproxyapi
+providerName: CLIProxyAPI - subs.contentoren.de
+model: claude-fable-5
+name: Fable 5 - Anthropic (cliproxy)
+family: claude-fable-5
+status: active
+enabled: true
+baseUrl: https://subs.contentoren.de/v1
+apiKey: $SUBS_CONTENTOREN_DE_API_KEY
+env: [$SUBS_CONTENTOREN_DE_API_KEY]
+transport: openai/completions
+providerOptions:
+  npm: '@ai-sdk/openai-compatible'
+  blacklist: [gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna]
+options: {}
+limit:
+  context: 1000000
+  output: 128000
+modalities:
+  input: [text, image]
+  output: [text]
+reasoning: true
+cost:
+  input: 10
+  output: 50
+  cacheRead: 1
+  cacheWrite: 12.5
+variants:
+  - id: low
+    effort: low
+    reasoningEffort: low
+  - id: medium
+    effort: medium
+    reasoningEffort: medium
+  - id: high
+    effort: high
+    reasoningEffort: high
+  - id: xhigh
+    effort: xhigh
+    reasoningEffort: xhigh
+  - id: max
+    effort: max
+    reasoningEffort: max

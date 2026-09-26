@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+
+# Bun package manager
+bun.lock
+bun.lockb
+
+# Build output
+dist/
+out/
+build/
+*.tgz
+
+# Tests and logs
+coverage/
+test-results/
+playwright-report/
+*.lcov
+logs/
+*.log
+
+# Local operating-system and editor files
+.DS_Store
+.idea/
+.vscode/
+*.iml
+
+# Dotenv secrets. Keep the distributable template tracked.
+.env
+.env.*
+!.env.example
+
+# Application icons must stay tracked even when a global ignore excludes images.
+!public/logo/*.png
+
+# Local application data and caches
+data/
+data/db.sqlite*
+.cache/
+.turbo/
+*.tsbuildinfo
+.wrangler/
+.codeline-deploy.lock
+.codeline-deploy.*/
+artifacts/

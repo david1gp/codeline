@@ -1,0 +1,67 @@
+import { agentTable } from "../agents/db/agentTable.js"
+import { mutationIdempotencyTable } from "../api/db/mutationIdempotencyTable.js"
+import { sessionCompactionTable } from "../compaction/db/sessionCompactionTable.js"
+import { applicationUserTable } from "../identity/db/applicationUserTable.js"
+import { e2eFixtureRunTable } from "../identity/db/e2eFixtureRunTable.js"
+import { e2eFixtureDiagnosticTable } from "../identity/db/e2eFixtureDiagnosticTable.js"
+import { e2eSampleSessionsTable } from "../identity/db/e2eSampleSessionsTable.js"
+import { externalIdentityTable } from "../identity/db/externalIdentityTable.js"
+import { identitySessionTable } from "../identity/db/identitySessionTable.js"
+import { oidcLoginTransactionTable } from "../identity/db/oidcLoginTransactionTable.js"
+import { organizationMemberTable } from "../identity/db/organizationMemberTable.js"
+import { organizationTable } from "../identity/db/organizationTable.js"
+import { journalEventTable } from "../journal/db/journalEventTable.js"
+import { journalReplayBoundaryTable } from "../journal/db/journalReplayBoundaryTable.js"
+import { journalSequenceCounterTable } from "../journal/db/journalSequenceCounterTable.js"
+import { messageTable } from "../message/db/messageTable.js"
+import { noteTable } from "../note/db/noteTable.js"
+import { projectFolderAssignmentBackfillTable } from "../project/db/projectFolderAssignmentBackfillTable.js"
+import { projectFolderTable } from "../project/db/projectFolderTable.js"
+import { projectRegistrySessionPathBackfillTable } from "../project/db/projectRegistrySessionPathBackfillTable.js"
+import { projectTable } from "../project/db/projectTable.js"
+import { attemptTable } from "../run/db/attemptTable.js"
+import { runActiveStateTable } from "../run/db/runActiveStateTable.js"
+import { runDelegationTable } from "../run/db/runDelegationTable.js"
+import { runFinalizedDetailTable } from "../run/db/runFinalizedDetailTable.js"
+import { runTable } from "../run/db/runTable.js"
+import { serverTable } from "../servers/db/serverTable.js"
+import { sessionExecutionSelectionDefaultTable } from "../session/db/sessionExecutionSelectionDefaultTable.js"
+import { sessionHistoryEntryTable } from "../session/db/sessionHistoryEntryTable.js"
+import { sessionTable } from "../session/db/sessionTable.js"
+import { sessionViewTable } from "../session/db/sessionViewTable.js"
+import { skillSelectionDefaultTable } from "../skills/db/skillSelectionDefaultTable.js"
+
+export const databaseSchema = {
+  agentTable,
+  attemptTable,
+  applicationUserTable,
+  e2eFixtureDiagnosticTable,
+  e2eFixtureRunTable,
+  e2eSampleSessionsTable,
+  externalIdentityTable,
+  identitySessionTable,
+  journalEventTable,
+  journalReplayBoundaryTable,
+  journalSequenceCounterTable,
+  messageTable,
+  mutationIdempotencyTable,
+  noteTable,
+  projectFolderAssignmentBackfillTable,
+  projectFolderTable,
+  projectTable,
+  projectRegistrySessionPathBackfillTable,
+  runDelegationTable,
+  runActiveStateTable,
+  runFinalizedDetailTable,
+  runTable,
+  serverTable,
+  sessionCompactionTable,
+  sessionViewTable,
+  sessionTable,
+  sessionHistoryEntryTable,
+  sessionExecutionSelectionDefaultTable,
+  skillSelectionDefaultTable,
+  oidcLoginTransactionTable,
+  organizationMemberTable,
+  organizationTable,
+}

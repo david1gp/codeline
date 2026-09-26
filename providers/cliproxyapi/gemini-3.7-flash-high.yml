@@ -1,0 +1,35 @@
+provider: cliproxyapi
+providerName: CLIProxyAPI - subs.contentoren.de
+model: gemini-3.7-flash-high
+name: Gemini 3.7 Flash (cliproxy)
+family: gemini-3.7
+status: active
+enabled: true
+baseUrl: https://subs.contentoren.de/v1
+apiKey: $SUBS_CONTENTOREN_DE_API_KEY
+env: [$SUBS_CONTENTOREN_DE_API_KEY]
+transport: openai/completions
+providerOptions:
+  npm: '@ai-sdk/openai-compatible'
+  blacklist: [gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna]
+options: {}
+limit:
+  context: 1048576
+  output: 65536
+modalities:
+  input: [text, image]
+  output: [text]
+cost:
+  input: 0.75
+  output: 3.75
+  cacheRead: 0.075
+variants:
+  - id: low
+    effort: low
+    reasoningEffort: low
+  - id: medium
+    effort: medium
+    reasoningEffort: medium
+  - id: high
+    effort: high
+    reasoningEffort: high

@@ -1,0 +1,63 @@
+provider: codex-lb
+providerName: codex-lb - codex.contentoren.de
+model: gpt-5.6-terra
+name: GPT 5.6 Terra (codex-lb)
+family: gpt-5.6
+status: active
+enabled: true
+baseUrl: https://codex.contentoren.de/v1
+apiKey: $CODEX_LB_API_TOKEN
+env: [$CODEX_LB_API_TOKEN]
+transport: openai/responses
+providerOptions:
+  npm: '@ai-sdk/openai'
+  reasoningEffort: medium
+  reasoningSummary: auto
+  textVerbosity: low
+  include: [reasoning.encrypted_content]
+  store: false
+options: {}
+limit:
+  context: 272000
+  output: 128000
+modalities:
+  input: [text, image]
+  output: [text]
+cost:
+  - input: 2
+    output: 12
+    cacheRead: 0.2
+    cacheWrite: 3.125
+  - tier:
+      type: context
+      size: 200000
+    input: 5
+    output: 22.5
+    cacheRead: 0.5
+    cacheWrite: 6.25
+variants:
+  - id: low
+    effort: low
+    reasoningEffort: low
+    reasoningSummary: auto
+    textVerbosity: low
+  - id: medium
+    effort: medium
+    reasoningEffort: medium
+    reasoningSummary: auto
+    textVerbosity: low
+  - id: high
+    effort: high
+    reasoningEffort: high
+    reasoningSummary: detailed
+    textVerbosity: low
+  - id: xhigh
+    effort: xhigh
+    reasoningEffort: xhigh
+    reasoningSummary: detailed
+    textVerbosity: low
+  - id: max
+    effort: max
+    reasoningEffort: max
+    reasoningSummary: detailed
+    textVerbosity: low

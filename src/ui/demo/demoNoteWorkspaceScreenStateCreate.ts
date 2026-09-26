@@ -1,0 +1,44 @@
+import { markdownHtmlRender } from "../../markdown/markdownHtmlRender.js"
+import { noteGroupsDerive } from "../../note/ui/noteGroupsDerive.js"
+import { noteMoveBoundsResolve } from "../../note/ui/noteMoveBoundsResolve.js"
+import type { NoteWorkspaceScreenView } from "../../note/ui/noteWorkspaceScreenView.js"
+import { demoNoteProjectsFixture } from "./demoNoteProjectsFixture.js"
+import { demoNoteScreenStateCreate } from "./demoNoteScreenStateCreate.js"
+import { demoNotesFixture } from "./demoNotesFixture.js"
+import type { DemoSessionScreenVariant } from "./demoSessionScreenVariant.js"
+
+const demoActiveNote = demoNotesFixture[0]
+
+export function demoNoteWorkspaceScreenStateCreate(variant: () => DemoSessionScreenVariant): NoteWorkspaceScreenView {
+  const detail = demoNoteScreenStateCreate(variant)
+  const notes = () => (variant() === "empty" ? [] : demoNotesFixture)
+  const groups = () => noteGroupsDerive(notes(), demoNoteProjectsFixture)
+  const projectNotes = () => groups().find((group) => group.projectId === demoActiveNote.projectId)?.notes ?? []
+  const bounds = () => noteMoveBoundsResolve(projectNotes(), demoActiveNote.id)
+  const revalidate = () => {
+    detail.revalidate()
+  }
+
+  return {
+    detail,
+    refresh: revalidate,
+    revalidate,
+    sidebar: {
+      activeNoteId: () => demoActiveNote.id,
+      activeProjectId: () => demoActiveNote.projectId,
+      canMoveDown: () => bounds().canMoveDown,
+      canMoveUp: () => bounds().canMoveUp,
+      dataStatus: () => (variant() === "loading" ? ("reconciling" as const) : ("ready" as const)),
+      groups,
+      isError: () => variant() === "error",
+      isLoading: () => variant() === "loading",
+      isPreviewEmpty: () => detail.content().trim() === "",
+      noteMoveDown: () => {},
+      noteMoveUp: () => {},
+      previewHtml: () => markdownHtmlRender(detail.content()),
+      refresh: revalidate,
+      revalidate,
+      retry: () => {},
+    },
+  }
+}

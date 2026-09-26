@@ -1,0 +1,17 @@
+export const sessionExecutionSelectionErrorCodes = {
+  agentDefaultsInvalid: "session.execution-selection.agent-defaults-invalid",
+  agentDefaultsLoadFailed: "session.execution-selection.agent-defaults-load-failed",
+  defaultDeleteFailed: "session.execution-selection.default-delete-failed",
+  defaultInputInvalid: "session.execution-selection.default-input-invalid",
+  defaultLoadFailed: "session.execution-selection.default-load-failed",
+  defaultSaveFailed: "session.execution-selection.default-save-failed",
+  primaryAgentDisabled: "session.execution-selection.primary-agent-disabled",
+  primaryAgentMismatch: "session.execution-selection.primary-agent-mismatch",
+  primaryAgentUnavailable: "session.execution-selection.primary-agent-unavailable",
+  primaryOnlySubagent: "session.execution-selection.primary-only-subagent",
+  projectPathInvalid: "session.execution-selection.project-path-invalid",
+  selectionInvalid: "session.execution-selection.invalid",
+  storedDefaultInvalid: "session.execution-selection.stored-default-invalid",
+  subagentDisabled: "session.execution-selection.subagent-disabled",
+  subagentUnavailable: "session.execution-selection.subagent-unavailable",
+} as const

@@ -1,0 +1,68 @@
+import * as path from "node:path"
+import { createResult, createResultError, type Result } from "@adaptive-ds/result"
+import * as v from "valibot"
+import type { DatabaseExecutor } from "../../database/databaseClient.js"
+import { uuidv7 } from "../../uuid/uuidv7.js"
+import { projectFolderAssignmentIdResolve } from "./projectFolderAssignmentIdResolve.js"
+import { type Project, projectTable } from "./projectTable.js"
+
+const projectRegistryRepositoryUpsertInputSchema = v.strictObject({
+  displayName: v.optional(v.nullable(v.string())),
+  path: v.string(),
+})
+
+export async function projectRegistryRepositoryUpsert(
+  database: DatabaseExecutor,
+  userId: string,
+  input: unknown,
+  displayName?: string | null,
+  rootDirs?: readonly string[],
+): Promise<Result<Project>> {
+  const op = "projectRegistryRepositoryUpsert"
+  const parsed = v.safeParse(
+    projectRegistryRepositoryUpsertInputSchema,
+    typeof input === "string" ? { displayName, path: input } : input,
+  )
+  if (!parsed.success) return createResultError(op, "The project registration input is invalid.")
+  if (!path.isAbsolute(parsed.output.path) || path.resolve(parsed.output.path) !== parsed.output.path) {
+    return createResultError(op, "The project path must be canonical and absolute.")
+  }
+
+  const now = new Date()
+  let parentFolderId: string | undefined
+  if (rootDirs !== undefined) {
+    const parentFolder = await projectFolderAssignmentIdResolve(database, userId, parsed.output.path, rootDirs, {
+      unmatchedToPersonal: true,
+    })
+    if (!parentFolder.success) return createResultError(op, parentFolder.errorMessage)
+    parentFolderId = parentFolder.data
+  }
+
+  try {
+    const [project] = await database
+      .insert(projectTable)
+      .values({
+        createdAt: now,
+        displayName: parsed.output.displayName ?? null,
+        id: uuidv7(),
+        ...(parentFolderId === undefined ? {} : { parentFolderId }),
+        path: parsed.output.path,
+        authorizationPath: null,
+        updatedAt: now,
+        userId,
+      })
+      .onConflictDoUpdate({
+        target: [projectTable.userId, projectTable.path],
+        set: {
+          ...(parsed.output.displayName === undefined ? {} : { displayName: parsed.output.displayName }),
+          ...(parentFolderId === undefined ? {} : { parentFolderId }),
+          updatedAt: now,
+        },
+      })
+      .returning()
+    if (project === undefined) return createResultError(op, "The project could not be saved.")
+    return createResult(project)
+  } catch (_error) {
+    return createResultError(op, "The project could not be saved.")
+  }
+}

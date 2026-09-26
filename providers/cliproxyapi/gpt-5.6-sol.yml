@@ -1,0 +1,49 @@
+provider: cliproxyapi
+providerName: CLIProxyAPI - subs.contentoren.de
+model: gpt-5.6-sol
+name: GPT 5.6 Sol (cliproxy)
+family: gpt-5.6
+status: active
+enabled: false
+baseUrl: https://subs.contentoren.de/v1
+apiKey: $SUBS_CONTENTOREN_DE_API_KEY
+env: [$SUBS_CONTENTOREN_DE_API_KEY]
+transport: openai/completions
+providerOptions:
+  npm: '@ai-sdk/openai-compatible'
+  blacklist: [gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna]
+options: {}
+limit:
+  context: 272000
+  output: 128000
+modalities:
+  input: [text, image]
+  output: [text]
+cost:
+  - input: 5
+    output: 30
+    cacheRead: 0.5
+    cacheWrite: 6.25
+  - tier:
+      type: context
+      size: 200000
+    input: 10
+    output: 45
+    cacheRead: 1
+    cacheWrite: 12.5
+variants:
+  - id: low
+    effort: low
+    reasoningEffort: low
+  - id: medium
+    effort: medium
+    reasoningEffort: medium
+  - id: high
+    effort: high
+    reasoningEffort: high
+  - id: xhigh
+    effort: xhigh
+    reasoningEffort: xhigh
+  - id: max
+    effort: max
+    reasoningEffort: max

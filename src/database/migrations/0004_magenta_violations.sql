@@ -1,0 +1,1 @@
+ALTER TABLE `session` ADD `instruction_snapshot` text DEFAULT '{"snapshots":[],"version":1}' NOT NULL;

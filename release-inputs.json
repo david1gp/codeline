@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "inputs": {
+    "gitStore": {
+      "label": "git-store",
+      "checkout": {
+        "environmentVariable": "GIT_STORE_CHECKOUT",
+        "defaultPath": "../git-store-clean-779c05b"
+      },
+      "packagePath": ".",
+      "packageName": "@adaptive-ds/git-store",
+      "packageVersion": "0.1.0",
+      "sourceRevision": "779c05be1e099e8d4024e90ff48bb27646a7080e",
+      "buildExports": {
+        ".": {
+          "types": "./dist/index.d.ts",
+          "import": "./dist/index.js"
+        },
+        "./*.js": {
+          "types": "./dist/*.d.ts",
+          "import": "./dist/*.js"
+        }
+      },
+      "requiredBuiltOutputs": ["dist/index.d.ts", "dist/index.js"]
+    }
+  }
+}

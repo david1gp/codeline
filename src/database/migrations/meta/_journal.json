@@ -1,0 +1,167 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1787487643838,
+      "tag": "0000_sqlite_baseline",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1787511382289,
+      "tag": "0001_outstanding_ben_grimm",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1787754748473,
+      "tag": "0002_slimy_randall_flagg",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1787759690259,
+      "tag": "0003_spicy_thunderball",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1787766347445,
+      "tag": "0004_magenta_violations",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1787772669386,
+      "tag": "0005_nifty_the_twelve",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1787901519486,
+      "tag": "0006_bumpy_joshua_kane",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1787938430827,
+      "tag": "0007_chief_weapon_omega",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1787959901272,
+      "tag": "0008_dark_professor_monster",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1787964504275,
+      "tag": "0009_persisted_project_uuidv7",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1787980288422,
+      "tag": "0010_repair_persisted_project_uuidv7",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1787986935217,
+      "tag": "0011_white_gwen_stacy",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1787995235089,
+      "tag": "0012_moaning_hellfire_club",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1787999795113,
+      "tag": "0013_moaning_lady_bullseye",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1788009058989,
+      "tag": "0014_project_folder_assignment_backfill",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1788085488476,
+      "tag": "0015_project_authorization_path",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1788243473494,
+      "tag": "0016_bumpy_molten_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1788282675999,
+      "tag": "0017_wide_mole_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1790387818169,
+      "tag": "0018_fat_firestar",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1790390246559,
+      "tag": "0019_medical_maverick",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1790391047591,
+      "tag": "0020_serious_titanium_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1790391438377,
+      "tag": "0021_broad_otto_octavius",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1790392995715,
+      "tag": "0022_flawless_famine",
+      "breakpoints": true
+    }
+  ]
+}

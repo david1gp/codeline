@@ -1,0 +1,42 @@
+import { useLocation, useNavigate } from "@solidjs/router"
+import { createMemo } from "solid-js"
+import { runSessionSnapshotFetch } from "../../run/ui/runSessionSnapshotFetch.js"
+import { simulationScenarioSessionMetadata } from "../../simulation/simulationScenarioSessionMetadata.js"
+import { simulationScenarioSessionResolve } from "../../simulation/simulationScenarioSessionResolve.js"
+import { urlDashboard } from "../dashboard_url/urlDashboard.js"
+import type { SessionNavigationState } from "../../session/ui/sessionNavigationStateCreate.js"
+import { urlWorkspace } from "../workspace_url/urlWorkspace.js"
+import { workspaceScreenStateCreate } from "../workspaceScreenStateCreate.js"
+import { simulateInspectorStateCreate } from "./simulateInspectorStateCreate.js"
+
+const simulationScenarios = Object.values(simulationScenarioSessionMetadata)
+export function simulateAppStateCreate() {
+  const location = useLocation()
+  const navigate = useNavigate()
+  const scenario = createMemo(() => {
+    return simulationScenarioSessionResolve(location.pathname)
+  })
+  const navigation = {
+    clearSession: () => undefined,
+    isNewSessionRoute: () => false,
+    selectedSessionId: () => scenario().sessionId,
+    startNewSession: () => navigate(urlWorkspace.sessionsNew({ tab: "recent" })),
+    selectSession: (sessionId: string) => {
+      const selectedScenario = simulationScenarios.find((candidate) => candidate.sessionId === sessionId)
+      navigate(selectedScenario?.href ?? `${urlDashboard()}?session=${encodeURIComponent(sessionId)}`)
+    },
+  } satisfies SessionNavigationState
+
+  const workspace = workspaceScreenStateCreate(navigation)
+
+  return {
+    inspector: simulateInspectorStateCreate({
+      chat: () => workspace.selectedSession.chatCreate(scenario().sessionId),
+      load: (sessionId, signal) => runSessionSnapshotFetch(sessionId, { signal }),
+      sessionId: () => scenario().sessionId,
+    }),
+    scenario,
+    scenarios: simulationScenarios,
+    workspace,
+  }
+}
