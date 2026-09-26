@@ -10,7 +10,7 @@ import { apiErrorResponseSchema } from "../errors/apiErrorResponseSchema.js"
 import { apiQueryKeyCreate } from "./apiQueryKeyCreate.js"
 
 type ApiHttpFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
-type ApiHttpMethod = "DELETE" | "GET" | "PATCH" | "POST"
+type ApiHttpMethod = "DELETE" | "GET" | "PATCH" | "POST" | "PUT"
 type ApiHttpQuery =
   | Readonly<
       Record<

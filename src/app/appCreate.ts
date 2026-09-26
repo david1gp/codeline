@@ -16,6 +16,7 @@ import { identitySessionLoad } from "../identity/actions/identitySessionLoad.js"
 import { identitySessionRevoke } from "../identity/actions/identitySessionRevoke.js"
 import { oidcIdentityUpsert } from "../identity/actions/oidcIdentityUpsert.js"
 import { organizationMemberLoad } from "../identity/actions/organizationMemberLoad.js"
+import { apiE2eFixtureRoutesAdd } from "../identity/api/apiE2eFixtureRoutesAdd.js"
 import { authenticationMiddleware } from "../identity/api/authenticationMiddleware.js"
 import { developmentIdentityUpsert } from "../identity/db/developmentIdentityUpsert.js"
 import { oidcLoginTransactionConsume } from "../identity/db/oidcLoginTransactionConsume.js"
@@ -63,6 +64,7 @@ export type AppCreateOptions = {
   configuration?: RuntimeConfiguration
   configurationStore?: ConfigurationStore
   database?: DatabaseClient
+  fixtureApiToken?: string
   databaseReadyCheck?: typeof databaseReadyCheck
   developmentIdentityUpsert?: typeof developmentIdentityUpsert
   identitySessionLoad?: typeof identitySessionLoad
@@ -175,6 +177,12 @@ export function appCreate(options: AppCreateOptions = {}): App {
   })
 
   if (options.configuration !== undefined && options.database !== undefined) {
+    apiE2eFixtureRoutesAdd(app, {
+      configuration: options.configuration,
+      database: options.database,
+      token: options.fixtureApiToken,
+      projectRootDirs: options.projectRootDirs ?? [],
+    })
     app.use(
       "/api/*",
       authenticationMiddleware(options.configuration, options.database, {

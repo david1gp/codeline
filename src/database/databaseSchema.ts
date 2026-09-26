@@ -2,6 +2,10 @@ import { agentTable } from "../agents/db/agentTable.js"
 import { mutationIdempotencyTable } from "../api/db/mutationIdempotencyTable.js"
 import { sessionCompactionTable } from "../compaction/db/sessionCompactionTable.js"
 import { applicationUserTable } from "../identity/db/applicationUserTable.js"
+import { e2eFixtureRunTable } from "../identity/db/e2eFixtureRunTable.js"
+import { e2eFixtureDiagnosticTable } from "../identity/db/e2eFixtureDiagnosticTable.js"
+import { e2eCommandProjectTable } from "../identity/db/e2eCommandProjectTable.js"
+import { e2eSampleSessionsTable } from "../identity/db/e2eSampleSessionsTable.js"
 import { externalIdentityTable } from "../identity/db/externalIdentityTable.js"
 import { identitySessionTable } from "../identity/db/identitySessionTable.js"
 import { oidcLoginTransactionTable } from "../identity/db/oidcLoginTransactionTable.js"
@@ -32,6 +36,10 @@ export const databaseSchema = {
   agentTable,
   attemptTable,
   applicationUserTable,
+  e2eFixtureDiagnosticTable,
+  e2eCommandProjectTable,
+  e2eFixtureRunTable,
+  e2eSampleSessionsTable,
   externalIdentityTable,
   identitySessionTable,
   journalEventTable,

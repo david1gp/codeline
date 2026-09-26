@@ -24,6 +24,9 @@ import { httpQueryStateCreate } from "../../ui/httpQueryStateCreate.js"
 import type { SessionProjectTarget } from "./sessionProjectTarget.js"
 import type { SessionTargetConfigurationView } from "./sessionTargetConfigurationView.js"
 import { signalObjectCreate } from "../../ui/signalObjectCreate.js"
+import { globalAgentPresetClientCreate } from "../../configuration/client/globalAgentPresetClientCreate.js"
+import { globalAgentPresetResourcesResolveForPreset } from "../../configuration/globalAgentPresetResourcesResolve.js"
+import { projectAgentsClientCreate } from "../../project/client/projectAgentsClientCreate.js"
 
 type SessionTargetSelectorStatus = "loading" | "ready" | "empty" | "error"
 /** Retained-data lifecycle of the server/agent representations backing this selector. */
@@ -62,10 +65,7 @@ type SessionTargetSelectorStateOptions = {
   isOnline?: Accessor<boolean>
   pendingProjectResourcesWait?: (target: SessionProjectTarget) => Promise<void>
   pendingProjectTargetSet?: (target: SessionProjectTarget) => void
-  /**
-   * Pre-session resource choices resolved before creation. They are sent with the
-   * create request so the server captures them in the immutable session manifest.
-   */
+  /** Legacy callers may supply these; preset sessions do not forward them. */
   pendingExecutionSelection?: Accessor<SessionExecutionSelection | undefined>
   pendingAgentPrompt?: Accessor<string | undefined>
   pendingInstructionOverrides?: Accessor<SessionTargetInstructionOverrides>
@@ -160,9 +160,38 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
   const storage = sessionTargetSelectionStorageResolve(options.storage)
   const activeProjectId = options.activeProjectId ?? (() => null)
   const activeProjectPath = options.activeProjectPath ?? (() => "~")
+  const projectAgentsClient = projectAgentsClientCreate(fetchImplementation)
+  const projectAgentsQuery = httpQueryStateCreate({
+    enabled: () => options.selectedSessionId() === null && activeProjectId() !== null,
+    key: () => options.selectedSessionId() === null && activeProjectId() !== null
+      ? `${options.accountId?.() ?? ""}/api/project/agents?project=${encodeURIComponent(activeProjectId()!)}` : undefined,
+    load: async (_key, signal) => {
+      const projectId = untrack(activeProjectId)
+      if (projectId === null) return createResultError("projectAgentsList", "Select a project.")
+      const result = await projectAgentsClient.list(projectId, signal)
+      if (!result.success) return result
+      return { ...result, data: { ...result.data, projectId } }
+    },
+  })
   const savedSelections = sessionTargetSelectionRead(storage)
   const servers = signalObjectCreate<SessionTargetServer[]>([])
   const agents = signalObjectCreate<SessionTargetAgent[]>([])
+  const projectAgents = () => options.selectedSessionId() === null && projectAgentsQuery.data()?.projectId === activeProjectId()
+    ? projectAgentsQuery.data() : undefined
+  const selectableAgents = () => {
+    const local = projectAgents()
+    if (activeProjectId() !== null && local === undefined) return []
+    const overrides = (local?.agents ?? []).filter(({ id, enabled, mode }) =>
+      local?.projectAgentIds.includes(id) && enabled && mode === "primary")
+    const shadowed = new Set(local?.projectAgentIds ?? [])
+    return [
+      ...agents.get().filter(({ id }) => !shadowed.has(id)),
+      ...overrides.map(({ id, description }) => ({
+        id, name: description || id, parentAgentId: null, role: "primary" as const,
+        serverId: selectedServerId.get() ?? "",
+      })),
+    ]
+  }
   const serverStatus = signalObjectCreate<SessionTargetSelectorStatus>("loading")
   const agentStatus = signalObjectCreate<SessionTargetSelectorStatus>("loading")
   const selectedServerId = signalObjectCreate<string | null>(null)
@@ -179,6 +208,41 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
   const connectionTest = signalObjectCreate<v.InferOutput<typeof providerApiConnectionTestResponseSchema> | null>(null)
   const connectionTestStatus = signalObjectCreate<"idle" | "testing" | "success" | "error">("idle")
   const saveStatus = signalObjectCreate<"idle" | "saving" | "success" | "error">("idle")
+  const selectedPresetId = signalObjectCreate<string | null>(null)
+  const modelOverride = signalObjectCreate<string | null>(null)
+  const presetClient = globalAgentPresetClientCreate(fetchImplementation)
+  const presetQuery = httpQueryStateCreate({
+    enabled: () => options.selectedSessionId() === null,
+    key: () => options.selectedSessionId() === null ? "/api/global/agent-presets" : undefined,
+    load: async () => presetClient.get(),
+  })
+  const presets = () => presetQuery.data()?.presets ?? []
+  const selectedPreset = () => presets().find((preset) => preset.id === selectedPresetId.get()) ?? null
+  const selectedModelId = () => modelOverride.get() ?? selectedPreset()?.modelId ??
+    (projectAgents()?.projectAgentIds.includes(selectedAgentId.get() ?? "") ? undefined :
+      agentDetail.get()?.id === selectedAgentId.get() ? agentDetail.get()?.configuration.model : undefined) ?? ""
+  const presetAgentUnavailable = () => selectedPreset() !== null && selectedPreset()?.executionAgentId !== selectedAgentId.get()
+  const presetSelect = (id: string) => {
+    if (id !== "" && !presets().some((preset) => preset.id === id)) return
+    selectedPresetId.set(id === "" ? null : id)
+    modelOverride.set(null)
+    const preset = selectedPreset()
+    if (preset === null) return
+    const agent = selectableAgents().find((candidate) => candidate.id === preset.executionAgentId)
+    if (agent !== undefined) selectedAgentIdSet(agent.id)
+    if (agent !== undefined) return
+    void (async () => {
+      for (const server of servers.get()) {
+        if (server.id === selectedServerId.get()) continue
+        const result = await agentListFetch(server.id, { fetch: fetchImplementation })
+        if (isDisposed || selectedPresetId.get() !== id) return
+        if (!result.success || result.data === undefined) continue
+        if (!result.data.agents.some((candidate) => candidate.id === preset.executionAgentId && candidate.parentAgentId === null && candidate.role === "primary")) continue
+        selectedServerIdSet(server.id)
+        return
+      }
+    })()
+  }
 
   // The pending create intent keeps one client request id so that a retry after an ambiguous
   // failure stays idempotent on the server until the create succeeds or the target changes.
@@ -210,6 +274,25 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
       selectedAgentId.set(agentId)
       if (changed) sessionCreateTargetInvalidate()
     })
+  }
+  const alternativeAgentSelect = (agentId: string) => {
+    if (!selectableAgents().some((agent) => agent.id === agentId)) return
+    batch(() => {
+      selectedPresetId.set(null)
+      modelOverride.set(null)
+      selectedAgentIdSet(agentId)
+    })
+    agentSelectionPersist(agentId)
+    sessionCreateErrorClear()
+  }
+  const alternativeServerSelect = (serverId: string) => {
+    if (!servers.get().some((server) => server.id === serverId)) return
+    batch(() => {
+      selectedPresetId.set(null)
+      modelOverride.set(null)
+      selectedServerIdSet(serverId)
+    })
+    sessionCreateErrorClear()
   }
   onCleanup(() => {
     isDisposed = true
@@ -245,7 +328,8 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
     key: () => {
       const serverId = selectedServerId.get()
       const agentId = selectedAgentId.get()
-      if (serverId === null || agentId === null || agentCreateMode.get()) return undefined
+      if (serverId === null || agentId === null || agentCreateMode.get() ||
+        (options.selectedSessionId() === null && projectAgents()?.projectAgentIds.includes(agentId))) return undefined
       return accountCache.keyCreate(
         `/api/servers/${encodeURIComponent(serverId)}/agents/${encodeURIComponent(agentId)}`,
       )
@@ -323,6 +407,13 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
     const primaryAgents = list.filter((agent) => agent.parentAgentId === null && agent.role === "primary")
     agents.set(primaryAgents)
     if (primaryAgents.length === 0) {
+      const localPrimaries = selectableAgents()
+      if (localPrimaries.length > 0) {
+        untrack(() => selectedAgentIdSet(localPrimaries[0]?.id ?? null))
+        agentCreateMode.set(false)
+        agentStatus.set("ready")
+        return
+      }
       untrack(() => selectedAgentIdSet(null))
       agentCreateMode.set(true)
       agentDraft.set(agentDraftEmpty())
@@ -332,7 +423,7 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
     untrack(() => {
       const current = selectedAgentId.get()
       const saved = savedSelections[serverId]
-      if (current === null || !primaryAgents.some((agent) => agent.id === current)) {
+      if (current === null || !selectableAgents().some((agent) => agent.id === current)) {
         selectedAgentIdSet(
           (saved !== undefined && primaryAgents.some((agent) => agent.id === saved) ? saved : primaryAgents[0]?.id) ??
             null,
@@ -344,7 +435,30 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
   })
 
   createEffect(() => {
-    if (selectedServerId.get() === null || selectedAgentId.get() === null || agentCreateMode.get()) {
+    const preset = selectedPreset()
+    const available = selectableAgents()
+    if (preset === null || available.length === 0 || selectedAgentId.get() === preset.executionAgentId) return
+    if (available.some((agent) => agent.id === preset.executionAgentId)) {
+      untrack(() => selectedAgentIdSet(preset.executionAgentId))
+    }
+  })
+
+  createEffect(() => {
+    if (options.selectedSessionId() !== null || activeProjectId() === null) return
+    const available = selectableAgents()
+    if (projectAgents() === undefined || available.length === 0) return
+    if (agentCreateMode.get()) {
+      agentCreateMode.set(false)
+      agentStatus.set("ready")
+    }
+    if (!available.some(({ id }) => id === selectedAgentId.get())) {
+      untrack(() => selectedAgentIdSet(available[0]?.id ?? null))
+    }
+  })
+
+  createEffect(() => {
+    if (selectedServerId.get() === null || selectedAgentId.get() === null || agentCreateMode.get() ||
+      (options.selectedSessionId() === null && projectAgents()?.projectAgentIds.includes(selectedAgentId.get() ?? ""))) {
       agentDetail.set(null)
       agentDetailStatus.set("idle")
       return
@@ -407,13 +521,12 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
     return result.success ? result.output : null
   }
 
-  // The resource selection is part of the create request body, so it participates in the
-  // create key. A changed selection therefore mints a new idempotency key instead of
-  // replaying the previous request and silently discarding the new choices.
+  // Preset and model choices participate in the create key so retrying a changed
+  // selection cannot replay an earlier session creation.
   const pendingResourceSelectionKey = () =>
     JSON.stringify({
-      execution: options.pendingExecutionSelection?.() ?? null,
-      skills: options.pendingSkillSelection?.() ?? null,
+      globalAgentPresetId: selectedPresetId.get(),
+      modelId: selectedModelId(),
     })
 
   const pendingCreateContext = (): SessionTargetCreateContext => {
@@ -619,6 +732,7 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
 
   const targetRevalidate = () => {
     for (const query of targetQueries) query.refresh()
+    projectAgentsQuery.refresh()
   }
 
   /**
@@ -730,7 +844,18 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
     if (projectTarget !== undefined) options.pendingProjectTargetSet?.(projectTarget)
     const target = pendingTarget()
     const project = sessionCreateProjectResolve(projectTarget)
-    if (target === null || isDisposed) return Promise.resolve(null)
+    if (target === null || isDisposed || (projectTarget === undefined && activeProjectId() !== null &&
+      !selectableAgents().some(({ id }) => id === target.agentId))) return Promise.resolve(null)
+    if (presetAgentUnavailable()) {
+      sessionCreateErrorMessage.set("The preset execution agent is not available on this server.")
+      sessionCreateStatus.set("error")
+      return Promise.resolve(null)
+    }
+    if (selectedPreset() !== null && selectedModelId().trim() === "") {
+      sessionCreateErrorMessage.set("Enter a model for this preset before creating a conversation.")
+      sessionCreateStatus.set("error")
+      return Promise.resolve(null)
+    }
     if (project.projectId === null && (project.projectPath === null || project.projectPath === undefined)) {
       sessionCreateErrorMessage.set("Select a project before creating a conversation.")
       sessionCreateStatus.set("error")
@@ -761,6 +886,7 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
         options.selectedSessionId() === null &&
         currentTarget?.agentId === target.agentId &&
         currentTarget.serverId === target.serverId &&
+        sessionCreateKeyResolve(target, project, command) === key &&
         latestSessionCreateProject?.key === projectKey &&
         (latestSessionCreateProject.explicit && options.pendingProjectTargetSet === undefined
           ? true
@@ -777,8 +903,6 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
           if (!sessionCreateIsCurrent()) return null
         }
         const clientRequestId = pendingCreateRequestIdResolve(target, project, command)
-        const executionSelection = options.pendingExecutionSelection?.()
-        const skillSelection = options.pendingSkillSelection?.()
         const createContext = pendingCreateContext()
         const response = await fetchImplementation("/api/sessions", {
           body: JSON.stringify({
@@ -786,12 +910,12 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
             // Command identity is validated and expanded on the server, which captures
             // the resulting agent/model/subtask overrides in the immutable selection.
             ...(command === undefined ? {} : { command }),
-            ...(executionSelection === undefined ? {} : { executionSelection }),
+            ...(selectedPresetId.get() === null ? {} : { globalAgentPresetId: selectedPresetId.get() }),
+            ...(selectedModelId() === "" ? {} : { modelId: selectedModelId() }),
             ...(createContext.agentPrompt === undefined ? {} : { agentPrompt: createContext.agentPrompt }),
             ...(createContext.instructionOverrides === undefined
               ? {}
               : { instructionOverrides: createContext.instructionOverrides }),
-            ...(skillSelection === undefined ? {} : { skillSelection }),
             primaryAgentId: target.agentId,
             ...(project.projectId === null ? {} : { projectId: project.projectId }),
             ...(project.projectPath === null || project.projectPath === undefined
@@ -856,12 +980,14 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
   }
 
   // Entering /new no longer creates a session on its own. The pre-session workspace must
-  // stay mutable so the preset, skills, and tools can be resolved before creation, and a
+  // stay mutable so the preset and model can be resolved before creation, and a
   // session created eagerly here would capture an immutable default selection instead.
   return {
-    agents: agents.get,
+    agents: selectableAgents,
+    alternativeAgentSelect,
+    alternativeServerSelect,
     agentSelect: (agentId: string) => {
-      if (!agents.get().some((agent) => agent.id === agentId)) return
+      if (!selectableAgents().some((agent) => agent.id === agentId)) return
       agentCreateMode.set(false)
       selectedAgentIdSet(agentId)
       agentSelectionPersist(agentId)
@@ -875,14 +1001,38 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
     dataStatus,
     canCreateSession: () =>
       pendingTarget() !== null &&
+      (activeProjectId() === null || projectAgents() !== undefined) &&
+      (activeProjectId() === null || selectableAgents().some(({ id }) => id === selectedAgentId.get())) &&
+      !presetAgentUnavailable() &&
+      (selectedPreset() === null || selectedModelId().trim() !== "") &&
       (activeProjectId() !== null || activeProjectPath() !== null) &&
       sessionCreateStatus.get() !== "creating",
     configurationReadiness,
     isCreatingSession: () => sessionCreateStatus.get() === "creating",
     pendingTarget,
+    presets,
+    allowedGlobalCommandNames: (discoveredNames: readonly string[]) => {
+      const preset = selectedPreset()
+      const document = presetQuery.data()
+      if (preset === null || document === undefined) return undefined
+      return globalAgentPresetResourcesResolveForPreset(document, "commands", preset.id, discoveredNames) ?? []
+    },
+    presetStatus: () => presetQuery.isError() ? "error" as const : presetQuery.isLoading() ? "loading" as const : "ready" as const,
+    presetErrorMessage: () => presetQuery.errorMessage(),
+    presetRetry: () => presetQuery.retry(),
+    projectAgentsErrorMessage: () => activeProjectId() === null ? null : projectAgentsQuery.errorMessage(),
+    projectAgentsRetry: () => projectAgentsQuery.retry(),
+    selectedPresetId: selectedPresetId.get,
+    presetAgentUnavailable,
+    presetSelect,
+    selectedModelId,
+    modelChange: (model: string) => {
+      modelOverride.set(model)
+      sessionCreateTargetInvalidate()
+    },
     selectedAgentId: selectedAgentId.get,
     selectedAgentName: () =>
-      agents.get().find((agent) => agent.id === selectedAgentId.get())?.name ?? "Local execution agent",
+      selectableAgents().find((agent) => agent.id === selectedAgentId.get())?.name ?? "Local execution agent",
     selectedSessionId: options.selectedSessionId,
     selectedServerId: selectedServerId.get,
     servers: servers.get,

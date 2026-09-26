@@ -23,6 +23,11 @@ import { apiSessionRenameRoutesAdd } from "../../../src/session/api/apiSessionRe
 import { sessionDetailResponseCreate } from "../../../src/session/api/sessionDetailResponseCreate.js"
 import { sessionJournalRecipientResolverCreate } from "../../../src/session/db/sessionJournalRecipientResolverCreate.js"
 import { sessionRepositoryArchive } from "../../../src/session/db/sessionRepositoryArchive.js"
+import { sessionRepositoryBoundedSnapshot } from "../../../src/session/db/sessionRepositoryBoundedSnapshot.js"
+import { sessionRepositoryCreate } from "../../../src/session/db/sessionRepositoryCreate.js"
+import { sessionRepositoryListSnapshot } from "../../../src/session/db/sessionRepositoryListSnapshot.js"
+import { sessionRepositoryShellSnapshot } from "../../../src/session/db/sessionRepositoryShellSnapshot.js"
+import { sessionListCursorCodecCreate } from "../../../src/session/db/sessionListCursorCodecCreate.js"
 import { sessionRepositoryDelete } from "../../../src/session/db/sessionRepositoryDelete.js"
 import { sessionRepositoryPin } from "../../../src/session/db/sessionRepositoryPin.js"
 import { sessionRepositoryRename } from "../../../src/session/db/sessionRepositoryRename.js"
@@ -223,6 +228,46 @@ test.skipIf(!databaseAvailable)(
     expect(deleted).toMatchObject({ success: true, data: { id: sessionId } })
   },
 )
+
+test.skipIf(!databaseAvailable)("repository accepts a scoped project primary and lists it without an agent row", async () => {
+  const id = `project-only-${uuidv7()}`
+  const request = { clientRequestId: `project-only-${uuidv7()}`, primaryAgentId: id,
+    projectPath: "/tmp/project-only", serverId, title: "Project-only session", metadata: {},
+    instructionSnapshot: { snapshots: [], version: 1 } }
+  const rejected = await sessionRepositoryCreate(database, userId, userId, request)
+  expect(rejected).toMatchObject({ success: false, errorMessage: "The agent could not be found." })
+  const wrongServer = await sessionRepositoryCreate(database, userId, otherOrganizationId,
+    { ...request, projectPrimaryAgentIds: [id] })
+  expect(wrongServer).toMatchObject({ success: false })
+  const created = await sessionRepositoryCreate(database, userId, userId,
+    { ...request, projectPrimaryAgentIds: [id] })
+  expect(created).toMatchObject({ success: true, data: { session: { primaryAgentId: id } } })
+  if (!created.success) return
+  const loaded = await sessionLoad(database, userId, userId, created.data.session.id)
+  expect(loaded).toMatchObject({ success: true, data: { agent: { id } } })
+  const shell = await sessionRepositoryShellSnapshot(database, userId, userId, created.data.session.id, {
+    cursorCodec: { encodeDeterministic: () => createResult("cursor") },
+  })
+  expect(shell).toMatchObject({ success: true, data: { agent: { id } } })
+  const bounded = await sessionRepositoryBoundedSnapshot(database, userId, userId, created.data.session.id, {
+    cursorCodec: { encodeSessionPosition: () => createResult("cursor") },
+  })
+  expect(bounded).toMatchObject({ success: true, data: { session: { id: created.data.session.id } } })
+  const listCodec = sessionListCursorCodecCreate(journalCursorCodec.data)
+  if (!listCodec.success) throw new Error(listCodec.errorMessage)
+  const listed = await sessionRepositoryListSnapshot(database, userId, userId,
+    { limit: 50, search: id }, { cursorCodec: {
+      encodeGlobalSequence: () => createResult("cursor"),
+      sessionList: listCodec.data,
+    } })
+  expect(listed.success && listed.data.rows.some(({ session }) => session.id === created.data.session.id)).toBe(true)
+  const hidden = await sessionRepositoryListSnapshot(database, userId, otherOrganizationId,
+    { limit: 50, search: id }, { cursorCodec: {
+      encodeGlobalSequence: () => createResult("cursor"),
+      sessionList: listCodec.data,
+    } })
+  expect(hidden.success && hidden.data.rows.some(({ session }) => session.id === created.data.session.id)).toBe(false)
+})
 
 test.skipIf(!databaseAvailable)(
   "the Drizzle rename route returns canonical representations and conflicts",

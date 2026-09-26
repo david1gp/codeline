@@ -162,6 +162,20 @@ test("authenticated skill inspection APIs return sanitized catalogs, presets, an
   })
 })
 
+test("authenticated global skill API edits only valid global SKILL.md files", async () => {
+  const content = "---\nname: api-added\ndescription: API skill\n---\nUse it.\n"
+  const created = await app.request("http://codeline.test/global/skills", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content, name: "api-added" }),
+  })
+  expect(created.status).toBe(201)
+  expect(await (await app.request("http://codeline.test/global/skills")).json()).toMatchObject({ skills: ["api-added", "global"] })
+  expect(await (await app.request("http://codeline.test/global/skills/api-added")).json()).toEqual({ name: "api-added", content })
+  expect((await app.request("http://codeline.test/global/skills/api-added", {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: content.replace("Use it.", "Updated.") }),
+  })).status).toBe(200)
+  expect((await app.request("http://codeline.test/global/skills/api-added", { method: "DELETE" })).status).toBe(204)
+})
+
 test("skill defaults are authenticated, user/project scoped, and reject paths outside configured projects", async () => {
   const unauthenticated = new Hono<AppEnvironment>()
   apiSkillRoutesAdd(unauthenticated, { database, globalSkillsPath, rootDirs: [rootDirectory] })

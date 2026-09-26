@@ -22,13 +22,13 @@ test("configuration editor flushes the latest draft before its owner is disposed
   try {
     const root = createRoot((dispose) => ({
       dispose,
-      state: configurationEditorStateCreate("skills", "codeline-test-config-skills"),
+      state: configurationEditorStateCreate("subagents", "codeline-test-config-subagents"),
     }))
 
     root.state.contentInput({ currentTarget: { value: "edited before navigation" } } as never)
     root.dispose()
 
-    const stored = JSON.parse(values.get("codeline-test-config-skills") ?? "null")
+    const stored = JSON.parse(values.get("codeline-test-config-subagents") ?? "null")
     expect(stored[0].content).toBe("edited before navigation")
   } finally {
     Object.defineProperty(globalThis, "localStorage", { configurable: true, value: previousLocalStorage })

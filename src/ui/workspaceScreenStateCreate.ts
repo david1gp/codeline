@@ -123,9 +123,7 @@ export function workspaceScreenStateCreate(
     pendingProjectResourcesWait: () => sessionResourceSelector.waitForPendingResources(),
     pendingProjectTargetSet,
     pendingAgentPrompt: sessionResourceSelector.agentPrompt,
-    pendingExecutionSelection: sessionResourceSelector.pendingExecutionSelection,
     pendingInstructionOverrides: sessionResourceSelector.instructionOverrides,
-    pendingSkillSelection: sessionResourceSelector.pendingSkillSelection,
     selectedSessionId: navigation.selectedSessionId,
     sessionNew: navigation.startNewSession,
     sessionSelect: navigation.selectSession,
@@ -141,6 +139,8 @@ export function workspaceScreenStateCreate(
   // session's project is read lazily instead of creating a construction cycle.
   let selectedSessionProjectPath: () => string | null = () => null
   const commandCatalog = chatCommandCatalogStateCreate({
+    allowedGlobalCommandNames: (names) => navigation.selectedSessionId() === null
+      ? sessionTargetSelector!.allowedGlobalCommandNames(names) : undefined,
     ...(options.fetcher === undefined ? {} : { fetch: options.fetcher }),
     isBashEnabled: () => sessionResourceSelector.agentTools().some((entry) => entry.isPrimary && entry.bash),
     isOnline: () => pwa?.status() !== "offline",

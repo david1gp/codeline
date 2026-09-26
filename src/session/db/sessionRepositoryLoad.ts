@@ -18,7 +18,7 @@ export async function sessionRepositoryLoad(
   sessionId: string,
 ): Promise<
   Result<{
-    agent: typeof agentTable.$inferSelect
+    agent: { id: string; configuration: unknown }
     server: typeof serverTable.$inferSelect
     session: typeof sessionTable.$inferSelect
   }>
@@ -33,7 +33,7 @@ export async function sessionRepositoryLoad(
         serverTable,
         and(eq(sessionTable.serverId, serverTable.id), eq(serverTable.organizationId, organizationId)),
       )
-      .innerJoin(
+      .leftJoin(
         agentTable,
         and(eq(sessionTable.primaryAgentId, agentTable.id), eq(agentTable.serverId, sessionTable.serverId)),
       )
@@ -59,6 +59,7 @@ export async function sessionRepositoryLoad(
       if (!executionManifest.success) return createResultError(op, "The session execution manifest is invalid.")
       return createResult({
         ...row,
+        agent: row.agent ?? { id: row.session.primaryAgentId, configuration: null },
         session: {
           ...row.session,
           agentPrompt: agentPrompt.output,

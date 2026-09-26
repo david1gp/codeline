@@ -137,9 +137,213 @@ const agentDetails: Record<string, unknown> = {
   }),
 }
 
+const globalPresets = {
+  version: 1,
+  categories: Object.fromEntries(["skills", "commands", "tools", "subagents"].map((key) => [key, {
+    defaultSetId: `default-${key}`,
+    sets: [{ id: `default-${key}`, name: "Default", resourceNames: [], includeNewResources: true, includeAllResources: key === "commands" }],
+  }])),
+  presets: [{ id: "review", name: "Review", executionAgentId: "example-agent-local-review", modelId: "review-default", skillSetIds: [], commandSetIds: [], toolSetIds: [], subagentSetIds: [], subagentNames: [] }],
+}
+
+test("global preset prefills the execution agent and model, and a model override is sent on creation", async () => {
+  const requests: Record<string, unknown>[] = []
+  let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
+  const dispose = createRoot((rootDispose) => {
+    state = sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(),
+      activeProjectPath: () => "/example",
+      fetch: async (input, init) => {
+        if (String(input) === "/api/global/agent-presets") return response(globalPresets)
+        if (String(input) === "/api/sessions") requests.push(JSON.parse(String(init?.body)))
+        return fetchDefaultCreate([])(input, init)
+      },
+      selectedSessionId: () => null,
+      sessionSelect: () => undefined,
+    })
+    return rootDispose
+  })
+  await effectsSettle()
+  expect(state?.presets().map(({ id }) => id)).toEqual(["review"])
+  state?.presetSelect("review")
+  expect(state?.selectedAgentId()).toBe("example-agent-local-review")
+  expect(state?.selectedModelId()).toBe("review-default")
+  state?.modelChange("review-custom")
+  await state?.sessionCreateStart()
+  expect(requests[0]).toMatchObject({ globalAgentPresetId: "review", modelId: "review-custom", primaryAgentId: "example-agent-local-review" })
+  expect(requests[0]).not.toHaveProperty("skillSelection")
+  expect(requests[0]).not.toHaveProperty("executionSelection")
+  state?.presetSelect("")
+  await effectsSettle()
+  expect(state?.selectedModelId()).toBe("review-model")
+  dispose()
+})
+
+test("selecting a preset on another server switches to its execution agent", async () => {
+  let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
+  const dispose = createRoot((rootDispose) => {
+    state = sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(),
+      fetch: (input, init) => String(input) === "/api/global/agent-presets"
+        ? Promise.resolve(response({ ...globalPresets, presets: [{ ...globalPresets.presets[0], id: "remote", executionAgentId: "example-agent-remote", modelId: "remote-preset" }] }))
+        : fetchDefaultCreate([])(input, init),
+      selectedSessionId: () => null,
+      sessionSelect: () => undefined,
+    })
+    return rootDispose
+  })
+  await effectsSettle()
+  state?.presetSelect("remote")
+  await effectsSettle()
+  expect(state?.pendingTarget()).toEqual({ agentId: "example-agent-remote", serverId: "example-server-remote" })
+  expect(state?.selectedModelId()).toBe("remote-preset")
+  dispose()
+})
+
+test("an unavailable preset agent blocks creation until an explicit alternative clears the preset", async () => {
+  const bodies: Record<string, unknown>[] = []
+  let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
+  const dispose = createRoot((rootDispose) => {
+    state = sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(),
+      fetch: async (input, init) => {
+        if (String(input) === "/api/global/agent-presets") return response({
+          ...globalPresets, presets: [{ ...globalPresets.presets[0], executionAgentId: "missing-agent" }],
+        })
+        if (String(input) === "/api/sessions" && init?.method === "POST") bodies.push(JSON.parse(String(init.body)))
+        return fetchDefaultCreate([])(input, init)
+      },
+      selectedSessionId: () => null,
+      sessionSelect: () => undefined,
+    })
+    return rootDispose
+  })
+  await effectsSettle()
+  state?.presetSelect("review")
+  await effectsSettle()
+  expect(state?.presetAgentUnavailable()).toBe(true)
+  expect(state?.canCreateSession()).toBe(false)
+  expect(await state?.sessionCreateStart()).toBeNull()
+  expect(bodies).toEqual([])
+  state?.alternativeAgentSelect("example-agent-local")
+  await effectsSettle()
+  expect(state?.selectedPresetId()).toBeNull()
+  expect(state?.selectedModelId()).toBe("codex-model")
+  await state?.sessionCreateStart()
+  expect(bodies).toEqual([expect.objectContaining({ primaryAgentId: "example-agent-local" })])
+  expect(bodies[0]).not.toHaveProperty("globalAgentPresetId")
+  dispose()
+})
+
+test("a preset model can be replaced explicitly without changing the preset agent or command membership", async () => {
+  const bodies: Record<string, unknown>[] = []
+  let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
+  const dispose = createRoot((rootDispose) => {
+    state = sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(),
+      fetch: async (input, init) => {
+        if (String(input) === "/api/global/agent-presets") return response({
+          ...globalPresets,
+          categories: { ...globalPresets.categories, commands: {
+            defaultSetId: "default-commands", sets: [{ id: "default-commands", name: "Default", resourceNames: ["allowed"], excludedResourceNames: ["excluded"], includeNewResources: false, includeAllResources: false }],
+          } },
+          presets: [{ ...globalPresets.presets[0], commandSetIds: ["default-commands"] }],
+        })
+        if (String(input) === "/api/sessions" && init?.method === "POST") bodies.push(JSON.parse(String(init.body)))
+        return fetchDefaultCreate([])(input, init)
+      },
+      selectedSessionId: () => null,
+      sessionSelect: () => undefined,
+    })
+    return rootDispose
+  })
+  await effectsSettle()
+  state?.presetSelect("review")
+  expect(state?.allowedGlobalCommandNames(["allowed", "excluded"])).toEqual(["allowed"])
+  state?.modelChange("")
+  expect(state?.canCreateSession()).toBe(false)
+  await state?.sessionCreateStart()
+  expect(bodies).toEqual([])
+  state?.modelChange("review-alternative")
+  await state?.sessionCreateStart()
+  expect(bodies).toEqual([expect.objectContaining({ globalAgentPresetId: "review", modelId: "review-alternative", primaryAgentId: "example-agent-local-review" })])
+  dispose()
+})
+
 async function effectsSettle() {
   for (let index = 0; index < 12; index += 1) await new Promise((resolve) => setTimeout(resolve, 0))
 }
+
+test("project agent picker includes local primaries, replaces same-name globals, and resets on project switch", async () => {
+  const requests: Record<string, unknown>[] = []
+  const [projectId, projectSelect] = createSignal("project-one")
+  const fetchDefault = fetchDefaultCreate([])
+  let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
+  const dispose = createRoot((rootDispose) => {
+    state = sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(), activeProjectId: projectId,
+      fetch: (input, init) => {
+        const url = String(input)
+        if (url === "/api/global/agent-presets") return Promise.resolve(response(globalPresets))
+        if (url === "/api/project/agents?project=project-one") return Promise.resolve(response({
+          agents: [
+            { id: "example-agent-local", mode: "primary", enabled: true, description: "Project override" },
+            { id: "only-here", mode: "primary", enabled: true, description: "Project only" },
+            { id: "helper", mode: "subagent", enabled: true },
+          ],
+          projectAgentIds: ["example-agent-local", "only-here", "helper"],
+        }))
+        if (url === "/api/project/agents?project=project-two") return Promise.resolve(response({ agents: [], projectAgentIds: [] }))
+        if (url === "/api/sessions") requests.push(JSON.parse(String(init?.body)))
+        return fetchDefault(input, init)
+      },
+      selectedSessionId: () => null, sessionSelect: () => undefined,
+    })
+    return rootDispose
+  })
+  await effectsSettle()
+  expect(state?.agents().map(({ id }) => id)).toEqual(["example-agent-local-review", "example-agent-local", "only-here"])
+  expect(state?.agents().find(({ id }) => id === "example-agent-local")?.name).toBe("Project override")
+  state?.alternativeAgentSelect("only-here")
+  expect(state?.selectedAgentId()).toBe("only-here")
+  await state?.sessionCreateStart()
+  expect(requests[0]).toMatchObject({ primaryAgentId: "only-here", projectId: "project-one" })
+  projectSelect("project-two")
+  await effectsSettle()
+  expect(state?.agents().map(({ id }) => id)).not.toContain("only-here")
+  expect(state?.selectedAgentId()).not.toBe("only-here")
+  expect(state?.agents().find(({ id }) => id === "example-agent-local")?.name).toBe("Example Coding Agent")
+  state?.presetSelect("review")
+  state?.modelChange("custom-review")
+  await state?.sessionCreateStart()
+  expect(requests[1]).toMatchObject({ globalAgentPresetId: "review", modelId: "custom-review", projectId: "project-two" })
+  dispose()
+})
+
+test("project-only primary remains selectable when the server has no registered agents", async () => {
+  let state: ReturnType<typeof sessionTargetSelectorStateCreate> | undefined
+  const dispose = createRoot((rootDispose) => {
+    state = sessionTargetSelectorStateCreate({
+      accountId: accountIdCreate(), activeProjectId: () => "empty-server-project",
+      fetch: (input, init) => {
+        const url = String(input)
+        if (url === "/api/project/agents?project=empty-server-project") return Promise.resolve(response({
+          agents: [{ id: "project-primary", mode: "primary", enabled: true }], projectAgentIds: ["project-primary"],
+        }))
+        if (url === "/api/servers/example-server-local/agents") return Promise.resolve(response(representation({ agents: [] })))
+        return fetchDefaultCreate([])(input, init)
+      },
+      selectedSessionId: () => null, sessionSelect: () => undefined,
+    })
+    return rootDispose
+  })
+  await effectsSettle()
+  expect(state?.agentStatus()).toBe("ready")
+  expect(state?.agents().map(({ id }) => id)).toEqual(["project-primary"])
+  expect(state?.pendingTarget()).toEqual({ agentId: "project-primary", serverId: "example-server-local" })
+  expect(state?.canCreateSession()).toBe(true)
+  dispose()
+})
 
 function fetchDefaultCreate(requests: string[], overrides: Record<string, () => Response> = {}) {
   return async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -147,6 +351,7 @@ function fetchDefaultCreate(requests: string[], overrides: Record<string, () => 
     requests.push(`${init?.method ?? "GET"} ${url}`)
     const override = overrides[url]
     if (override !== undefined) return override()
+    if (url.startsWith("/api/project/agents?project=")) return response({ agents: [], projectAgentIds: [] })
     if (url === "/api/servers") return response(servers)
     const agentMatch = /^\/api\/servers\/([^/]+)\/agents$/.exec(url)
     if (agentMatch?.[1] !== undefined) {

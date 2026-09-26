@@ -3,6 +3,10 @@ import type { Context } from "hono"
 import { Hono } from "hono"
 import { apiRequestParse } from "../apiRequestParse.js"
 import type { AppEnvironment } from "../appEnvironment.js"
+import type { DatabaseClient } from "../../database/databaseClient.js"
+import type { RuntimeConfiguration } from "../../configuration/runtimeConfigurationSchema.js"
+import { e2eFixtureDiagnosticCapture } from "../../identity/actions/e2eFixtureDiagnosticCapture.js"
+import { oidcIssuerCanonicalize } from "../../identity/oidc/oidcIssuerCanonicalize.js"
 import type { ApiErrorResponse } from "../errors/apiErrorResponseSchema.js"
 import { apiClientLogJournalWrite } from "./apiClientLogJournalWrite.js"
 import { apiClientLogRequestSchema } from "./apiClientLogRequestSchema.js"
@@ -13,6 +17,9 @@ type ApiContext = Context<AppEnvironment>
 
 type ApiDiagnosticsRoutesOptions = {
   clientLogJournalWrite?: typeof apiClientLogJournalWrite
+  configuration?: RuntimeConfiguration
+  database?: DatabaseClient
+  projectRootDirs?: readonly string[]
 }
 
 function unauthorized(context: ApiContext) {
@@ -90,6 +97,12 @@ function requestAuthorized(context: ApiContext): boolean {
 
 export function apiDiagnosticsRoutesAdd(api: Hono<AppEnvironment>, options: ApiDiagnosticsRoutesOptions = {}): void {
   const journalWrite = options.clientLogJournalWrite ?? apiClientLogJournalWrite
+  const issuerValue = options.configuration?.oidcIssuer ?? options.configuration?.oidcProviders?.authworks?.issuer
+  const canonical = issuerValue === undefined ? undefined : oidcIssuerCanonicalize(issuerValue)
+  const fixtureConfig = {
+    issuer: canonical?.success ? canonical.data : "",
+    organizationExternalId: options.configuration?.oidcOrganizationId ?? "",
+  }
 
   api.post("/diagnostics/logs", async (context) => {
     if (!requestAuthorized(context)) return unauthorized(context)
@@ -109,6 +122,17 @@ export function apiDiagnosticsRoutesAdd(api: Hono<AppEnvironment>, options: ApiD
         userId: identity.userId,
       })
       try {
+        if (typeof options.database?.select === "function") {
+          const captured = await e2eFixtureDiagnosticCapture(
+            options.database,
+            fixtureConfig,
+            identity.userId,
+            journalEntry as Record<string, unknown>,
+            options.projectRootDirs ?? [],
+          )
+          if (!captured.success) return internalServerError(context)
+          if (captured.data) continue
+        }
         await journalWrite(journalEntry)
       } catch (_error) {
         return internalServerError(context)

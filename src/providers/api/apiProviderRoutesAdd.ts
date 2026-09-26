@@ -7,10 +7,12 @@ import { apiIfNoneMatchMatches } from "../../api/conditional/apiIfNoneMatchMatch
 import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.js"
 import { apiRepresentationHeadersCreate } from "../../api/representation/apiRepresentationHeadersCreate.js"
 import { providerAgentCatalogRedact } from "../catalog/providerAgentCatalogRedact.js"
+import { providerAgentCatalogModelResolve } from "../catalog/providerAgentCatalogModelResolve.js"
 import { providerConnectionTest } from "../runtime/providerConnectionTest.js"
 import { type ProviderModelDiscoveryOptions, providerModelDiscovery } from "../runtime/providerModelDiscovery.js"
 import type { ProviderCatalog } from "../schema/providerCatalogSchema.js"
 import { providerApiCatalogResponseSchema } from "./providerApiCatalogResponseSchema.js"
+import { providerApiAgentsResponseSchema } from "./providerApiAgentsResponseSchema.js"
 import { type ProviderApiConnectionTestResponse } from "./providerApiConnectionTestResponseSchema.js"
 import { type ProviderApiModelsResponse } from "./providerApiModelsResponseSchema.js"
 import { providerApiRequestSchema } from "./providerApiRequestSchema.js"
@@ -68,6 +70,24 @@ function headersApply(context: ApiContext, headers: Headers): void {
 }
 
 export function apiProviderRoutesAdd(api: Hono<AppEnvironment>, options: ApiProviderRoutesOptions): void {
+  api.get("/providers/agents", (context) => {
+    if (!requestAuthorized(context)) return unauthorized(context)
+    if (options.providerAgentCatalog === undefined) return catalogUnavailable(context)
+    const catalog = options.providerAgentCatalog
+    const response = { agents: catalog.agents.map((agent) => {
+      const { id, description, enabled, mode } = agent
+      const resolved = providerAgentCatalogModelResolve(catalog, agent)
+      return {
+        id, ...(description === undefined ? {} : { description }), enabled,
+        ...(mode === undefined ? {} : { mode }),
+        ...(resolved.success ? { provider: resolved.data.provider.id, model: resolved.data.model.id } : {}),
+      }
+    }).sort((a, b) => a.id.localeCompare(b.id)) }
+    if (!v.safeParse(providerApiAgentsResponseSchema, response).success) return catalogUnavailable(context)
+    context.header("Cache-Control", "private, no-cache")
+    context.header("Vary", "Cookie")
+    return context.json(response)
+  })
   api.get("/providers/catalog", (context) => {
     if (!requestAuthorized(context)) return unauthorized(context)
     if (options.providerAgentCatalog === undefined) return catalogUnavailable(context)

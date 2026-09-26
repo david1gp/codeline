@@ -1,6 +1,5 @@
 import { createResult, createResultError, createResultErrorCode, type Result } from "@adaptive-ds/result"
 import { and, eq } from "drizzle-orm"
-import { agentTable } from "../../agents/db/agentTable.js"
 import type { DatabaseClient } from "../../database/databaseClient.js"
 import { applicationUserTable } from "../../identity/db/applicationUserTable.js"
 import { journalSequenceCounterTable } from "../../journal/db/journalSequenceCounterTable.js"
@@ -31,7 +30,7 @@ export async function sessionRepositoryShellSnapshot(
 ): Promise<
   Result<{
     asOfCursor: string
-    agent: typeof agentTable.$inferSelect
+    agent: { id: string }
     server: typeof serverTable.$inferSelect
     session: typeof sessionTable.$inferSelect
     projectId: string | null
@@ -55,15 +54,11 @@ export async function sessionRepositoryShellSnapshot(
           )
 
         const [row] = await transaction
-          .select({ agent: agentTable, projectId: projectTable.id, server: serverTable, session: sessionTable })
+          .select({ projectId: projectTable.id, server: serverTable, session: sessionTable })
           .from(sessionTable)
           .innerJoin(
             serverTable,
             and(eq(sessionTable.serverId, serverTable.id), eq(serverTable.organizationId, organizationId)),
-          )
-          .innerJoin(
-            agentTable,
-            and(eq(sessionTable.primaryAgentId, agentTable.id), eq(agentTable.serverId, sessionTable.serverId)),
           )
           .leftJoin(
             projectTable,
@@ -83,7 +78,7 @@ export async function sessionRepositoryShellSnapshot(
         const asOfCursor = dependencies.cursorCodec.encodeDeterministic(user.id, highestSequence.data)
         if (!asOfCursor.success) return createResultError(op, asOfCursor.errorMessage)
 
-        return createResult({ ...row, asOfCursor: asOfCursor.data })
+        return createResult({ ...row, agent: { id: row.session.primaryAgentId }, asOfCursor: asOfCursor.data })
       },
       { behavior: "deferred" },
     )

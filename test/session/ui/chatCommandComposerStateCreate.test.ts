@@ -46,11 +46,13 @@ function stateCreate(
     status?: ChatCommandCatalogSource["status"]
     errorMessage?: string
     initialDraft?: string
+    allowedGlobalCommandNames?: (names: readonly string[]) => readonly string[] | undefined
   } = {},
 ) {
   const [draft, setDraft] = createSignal(options.initialDraft ?? "")
   let retries = 0
   const catalog: ChatCommandCatalogSource = {
+    allowedGlobalCommandNames: options.allowedGlobalCommandNames,
     commands: () => options.catalog ?? commands,
     errorMessage: () => options.errorMessage,
     isBashEnabled: () => options.isBashEnabled ?? true,
@@ -71,6 +73,42 @@ function stateCreate(
   })
   return { dispose, draft, retryCount: () => retries, setDraft, state: state! }
 }
+
+test("preset command filtering retains project commands and same-name project overrides", () => {
+  const localOverride = commandCreate("release", "Project release")
+  const { dispose, setDraft, state } = stateCreate({
+    allowedGlobalCommandNames: () => ["audit"],
+    catalog: [
+      commandCreate("audit", "Global audit", { source: "global" }),
+      commandCreate("secret", "Global secret", { source: "global" }),
+      commandCreate("release", "Global release", { source: "global" }),
+      localOverride,
+      commandCreate("local", "Project local"),
+    ],
+  })
+  setDraft("/")
+  expect(state.suggestions().map(({ name }) => name)).toEqual(["audit", "local", "release"])
+  setDraft("/secret ")
+  expect(state.errorMessage()).toContain("could not be found")
+  expect(state.invocation()).toBeUndefined()
+  setDraft("/release ")
+  expect(state.preview()).toMatchObject({ source: "project", expandedText: "Project release" })
+  expect(state.invocation()).toEqual({ arguments: "", name: "release" })
+  dispose()
+})
+
+test("slash suggestions react to changed preset command membership", () => {
+  const [allowed, setAllowed] = createSignal<readonly string[]>(["audit"])
+  const { dispose, setDraft, state } = stateCreate({
+    allowedGlobalCommandNames: () => allowed(),
+    catalog: [commandCreate("audit", "Audit", { source: "global" }), commandCreate("release", "Release", { source: "global" })],
+  })
+  setDraft("/")
+  expect(state.suggestions().map(({ name }) => name)).toEqual(["audit"])
+  setAllowed(["release"])
+  expect(state.suggestions().map(({ name }) => name)).toEqual(["release"])
+  dispose()
+})
 
 test("a draft is only a command while it starts with a slash", () => {
   expect(chatCommandDraftParse("/review alpha")).toEqual({

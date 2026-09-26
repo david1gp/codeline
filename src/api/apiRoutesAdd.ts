@@ -6,6 +6,7 @@ import { commandCatalogDiscover } from "../commands/actions/commandCatalogDiscov
 import { apiCommandRoutesAdd } from "../commands/api/apiCommandRoutesAdd.js"
 import { sessionCompactionGenerate } from "../compaction/actions/sessionCompactionGenerate.js"
 import type { ConfigurationStore } from "../configuration/configurationStore.js"
+import { apiGlobalAgentPresetRoutesAdd } from "../configuration/api/apiGlobalAgentPresetRoutesAdd.js"
 import type { RuntimeConfiguration } from "../configuration/runtimeConfigurationSchema.js"
 import type { DatabaseClient } from "../database/databaseClient.js"
 import { apiEventsRoutesAdd } from "../events/api/apiEventsRoutesAdd.js"
@@ -162,7 +163,12 @@ export function apiRoutesAdd(
   })
 
   apiReadinessRoutesAdd(api, databaseReadyCheck)
-  apiDiagnosticsRoutesAdd(api, { clientLogJournalWrite: options.clientLogJournalWrite })
+  apiDiagnosticsRoutesAdd(api, {
+    clientLogJournalWrite: options.clientLogJournalWrite,
+    configuration: options.configuration,
+    database: options.database,
+    projectRootDirs: options.projectRootDirs,
+  })
   if (options.metricsCollector !== undefined) apiMetricsRoutesAdd(api, options.metricsCollector)
   apiAuthRoutesAdd(api, {
     configuration: options.configuration,
@@ -250,6 +256,7 @@ export function apiRoutesAdd(
   }
   apiProjectRoutesAdd(api, {
     database: options.database,
+    providerAgentCatalog: options.providerAgentCatalog,
     limits: options.projectLimits,
     openCodeDatabasePath: options.openCodeDatabasePath ?? options.configuration?.openCodeDatabasePath,
     projectConfiguredRootsReconcile: options.projectConfiguredRootsReconcile,
@@ -267,6 +274,7 @@ export function apiRoutesAdd(
     projectRegistryDatabase: options.database,
     rootDirs: options.projectRootDirs ?? [],
   })
+  apiGlobalAgentPresetRoutesAdd(api, { configurationStore: options.configurationStore })
   apiSkillRoutesAdd(api, {
     database: options.database,
     globalSkillsPath: options.globalSkillsPath,

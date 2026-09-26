@@ -88,7 +88,6 @@ export function WorkspacePage(props: { state: WorkspaceScreenView }) {
           fallback={
             <WorkspaceSetupPanel
               configuration={props.state.sessionTargetSelector.configurationReadiness()}
-              resources={props.state.sessionResourceSelector}
             />
           }
         >

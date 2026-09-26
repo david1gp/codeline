@@ -23,7 +23,7 @@ type SessionListSnapshotDependencies = {
 type SessionListRequestInput = v.InferInput<typeof sessionListRequestSchema>
 
 type SessionListSnapshotRow = {
-  agent: typeof agentTable.$inferSelect
+  agent: typeof agentTable.$inferSelect | null
   projectId: string | null
   server: typeof serverTable.$inferSelect
   session: typeof sessionTable.$inferSelect
@@ -130,7 +130,6 @@ export async function sessionRepositoryListSnapshot(
         const conditions = [
           eq(sessionTable.userId, user.id),
           eq(serverTable.organizationId, organizationId),
-          eq(agentTable.serverId, sessionTable.serverId),
         ]
         if (!parsedOptions.output.includeArchived) conditions.push(isNull(sessionTable.archivedAt))
         if (validatedCursor.data !== undefined) {
@@ -150,6 +149,7 @@ export async function sessionRepositoryListSnapshot(
             sql`lower(${agentTable.name}) like lower(${pattern}) escape ${"\\"}`,
             sql`lower(${serverTable.metadata}) like lower(${pattern}) escape ${"\\"}`,
             sql`lower(${agentTable.configuration}) like lower(${pattern}) escape ${"\\"}`,
+            sql`lower(${sessionTable.primaryAgentId}) like lower(${pattern}) escape ${"\\"}`,
           )
           if (searchCondition !== undefined) conditions.push(searchCondition)
         }
@@ -158,7 +158,7 @@ export async function sessionRepositoryListSnapshot(
           .select({ agent: agentTable, projectId: projectTable.id, server: serverTable, session: sessionTable })
           .from(sessionTable)
           .innerJoin(serverTable, eq(sessionTable.serverId, serverTable.id))
-          .innerJoin(agentTable, eq(sessionTable.primaryAgentId, agentTable.id))
+          .leftJoin(agentTable, and(eq(sessionTable.primaryAgentId, agentTable.id), eq(agentTable.serverId, sessionTable.serverId)))
           .leftJoin(
             projectTable,
             and(eq(projectTable.userId, sessionTable.userId), eq(projectTable.path, sessionTable.projectPath)),

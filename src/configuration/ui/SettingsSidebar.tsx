@@ -11,7 +11,13 @@ const groups = [
     items: [
       { icon: applicationIcon.account, label: "Subagents", section: "subagents" },
       { icon: applicationIcon.projectCreate, label: "Skills", section: "skills" },
+      { icon: applicationIcon.projectCreate, label: "Skill sets", section: "skill-sets" },
       { icon: applicationIcon.promptContext, label: "Commands", section: "commands" },
+      { icon: applicationIcon.promptContext, label: "Command sets", section: "command-sets" },
+      { icon: applicationIcon.settings, label: "Tools", section: "tools" },
+      { icon: applicationIcon.settings, label: "Tool sets", section: "tool-sets" },
+      { icon: applicationIcon.account, label: "Subagent sets", section: "subagent-sets" },
+      { icon: applicationIcon.settings, label: "Agent presets", section: "agent-presets" },
     ],
     label: "Configuration",
   },

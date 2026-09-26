@@ -24,6 +24,7 @@ export function demoSessionTargetSelectorStateCreate(
 ): SessionTargetSelectorState {
   const selectedServerId = createSignalObject<string | null>(demoServers[0]?.id ?? null)
   const selectedAgentId = createSignalObject<string | null>(demoAgents[0]?.id ?? null)
+  const demoModel = createSignalObject("demo-model")
   const status = () => {
     if (variant() === "loading") return "loading" as const
     if (variant() === "error") return "error" as const
@@ -88,6 +89,10 @@ export function demoSessionTargetSelectorStateCreate(
   return {
     agents,
     agentSelect,
+    alternativeAgentSelect: agentSelect,
+    alternativeServerSelect: (id: string) => {
+      if (servers().some((server) => server.id === id)) selectedServerId.set(id)
+    },
     agentsReload: () => undefined,
     agentStatus: status,
     dataStatus: () => (status() === "loading" ? ("reconciling" as const) : ("ready" as const)),
@@ -99,6 +104,18 @@ export function demoSessionTargetSelectorStateCreate(
       const serverId = selectedServerId.get()
       return agentId === null || serverId === null || status() !== "ready" ? null : { agentId, serverId }
     },
+    presets: () => [],
+    allowedGlobalCommandNames: () => undefined,
+    presetAgentUnavailable: () => false,
+    presetStatus: () => "ready" as const,
+    presetErrorMessage: () => undefined,
+    presetRetry: () => Promise.resolve(),
+    projectAgentsErrorMessage: () => null,
+    projectAgentsRetry: () => Promise.resolve(),
+    selectedPresetId: () => null,
+    presetSelect: () => undefined,
+    selectedModelId: demoModel.get,
+    modelChange: (model: string) => { demoModel.set(model); return model },
     selectedAgentId: selectedAgentId.get,
     selectedAgentName: () =>
       agents().find((agent) => agent.id === selectedAgentId.get())?.name ?? "Local execution agent",

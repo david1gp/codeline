@@ -3,12 +3,8 @@ import * as path from "node:path"
 import { createResult, createResultError, type Result } from "@adaptive-ds/result"
 import * as v from "valibot"
 import { parseDocument } from "yaml"
-import {
-  type AgentCatalogFrontmatter,
-  agentCatalogFrontmatterSchema,
-} from "../../agents/schema/agentCatalogFrontmatterSchema.js"
 import { type ProviderCatalog, providerCatalogSchema } from "../schema/providerCatalogSchema.js"
-import { providerGenerationSchema } from "../schema/providerGenerationSchema.js"
+import { providerAgentCatalogAgentParse } from "./providerAgentCatalogAgentParse.js"
 import { providerAgentCatalogRevision } from "./providerAgentCatalogRevision.js"
 
 type RawRecord = Record<string, unknown>
@@ -160,7 +156,6 @@ const endpointNormalize = (
 }
 
 const supportedTransports = new Set(["openai/completions", "openai/responses"])
-const supportedAgentEfforts = new Set(["low", "medium", "high", "xhigh", "max"])
 
 const costNormalize = (value: unknown): CatalogModel["cost"] | undefined => {
   const entries = value === undefined ? [] : Array.isArray(value) ? value : [value]
@@ -348,70 +343,6 @@ const providerModelParse = (
   return createResult({ model, providerDisplayName, providerEnabled })
 }
 
-const frontmatterParse = (source: string): Result<{ metadata: AgentCatalogFrontmatter; prompt: string }> => {
-  const op = "providerAgentCatalogLoad"
-  const normalized = source.replace(/\r\n?/g, "\n")
-  const lines = normalized.split("\n")
-  if (lines[0] !== "---") return createResultError(op, "Agent Markdown requires YAML frontmatter.")
-  const close = lines.findIndex((line, index) => index > 0 && (line === "---" || line === "..."))
-  if (close < 0) return createResultError(op, "Agent frontmatter is unterminated.")
-  const yaml = yamlParse(lines.slice(1, close).join("\n"))
-  if (!yaml.success) return yaml
-  const parsed = v.safeParse(agentCatalogFrontmatterSchema, yaml.data === null ? {} : yaml.data)
-  if (!parsed.success) return createResultError(op, "Agent frontmatter is invalid.")
-  const prompt = lines
-    .slice(close + 1)
-    .join("\n")
-    .trim()
-  if (prompt.length === 0) return createResultError(op, "Agent Markdown body is empty.")
-  return createResult({ metadata: parsed.output, prompt })
-}
-
-const agentParse = (name: string, source: string): Result<CatalogAgent> => {
-  const op = "providerAgentCatalogLoad"
-  const id = safeId(name)
-  if (id === undefined) return createResultError(op, "Agent filename is invalid.")
-  const parsed = frontmatterParse(source)
-  if (!parsed.success) return parsed
-  const sourceModel = parsed.data.metadata.model
-  const modelParts = sourceModel?.split("/")
-  const provider =
-    parsed.data.metadata.provider !== undefined
-      ? providerIdNormalize(parsed.data.metadata.provider)
-      : modelParts?.length === 2
-        ? providerIdNormalize(modelParts[0] ?? "")
-        : undefined
-  const model = safeId(modelParts?.length === 2 ? (modelParts[1] ?? "") : (sourceModel ?? ""))
-  if (parsed.data.metadata.provider !== undefined && provider === undefined)
-    return createResultError(op, "Agent provider is invalid.")
-  if (sourceModel !== undefined && ((modelParts?.length !== 1 && modelParts?.length !== 2) || model === undefined))
-    return createResultError(op, "Agent model is invalid.")
-  const variant = parsed.data.metadata.variant
-  const effort = parsed.data.metadata.effort ?? variant
-  const generation = parsed.data.metadata.generation
-  if (generation !== undefined && !v.safeParse(providerGenerationSchema, generation).success)
-    return createResultError(op, "Agent generation metadata is invalid.")
-  const normalizedGeneration =
-    generation ??
-    (effort !== undefined && supportedAgentEfforts.has(effort)
-      ? { reasoningEffort: effort as "low" | "medium" | "high" | "xhigh" | "max" }
-      : undefined)
-  return createResult({
-    ...(parsed.data.metadata.description === undefined ? {} : { description: parsed.data.metadata.description }),
-    enabled: parsed.data.metadata.enabled ?? true,
-    ...(parsed.data.metadata.effort === undefined ? {} : { effort: parsed.data.metadata.effort }),
-    id,
-    ...(parsed.data.metadata.mode === undefined ? {} : { mode: parsed.data.metadata.mode }),
-    ...(model === undefined ? {} : { model }),
-    ...(parsed.data.metadata.permission === undefined ? {} : { permission: parsed.data.metadata.permission }),
-    prompt: parsed.data.prompt,
-    ...(provider === undefined ? {} : { provider }),
-    ...(normalizedGeneration === undefined ? {} : { generation: normalizedGeneration }),
-    tools: parsed.data.metadata.tools,
-    ...(variant === undefined ? {} : { variant }),
-  })
-}
-
 const directoryEntriesRead = async (directory: string, extension: string): Promise<Result<string[]>> => {
   const op = "providerAgentCatalogLoad"
   try {
@@ -514,7 +445,7 @@ export async function providerAgentCatalogLoad(rootDirectory: string): Promise<R
     } catch {
       return createResultError(op, "An agent file could not be read.")
     }
-    const parsed = agentParse(file.slice(0, -3), source)
+    const parsed = providerAgentCatalogAgentParse(file.slice(0, -3), source)
     if (!parsed.success) return parsed
     agents.push(parsed.data)
   }

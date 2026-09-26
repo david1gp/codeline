@@ -17,10 +17,9 @@ test("the workspace shows the initial composer when execution configuration is r
   expect(normalized).toContain(
     "when={workspaceSessionPaneVisibleResolve({ configurationStatus: props.state.sessionTargetSelector.configurationReadiness().status, hasSelectedSession: props.state.selectedSession.session() !== undefined, readOnlyReason: props.state.selectedSession.readOnlyReason(), })}",
   )
-  // Both panes receive the resource selector, so the pending selection is configurable
-  // before a session exists and the captured one is shown after it does.
+  // Setup no longer offers resource toggles; existing sessions still inspect their captured resources.
   expect(normalized).toContain(
-    "fallback={ <WorkspaceSetupPanel configuration={props.state.sessionTargetSelector.configurationReadiness()} resources={props.state.sessionResourceSelector} /> }",
+    "fallback={ <WorkspaceSetupPanel configuration={props.state.sessionTargetSelector.configurationReadiness()} /> }",
   )
   expect(normalized).toContain(
     "<SelectedSession activeProject={props.state.activeProject} providerModel={props.state.providerModelSelector} resources={props.state.sessionResourceSelector} sessionTarget={props.state.sessionTargetSelector} shell={props.state.shell} state={props.state.selectedSession} />",
@@ -68,4 +67,6 @@ test("the setup panel reports organization machine availability and exposes one 
   expect(setupPanel).toContain("No local agent configured")
   expect(setupPanel).toContain("props.configuration.sessionCreateStart()")
   expect(setupPanel).toContain('from "#ui/interactive/button/Button.jsx"')
+  expect(setupPanel).not.toContain("SessionResourceSelector")
+  expect(setupPanel).not.toContain("props.resources")
 })

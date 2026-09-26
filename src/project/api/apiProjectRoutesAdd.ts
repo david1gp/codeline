@@ -8,6 +8,9 @@ import { apiRequestParse } from "../../api/apiRequestParse.js"
 import type { AppEnvironment } from "../../api/appEnvironment.js"
 import type { ApiErrorResponse } from "../../api/errors/apiErrorResponseSchema.js"
 import type { DatabaseClient } from "../../database/databaseClient.js"
+import { providerAgentCatalogProjectResolve } from "../../providers/catalog/providerAgentCatalogProjectResolve.js"
+import type { ProviderCatalog } from "../../providers/schema/providerCatalogSchema.js"
+import { projectApiAgentsResponseSchema } from "./projectApiAgentsResponseSchema.js"
 import { projectConfiguredRootsReconcile as projectConfiguredRootsReconcileDefault } from "../db/projectConfiguredRootsReconcile.js"
 import { projectFolderRepositoryCreate } from "../db/projectFolderRepositoryCreate.js"
 import { projectFolderRepositoryDelete } from "../db/projectFolderRepositoryDelete.js"
@@ -89,6 +92,7 @@ type ApiProjectRoutesOptions = {
   discoveryEntriesRead?: typeof projectDiscoveryEntriesRead
   limits?: ProjectLimits
   openCodeDatabasePath?: string
+  providerAgentCatalog?: ProviderCatalog
   projectConfiguredRootsReconcile?: typeof projectConfiguredRootsReconcileDefault
   rootDirs?: readonly string[]
 }
@@ -728,6 +732,31 @@ export function apiProjectRoutesAdd(api: Hono<AppEnvironment>, options: ApiProje
   }
 
   api.get("/project/registry", registryList)
+  api.get("/project/agents", async (context) => {
+    const userId = requestUserId(context)
+    if (userId === undefined) return unauthorized(context)
+    const parsed = apiRequestParse("projectApiProjectQueryParse", projectApiProjectQuerySchema, context.req.query())
+    if (!parsed.success) return registryBadRequest(context, "The project selection is invalid.")
+    if (options.database === undefined) return registryUnavailable(context)
+    const project = await projectResolve(options.rootDirs ?? [], parsed.data.project, {
+      database: options.database,
+      userId,
+    })
+    if (!project.success) return registryUnavailable(context)
+    const resolved = await providerAgentCatalogProjectResolve(project.data.rootDir, options.providerAgentCatalog)
+    if (!resolved.success || resolved.data.catalog === undefined) return registryInternalServerError(context)
+    const response = {
+      agents: resolved.data.catalog.agents.map(({ id, description, enabled, mode }) => ({
+        id, ...(description === undefined ? {} : { description }), enabled,
+        ...(mode === undefined ? {} : { mode }),
+      })).sort((a, b) => a.id.localeCompare(b.id)),
+      projectAgentIds: resolved.data.projectAgentIds,
+    }
+    if (!v.safeParse(projectApiAgentsResponseSchema, response).success) return registryInternalServerError(context)
+    context.header("Cache-Control", "private, no-cache")
+    context.header("Vary", "Cookie")
+    return context.json(response)
+  })
   api.get("/project/registry/list", registryList)
   api.get("/project/registry/folders", registryFolderList)
   api.get("/project/registry/folder", registryFolderList)

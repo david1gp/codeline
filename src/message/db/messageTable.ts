@@ -1,6 +1,5 @@
 import { sql } from "drizzle-orm"
 import { check, index, integer, sqliteTable, text, unique } from "drizzle-orm/sqlite-core"
-import { agentTable } from "../../agents/db/agentTable.js"
 import { sessionTable } from "../../session/db/sessionTable.js"
 import type { MessageMetadata } from "../schema/messageMetadataSchema.js"
 
@@ -11,9 +10,7 @@ export const messageTable = sqliteTable(
     sessionId: text("session_id")
       .notNull()
       .references(() => sessionTable.id, { onDelete: "cascade" }),
-    agentId: text("agent_id")
-      .notNull()
-      .references(() => agentTable.id, { onDelete: "restrict" }),
+    agentId: text("agent_id").notNull(),
     role: text("role").notNull(),
     sequence: integer("sequence").notNull(),
     content: text("content").notNull(),

@@ -47,14 +47,23 @@ export function chatCommandComposerStateCreate(options: ChatCommandComposerState
   const isCommandDraft = () => draftParsed() !== undefined
   const token = () => draftParsed()?.token ?? ""
 
-  const commandFind = (name: string) => options.catalog.commands().find((command) => command.name === name)
+  const availableCommands = () => {
+    const commands = options.catalog.commands()
+    const allowed = options.catalog.allowedGlobalCommandNames?.(
+      commands.filter(({ source }) => source === "global").map(({ name }) => name),
+    )
+    const allowedNames = allowed === undefined ? null : new Set(allowed)
+    const projectNames = new Set(commands.filter(({ source }) => source === "project").map(({ name }) => name))
+    return commands.filter((command) => command.source === "project" ||
+      (!projectNames.has(command.name) && (allowedNames === null || allowedNames.has(command.name))))
+  }
+  const commandFind = (name: string) => availableCommands().find((command) => command.name === name)
 
   const matches = () => {
     const parsed = draftParsed()
     if (parsed === undefined) return []
     const search = parsed.token.toLowerCase()
-    return options.catalog
-      .commands()
+    return availableCommands()
       .map((command) => ({ command, rank: chatCommandSuggestionRank(command, search) }))
       .filter((entry): entry is { command: CommandInspectionSnapshot; rank: number } => entry.rank !== undefined)
       .sort((left, right) => left.rank - right.rank || left.command.name.localeCompare(right.command.name))

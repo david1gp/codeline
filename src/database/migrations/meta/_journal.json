@@ -127,6 +127,48 @@
       "when": 1788282675999,
       "tag": "0017_wide_mole_man",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1790387818169,
+      "tag": "0018_fat_firestar",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1790390246559,
+      "tag": "0019_medical_maverick",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1790391047591,
+      "tag": "0020_serious_titanium_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1790391438377,
+      "tag": "0021_broad_otto_octavius",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1790392995715,
+      "tag": "0022_flawless_famine",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1790409876398,
+      "tag": "0023_opposite_sway",
+      "breakpoints": true
     }
   ]
 }

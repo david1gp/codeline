@@ -6,5 +6,7 @@ import { randomBytes } from "node:crypto"
  * runs never collide and cleanup can target a single run.
  */
 export function e2eRunIdCreate(): string {
-  return `r${randomBytes(8).toString("hex")}`
+  // Every test owns a separate, unmistakably E2E-marked fixture run. Keep the
+  // ID within the fixture API's 40-character limit, including in legacy mode.
+  return `e2e${randomBytes(12).toString("hex")}`
 }

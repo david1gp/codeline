@@ -2,14 +2,12 @@ import { sql } from "drizzle-orm"
 import {
   type AnySQLiteColumn,
   check,
-  foreignKey,
   index,
   integer,
   sqliteTable,
   text,
   unique,
 } from "drizzle-orm/sqlite-core"
-import { agentTable } from "../../agents/db/agentTable.js"
 import { applicationUserTable } from "../../identity/db/applicationUserTable.js"
 import type { AgentInstructionsResolvedSnapshot } from "../../instructions/schema/agentInstructionsResolvedSnapshotSchema.js"
 import type { RunExecutionManifest } from "../../run/schema/runExecutionManifestSchema.js"
@@ -28,9 +26,7 @@ export const sessionTable = sqliteTable(
     serverId: text("server_id")
       .notNull()
       .references(() => serverTable.id, { onDelete: "restrict" }),
-    primaryAgentId: text("primary_agent_id")
-      .notNull()
-      .references(() => agentTable.id, { onDelete: "restrict" }),
+    primaryAgentId: text("primary_agent_id").notNull(),
     projectPath: text("project_path").notNull().default("~"),
     parentSessionId: text("parent_session_id").references((): AnySQLiteColumn => sessionTable.id, {
       onDelete: "set null",
@@ -69,11 +65,6 @@ export const sessionTable = sqliteTable(
     unique("session_user_id_unique").on(table.userId, table.id),
     check("session_next_history_position_positive", sql`${table.nextHistoryPosition} > 0`),
     check("session_next_history_position_safe", sql`${table.nextHistoryPosition} <= 9007199254740991`),
-    foreignKey({
-      name: "session_server_primary_agent_consistency_fk",
-      columns: [table.serverId, table.primaryAgentId],
-      foreignColumns: [agentTable.serverId, agentTable.id],
-    }).onDelete("restrict"),
     index("session_user_updated_idx").on(table.userId, table.updatedAt),
     index("session_user_archived_idx").on(table.userId, table.archivedAt),
     index("session_server_idx").on(table.serverId),

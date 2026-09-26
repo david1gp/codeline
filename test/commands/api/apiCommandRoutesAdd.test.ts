@@ -158,3 +158,22 @@ test("a discovery failure is reported as an internal server error", async () => 
   expect(response.status).toBe(500)
   expect(await response.json()).toMatchObject({ error: { code: "internal_server_error" } })
 })
+
+test("authenticated global command API validates and persists source files", async () => {
+  authorized = false
+  expect((await app.request("/global/commands")).status).toBe(401)
+  authorized = true
+  const content = "---\ndescription: API command\n---\nRun it.\n"
+  const created = await app.request("/global/commands", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content, name: "api-created" }),
+  })
+  expect(created.status).toBe(201)
+  expect(await (await app.request("/global/commands")).json()).toMatchObject({ commands: ["api-created", "shared"] })
+  expect(await (await app.request("/global/commands/api-created")).json()).toEqual({ name: "api-created", content })
+  expect((await app.request("/global/commands/api-created", {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: "invalid" }),
+  })).status).toBe(400)
+  expect((await app.request("/global/commands/api-created", { method: "DELETE" })).status).toBe(204)
+})

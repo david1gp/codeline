@@ -60,12 +60,13 @@ export function SelectedSession(props: {
                 />
               </div>
 
-              <Show when={props.resources}>
+              <Show when={props.resources && props.sessionTarget}>
                 {(resources) => (
                   <SessionCreationResourceSidebar
                     idPrefix="workspace-setup-resources"
                     shell={props.shell}
-                    state={resources()}
+                    state={props.resources!}
+                    target={resources() as SessionTargetSelectorState}
                   />
                 )}
               </Show>

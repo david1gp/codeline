@@ -8,6 +8,7 @@ import type { ChatCommandCatalogSource } from "./chatCommandView.js"
 import { httpQueryStateCreate } from "../../ui/httpQueryStateCreate.js"
 
 type ChatCommandCatalogStateOptions = {
+  allowedGlobalCommandNames?: (discoveredNames: readonly string[]) => readonly string[] | undefined
   fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
   /** Enabled tools of the agent that will run the command's shell interpolation. */
   isBashEnabled?: Accessor<boolean>
@@ -53,6 +54,7 @@ export function chatCommandCatalogStateCreate(options: ChatCommandCatalogStateOp
   })
 
   return {
+    allowedGlobalCommandNames: options.allowedGlobalCommandNames,
     commands: () => catalogQuery.data()?.commands ?? [],
     errorMessage: () => catalogQuery.errorMessage() ?? projectQuery.errorMessage(),
     isBashEnabled: () => options.isBashEnabled?.() ?? false,

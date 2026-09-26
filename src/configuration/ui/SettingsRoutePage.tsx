@@ -1,8 +1,12 @@
 import { Show } from "solid-js"
-import { ConfigurationEditor } from "./ConfigurationEditor.js"
+import { GlobalSubagentsViewer } from "./GlobalSubagentsViewer.js"
 import { SettingsGeneralPanel } from "./SettingsGeneralPanel.js"
 import { settingsRoutePageStateCreate } from "./settingsRoutePageStateCreate.js"
 import { SettingsSidebar } from "./SettingsSidebar.js"
+import { GlobalResourceEditor } from "./GlobalResourceEditor.js"
+import { SettingsToolsPanel } from "./SettingsToolsPanel.js"
+import { GlobalAgentSetEditor } from "./GlobalAgentSetEditor.js"
+import { GlobalAgentPresetEditor } from "./GlobalAgentPresetEditor.js"
 
 export function SettingsRoutePage() {
   const state = settingsRoutePageStateCreate()
@@ -32,8 +36,25 @@ export function SettingsRoutePage() {
       />
       <div class="min-h-0 overflow-y-auto px-6 py-8 max-[760px]:px-4 max-[760px]:py-6">
         <div class="mx-auto w-full max-w-4xl">
-          <Show when={state.configuration()} fallback={<SettingsGeneralPanel state={state} />}>
-            {(configuration) => <ConfigurationEditor state={configuration()} />}
+          <Show when={state.activeSection() === "skills"}>
+            <GlobalResourceEditor kind="skills" />
+          </Show>
+          <Show when={state.activeSection() === "commands"}>
+            <GlobalResourceEditor kind="commands" />
+          </Show>
+          <Show when={state.activeSection() === "tools"}>
+            <SettingsToolsPanel />
+          </Show>
+          <Show when={state.activeSection() === "skill-sets"}><GlobalAgentSetEditor category="skills" /></Show>
+          <Show when={state.activeSection() === "command-sets"}><GlobalAgentSetEditor category="commands" /></Show>
+          <Show when={state.activeSection() === "tool-sets"}><GlobalAgentSetEditor category="tools" /></Show>
+          <Show when={state.activeSection() === "subagent-sets"}><GlobalAgentSetEditor category="subagents" /></Show>
+          <Show when={state.activeSection() === "agent-presets"}><GlobalAgentPresetEditor /></Show>
+          <Show when={state.activeSection() === "subagents"}>
+            <GlobalSubagentsViewer />
+          </Show>
+          <Show when={state.activeSection() === "general"}>
+            <SettingsGeneralPanel state={state} />
           </Show>
         </div>
       </div>

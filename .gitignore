@@ -43,3 +43,4 @@ data/db.sqlite*
 .codeline-deploy.lock
 .codeline-deploy.*/
 artifacts/
+example-projects/*/.e2e-*/

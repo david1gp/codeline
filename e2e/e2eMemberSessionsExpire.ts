@@ -1,5 +1,8 @@
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
+import * as v from "valibot"
+import { e2eFixtureContextResolve } from "./e2eFixtureContextResolve.js"
+import { e2eFixtureRequest } from "./e2eFixtureRequest.js"
 import { e2eRepositoryRoot } from "./e2eRepositoryRoot.js"
 
 export type E2eExpiredSession = {
@@ -8,14 +11,24 @@ export type E2eExpiredSession = {
 }
 
 const execFileAsync = promisify(execFile)
+const expiredSchema = v.object({
+  exists: v.literal(true),
+  expiredSessions: v.array(v.object({ expiresAt: v.string(), sessionId: v.string() })),
+})
 
 /**
- * Runs the checked-in expiry script under Bun so a run can age out one synthetic
- * member's authenticated identity through the application expiry action. The
- * script refuses any user outside the run's subject namespace and any non-local
- * target environment.
+ * Expires only the selected owned member through the fixture API. Explicit legacy
+ * local mode retains the development-guarded script.
  */
 export async function e2eMemberSessionsExpire(runId: string, userId: string): Promise<E2eExpiredSession[]> {
+  const context = await e2eFixtureContextResolve()
+  if (context !== undefined) {
+    if (!context.checkpoint.resourceIds.fixtureRunIds.includes(runId)) throw new Error("Unregistered E2E fixture run")
+    const expired = await e2eFixtureRequest(context.origin, context.token, `/${runId}/expire`, expiredSchema, "POST", {
+      userId,
+    })
+    return expired.expiredSessions
+  }
   const { stdout } = await execFileAsync("bun", ["scripts/e2eOrganizationMemberSessionsExpire.ts", runId, userId], {
     cwd: e2eRepositoryRoot,
   })

@@ -35,6 +35,7 @@ import type { journalPostCommitPublishCreate } from "../../journal/actions/journ
 import type { metricsCollectorCreate } from "../../metrics/metricsCollectorCreate.js"
 import { projectRegistryProjectIdResolve } from "../../project/actions/projectRegistryProjectIdResolve.js"
 import { providerAgentCatalogExecutionResolve } from "../../providers/catalog/providerAgentCatalogExecutionResolve.js"
+import { providerAgentCatalogConfigurationResolve } from "../../providers/catalog/providerAgentCatalogConfigurationResolve.js"
 import type { CliProxyApiAdapter } from "../../providers/runtime/cliProxyApiAdapterCreate.js"
 import { providerDelegationAdapterCreate } from "../../providers/runtime/providerDelegationAdapterCreate.js"
 import { providerDelegationToolLoopCreate } from "../../providers/runtime/providerDelegationToolLoopCreate.js"
@@ -45,7 +46,8 @@ import type { ProviderModelDiscoveryOptions } from "../../providers/runtime/prov
 import { providerRuntimeAdapterCreate } from "../../providers/runtime/providerRuntimeAdapterCreate.js"
 import { providerRuntimeAdapterResolve } from "../../providers/runtime/providerRuntimeAdapterResolve.js"
 import type { CodelineExecution } from "../../providers/schema/codelineExecutionSchema.js"
-import type { ProviderCatalog } from "../../providers/schema/providerCatalogSchema.js"
+import { codelineExecutionSchema } from "../../providers/schema/codelineExecutionSchema.js"
+import { type ProviderCatalog, providerCatalogSchema } from "../../providers/schema/providerCatalogSchema.js"
 import { runActiveRegistryCreate } from "../../run/actions/runActiveRegistryCreate.js"
 import { runCancellationCoordinatorCreate } from "../../run/actions/runCancellationCoordinatorCreate.js"
 import { runChildCreate } from "../../run/actions/runChildCreate.js"
@@ -295,6 +297,8 @@ function sessionChatDelegationCompactionPolicyCreate(
 function sessionCreateRequestHashInputCreate(input: v.InferOutput<typeof sessionCreateRequestSchema>): unknown {
   return {
     command: input.command,
+    globalAgentPresetId: input.globalAgentPresetId,
+    modelId: input.modelId,
     metadata: input.metadata,
     executionSelection: input.executionSelection,
     skillSelection: input.skillSelection,
@@ -386,6 +390,8 @@ async function sessionChatAdmissionResolve(
   persistedExecutionManifest: unknown,
   persistedInstructionSnapshot: unknown,
   persistedAgentPrompt: string | null,
+  catalog: ProviderCatalog | undefined,
+  projectAgentConfiguration: unknown,
   options: ApiSessionRoutesOptions,
   runLoadAction: typeof runLoad,
 ): Promise<Result<SessionChatAdmission>> {
@@ -406,7 +412,7 @@ async function sessionChatAdmissionResolve(
   if (options.configurationStore === undefined) return createResultError(op, "The configuration store is unavailable.")
 
   const executionSelection = sessionExecutionSelectionCanonicalize(persistedExecutionSelection, target.agentId, {
-    catalog: options.providerAgentCatalog,
+    catalog,
   })
   if (!executionSelection.success) return createResultError(op, "The persisted session execution selection is invalid.")
 
@@ -414,7 +420,8 @@ async function sessionChatAdmissionResolve(
     target,
     options.configurationStore,
     {
-      catalog: options.providerAgentCatalog,
+      catalog,
+      ...(projectAgentConfiguration === undefined ? {} : { configuration: projectAgentConfiguration }),
       execution: forwardedExecution,
       ...(executionSelection.data === null ? {} : { executionSelection: executionSelection.data }),
       ...(persistedExecutionManifest === null || persistedExecutionManifest === undefined
@@ -533,7 +540,8 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
         resolveRecipients: sessionJournalRecipientResolverCreate({
           organizationId,
           pendingSessionAuthorization: {
-            ...(parsed.data.command === undefined ? { primaryAgentId: parsed.data.primaryAgentId } : {}),
+            // The mutation authorizes the primary (including project-only agents)
+            // before journaling; the pending fallback only needs server/user scope.
             serverId: parsed.data.serverId,
             userId,
           },
@@ -545,6 +553,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
       globalCommandsPath: options.globalCommandsPath,
       globalAgentsPath: options.globalAgentsPath,
       globalSkillsPath: options.globalSkillsPath,
+      configurationStore: options.configurationStore,
       providerAgentCatalog: options.providerAgentCatalog,
       projectRootDirs: options.projectRootDirs,
       requestHash,
@@ -560,8 +569,14 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
         return badRequest(context, result.errorMessage)
       if (result.errorMessage.includes("execution selection"))
         return badRequest(context, "The session execution selection is invalid.")
+      if (result.errorMessage.includes("global agent preset") &&
+        (result.errorMessage.includes("unavailable.") || result.errorMessage.includes("could not be read.")))
+        return internalServerError(context)
+      if (result.errorMessage.includes("global agent preset")) return badRequest(context, result.errorMessage)
       if (result.errorMessage.includes("instruction override")) return badRequest(context, result.errorMessage)
-      if (result.errorMessage.includes("command") || result.errorMessage.includes("model override"))
+      if (result.errorMessage === "The session model catalog is unavailable.") return internalServerError(context)
+      if (result.errorMessage.includes("command") || result.errorMessage.includes("model override") ||
+        result.errorMessage.includes("session model"))
         return badRequest(context, result.errorMessage)
       if (result.errorMessage.includes("project path"))
         return badRequest(context, "The session project path is invalid.")
@@ -623,11 +638,29 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     if (!loaded.success)
       return loaded.errorMessage.includes("could not be found") ? notFound(context) : internalServerError(context)
     if (loaded.data.session.archivedAt !== null) return conflict(context, "The session is archived.")
+    const storedProjectCatalog = loaded.data.session.metadata.projectAgentCatalog
+    const parsedProjectCatalog = storedProjectCatalog === undefined ? undefined
+      : v.safeParse(providerCatalogSchema, storedProjectCatalog)
+    if (parsedProjectCatalog !== undefined && !parsedProjectCatalog.success) return internalServerError(context)
+    const effectiveCatalog = parsedProjectCatalog?.success ? parsedProjectCatalog.output : options.providerAgentCatalog
+    const projectPrimary = parsedProjectCatalog?.success &&
+      parsedProjectCatalog.output.agents.some(({ id }) => id === loaded.data.session.primaryAgentId) &&
+      loaded.data.agent.configuration === null
+      ? providerAgentCatalogConfigurationResolve(effectiveCatalog, loaded.data.session.primaryAgentId) : undefined
+    if (projectPrimary !== undefined && !projectPrimary.success) return internalServerError(context)
+    const primaryConfiguration = projectPrimary?.data ?? loaded.data.agent.configuration
     const manualCompactionRequested = originalPrompt === "/compact"
     commandForwardedExecution = sessionCommandExecutionResolve(
       loaded.data.session.metadata,
       loaded.data.session.primaryAgentId,
     )
+    const storedModelDefault = loaded.data.session.metadata.sessionModelDefault
+    const parsedModelDefault = storedModelDefault === undefined
+      ? undefined
+      : v.safeParse(codelineExecutionSchema, storedModelDefault)
+    const modelDefault = parsedModelDefault?.success &&
+      parsedModelDefault.output.agentId === loaded.data.session.primaryAgentId
+      ? parsedModelDefault.output : undefined
     let runtimeInstructionContext = sessionInstructionContextCreate(
       loaded.data.session.projectPath,
       loaded.data.session.instructionSnapshot,
@@ -658,6 +691,15 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
           return conflict(context, "The command catalog changed after this session was created.")
         const command = catalog.data.commands.find(({ name }) => name === commandInvocation?.name)
         if (command === undefined) return badRequest(context, "The requested command could not be found.")
+        const presetCommands = loaded.data.session.metadata.globalAgentPreset
+        if (presetCommands !== undefined) {
+          if (typeof presetCommands !== "object" || presetCommands === null ||
+            !("commandNames" in presetCommands) || !Array.isArray(presetCommands.commandNames) ||
+            !presetCommands.commandNames.every((name) => typeof name === "string"))
+            return internalServerError(context)
+          if (!presetCommands.commandNames.includes(command.name))
+            return badRequest(context, "The requested command is unavailable in this session.")
+        }
         const expanded = commandExpand({
           arguments: commandInvocation.arguments,
           catalogDigest: catalog.data.digest,
@@ -677,8 +719,8 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
           },
           {
             allowAgentOverride: isSubtask,
-            catalog: options.providerAgentCatalog,
-            ...(commandAgentDiffers ? {} : { configuration: loaded.data.agent.configuration }),
+            catalog: effectiveCatalog,
+            ...(commandAgentDiffers ? {} : { configuration: primaryConfiguration }),
           },
         )
         if (!overrides.success) return badRequest(context, overrides.errorMessage)
@@ -687,7 +729,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
             primaryAgentId: loaded.data.session.primaryAgentId,
             selection: loaded.data.session.executionSelection,
             subtaskAgentId: overrides.data.agentId,
-            ...(options.providerAgentCatalog === undefined ? {} : { catalog: options.providerAgentCatalog }),
+            ...(effectiveCatalog === undefined ? {} : { catalog: effectiveCatalog }),
           })
           if (!subtaskSelection.success) return badRequest(context, subtaskSelection.errorMessage)
           commandForwardedExecution =
@@ -752,12 +794,15 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
         sessionId,
         parsed.data.runId,
         { agentId: loaded.data.session.primaryAgentId, serverId: loaded.data.session.serverId },
-        commandForwardedExecution ?? parsed.data.forwardedProps?.codelineExecution,
+        commandForwardedExecution ?? parsed.data.forwardedProps?.codelineExecution ?? modelDefault,
         loaded.data.session.executionSelection,
         loaded.data.session.skillSelection,
         loaded.data.session.executionManifest,
         loaded.data.session.instructionSnapshot,
         loaded.data.session.agentPrompt,
+        effectiveCatalog,
+        projectPrimary?.data ?? (effectiveCatalog?.agents.some(({ id }) => id === loaded.data.session.primaryAgentId)
+          ? undefined : loaded.data.agent.configuration ?? undefined),
         options,
         runLoadAction,
       )
@@ -799,12 +844,12 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
       activeRun = admittedRun
       activeAttempt = admittedAttempt
     } else if (adapter === undefined) {
-      if (options.providerAgentCatalog?.agents.some((agent) => agent.id === loaded.data.session.primaryAgentId)) {
+      if (effectiveCatalog?.agents.some((agent) => agent.id === loaded.data.session.primaryAgentId)) {
         const resolved = providerAgentCatalogExecutionResolve(
-          options.providerAgentCatalog,
+          effectiveCatalog,
           loaded.data.session.primaryAgentId,
-          loaded.data.agent.configuration,
-          commandForwardedExecution ?? parsed.data.forwardedProps?.codelineExecution,
+          primaryConfiguration,
+           commandForwardedExecution ?? parsed.data.forwardedProps?.codelineExecution ?? modelDefault,
         )
         if (!resolved.success) return badRequest(context, resolved.errorMessage)
         runtimeConfiguration = resolved.data.configuration
@@ -812,8 +857,8 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
         runtimeAgentPrompt = resolved.data.prompt
       } else {
         const resolvedConfiguration = agentConfigurationExecutionResolve(
-          loaded.data.agent.configuration,
-          commandForwardedExecution ?? parsed.data.forwardedProps?.codelineExecution,
+          primaryConfiguration,
+           commandForwardedExecution ?? parsed.data.forwardedProps?.codelineExecution ?? modelDefault,
           loaded.data.session.primaryAgentId,
         )
         if (!resolvedConfiguration.success) {
@@ -826,8 +871,8 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
       }
     }
 
-    if (options.configurationStore === undefined && options.providerAgentCatalog !== undefined) {
-      const agent = options.providerAgentCatalog.agents.find(({ id }) => id === loaded.data.session.primaryAgentId)
+    if (options.configurationStore === undefined && effectiveCatalog !== undefined) {
+      const agent = effectiveCatalog.agents.find(({ id }) => id === loaded.data.session.primaryAgentId)
       runtimeAgentPrompt = agent?.prompt
     }
     if (loaded.data.session.agentPrompt !== null) runtimeAgentPrompt = loaded.data.session.agentPrompt
@@ -852,12 +897,12 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
         if (!parentSnapshot.success) throw new Error("The parent execution snapshot is invalid.")
         const childManifest = runExecutionManifestChildResolve(parentSnapshot.output.executionManifest, input.agentId)
         if (!childManifest.success) throw new Error(childManifest.errorMessage)
-        const childCatalogAgent = options.providerAgentCatalog?.agents.some(({ id }) => id === input.agentId)
+        const childCatalogAgent = effectiveCatalog?.agents.some(({ id }) => id === input.agentId)
         const resolved = (options.runExecutionSnapshotResolve ?? runExecutionSnapshotResolve)(
           { agentId: input.agentId, serverId: parentSnapshot.output.target.serverId },
           options.configurationStore,
           {
-            catalog: options.providerAgentCatalog,
+            catalog: effectiveCatalog,
             configurationRevision: parentSnapshot.output.configurationRevision,
             executionManifest: childManifest.data,
             ...(childCatalogAgent === true ? { configuration: parentSnapshot.output.configuration } : {}),

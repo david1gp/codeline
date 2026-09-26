@@ -1,6 +1,6 @@
 import { expect, mock, test } from "bun:test"
 import * as solidRuntime from "solid-js/dist/solid.js"
-import { createRoot, createSignal } from "solid-js/dist/solid.js"
+import { createRoot } from "solid-js/dist/solid.js"
 import * as v from "valibot"
 
 mock.module("solid-js", () => solidRuntime)
@@ -124,7 +124,7 @@ test("the edited prompt and sparse instruction overrides are sent before the ini
   created.dispose()
 })
 
-test("the resolved resource selection is sent with the create request and matches its contract", async () => {
+test("the new-session request leaves legacy skill and tool overrides to server-side preset resolution", async () => {
   const bodies: Array<Record<string, unknown>> = []
   const created = stateCreate({
     bodies,
@@ -137,12 +137,13 @@ test("the resolved resource selection is sent with the create request and matche
 
   expect(bodies).toHaveLength(1)
   expect(bodies[0]).toMatchObject({
-    executionSelection,
+    modelId: "codex-model",
     primaryAgentId: "example-agent-primary",
     projectPath: "/workspace/other",
     serverId: "example-server",
-    skillSelection,
   })
+  expect(bodies[0]).not.toHaveProperty("executionSelection")
+  expect(bodies[0]).not.toHaveProperty("skillSelection")
   expect(v.safeParse(sessionCreateRequestSchema, bodies[0]).success).toBe(true)
   created.dispose()
 })
@@ -180,24 +181,19 @@ test("an unresolved resource selection omits the optional fields instead of send
   created.dispose()
 })
 
-test("a changed resource selection mints a new idempotency key instead of replaying the previous request", async () => {
+test("a changed model mints a new idempotency key instead of replaying the previous request", async () => {
   const bodies: Array<Record<string, unknown>> = []
-  const [preset, presetSet] = createSignal("focused")
-  const created = stateCreate({
-    bodies,
-    pendingExecutionSelection: () => executionSelection,
-    pendingSkillSelection: () => ({ ...skillSelection, presetName: preset() }),
-  })
+  const created = stateCreate({ bodies })
   await effectsSettle()
 
   await created.state.sessionCreateStart()
-  presetSet("default")
+  created.state.modelChange("changed-model")
   await effectsSettle()
   await created.state.sessionCreateStart()
 
   expect(bodies).toHaveLength(2)
   expect(bodies[0]?.clientRequestId).not.toBe(bodies[1]?.clientRequestId)
-  expect((bodies[1] as { skillSelection: { presetName: string } }).skillSelection.presetName).toBe("default")
+  expect(bodies[1]?.modelId).toBe("changed-model")
   created.dispose()
 })
 
@@ -222,6 +218,21 @@ test("a selection carrying more subagents than the contract allows is rejected b
       title: "Oversized selection",
     }).success,
   ).toBe(false)
+})
+
+test("session create accepts a chosen global preset ID but rejects client-computed preset resources", () => {
+  const request = {
+    clientRequestId: "preset-request",
+    globalAgentPresetId: "focused",
+    primaryAgentId: "example-agent-primary",
+    serverId: "example-server",
+    title: "Preset session",
+  }
+  expect(v.safeParse(sessionCreateRequestSchema, request)).toMatchObject({ success: true, output: { globalAgentPresetId: "focused" } })
+  expect(v.safeParse(sessionCreateRequestSchema, { ...request, globalAgentPresetId: "  " }).success).toBe(false)
+  expect(v.safeParse(sessionCreateRequestSchema, { ...request, modelId: "cliproxyapi/grok-4.5" })).toMatchObject({ success: true, output: { modelId: "cliproxyapi/grok-4.5" } })
+  expect(v.safeParse(sessionCreateRequestSchema, { ...request, modelId: "  " }).success).toBe(false)
+  expect(v.safeParse(sessionCreateRequestSchema, { ...request, effectiveTools: ["bash"] }).success).toBe(false)
 })
 
 test("retrying a failed create with an unchanged resource selection reuses the same idempotency key", async () => {
@@ -256,6 +267,6 @@ test("retrying a failed create with an unchanged resource selection reuses the s
 
   expect(bodies).toHaveLength(2)
   expect(bodies[0]?.clientRequestId).toBe(bodies[1]?.clientRequestId as string)
-  expect(bodies[0]?.skillSelection).toEqual(bodies[1]?.skillSelection)
+  expect(bodies[0]?.modelId).toEqual(bodies[1]?.modelId)
   dispose()
 })

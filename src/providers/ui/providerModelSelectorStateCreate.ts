@@ -214,18 +214,19 @@ export function providerModelSelectorStateCreate(options: ProviderModelSelectorS
           : null
       const execution = persisted ?? fallback
       if (execution === null) return null
+      if (options.sessionId() !== null) {
+        // A session's primary agent is authoritative. The catalog can resolve before
+        // its detail/configuration, and a persisted selection may belong to another provider.
+        const target = sessionTarget()
+        const sessionAgent = agentQuery.data()?.agent
+        if (target === undefined || sessionAgent === undefined || sessionAgent.id !== target.agentId) return null
+        if (execution.provider !== sessionAgent.configuration.provider) return null
+        if (!groups().some((group) => group.id === sessionAgent.configuration.provider)) return null
+        return { ...execution, agentId: target.agentId }
+      }
       const agentId = options.agentId?.() ?? null
       if (agentId === null) return execution
-      // An open session executes against its own agent, not the sidebar selection that
-      // only names the agent for a new session. Naming the wrong agent makes the server
-      // reject the run as a mismatched execution override.
-      const sessionAgentId = sessionTarget()?.agentId ?? null
-      if (sessionAgentId === null) return { ...execution, agentId }
-      // An agent whose configured provider is absent from the catalog is not switchable:
-      // the server keeps such an agent on its own runtime and rejects a cross-provider
-      // override, so the session must run with no override at all.
-      if (!groups().some((group) => group.id === configured.provider)) return null
-      return { ...execution, agentId: sessionAgentId }
+      return { ...execution, agentId }
     },
     configuredModel: () => configuration().model,
     /** Retained-data lifecycle of the catalog and session-target representations. */

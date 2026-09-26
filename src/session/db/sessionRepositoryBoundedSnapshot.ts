@@ -1,7 +1,6 @@
 import { createResult, createResultError, createResultErrorCode, type Result } from "@adaptive-ds/result"
 import { and, desc, eq, inArray, lte } from "drizzle-orm"
 import * as v from "valibot"
-import { agentTable } from "../../agents/db/agentTable.js"
 import type { DatabaseClient } from "../../database/databaseClient.js"
 import { databaseReadTransactionRun } from "../../database/databaseReadTransactionRun.js"
 import { applicationUserTable } from "../../identity/db/applicationUserTable.js"
@@ -101,10 +100,6 @@ export async function sessionRepositoryBoundedSnapshot(
         .innerJoin(
           serverTable,
           and(eq(sessionTable.serverId, serverTable.id), eq(serverTable.organizationId, organizationId)),
-        )
-        .innerJoin(
-          agentTable,
-          and(eq(sessionTable.primaryAgentId, agentTable.id), eq(agentTable.serverId, sessionTable.serverId)),
         )
         .where(and(eq(sessionTable.id, parsedRequest.output.sessionId), eq(sessionTable.userId, user.id)))
         .limit(1)

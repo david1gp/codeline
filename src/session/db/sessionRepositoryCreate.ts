@@ -13,13 +13,11 @@ import { skillSelectionSchema } from "../../skills/schema/skillSelectionSchema.j
 import { uuidv7 } from "../../uuid/uuidv7.js"
 import { sessionExecutionSelectionCanonicalize } from "../actions/sessionExecutionSelectionCanonicalize.js"
 import { sessionCreateMutationResponseCreate } from "../api/sessionCreateMutationResponseCreate.js"
-import {
-  type SessionCreateMutationResponse,
-  sessionCreateMutationResponseSchema,
-} from "../api/sessionCreateMutationResponseSchema.js"
+import { type SessionCreateMutationResponse } from "../api/sessionCreateMutationResponseSchema.js"
 import { sessionMetadataSchema } from "../schema/sessionMetadataSchema.js"
 import { sessionAgentPromptSchema } from "../schema/sessionAgentPromptSchema.js"
 import { sessionTable } from "./sessionTable.js"
+import { sessionRepositoryCreateReplayLoad } from "./sessionRepositoryCreateReplayLoad.js"
 
 const sessionCreateOperation = "session.create"
 
@@ -54,6 +52,7 @@ export async function sessionRepositoryCreate(
     metadata: unknown
     pinned?: boolean
     primaryAgentId: string
+    projectPrimaryAgentIds?: readonly string[]
     projectPath?: string
     requestHash?: string
     serverId: string
@@ -119,7 +118,7 @@ export async function sessionRepositoryCreate(
       return createResultError(op, "The idempotency request hash is required.")
 
     if (input.idempotencyKey !== undefined) {
-      const replayed = await sessionCreateIdempotencyLoad(database, userId, organizationId, input)
+      const replayed = await sessionRepositoryCreateReplayLoad(database, userId, organizationId, input)
       if (!replayed.success) return replayed
       if (replayed.data !== undefined) return createResult(replayed.data)
     }
@@ -160,7 +159,8 @@ export async function sessionRepositoryCreate(
       .from(agentTable)
       .where(and(eq(agentTable.id, input.primaryAgentId), eq(agentTable.serverId, input.serverId)))
       .limit(1)
-    if (agent === undefined) return createResultError(op, "The agent could not be found.")
+    if (agent === undefined && !input.projectPrimaryAgentIds?.includes(input.primaryAgentId))
+      return createResultError(op, "The agent could not be found.")
 
     const [created] = await database
       .insert(sessionTable)
@@ -223,59 +223,6 @@ export async function sessionRepositoryCreate(
   } catch (_error) {
     return createResultError(op, "The session could not be created.")
   }
-}
-
-async function sessionCreateIdempotencyLoad(
-  database: DatabaseExecutor,
-  userId: string,
-  organizationId: string,
-  input: { idempotencyKey?: string; requestHash?: string },
-): Promise<Result<SessionCreateMutationResult | undefined>> {
-  const op = "sessionRepositoryCreate"
-  if (input.idempotencyKey === undefined) return createResult(undefined)
-  if (input.requestHash === undefined) return createResultError(op, "The idempotency request hash is required.")
-
-  const [idempotent] = await database
-    .select()
-    .from(mutationIdempotencyTable)
-    .where(
-      and(
-        eq(mutationIdempotencyTable.userId, userId),
-        eq(mutationIdempotencyTable.operation, sessionCreateOperation),
-        eq(mutationIdempotencyTable.idempotencyKey, input.idempotencyKey),
-      ),
-    )
-    .limit(1)
-  if (idempotent === undefined) return createResult(undefined)
-  if (idempotent.requestHash !== input.requestHash) return idempotencyConflict(op)
-
-  const response = v.safeParse(sessionCreateMutationResponseSchema, idempotent.responseBody)
-  if (!response.success) return createResultError(op, "The stored idempotency response is invalid.")
-  const [session] = await database
-    .select({ session: sessionTable })
-    .from(sessionTable)
-    .innerJoin(
-      serverTable,
-      and(eq(sessionTable.serverId, serverTable.id), eq(serverTable.organizationId, organizationId)),
-    )
-    .where(and(eq(sessionTable.id, idempotent.resourceId), eq(sessionTable.userId, userId)))
-    .limit(1)
-  if (session === undefined) return createResultError(op, "The session could not be found.")
-  const projectId = await projectRegistryProjectIdResolve(database, userId, session.session.projectPath)
-  if (!projectId.success) return createResultError(op, projectId.errorMessage)
-  const currentResponse = sessionCreateMutationResponseCreate({
-    created: false,
-    projectId: projectId.data,
-    session: session.session,
-    userId,
-  })
-  if (!currentResponse.success) return currentResponse
-  return createResult({
-    created: false,
-    replayed: true,
-    responseBody: currentResponse.data,
-    session: session.session,
-  })
 }
 
 async function sessionCreateIdempotencyStore(

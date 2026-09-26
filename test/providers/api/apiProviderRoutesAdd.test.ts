@@ -5,6 +5,7 @@ import type { AppEnvironment } from "../../../src/api/appEnvironment.js"
 import { apiErrorResponseSchema } from "../../../src/api/errors/apiErrorResponseSchema.js"
 import { apiProviderRoutesAdd } from "../../../src/providers/api/apiProviderRoutesAdd.js"
 import { providerApiCatalogResponseSchema } from "../../../src/providers/api/providerApiCatalogResponseSchema.js"
+import { providerApiAgentsResponseSchema } from "../../../src/providers/api/providerApiAgentsResponseSchema.js"
 import { providerApiConnectionTestResponseSchema } from "../../../src/providers/api/providerApiConnectionTestResponseSchema.js"
 import { providerApiModelsResponseSchema } from "../../../src/providers/api/providerApiModelsResponseSchema.js"
 import { providerAgentCatalogLoad } from "../../../src/providers/catalog/providerAgentCatalogLoad.js"
@@ -75,6 +76,30 @@ test("provider routes require the existing authorized identity context", async (
 
   const catalog = await app.request("http://codeline.test/providers/catalog")
   expect(catalog.status).toBe(401)
+  const agents = await app.request("http://codeline.test/providers/agents")
+  expect(agents.status).toBe(401)
+})
+
+test("global executable agents endpoint lists catalog identities without exposing prompts or permissions", async () => {
+  const loaded = await providerAgentCatalogLoad(process.cwd())
+  expect(loaded.success).toBe(true)
+  if (!loaded.success) return
+  const response = await authorizedApp(loaded.data).request("http://codeline.test/providers/agents")
+  expect(response.status).toBe(200)
+  expect(response.headers.get("cache-control")).toBe("private, no-cache")
+  const body = v.parse(providerApiAgentsResponseSchema, await response.json())
+  expect(body.agents.map((agent) => agent.id)).toEqual(loaded.data.agents.map((agent) => agent.id).sort())
+  expect(body.agents.some((agent) => agent.mode === "primary")).toBe(true)
+  for (const agent of body.agents) {
+    const catalogAgent = loaded.data.agents.find((item) => item.id === agent.id)!
+    if (catalogAgent.provider) expect(agent.provider).toBe(catalogAgent.provider)
+    if (catalogAgent.model) expect(agent.model).toBe(catalogAgent.model)
+  }
+  for (const forbidden of ["prompt", "permission", "tools", "generation", "connection", "apiKey"]) {
+    expect(JSON.stringify(body)).not.toContain(`"${forbidden}":`)
+  }
+  const unavailable = await authorizedApp().request("http://codeline.test/providers/agents")
+  expect(unavailable.status).toBe(500)
 })
 
 test("catalog route returns the real catalog in stable grouped order with redacted selectable metadata", async () => {

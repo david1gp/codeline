@@ -9,6 +9,7 @@ const identitySessionLifetimeMs = 30 * 24 * 60 * 60 * 1000
 
 type IdentitySessionCreateOptions = {
   credentialCreate?: () => string
+  expiresAt?: Date
   idCreate?: () => string
   now?: Date
 }
@@ -21,7 +22,7 @@ export async function identitySessionCreate(
   const now = options.now ?? new Date()
   const token = options.credentialCreate?.() ?? randomBytes(32).toString("base64url")
   const storedSession = await identitySessionRepositoryCreate(database, {
-    expiresAt: new Date(now.getTime() + identitySessionLifetimeMs),
+    expiresAt: options.expiresAt ?? new Date(now.getTime() + identitySessionLifetimeMs),
     id: options.idCreate?.() ?? uuidv7(),
     token,
     userId,

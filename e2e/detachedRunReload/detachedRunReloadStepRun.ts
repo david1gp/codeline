@@ -1,0 +1,338 @@
+import { type Browser, type BrowserContext, expect, type Page } from "@playwright/test"
+import { e2eExampleDataSeedForMember } from "../e2eExampleDataSeedForMember.js"
+import { e2eMemberSessionsIssue } from "../e2eMemberSessionsIssue.js"
+import { e2eRunIdCreate } from "../e2eRunIdCreate.js"
+import { e2eSessionCreate } from "../e2eSessionCreate.js"
+import { detachedRunReloadCleanup } from "./detachedRunReloadCleanup.js"
+
+const baseOrigin = process.env.PUBLIC_ORIGIN ?? "https://preview.codeline.work"
+const sessionCookieName = "__Host-codeline-session"
+const serverId = "example-server-local"
+const syncTimeout = 45_000
+
+/**
+ * The checked-in `detached-reload` simulation scenario emits its first fragment
+ * immediately and then holds the run open for several seconds. That window is
+ * what makes the reload meaningful: the run is provably still active while the
+ * browser is torn down and rebuilt.
+ */
+const scenario = {
+  agentId: "example-agent-simulation-detached-reload",
+  finalText: "The detached deterministic run finished after the reload.",
+  firstText: "The detached deterministic run started.",
+} as const
+
+/**
+ * The `tool-activity-reload` scenario opens a tool call immediately and only
+ * resolves it seconds later, so the reload provably happens while the tool call
+ * is still open and the reattached tab observes its completion.
+ */
+const toolScenario = {
+  agentId: "example-agent-simulation-tool-activity-reload",
+  finalText: "The tool activity run finished after the reload.",
+  firstText: "The tool activity run started.",
+  toolCallId: "tool-activity-reload-1",
+  toolName: "bash",
+} as const
+
+declare global {
+  interface Window {
+    __codelineEventFeedUrls?: string[]
+  }
+}
+
+async function memberContextOpen(browser: Browser, token: string): Promise<BrowserContext> {
+  const context = await browser.newContext({ baseURL: baseOrigin })
+  await context.addCookies([
+    { domain: new URL(baseOrigin).hostname, name: sessionCookieName, path: "/", secure: true, value: token },
+  ])
+  // Recording constructed EventSource URLs is the only way to prove the reloaded
+  // tab attached after the selected-session snapshot's cursor rather than replaying blindly.
+  await context.addInitScript(() => {
+    const native = window.EventSource
+    const created: string[] = []
+    window.__codelineEventFeedUrls = created
+    class TrackedEventSource extends native {
+      constructor(url: string | URL, eventSourceInitDict?: EventSourceInit) {
+        super(url, eventSourceInitDict)
+        created.push(String(url))
+      }
+    }
+    window.EventSource = TrackedEventSource
+  })
+  return context
+}
+
+async function selectedEventSourceUrlsRead(page: Page, sessionId: string): Promise<string[]> {
+  const selectedPath = `/api/sessions/${encodeURIComponent(sessionId)}/events`
+  return page.evaluate((path) => {
+    return (window.__codelineEventFeedUrls ?? []).filter(
+      (url) => new URL(url, window.location.origin).pathname === path,
+    )
+  }, selectedPath)
+}
+
+type ActiveRunListResponse = { runs: Array<{ runId: string; status: string }> }
+type ActiveRunSnapshotResponse = {
+  lastCursor: string | null
+  lastSequence: number
+  partialText: string
+  status: string
+}
+type BoundedSnapshotResponse = { detailCursor: string }
+
+async function activeRunsRead(context: BrowserContext, sessionId: string): Promise<ActiveRunListResponse> {
+  const response = await context.request.get(`${baseOrigin}/api/sessions/${sessionId}/active-runs`)
+  expect(response.ok(), await response.text()).toBe(true)
+  return (await response.json()) as ActiveRunListResponse
+}
+
+async function activeRunSnapshotRead(
+  context: BrowserContext,
+  sessionId: string,
+  runId: string,
+): Promise<ActiveRunSnapshotResponse> {
+  const response = await context.request.get(`${baseOrigin}/api/sessions/${sessionId}/runs/${runId}/snapshot`)
+  expect(response.ok(), await response.text()).toBe(true)
+  return (await response.json()) as ActiveRunSnapshotResponse
+}
+
+async function detachedRunReloadAssert(browser: Browser): Promise<void> {
+  const runId = e2eRunIdCreate()
+  let context: BrowserContext | undefined
+  let cleanupError: unknown
+  let deletedUserIds: string[] = []
+
+  try {
+    const issued = await e2eMemberSessionsIssue(runId)
+    const [member] = issued.members
+    const mapping = await e2eExampleDataSeedForMember({
+      subject: `${issued.subjectPrefix}1`,
+      userId: member.userId,
+      runId,
+    })
+    context = await memberContextOpen(browser, member.token)
+
+    const agentsResponse = await context.request.get(
+      `${baseOrigin}/api/servers/${mapping[`server:${serverId}`]}/agents`,
+    )
+    expect(agentsResponse.ok(), await agentsResponse.text()).toBe(true)
+    const agentList = (await agentsResponse.json()) as { agents: Array<{ id: string }> }
+    expect(agentList.agents.map((agent) => agent.id)).toContain(mapping[`agent:${scenario.agentId}`])
+
+    const sessionResponse = await e2eSessionCreate(context, baseOrigin, {
+      clientRequestId: `e2e-detached-${runId}`,
+      primaryAgentId: mapping[`agent:${scenario.agentId}`],
+      serverId: mapping[`server:${serverId}`],
+      title: `Detached reload ${runId}`,
+    })
+    expect(sessionResponse.ok(), await sessionResponse.text()).toBe(true)
+    const sessionId = ((await sessionResponse.json()) as { session: { id: string } }).session.id
+
+    const prompt = `detached reload ${runId}`
+    const page = await context.newPage()
+    await page.goto(`/sessions/${encodeURIComponent(sessionId)}`)
+
+    const composer = page.getByRole("form", { name: "Chat composer" })
+    await expect(composer).toBeVisible({ timeout: syncTimeout })
+    const messageInput = composer.getByLabel("Message")
+    await expect(messageInput).toBeEnabled({ timeout: syncTimeout })
+    await messageInput.fill(prompt)
+    await composer.getByRole("button", { name: "Send" }).click()
+
+    // Submission starts a detached run: the server owns it independently of this
+    // page, and the first fragment is already persisted.
+    await expect
+      .poll(async () => (await activeRunsRead(context as BrowserContext, sessionId)).runs.length, {
+        timeout: syncTimeout,
+      })
+      .toBe(1)
+    const activeBeforeReload = await activeRunsRead(context, sessionId)
+    const detachedRunId = activeBeforeReload.runs[0]?.runId
+    if (detachedRunId === undefined) throw new Error("The detached run was not registered.")
+    expect(activeBeforeReload.runs[0]?.status).toBe("running")
+
+    await expect
+      .poll(
+        async () => (await activeRunSnapshotRead(context as BrowserContext, sessionId, detachedRunId)).partialText,
+        {
+          timeout: syncTimeout,
+        },
+      )
+      .toContain(scenario.firstText)
+
+    // Disconnect and reload. Only an explicit cancellation may stop a run, so the
+    // run must still be active and still owned by the server afterwards.
+    // Wait for the document commit first so the following response belongs to the
+    // reloaded document, not to a request left over from the previous document.
+    const boundedSnapshotUrl = `${baseOrigin}/api/sessions/${sessionId}/bounded-snapshot`
+    await page.reload({ waitUntil: "commit" })
+    const boundedSnapshotAfterReloadPromise = page
+      .waitForResponse((response) => response.url() === boundedSnapshotUrl, { timeout: syncTimeout })
+      .then(async (response) => {
+        expect(response.ok()).toBe(true)
+        return (await response.json()) as BoundedSnapshotResponse
+      })
+
+    const afterReload = await activeRunsRead(context, sessionId)
+    expect(afterReload.runs.map((run) => run.runId)).toEqual([detachedRunId])
+    expect(afterReload.runs[0]?.status).toBe("running")
+
+    const snapshotAfterReload = await activeRunSnapshotRead(context, sessionId, detachedRunId)
+    expect(snapshotAfterReload.status).toBe("running")
+    expect(snapshotAfterReload.partialText).toContain(scenario.firstText)
+    expect(snapshotAfterReload.lastSequence).toBeGreaterThan(0)
+    expect(snapshotAfterReload.lastCursor).toEqual(expect.any(String))
+
+    // The reloaded tab reads the run-specific snapshot and only then attaches the
+    // selected-session feed after the bounded snapshot's detail cursor.
+    await expect(page.getByRole("form", { name: "Chat composer" })).toBeVisible({ timeout: syncTimeout })
+    const boundedSnapshotAfterReload = await boundedSnapshotAfterReloadPromise
+    expect(boundedSnapshotAfterReload.detailCursor).toEqual(expect.any(String))
+
+    await expect
+      .poll(
+        async () =>
+          (await selectedEventSourceUrlsRead(page, sessionId)).some(
+            (url) => new URL(url, baseOrigin).searchParams.get("after") === boundedSnapshotAfterReload.detailCursor,
+          ),
+        {
+          timeout: syncTimeout,
+        },
+      )
+      .toBe(true)
+
+    const selectedEventSourceUrls = await selectedEventSourceUrlsRead(page, sessionId)
+    const attachedUrl = selectedEventSourceUrls.find(
+      (url) => new URL(url, baseOrigin).searchParams.get("after") === boundedSnapshotAfterReload.detailCursor,
+    )
+    if (attachedUrl === undefined) throw new Error("The reloaded tab never attached the selected-session feed.")
+    expect(new URL(attachedUrl, baseOrigin).searchParams.get("after")).toBe(boundedSnapshotAfterReload.detailCursor)
+
+    // Eventual completion is rendered from the authoritative HTTP snapshot.
+    await expect(page.getByRole("region", { name: "Latest agent answer", exact: true })).toContainText(
+      scenario.finalText,
+      { timeout: syncTimeout },
+    )
+    await expect(
+      page.getByRole("list", { name: "Recent semantic activity", exact: true }).getByText(prompt, { exact: true }),
+    ).toBeVisible({ timeout: syncTimeout })
+
+    // The run is settled server-side, so it is no longer an active run.
+    const activeAfterCompletion = await activeRunsRead(context, sessionId)
+    expect(activeAfterCompletion.runs).toEqual([])
+    const finalSnapshot = await activeRunSnapshotRead(context, sessionId, detachedRunId)
+    expect(finalSnapshot.status).toBe("succeeded")
+    // Finalization deletes that run's now-obsolete deltas.
+    expect(finalSnapshot.lastSequence).toBe(0)
+    expect(finalSnapshot.partialText).toBe("")
+  } finally {
+    await context?.close()
+    try {
+      deletedUserIds = await detachedRunReloadCleanup(runId)
+    } catch (error) {
+      cleanupError = error
+    }
+  }
+
+  if (cleanupError !== undefined) throw cleanupError
+  expect(deletedUserIds).toHaveLength(2)
+}
+
+async function detachedToolActivityReloadAssert(browser: Browser): Promise<void> {
+  const runId = e2eRunIdCreate()
+  let context: BrowserContext | undefined
+  let cleanupError: unknown
+  let deletedUserIds: string[] = []
+
+  try {
+    const issued = await e2eMemberSessionsIssue(runId)
+    const [member] = issued.members
+    const mapping = await e2eExampleDataSeedForMember({
+      subject: `${issued.subjectPrefix}1`,
+      userId: member.userId,
+      runId,
+    })
+    context = await memberContextOpen(browser, member.token)
+
+    const sessionResponse = await e2eSessionCreate(context, baseOrigin, {
+      clientRequestId: `e2e-tool-reload-${runId}`,
+      primaryAgentId: mapping[`agent:${toolScenario.agentId}`],
+      serverId: mapping[`server:${serverId}`],
+      title: `Tool activity reload ${runId}`,
+    })
+    expect(sessionResponse.ok(), await sessionResponse.text()).toBe(true)
+    const sessionId = ((await sessionResponse.json()) as { session: { id: string } }).session.id
+
+    const prompt = `tool activity reload ${runId}`
+    const page = await context.newPage()
+    await page.goto(`/sessions/${encodeURIComponent(sessionId)}`)
+
+    const composer = page.getByRole("form", { name: "Chat composer" })
+    await expect(composer).toBeVisible({ timeout: syncTimeout })
+    // The display mode is device-local and survives the reload, so selecting it now
+    // means the reattached tab renders the durable stream immediately instead of
+    // racing the run with a post-reload interaction.
+    await page.getByRole("button", { name: "Stream view" }).click()
+    const messageInput = composer.getByLabel("Message")
+    await expect(messageInput).toBeEnabled({ timeout: syncTimeout })
+    await messageInput.fill(prompt)
+    await composer.getByRole("button", { name: "Send" }).click()
+
+    await expect
+      .poll(async () => (await activeRunsRead(context as BrowserContext, sessionId)).runs.length, {
+        timeout: syncTimeout,
+      })
+      .toBe(1)
+    const activeBeforeReload = await activeRunsRead(context, sessionId)
+    const detachedRunId = activeBeforeReload.runs[0]?.runId
+    if (detachedRunId === undefined) throw new Error("The detached run was not registered.")
+
+    // The tool call has started and emitted its arguments, but its result is still
+    // pending, so the reload happens inside the open tool lifecycle.
+    await expect
+      .poll(
+        async () => (await activeRunSnapshotRead(context as BrowserContext, sessionId, detachedRunId)).partialText,
+        {
+          timeout: syncTimeout,
+        },
+      )
+      .toContain(toolScenario.firstText)
+
+    await page.reload()
+
+    const afterReload = await activeRunsRead(context, sessionId)
+    expect(afterReload.runs.map((run) => run.runId)).toEqual([detachedRunId])
+    expect(afterReload.runs[0]?.status).toBe("running")
+
+    // The reattached tab renders the durable stream, so the still-open tool call is
+    // observable in the same reloaded page.
+    const stream = page.getByRole("region", { name: "Execution stream" })
+    await expect(stream.getByText(toolScenario.toolName, { exact: true }).first()).toBeVisible({
+      timeout: syncTimeout,
+    })
+
+    await page.getByRole("button", { name: "Conversation view" }).click()
+    const latestAnswer = page.getByRole("region", { name: "Latest agent answer", exact: true })
+    await expect(latestAnswer).toContainText(toolScenario.finalText, { timeout: syncTimeout })
+
+    const finalSnapshot = await activeRunSnapshotRead(context, sessionId, detachedRunId)
+    expect(finalSnapshot.status).toBe("succeeded")
+    expect((await activeRunsRead(context, sessionId)).runs).toEqual([])
+  } finally {
+    await context?.close()
+    try {
+      deletedUserIds = await detachedRunReloadCleanup(runId)
+    } catch (error) {
+      cleanupError = error
+    }
+  }
+
+  if (cleanupError !== undefined) throw cleanupError
+  expect(deletedUserIds).toHaveLength(2)
+}
+
+export async function detachedRunReloadStepRun(browser: Browser, step: "run" | "tool-activity"): Promise<void> {
+  if (step === "run") return detachedRunReloadAssert(browser)
+  return detachedToolActivityReloadAssert(browser)
+}

@@ -54,6 +54,7 @@ type ServerStartOptions = {
     configuration: RuntimeConfiguration
     configurationStore?: ConfigurationStore
     database: DatabaseConnection["db"]
+    fixtureApiToken?: string
     projectRootDirs: readonly string[]
     providerAgentCatalog?: ProviderCatalog
     journalCursorCodec: JournalCursorCodec
@@ -183,6 +184,7 @@ export async function serverStart(options: ServerStartOptions = {}): Promise<Ser
     configuration: configuration.data,
     configurationStore,
     database: database.data.db,
+    fixtureApiToken: Bun.env.E2E_FIXTURE_API_TOKEN,
     projectRootDirs,
     providerAgentCatalog: providerAgentCatalogResult.data,
     journalCursorCodec,

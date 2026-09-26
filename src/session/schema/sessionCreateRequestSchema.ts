@@ -10,6 +10,8 @@ export const sessionCreateRequestSchema = v.strictObject({
   clientRequestId: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(200)),
   agentPrompt: v.optional(sessionAgentPromptSchema),
   command: v.optional(commandInvocationSchema),
+  globalAgentPresetId: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(200))),
+  modelId: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(200))),
   executionSelection: v.optional(sessionExecutionSelectionSchema),
   instructionOverrides: v.optional(sessionInstructionOverridesSchema),
   skillSelection: v.optional(skillSelectionRequestSchema),

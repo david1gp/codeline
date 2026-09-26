@@ -62,6 +62,8 @@ export type ChatCommandComposerView = {
 
 export type ChatCommandCatalogSource = {
   commands: () => readonly CommandInspectionSnapshot[]
+  /** Undefined means unrestricted; project commands always remain available. */
+  allowedGlobalCommandNames?: (discoveredNames: readonly string[]) => readonly string[] | undefined
   /** False when the primary agent cannot run `!`command`` interpolation. */
   isBashEnabled: () => boolean
   errorMessage: () => string | undefined
