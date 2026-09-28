@@ -5,8 +5,8 @@ import { appKnownRouteResolve } from "../app/appKnownRouteResolve.js"
 import { commandCatalogDiscover } from "../commands/actions/commandCatalogDiscover.js"
 import { apiCommandRoutesAdd } from "../commands/api/apiCommandRoutesAdd.js"
 import { sessionCompactionGenerate } from "../compaction/actions/sessionCompactionGenerate.js"
-import type { ConfigurationStore } from "../configuration/configurationStore.js"
 import { apiGlobalAgentPresetRoutesAdd } from "../configuration/api/apiGlobalAgentPresetRoutesAdd.js"
+import type { ConfigurationStore } from "../configuration/configurationStore.js"
 import type { RuntimeConfiguration } from "../configuration/runtimeConfigurationSchema.js"
 import type { DatabaseClient } from "../database/databaseClient.js"
 import { apiEventsRoutesAdd } from "../events/api/apiEventsRoutesAdd.js"
@@ -50,12 +50,12 @@ import { runErrorCatalog } from "../run/errors/runErrorCatalog.js"
 import type { serverShutdownCoordinatorCreate } from "../server/serverShutdownCoordinatorCreate.js"
 import { apiServerRoutesAdd } from "../servers/api/apiServerRoutesAdd.js"
 import { sessionChatAdapterCreate } from "../session/actions/sessionChatAdapterCreate.js"
+import type { sessionDetailStreamBacklogRead } from "../session/actions/sessionDetailStreamBacklogRead.js"
 import { apiSessionBranchRoutesAdd } from "../session/api/apiSessionBranchRoutesAdd.js"
+import { apiSessionDetailEventsRoutesAdd } from "../session/api/apiSessionDetailEventsRoutesAdd.js"
 import { apiSessionExecutionSelectionDefaultRoutesAdd } from "../session/api/apiSessionExecutionSelectionDefaultRoutesAdd.js"
 import { apiSessionRenameRoutesAdd } from "../session/api/apiSessionRenameRoutesAdd.js"
 import { apiSessionRoutesAdd } from "../session/api/apiSessionRoutesAdd.js"
-import { apiSessionDetailEventsRoutesAdd } from "../session/api/apiSessionDetailEventsRoutesAdd.js"
-import type { sessionDetailStreamBacklogRead } from "../session/actions/sessionDetailStreamBacklogRead.js"
 import { skillCatalogDiscover } from "../skills/actions/skillCatalogDiscover.js"
 import { skillPresetCatalogLoad } from "../skills/actions/skillPresetCatalogLoad.js"
 import { apiSkillRoutesAdd } from "../skills/api/apiSkillRoutesAdd.js"
@@ -73,6 +73,8 @@ import { apiReadinessRoutesAdd } from "./readiness/apiReadinessRoutesAdd.js"
 import { apiTestingRoutesAdd } from "./testing/apiTestingRoutesAdd.js"
 
 type ApiRoutesAddOptions = {
+  authRoutesEnabled?: boolean
+  localProjectPathsEnabled?: boolean
   agentInstructionsDiscover?: typeof agentInstructionsDiscover
   commandCatalogDiscover?: typeof commandCatalogDiscover
   configuration?: RuntimeConfiguration
@@ -170,25 +172,26 @@ export function apiRoutesAdd(
     projectRootDirs: options.projectRootDirs,
   })
   if (options.metricsCollector !== undefined) apiMetricsRoutesAdd(api, options.metricsCollector)
-  apiAuthRoutesAdd(api, {
-    configuration: options.configuration,
-    database: options.database,
-    idCreate: options.oidcIdCreate,
-    identitySessionRevoke: options.identitySessionRevoke,
-    identitySessionCreate: options.identitySessionCreate,
-    identitySessionLoad: options.identitySessionLoad,
-    oidcIdentityUpsert: options.oidcIdentityUpsert,
-    now: options.oidcNow,
-    oidcLoginTransactionCreate: options.oidcLoginTransactionCreate,
-    oidcLoginTransactionConsume: options.oidcLoginTransactionConsume,
-    oidcProviderDiscovery: options.oidcProviderDiscovery,
-    oidcProviderFetch: options.oidcProviderFetch,
-    randomValueCreate: options.oidcRandomValueCreate,
-    returnToPathIsKnown: options.oidcReturnToPathIsKnown,
-    oidcSessionCredentialCreate: options.oidcSessionCredentialCreate,
-    oidcSessionIdCreate: options.oidcSessionIdCreate,
-    callbackRoute: options.authCallbackRoute ?? app,
-  })
+  if (options.authRoutesEnabled !== false)
+    apiAuthRoutesAdd(api, {
+      configuration: options.configuration,
+      database: options.database,
+      idCreate: options.oidcIdCreate,
+      identitySessionRevoke: options.identitySessionRevoke,
+      identitySessionCreate: options.identitySessionCreate,
+      identitySessionLoad: options.identitySessionLoad,
+      oidcIdentityUpsert: options.oidcIdentityUpsert,
+      now: options.oidcNow,
+      oidcLoginTransactionCreate: options.oidcLoginTransactionCreate,
+      oidcLoginTransactionConsume: options.oidcLoginTransactionConsume,
+      oidcProviderDiscovery: options.oidcProviderDiscovery,
+      oidcProviderFetch: options.oidcProviderFetch,
+      randomValueCreate: options.oidcRandomValueCreate,
+      returnToPathIsKnown: options.oidcReturnToPathIsKnown,
+      oidcSessionCredentialCreate: options.oidcSessionCredentialCreate,
+      oidcSessionIdCreate: options.oidcSessionIdCreate,
+      callbackRoute: options.authCallbackRoute ?? app,
+    })
   apiServerRoutesAdd(api, { database: options.database })
   apiAgentRoutesAdd(api, {
     database: options.database,

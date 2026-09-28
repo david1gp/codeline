@@ -1,5 +1,6 @@
 import { mkdirSync } from "node:fs"
 import path from "node:path"
+import { pathToFileURL } from "node:url"
 import { createClient } from "@libsql/client"
 import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/libsql"
@@ -7,7 +8,7 @@ import { drizzle } from "drizzle-orm/libsql"
 export function openLibsql(filePath: string) {
   const absoluteFilePath = path.resolve(filePath)
   mkdirSync(path.dirname(absoluteFilePath), { recursive: true })
-  const absoluteFileUrl = `file://${absoluteFilePath}`
+  const absoluteFileUrl = pathToFileURL(absoluteFilePath).href
   const client = createClient({ timeout: 5_000, url: absoluteFileUrl })
   const db = drizzle(client)
 

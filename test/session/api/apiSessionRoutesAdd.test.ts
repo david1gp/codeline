@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test"
 import { randomBytes } from "node:crypto"
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
+import * as path from "node:path"
 import { createResult } from "@adaptive-ds/result"
 import { type AnyTextAdapter, EventType } from "@tanstack/ai"
 import { asc, eq } from "drizzle-orm"
@@ -11,9 +12,6 @@ import { agentTable } from "../../../src/agents/db/agentTable.js"
 import type { AppEnvironment } from "../../../src/api/appEnvironment.js"
 import { appCreate } from "../../../src/app/appCreate.js"
 import type { ConfigurationStore } from "../../../src/configuration/configurationStore.js"
-import { providerAgentCatalogLoad } from "../../../src/providers/catalog/providerAgentCatalogLoad.js"
-import { projectRegistryRepositoryUpsert } from "../../../src/project/db/projectRegistryRepositoryUpsert.js"
-import * as path from "node:path"
 import { databaseConnectionClose } from "../../../src/database/databaseConnectionClose.js"
 import { databaseReadyCheck } from "../../../src/database/databaseReadyCheck.js"
 import { databaseUrl } from "../../../src/database/databaseUrl.js"
@@ -25,6 +23,8 @@ import { organizationTable } from "../../../src/identity/db/organizationTable.js
 import { journalCursorCodecCreate } from "../../../src/journal/actions/journalCursorCodecCreate.js"
 import { journalEventTable } from "../../../src/journal/db/journalEventTable.js"
 import { messageTable } from "../../../src/message/db/messageTable.js"
+import { projectRegistryRepositoryUpsert } from "../../../src/project/db/projectRegistryRepositoryUpsert.js"
+import { providerAgentCatalogLoad } from "../../../src/providers/catalog/providerAgentCatalogLoad.js"
 import type { CliProxyApiAdapter } from "../../../src/providers/runtime/cliProxyApiAdapterCreate.js"
 import { providerDelegationToolLoopCreate } from "../../../src/providers/runtime/providerDelegationToolLoopCreate.js"
 import type { ProviderRuntimeAdapterOptions } from "../../../src/providers/runtime/providerRuntimeAdapterCreate.js"
@@ -523,6 +523,9 @@ test.skipIf(!databaseAvailable)(
           method: "POST",
         })
       expect((await create({ ...input, clientRequestId: `unscoped-${uuidv7()}` })).status).toBe(404)
+      expect((await create({ ...input, clientRequestId: `raw-path-${uuidv7()}`, projectPath: project })).status).toBe(
+        400,
+      )
       expect(
         (await create({ ...input, clientRequestId: `other-project-${uuidv7()}`, projectId: uuidv7() })).status,
       ).toBe(404)

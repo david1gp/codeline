@@ -8,6 +8,7 @@ import { codelineConfigurationDocumentSchema } from "../../../src/configuration/
 import { configurationStoreCreate } from "../../../src/configuration/configurationStoreCreate.js"
 import { configurationStoreRead } from "../../../src/configuration/configurationStoreRead.js"
 import { configurationStoreReload } from "../../../src/configuration/configurationStoreReload.js"
+import { configurationStoreTargetReconcile } from "../../../src/configuration/configurationStoreTargetReconcile.js"
 import { configurationStoreWrite } from "../../../src/configuration/configurationStoreWrite.js"
 
 const tmpRoot = Bun.env.TMPDIR ?? "/tmp"
@@ -50,6 +51,33 @@ afterEach(() => {
 })
 
 describe("configurationStore", () => {
+  test("reconciles the first local target through a committed snapshot and preserves other entries", async () => {
+    const store = await createStore()
+    expect(store.snapshot).toBeUndefined()
+    const target = { agentId: "build", serverId: "local:server" }
+    const configuration = {
+      model: "deterministic-test",
+      provider: "deterministic" as const,
+      tools: { bash: false, webfetch: false },
+    }
+    expect((await configurationStoreTargetReconcile(store, target, configuration)).success).toBe(true)
+    const first = configurationStoreRead(store)
+    expect(first.success).toBe(true)
+    if (!first.success) return
+    expect(first.data.configuration.agentConfigurations).toEqual([{ target, configuration }])
+    expect((await configurationStoreTargetReconcile(store, target, configuration)).success).toBe(true)
+    expect(configurationStoreRead(store)).toEqual(first)
+    const other = { agentId: "other", serverId: "another:server" }
+    expect((await configurationStoreTargetReconcile(store, other, configuration)).success).toBe(true)
+    const read = configurationStoreRead(store)
+    expect(read.success).toBe(true)
+    if (read.success)
+      expect(read.data.configuration.agentConfigurations).toEqual([
+        { target, configuration },
+        { target: other, configuration },
+      ])
+  })
+
   test("writes a valid document as a local conventional commit without a remote", async () => {
     const store = await createStore()
     const written = await configurationStoreWrite(store, validConfiguration())

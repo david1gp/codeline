@@ -33,9 +33,10 @@ import { agentInstructionsDiscover } from "../../instructions/actions/agentInstr
 import type { JournalCursorCodec } from "../../journal/actions/journalCursorCodecCreate.js"
 import type { journalPostCommitPublishCreate } from "../../journal/actions/journalPostCommitPublishCreate.js"
 import type { metricsCollectorCreate } from "../../metrics/metricsCollectorCreate.js"
+import { projectRegistryPathCanonicalize } from "../../project/actions/projectRegistryPathCanonicalize.js"
 import { projectRegistryProjectIdResolve } from "../../project/actions/projectRegistryProjectIdResolve.js"
-import { providerAgentCatalogExecutionResolve } from "../../providers/catalog/providerAgentCatalogExecutionResolve.js"
 import { providerAgentCatalogConfigurationResolve } from "../../providers/catalog/providerAgentCatalogConfigurationResolve.js"
+import { providerAgentCatalogExecutionResolve } from "../../providers/catalog/providerAgentCatalogExecutionResolve.js"
 import type { CliProxyApiAdapter } from "../../providers/runtime/cliProxyApiAdapterCreate.js"
 import { providerDelegationAdapterCreate } from "../../providers/runtime/providerDelegationAdapterCreate.js"
 import { providerDelegationToolLoopCreate } from "../../providers/runtime/providerDelegationToolLoopCreate.js"
@@ -48,6 +49,7 @@ import { providerRuntimeAdapterResolve } from "../../providers/runtime/providerR
 import type { CodelineExecution } from "../../providers/schema/codelineExecutionSchema.js"
 import { codelineExecutionSchema } from "../../providers/schema/codelineExecutionSchema.js"
 import { type ProviderCatalog, providerCatalogSchema } from "../../providers/schema/providerCatalogSchema.js"
+import { executionStreamEventNormalize } from "../../run/actions/executionStreamEventNormalize.js"
 import { runActiveRegistryCreate } from "../../run/actions/runActiveRegistryCreate.js"
 import { runCancellationCoordinatorCreate } from "../../run/actions/runCancellationCoordinatorCreate.js"
 import { runChildCreate } from "../../run/actions/runChildCreate.js"
@@ -64,6 +66,7 @@ import { runTerminalFinalize } from "../../run/actions/runTerminalFinalize.js"
 import { runTransition } from "../../run/actions/runTransition.js"
 import type { attemptTable } from "../../run/db/attemptTable.js"
 import type { runTable } from "../../run/db/runTable.js"
+import type { ExecutionStreamEvent } from "../../run/schema/executionStreamEventSchema.js"
 import type { RunExecutionSnapshot } from "../../run/schema/runExecutionSnapshotSchema.js"
 import { runExecutionSnapshotSchema } from "../../run/schema/runExecutionSnapshotSchema.js"
 import type { serverShutdownCoordinatorCreate } from "../../server/serverShutdownCoordinatorCreate.js"
@@ -71,8 +74,6 @@ import { skillCatalogDiscover } from "../../skills/actions/skillCatalogDiscover.
 import { skillPresetCatalogLoad } from "../../skills/actions/skillPresetCatalogLoad.js"
 import type { SkillDescriptionCatalog } from "../../skills/schema/skillDescriptionCatalogSchema.js"
 import type { SkillSnapshot } from "../../skills/schema/skillSnapshotSchema.js"
-import { executionStreamEventNormalize } from "../../run/actions/executionStreamEventNormalize.js"
-import type { ExecutionStreamEvent } from "../../run/schema/executionStreamEventSchema.js"
 import { bashToolCreate } from "../../tools/runtime/bashToolCreate.js"
 import { toolRegistryCreate } from "../../tools/runtime/toolRegistryCreate.js"
 import type { ToolName } from "../../tools/schema/toolNameSchema.js"
@@ -201,6 +202,7 @@ function idempotencyKeyParse(context: ApiContext, bodyKey?: string): string | un
 }
 
 type ApiSessionRoutesOptions = {
+  localProjectPathsEnabled?: boolean
   agentInstructionsDiscover?: typeof agentInstructionsDiscover
   commandCatalogDiscover?: typeof commandCatalogDiscover
   database: DatabaseClient
@@ -527,9 +529,14 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     const body = await context.req.json<unknown>().catch(() => undefined)
     const parsed = apiRequestParse("sessionCreateRequestParse", sessionCreateRequestSchema, body)
     if (!parsed.success) return badRequest(context, "The session request is invalid.")
-    // Home has no registry entry, but an explicit project path must never bypass
-    // registry authorization. Internal action callers retain the path-based branch.
-    if (parsed.data.projectId === undefined && parsed.data.projectPath !== undefined && parsed.data.projectPath !== "~")
+    // Network clients cannot bypass registry authorization with a raw path. The
+    // code-injected local identity may use canonical paths scoped to local roots.
+    if (
+      !options.localProjectPathsEnabled &&
+      parsed.data.projectId === undefined &&
+      parsed.data.projectPath !== undefined &&
+      parsed.data.projectPath !== "~"
+    )
       return badRequest(context, "A registered project is required to create a session.")
 
     const requestHash = apiIdempotencyRequestHashCreate(sessionCreateRequestHashInputCreate(parsed.data))
@@ -642,6 +649,13 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     const loaded = await sessionLoad(options.database, userId, organizationId, sessionId)
     if (!loaded.success)
       return loaded.errorMessage.includes("could not be found") ? notFound(context) : internalServerError(context)
+    if (options.localProjectPathsEnabled) {
+      // Persisted sessions may predate the current root configuration. Never admit a run
+      // (including command interpolation) against an old or noncanonical project path.
+      const projectPath = loaded.data.session.projectPath
+      const authorized = await projectRegistryPathCanonicalize(projectPath, options.projectRootDirs ?? [])
+      if (!authorized.success || authorized.data !== projectPath) return notFound(context)
+    }
     if (loaded.data.session.archivedAt !== null) return conflict(context, "The session is archived.")
     const storedProjectCatalog = loaded.data.session.metadata.projectAgentCatalog
     const parsedProjectCatalog =

@@ -18,9 +18,11 @@ import { oidcIdentityUpsert } from "../identity/actions/oidcIdentityUpsert.js"
 import { organizationMemberLoad } from "../identity/actions/organizationMemberLoad.js"
 import { apiE2eFixtureRoutesAdd } from "../identity/api/apiE2eFixtureRoutesAdd.js"
 import { authenticationMiddleware } from "../identity/api/authenticationMiddleware.js"
+import { localAuthenticationMiddleware } from "../identity/api/localAuthenticationMiddleware.js"
 import { developmentIdentityUpsert } from "../identity/db/developmentIdentityUpsert.js"
 import { oidcLoginTransactionConsume } from "../identity/db/oidcLoginTransactionConsume.js"
 import { oidcLoginTransactionCreate } from "../identity/db/oidcLoginTransactionCreate.js"
+import type { LocalIdentityPolicy } from "../identity/localIdentityPolicySchema.js"
 import { oidcProviderDiscoveryCreate } from "../identity/oidc/oidcProviderDiscoveryCreate.js"
 import type { OidcProviderFetch } from "../identity/oidc/oidcProviderFetch.js"
 import { agentInstructionsDiscover } from "../instructions/actions/agentInstructionsDiscover.js"
@@ -62,6 +64,7 @@ export type AppCreateOptions = {
   agentInstructionsDiscover?: typeof agentInstructionsDiscover
   commandCatalogDiscover?: typeof commandCatalogDiscover
   configuration?: RuntimeConfiguration
+  localIdentity?: LocalIdentityPolicy
   configurationStore?: ConfigurationStore
   database?: DatabaseClient
   fixtureApiToken?: string
@@ -176,7 +179,9 @@ export function appCreate(options: AppCreateOptions = {}): App {
     return context.json({ database: "ready", service: "codeline", status: "ready" })
   })
 
-  if (options.configuration !== undefined && options.database !== undefined) {
+  if (options.localIdentity !== undefined) {
+    app.use("/api/*", localAuthenticationMiddleware(options.database, options.localIdentity))
+  } else if (options.configuration !== undefined && options.database !== undefined) {
     apiE2eFixtureRoutesAdd(app, {
       configuration: options.configuration,
       database: options.database,
@@ -199,6 +204,8 @@ export function appCreate(options: AppCreateOptions = {}): App {
   })
 
   apiRoutesAdd(app, readyCheck, {
+    authRoutesEnabled: options.localIdentity === undefined,
+    localProjectPathsEnabled: options.localIdentity !== undefined,
     configuration: options.configuration,
     database: options.database,
     projectLimits: options.projectLimits,
