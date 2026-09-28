@@ -19,6 +19,20 @@ Codeline is an AI coding workspace for keeping your projects, conversations, and
 
 Want to explore the interface? The [demo showcase](https://codeline.work/demo) uses example states; it is not a live AI session.
 
+## Command-line interface
+
+The Bun-based `codeline` CLI supports one-shot prompts and interactive conversations from a checkout of this repository, with Bun 1.3 or newer. Install dependencies in the checkout and run:
+
+```sh
+bun install
+bun run src/cli/main.ts run "Explain this project"
+bun run src/cli/main.ts chat
+```
+
+Local in-process execution is the default; it does not start a server. For configuration, project/session behavior, remote use, and themes, see the [CLI guide](./docs/cli.md).
+
+The `codeline` package bin points to TypeScript source and is not a separately compiled CLI distribution; the instructions here support use from the checkout, not a global package install.
+
 ## Links
 
 - [Codeline website](http://codeline.work/)

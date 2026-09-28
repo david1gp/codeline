@@ -1,4 +1,6 @@
-# Remote Client Library and CLI
+# Historical: Remote Client Library and CLI design
+
+> **Superseded design note — not current usage documentation.** The proposed remote-only CLI, `--url`/`--token` flags, `.env` precedence, bearer authentication, and importable client API below do not describe the implemented CLI. The current CLI defaults to local in-process execution and uses `--backend`, XDG JSON settings, and temporary `CODELINE_SESSION_TOKEN` cookie authentication for server mode. See the maintained [CLI guide](./cli.md) for supported commands and behavior. This historical plan is retained as context; do not copy its proposed commands or authentication instructions.
 
 ## Goal
 
