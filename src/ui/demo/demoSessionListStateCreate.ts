@@ -58,12 +58,20 @@ export function demoSessionListStateCreate(options: DemoSessionListStateOptions)
 
   return {
     actions,
+    sessions: () => sessions().map((session) => ({ id: session.id, title: session.title, projectPath: "~" })),
     disclosure,
     emptyMessage: () =>
       query.get().trim().length > 0 ? "No conversations match your search." : "No active conversations.",
     isEmpty: () => sessions().length === 0,
     isError: () => options.variant() === "error",
     isLoading: () => options.variant() === "loading",
+    newSidebar: {
+      emptyMessage: () => "No active conversations.",
+      isError: () => options.variant() === "error",
+      isLoading: () => options.variant() === "loading",
+      refresh: () => {},
+      retry: () => query.set(""),
+    },
     isSelected: (sessionId: string) => options.selectedSessionId.get() === sessionId,
     folderIsOpen,
     folderToggle,

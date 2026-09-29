@@ -4,6 +4,7 @@ import { apiFetchContext } from "./apiFetchContext.js"
 import { sessionNavigationStateCreate } from "../session/ui/sessionNavigationStateCreate.js"
 import { sessionSidebarRouteStateCreate } from "../session/ui/sessionSidebarRouteStateCreate.js"
 import { workspaceScreenStateCreate } from "./workspaceScreenStateCreate.js"
+import { workspaceRouteFamilyResolve } from "./workspaceRouteFamilyResolve.js"
 
 export function workspaceRoutePageStateCreate() {
   const fetcher = useContext(apiFetchContext)
@@ -25,5 +26,8 @@ export function workspaceRoutePageStateCreate() {
     navigate,
   })
 
-  return workspaceScreenStateCreate(navigation, sidebarRoute, { fetcher })
+  return {
+    screen: workspaceScreenStateCreate(navigation, sidebarRoute, { fetcher }),
+    legacy: () => workspaceRouteFamilyResolve(location.pathname) === "legacy",
+  }
 }

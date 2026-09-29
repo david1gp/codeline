@@ -1,4 +1,5 @@
 import { createSignal, onCleanup } from "solid-js/dist/solid.js"
+import { workspacePageFocusTrapShouldHandle } from "./workspacePageFocusTrapShouldHandle.js"
 
 type WorkspacePageDocument = {
   activeElement: Element | null
@@ -52,14 +53,30 @@ export function workspacePageStateCreate(options: WorkspacePageStateOptions = {}
   }
   const keydownHandle = (event: KeyboardEvent) => {
     if (!isSessionDrawerOpen.get()) return
+    const activeElement = documentState.activeElement
+    const activeLayer = activeElement?.closest?.('[role="dialog"][aria-modal="true"], [data-corvu-popover-content]')
+    const activeLayerOutsideDrawer = activeLayer !== null && activeLayer !== undefined && !drawer?.contains(activeLayer)
+    const activeLayerId = activeLayer?.getAttribute("id")
+    const activeLayerOwnedByDrawer =
+      activeLayerId !== null &&
+      activeLayerId !== undefined &&
+      drawer !== undefined &&
+      [...drawer.querySelectorAll<HTMLElement>("[aria-controls]")].some(
+        (control) => control.getAttribute("aria-controls") === activeLayerId,
+      )
+    if (!workspacePageFocusTrapShouldHandle(activeLayerOutsideDrawer, activeLayerOwnedByDrawer)) return
     if (event.key === "Escape") {
       event.preventDefault()
       sessionDrawerClose()
       return
     }
     if (event.key !== "Tab" || drawer === undefined) return
-
-    const controls = [...drawer.querySelectorAll<HTMLElement>(focusableSelector)]
+    const controls = [
+      ...drawer.querySelectorAll<HTMLElement>(focusableSelector),
+      ...(activeLayerOwnedByDrawer && activeLayer instanceof HTMLElement
+        ? activeLayer.querySelectorAll<HTMLElement>(focusableSelector)
+        : []),
+    ]
       .filter((element) => element.tabIndex >= 0)
       .filter((element) => {
         const closedDetails = element.closest?.("details:not([open])")
@@ -77,11 +94,11 @@ export function workspacePageStateCreate(options: WorkspacePageStateOptions = {}
       return
     }
 
-    const activeElement = documentState.activeElement
-    if (event.shiftKey && (activeElement === first || !drawer.contains(activeElement))) {
+    const activeElementInFocusRegion = drawer.contains(activeElement) || activeLayerOwnedByDrawer
+    if (event.shiftKey && (activeElement === first || !activeElementInFocusRegion)) {
       event.preventDefault()
       last.focus()
-    } else if (!event.shiftKey && (activeElement === last || !drawer.contains(activeElement))) {
+    } else if (!event.shiftKey && (activeElement === last || !activeElementInFocusRegion)) {
       event.preventDefault()
       first.focus()
     }

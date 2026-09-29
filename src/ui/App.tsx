@@ -34,12 +34,12 @@ export function App(props: {
   return (
     <applicationShellContext.Provider value={props.applicationShell}>
       <pwaStatusContext.Provider value={props.state.pwa}>
-        <div class="grid h-screen min-h-screen grid-rows-[52px_minmax(0,1fr)] max-[760px]:h-auto max-[760px]:grid-rows-[auto_minmax(0,1fr)]">
+        <div class="grid h-screen min-h-screen min-w-0 grid-rows-[52px_minmax(0,1fr)] max-[760px]:h-auto max-[760px]:grid-rows-[auto_minmax(0,1fr)]">
           <header
-            class="z-10 grid grid-cols-[minmax(220px,max-content)_minmax(0,1fr)_auto] items-center gap-4 bg-[var(--header-background)] px-4 backdrop-blur-[18px] max-[760px]:min-h-[52px] max-[760px]:grid-cols-[1fr_auto] max-[760px]:gap-2 max-[760px]:px-2 max-[760px]:py-2"
+            class="z-10 grid min-w-0 grid-cols-[minmax(220px,max-content)_minmax(0,1fr)_auto] items-center gap-4 bg-[var(--header-background)] px-4 backdrop-blur-[18px] max-[760px]:min-h-[52px] max-[760px]:grid-cols-[minmax(0,1fr)_auto] max-[760px]:gap-2 max-[760px]:px-2 max-[760px]:py-2"
             inert={navigation.sessionDrawer.isSessionDrawerOpen()}
           >
-            <div class="flex items-center gap-2">
+            <div class="flex min-w-0 items-center gap-2 max-[760px]:overflow-x-auto">
               <A
                 class="inline-flex w-fit items-center no-underline"
                 href={urlDashboard()}
@@ -54,7 +54,7 @@ export function App(props: {
                 />
               </A>
               <Show when={navigation.workspaceActions.isAvailable()}>
-                <div class="flex items-center gap-0.5">
+                <div class="flex items-center gap-0.5 max-[760px]:shrink-0">
                   <ButtonIcon
                     icon={applicationIcon.sessionCreate}
                     iconClass="size-4 fill-current dark:fill-current"

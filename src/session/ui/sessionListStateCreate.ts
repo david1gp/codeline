@@ -5,16 +5,17 @@ import * as v from "valibot"
 import { apiHttpClientCreate } from "../../api/client/apiHttpClientCreate.js"
 import { projectFolderDisclosureStateCreate } from "../../project/ui/projectFolderDisclosureStateCreate.js"
 import type { ProjectRegistryState } from "../../project/ui/projectRegistryState.js"
+import { applicationAccountContext } from "../../ui/applicationAccountContext.js"
+import { appShellContext } from "../../ui/appShellContext.js"
+import { eventFeedCoordinatorContext } from "../../ui/eventFeedCoordinatorContext.js"
 import type { SessionShell } from "../api/sessionShellSchema.js"
 import { sessionListPageLoad } from "../client/sessionListPageLoad.js"
 import { sessionRenameRequestSchema } from "../schema/sessionRenameRequestSchema.js"
 import { sessionDeleteRequest } from "../ui/sessionDeleteRequest.js"
 import { sessionEtagFetch } from "../ui/sessionEtagFetch.js"
 import { sessionRenameRequest } from "../ui/sessionRenameRequest.js"
-import { applicationAccountContext } from "../../ui/applicationAccountContext.js"
-import { appShellContext } from "../../ui/appShellContext.js"
-import { eventFeedCoordinatorContext } from "../../ui/eventFeedCoordinatorContext.js"
 import { sessionBranchTreeStateCreate } from "./sessionBranchTreeStateCreate.js"
+import { sessionListNewSidebarStatusResolve } from "./sessionListNewSidebarStatusResolve.js"
 import type { SessionNavigationState } from "./sessionNavigationStateCreate.js"
 import { sessionSearchResultAdapt } from "./sessionSearchResultAdapt.js"
 import { sessionSearchStateCreate } from "./sessionSearchStateCreate.js"
@@ -216,17 +217,34 @@ export function sessionListStateCreate(
       search.revalidate()
       return
     }
+    sidebarRefresh()
+  }
+
+  const sidebarRefresh = () => {
     pageCursors.set([undefined])
     isLoadingMore.set(false)
     requestedPage.set({ cursor: undefined, index: 0 })
     refreshVersion.set(refreshVersion.get() + 1)
   }
 
-  const unregisterEventFeed = eventFeed?.registerSessionList(revalidate)
+  const sidebarRetry = () => {
+    pageCursors.set([undefined])
+    pageResults.set([])
+    nextCursor.set(null)
+    isLoadingMore.set(false)
+    requestedPage.set({ cursor: undefined, index: 0 })
+    refreshVersion.set(refreshVersion.get() + 1)
+  }
+
+  const unregisterEventFeed = eventFeed?.registerSessionList(() => {
+    revalidate()
+    if (activeTab() === "search") sidebarRefresh()
+  })
   if (unregisterEventFeed !== undefined) onCleanup(unregisterEventFeed)
 
   return {
     actions,
+    sessions: (): Pick<SessionShell, "id" | "title" | "projectId" | "projectPath">[] => sessions(),
     disclosure,
     folderIsOpen,
     folderToggle,
@@ -253,12 +271,15 @@ export function sessionListStateCreate(
         search.retry()
         return
       }
-      pageCursors.set([undefined])
-      pageResults.set([])
-      nextCursor.set(null)
-      isLoadingMore.set(false)
-      requestedPage.set({ cursor: undefined, index: 0 })
-      refreshVersion.set(refreshVersion.get() + 1)
+      sidebarRetry()
+    },
+    newSidebar: {
+      emptyMessage: () =>
+        sessionListNewSidebarStatusResolve(status.get(), sessions().length, isSignedIn()).emptyMessage,
+      isError: () => sessionListNewSidebarStatusResolve(status.get(), sessions().length, isSignedIn()).isError,
+      isLoading: () => sessionListNewSidebarStatusResolve(status.get(), sessions().length, isSignedIn()).isLoading,
+      refresh: sidebarRefresh,
+      retry: sidebarRetry,
     },
     revalidate,
     roots: branchTree.roots,
