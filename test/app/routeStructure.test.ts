@@ -124,7 +124,14 @@ test("application route groups keep wildcard fallbacks after their concrete rout
   expect(getRoutesSimulate().map((route) => route.path)).toEqual(["/simulate", "/simulate/*unknownSimulation"])
   expect(getRoutesNote().map((route) => route.path)).toEqual(["/notes", "/notes/new", "/notes/:noteId"])
   expect(getRoutesWorkspace().map((route) => route.path)).toEqual([
-    ["/sessions", "/sessions/new", "/sessions/:sessionId"],
+    [
+      "/sessions",
+      "/sessions/new",
+      "/sessions/:sessionId",
+      "/sessions-legacy",
+      "/sessions-legacy/new",
+      "/sessions-legacy/:sessionId",
+    ],
   ])
   expect(getRoutesDemo()[0]?.component).toBe(getRoutesDemo()[1]?.component)
   expect(getRoutesSimulate()[0]?.component).toBe(getRoutesSimulate()[1]?.component)
@@ -159,6 +166,11 @@ test("route builders preserve URLs and encode dynamic parameters", () => {
   expect(urlWorkspace.sessions({ tab: "pinned" })).toBe("/sessions?tab=pinned")
   expect(urlWorkspace.sessionsNew({ tab: "projects" })).toBe("/sessions/new?tab=projects")
   expect(urlWorkspace.sessionDetail("session/id?", { tab: "search" })).toBe("/sessions/session%2Fid%3F?tab=search")
+  expect(urlWorkspace.sessionsLegacy()).toBe("/sessions-legacy")
+  expect(urlWorkspace.sessionsLegacyNew({ tab: "projects" })).toBe("/sessions-legacy/new?tab=projects")
+  expect(urlWorkspace.sessionLegacyDetail("session/id?", { tab: "search" })).toBe(
+    "/sessions-legacy/session%2Fid%3F?tab=search",
+  )
 })
 
 test("UiRouter composes application and top-level route groups in their intended nesting", async () => {

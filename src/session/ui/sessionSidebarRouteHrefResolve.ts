@@ -8,6 +8,9 @@ export function sessionSidebarRouteHrefResolve(
   url: Pick<URL, "search" | "hash"> & Partial<Pick<URL, "pathname">>,
 ): string {
   const route = sessionRouteResolve({ pathname: url.pathname ?? pageRouteWorkspace.sessions, search: url.search })
+  const legacy =
+    (url.pathname ?? "").startsWith(`${pageRouteWorkspace.sessionsLegacy}/`) ||
+    url.pathname === pageRouteWorkspace.sessionsLegacy
   const sourceSearchParams = new URLSearchParams(url.search)
   const searchParams = new URLSearchParams({ tab })
   sourceSearchParams.forEach((value, key) => {
@@ -17,9 +20,15 @@ export function sessionSidebarRouteHrefResolve(
   const search = searchParams.toString()
   const pathname =
     route.kind === "new"
-      ? pageRouteWorkspace.sessionsNew
+      ? legacy
+        ? pageRouteWorkspace.sessionsLegacyNew
+        : pageRouteWorkspace.sessionsNew
       : route.sessionId
-        ? urlWorkspace.sessionDetail(route.sessionId)
-        : pageRouteWorkspace.sessions
+        ? legacy
+          ? urlWorkspace.sessionLegacyDetail(route.sessionId)
+          : urlWorkspace.sessionDetail(route.sessionId)
+        : legacy
+          ? pageRouteWorkspace.sessionsLegacy
+          : pageRouteWorkspace.sessions
   return `${pathname}${search === "" ? "" : `?${search}`}${url.hash}`
 }

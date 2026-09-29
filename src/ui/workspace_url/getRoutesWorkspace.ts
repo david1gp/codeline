@@ -12,6 +12,9 @@ export function getRoutesWorkspace(): RouteConfig {
     [pageNameWorkspace.sessions]: pageRouteWorkspace.sessions,
     [pageNameWorkspace.sessionsNew]: pageRouteWorkspace.sessionsNew,
     [pageNameWorkspace.sessionDetail]: pageRouteWorkspace.sessionDetail,
+    [pageNameWorkspace.sessionsLegacy]: pageRouteWorkspace.sessionsLegacy,
+    [pageNameWorkspace.sessionsLegacyNew]: pageRouteWorkspace.sessionsLegacyNew,
+    [pageNameWorkspace.sessionLegacyDetail]: pageRouteWorkspace.sessionLegacyDetail,
   } as const satisfies Record<PageNameWorkspace, string>
 
   return [

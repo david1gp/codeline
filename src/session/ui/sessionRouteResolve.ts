@@ -4,6 +4,7 @@ import { pageRouteWorkspace } from "../../ui/workspace_url/pageRouteWorkspace.js
 
 const sessionIdSchema = v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(200))
 const sessionDetailPrefix = pageRouteWorkspace.sessionDetail.replace(":sessionId", "")
+const legacySessionDetailPrefix = pageRouteWorkspace.sessionLegacyDetail.replace(":sessionId", "")
 
 export function sessionRouteResolve(url: Pick<URL, "pathname" | "search">) {
   const normalizedPathname =
@@ -12,15 +13,21 @@ export function sessionRouteResolve(url: Pick<URL, "pathname" | "search">) {
   const parsedQueryTab = v.safeParse(sessionSidebarTabSchema, searchParams.get("tab") ?? "")
   const queryTab: SessionSidebarTab | null = parsedQueryTab.success ? parsedQueryTab.output : null
 
-  if (normalizedPathname === pageRouteWorkspace.sessions) {
+  const legacy =
+    normalizedPathname === pageRouteWorkspace.sessionsLegacy || normalizedPathname.startsWith(legacySessionDetailPrefix)
+  const sessionsRoute = legacy ? pageRouteWorkspace.sessionsLegacy : pageRouteWorkspace.sessions
+  const sessionsNewRoute = legacy ? pageRouteWorkspace.sessionsLegacyNew : pageRouteWorkspace.sessionsNew
+  const detailPrefix = legacy ? legacySessionDetailPrefix : sessionDetailPrefix
+
+  if (normalizedPathname === sessionsRoute) {
     return { kind: "base" as const, sessionId: null, tab: queryTab }
   }
-  if (!normalizedPathname.startsWith(sessionDetailPrefix)) {
+  if (!normalizedPathname.startsWith(detailPrefix)) {
     return { kind: "invalid" as const, sessionId: null, tab: null }
   }
 
-  const routeSegment = normalizedPathname.slice(sessionDetailPrefix.length)
-  if (normalizedPathname === pageRouteWorkspace.sessionsNew) {
+  const routeSegment = normalizedPathname.slice(detailPrefix.length)
+  if (normalizedPathname === sessionsNewRoute) {
     return { kind: "new" as const, sessionId: null, tab: queryTab }
   }
   const parsedSessionId = v.safeParse(sessionIdSchema, routeSegment)

@@ -25,6 +25,13 @@ function sessionNavigationIsNewRouteResolve(navigation: SessionNavigation): bool
   return sessionRouteResolve(new URL(navigation.location.href)).kind === "new"
 }
 
+function sessionNavigationLegacyResolve(url: URL): boolean {
+  return (
+    url.pathname === pageRouteWorkspace.sessionsLegacy ||
+    url.pathname.startsWith(`${pageRouteWorkspace.sessionsLegacy}/`)
+  )
+}
+
 function sessionNavigationTabResolve(url: URL): SessionSidebarTab {
   const route = sessionRouteResolve(url)
   if (route.tab !== null) return route.tab
@@ -38,9 +45,17 @@ export function sessionNavigationStateCreate(navigation: SessionNavigation = win
   const [isNewSessionRoute, setIsNewSessionRoute] = createSignal(sessionNavigationIsNewRouteResolve(navigation))
   const updateUrl = (pathname: string, sessionId: string | null, push = true) => {
     const url = new URL(navigation.location.href)
+    const legacy = sessionNavigationLegacyResolve(url)
+    const destination = legacy
+      ? pathname === pageRouteWorkspace.sessions
+        ? pageRouteWorkspace.sessionsLegacy
+        : pathname === pageRouteWorkspace.sessionsNew
+          ? pageRouteWorkspace.sessionsLegacyNew
+          : pathname.replace(pageRouteWorkspace.sessions, pageRouteWorkspace.sessionsLegacy)
+      : pathname
     const href = sessionSidebarRouteHrefResolve(sessionNavigationTabResolve(url), {
       hash: url.hash,
-      pathname,
+      pathname: destination,
       search: url.search,
     })
     const currentPath = `${url.pathname}${url.search}${url.hash}`

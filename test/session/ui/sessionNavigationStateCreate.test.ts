@@ -126,6 +126,22 @@ test("session navigation enters the canonical new route before selecting the cre
   dispose()
 })
 
+test("legacy session selection and new-session navigation stay in the legacy route family", () => {
+  const navigation = navigationCreate("https://codeline.test/sessions-legacy?tab=projects#chat")
+  const dispose = createRoot((rootDispose) => {
+    const state = sessionNavigationStateCreate(navigation)
+
+    state.selectSession("legacy-selected")
+    expect(navigation.href).toBe("https://codeline.test/sessions-legacy/legacy-selected?tab=projects#chat")
+    state.startNewSession()
+    expect(navigation.href).toBe("https://codeline.test/sessions-legacy/new?tab=projects#chat")
+    expect(state.isNewSessionRoute()).toBe(true)
+
+    return rootDispose
+  })
+  dispose()
+})
+
 test("session sidebar reads the router URL after session selection navigation", async () => {
   const href = signalObjectCreate("https://codeline.test/sessions?tab=recent")
   const root = createRoot((dispose) => {

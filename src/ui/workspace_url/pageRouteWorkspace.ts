@@ -6,4 +6,7 @@ export const pageRouteWorkspace = {
   sessions: "/sessions",
   sessionsNew: "/sessions/new",
   sessionDetail: "/sessions/:sessionId",
+  sessionsLegacy: "/sessions-legacy",
+  sessionsLegacyNew: "/sessions-legacy/new",
+  sessionLegacyDetail: "/sessions-legacy/:sessionId",
 } as const satisfies Record<PageNameWorkspace, string>

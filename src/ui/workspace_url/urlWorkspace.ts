@@ -18,8 +18,23 @@ export function urlSessionDetail(sessionId: string, options?: { tab?: SessionSid
   return `${pageRouteWorkspace.sessionDetail.replace(":sessionId", encodeURIComponent(sessionId))}${workspaceSearchResolve(options?.tab)}`
 }
 
+export function urlSessionsLegacy(options?: { tab?: SessionSidebarTab }): string {
+  return `${pageRouteWorkspace.sessionsLegacy}${workspaceSearchResolve(options?.tab)}`
+}
+
+export function urlSessionsLegacyNew(options?: { tab?: SessionSidebarTab }): string {
+  return `${pageRouteWorkspace.sessionsLegacyNew}${workspaceSearchResolve(options?.tab)}`
+}
+
+export function urlSessionLegacyDetail(sessionId: string, options?: { tab?: SessionSidebarTab }): string {
+  return `${pageRouteWorkspace.sessionLegacyDetail.replace(":sessionId", encodeURIComponent(sessionId))}${workspaceSearchResolve(options?.tab)}`
+}
+
 export const urlWorkspace = {
   sessions: urlSessions,
   sessionsNew: urlSessionsNew,
   sessionDetail: urlSessionDetail,
+  sessionsLegacy: urlSessionsLegacy,
+  sessionsLegacyNew: urlSessionsLegacyNew,
+  sessionLegacyDetail: urlSessionLegacyDetail,
 }

@@ -19,6 +19,7 @@ const applicationRoutePaths = [
   pageRouteNote.notes,
   pageRouteNote.noteNew,
   pageRouteWorkspace.sessions,
+  pageRouteWorkspace.sessionsLegacy,
   pageRouteSettings.settings,
 ] as const
 const demoSectionPaths = [urlDemoSection("components"), urlDemoSection("screens"), urlDemoSection("config")] as const
@@ -32,6 +33,9 @@ export function appKnownRouteResolve(pathname: string): boolean {
   if (applicationRoutePaths.includes(normalizedPathname as (typeof applicationRoutePaths)[number])) return true
 
   if (normalizedPathname.startsWith(`${pageRouteWorkspace.sessions}/`)) {
+    return sessionRouteResolve(new URL(normalizedPathname, "https://codeline.local")).kind !== "invalid"
+  }
+  if (normalizedPathname.startsWith(`${pageRouteWorkspace.sessionsLegacy}/`)) {
     return sessionRouteResolve(new URL(normalizedPathname, "https://codeline.local")).kind !== "invalid"
   }
 
