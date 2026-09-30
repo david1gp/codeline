@@ -22,18 +22,13 @@ Add a T3Code-inspired command menu to Codeline's authenticated app. Ctrl/Cmd+K o
 ## Current context
 
 - T3Code's Ctrl/Cmd+Shift+O actually creates a new chat; its Add project action has no dedicated default shortcut. User chose the matching New session mapping and Actions + search scope.
-- Existing workspace actions live in `src/ui/primaryNavigationStateCreate.ts` and are registered by `src/ui/workspaceScreenStateCreate.ts`; `src/ui/App.tsx` is the common authenticated shell.
-- `src/session/client/sessionListPageLoad.ts` supports server-side `search`, `cursor`, `limit`, and abort `signal`. `src/ui/SearchablePicker.tsx` supplies accessible keyboard navigation and local filtering.
-- Existing unrelated edits in `SessionSidebarNew.tsx`, `sessionSidebarNewPersistence.test.ts`, `sessionSidebarNewStateCreate.ts`, and `sessionsWorkspace.css` must be preserved.
-- Task 1 added queue/consume command intents on workspace registration, preserving project ID, and a global Ctrl/Cmd+Shift+O shortcut matcher. Focused tests, typecheck, and formatting checks passed.
-- Task 2 added menu item modeling and state with server-backed, cursor-paginated session search and request cancellation. Focused tests and typecheck passed.
-- Task 3 mounted the searchable dialog in `App`, connected it to existing actions and route navigation, and adjusted the picker so server-matched sessions remain visible.
-- Task 4 repaired menu search autofocus, project-target preservation, app-level New project dispatch and modal focus handoff, plus multiword local search. Managed preview browser checks confirmed Ctrl/Cmd+K, Ctrl/Cmd+Shift+O across routes, New project via mouse and keyboard, and project-target selection. Keyboard ArrowDown intentionally advances from the initially active first result. No session existed in the browser account to verify live session-result navigation.
-- Final review identified that project menu data is an independent one-time snapshot and that signed-out cached browsing also mounts `App`; route the menu through the shared registry and scope it to authenticated mode. Ordinary New session must clear any prior project-target override.
+- The menu is mounted in authenticated `App`, uses the shared reactive project registry, and searches sessions through the existing cursor-paginated API. Global command intents hand off route-scoped session actions after workspace registration; New project uses the app-level controlled dialog.
+- Menu keyboard selection starts with the first result active. Multiword local search matches tokens across project metadata; server session results are not locally filtered. Ordinary New session clears a previous project-target override.
+- Live session-result navigation is covered by focused dispatch tests; the browser test account has no existing sessions to select.
 
 ## Status
 
 - Task 1: complete
 - Task 2: complete
 - Task 3: complete
-- Task 4: in progress (final review fixes and verification pending)
+- Task 4: complete
