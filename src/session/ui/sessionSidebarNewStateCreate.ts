@@ -1,4 +1,5 @@
 import { createSignalObject } from "@adaptive-ds/solid-ui/utils/createSignalObject"
+import { dragAndDrop, tearDown } from "@formkit/drag-and-drop"
 import { createEffect, onCleanup, useContext } from "solid-js"
 import { applicationAccountContext } from "../../ui/applicationAccountContext.js"
 import type { SessionListState } from "./sessionListStateCreate.js"
@@ -19,7 +20,6 @@ export function sessionSidebarNewStateCreate(list: () => SessionListState) {
   const mode = createSignalObject<SessionSidebarNewMode>(sessionSidebarNewModeRead())
   const order = createSignalObject<string[]>([])
   const expanded = createSignalObject<string[]>([])
-  const dragging = createSignalObject<string | null>(null)
   const orderPersistence = sessionSidebarNewPersistScheduleCreate()
 
   createEffect(() => {
@@ -55,7 +55,7 @@ export function sessionSidebarNewStateCreate(list: () => SessionListState) {
   }
   const move = (source: string, target: string) => {
     const visible = sessions().map((session) => session.id)
-    const previous = order.get()
+    const previous = order.get().length > 0 ? order.get() : sessionSidebarNewOrderRead(accountId())
     const next = sessionSidebarNewOrderMove(visible, previous, source, target)
     if (next.length === previous.length && next.every((id, index) => id === previous[index])) return
     order.set(next)
@@ -70,16 +70,48 @@ export function sessionSidebarNewStateCreate(list: () => SessionListState) {
     const target = visible[index + offset]
     if (target !== undefined) move(id, target.id)
   }
-  const dragStart = (id: string, event: DragEvent) => {
-    dragging.set(id)
-    event.dataTransfer?.setData("text/plain", id)
-    if (event.dataTransfer) event.dataTransfer.effectAllowed = "move"
+  const moveToOrder = (visibleIds: string[]) => {
+    const currentVisibleIds = sessions().map((session) => session.id)
+    if (
+      visibleIds.length !== currentVisibleIds.length ||
+      new Set(visibleIds).size !== currentVisibleIds.length ||
+      visibleIds.some((id) => !currentVisibleIds.includes(id))
+    )
+      return
+    const previous = order.get().length > 0 ? order.get() : sessionSidebarNewOrderRead(accountId())
+    const visible = new Set(currentVisibleIds)
+    const next = [...visibleIds, ...previous.filter((id) => !visible.has(id))]
+    if (next.length === previous.length && next.every((id, index) => id === previous[index])) return
+    order.set(next)
+    const owner = accountId()
+    orderPersistence.schedule(() => {
+      sessionSidebarNewOrderWrite(owner, next)
+    })
   }
-  const drop = (id: string, event: DragEvent) => {
-    event.preventDefault()
-    const source = dragging.get()
-    if (source !== null) move(source, id)
-    dragging.set(null)
+  const dragListAttach = (element: HTMLUListElement) => {
+    let disposed = false
+    queueMicrotask(() => {
+      if (disposed) return
+      dragAndDrop<string>({
+        parent: element,
+        getValues: () => sessions().map((session) => session.id),
+        // The list/order state remains the only source of truth; FormKit's proposed
+        // order is committed through the same account-scoped persistence path.
+        setValues: () => {},
+        config: {
+          nativeDrag: true,
+          dragHandle: ".sessions-workspace-drag",
+          draggable: (child) => child.hasAttribute("data-session-id"),
+          dropZoneClass: "sessions-workspace-thread-drop-target",
+          synthDropZoneClass: "sessions-workspace-thread-drop-target",
+          onSort: ({ values }) => moveToOrder(values),
+        },
+      })
+    })
+    onCleanup(() => {
+      disposed = true
+      tearDown(element)
+    })
   }
   return {
     mode: mode.get,
@@ -89,8 +121,7 @@ export function sessionSidebarNewStateCreate(list: () => SessionListState) {
     expanded: (id: string) => expanded.get().includes(id),
     groupToggle,
     moveBy,
-    dragStart,
-    drop,
-    dragEnd: () => dragging.set(null),
+    moveToOrder,
+    dragListAttach,
   }
 }

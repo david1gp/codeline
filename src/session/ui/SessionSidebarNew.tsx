@@ -92,21 +92,18 @@ export function SessionSidebarNew(props: {
             <div class="sessions-workspace-list-message">{props.workspace.sessionList.newSidebar.emptyMessage()}</div>
           </Match>
           <Match when={props.state.mode() === "flat"}>
-            <ul class="sessions-workspace-thread-list" aria-label="Threads, draggable to reorder">
+            <ul
+              class="sessions-workspace-thread-list"
+              aria-label="Threads, draggable to reorder"
+              ref={props.state.dragListAttach}
+            >
               <For each={props.state.sessions()}>
                 {(session) => (
-                  <li
-                    class="sessions-workspace-thread"
-                    onDragOver={(event) => event.preventDefault()}
-                    onDrop={(event) => props.state.drop(session.id, event)}
-                  >
+                  <li class="sessions-workspace-thread" data-session-id={session.id}>
                     <button
                       class="sessions-workspace-drag"
                       type="button"
-                      draggable="true"
                       aria-label={`Reorder ${session.title}; use up and down arrow keys`}
-                      onDragStart={(event) => props.state.dragStart(session.id, event)}
-                      onDragEnd={props.state.dragEnd}
                       onKeyDown={(event) => {
                         if (event.key === "ArrowUp" || event.key === "ArrowDown") {
                           event.preventDefault()

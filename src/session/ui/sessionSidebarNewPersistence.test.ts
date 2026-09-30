@@ -98,3 +98,49 @@ test("manual ordering survives sidebar remounts for the same account", () => {
     else Object.defineProperty(globalThis, "localStorage", previousStorage)
   }
 })
+
+test("FormKit proposed order updates visible sessions without losing paginated saved IDs", async () => {
+  const storage = memoryStorage()
+  const previousStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage")
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: storage })
+  const account = { userId: () => "account:paginated" }
+  sessionSidebarNewOrderWrite("account:paginated", ["session-a", "session-b", "session-hidden"], storage)
+  const list = (() => ({
+    sessions: () => [{ id: "session-a" }, { id: "session-b" }, { id: "session-c" }],
+    isSelected: () => false,
+  })) as unknown as () => SessionListState
+  const provideAccount = (children: () => void) =>
+    createComponent(applicationAccountContext.Provider, {
+      value: account,
+      get children() {
+        return children() as unknown as JSX.Element
+      },
+    })
+
+  try {
+    let reorder: (() => void) | undefined
+    let disposeRoot: (() => void) | undefined
+    createRoot((dispose) => {
+      disposeRoot = dispose
+      provideAccount(() => {
+        const state = sessionSidebarNewStateCreate(list)
+        reorder = () => {
+          state.moveToOrder(["session-b", "session-c", "session-a"])
+          expect(state.sessions().map(({ id }) => id)).toEqual(["session-b", "session-c", "session-a"])
+        }
+      })
+    })
+    await Promise.resolve()
+    reorder?.()
+    disposeRoot?.()
+    expect(sessionSidebarNewOrderRead("account:paginated", storage)).toEqual([
+      "session-b",
+      "session-c",
+      "session-a",
+      "session-hidden",
+    ])
+  } finally {
+    if (previousStorage === undefined) delete (globalThis as { localStorage?: Storage }).localStorage
+    else Object.defineProperty(globalThis, "localStorage", previousStorage)
+  }
+})

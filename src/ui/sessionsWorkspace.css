@@ -147,6 +147,10 @@
 .sessions-workspace-thread:has([aria-current="page"]) {
   background: var(--bg-selected);
 }
+.sessions-workspace-thread.sessions-workspace-thread-drop-target {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
 .sessions-workspace-thread-link {
   min-width: 0;
   flex: 1;
