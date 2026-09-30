@@ -1,24 +1,54 @@
-import { useLocation } from "@solidjs/router"
-import { useContext } from "solid-js"
+import { useLocation, useNavigate } from "@solidjs/router"
+import { onCleanup, onMount, useContext } from "solid-js"
 import { urlNotes } from "../note/note_url/urlNote.js"
+import { sessionDrawerContext } from "../session/ui/sessionDrawerContext.js"
+import { sessionSidebarDestinationResolve } from "../session/ui/sessionSidebarDestinationResolve.js"
 import { applicationIcon } from "./applicationIcon.js"
+import type { CommandIntent } from "./commandIntent.js"
+import { commandIntentConsume } from "./commandIntentConsume.js"
+import { commandShortcutMatch } from "./commandShortcutMatch.js"
 import { pageRouteFiles } from "./files_url/pageRouteFiles.js"
 import { urlFiles } from "./files_url/urlFiles.js"
 import { primaryNavigationPathIsActive } from "./primaryNavigationPathIsActive.js"
-import { sessionDrawerContext } from "../session/ui/sessionDrawerContext.js"
-import { sessionSidebarDestinationResolve } from "../session/ui/sessionSidebarDestinationResolve.js"
+import { primaryNavigationProjectCreateStateCreate } from "./primaryNavigationProjectCreateStateCreate.js"
 import { pageRouteSettings } from "./settings_url/pageRouteSettings.js"
 import { signalObjectCreate } from "./signalObjectCreate.js"
+import { urlSessions } from "./workspace_url/urlWorkspace.js"
 import { workspacePageStateCreate } from "./workspacePageStateCreate.js"
 
 type PrimaryNavigationActivationEvent = MouseEvent & { currentTarget: HTMLAnchorElement }
 
 export function primaryNavigationStateCreate() {
   const location = useLocation()
+  const navigate = useNavigate()
   const pathname = () => location.pathname
   const href = () => `${location.pathname}${location.search}${location.hash}`
   const sessionDrawer = useContext(sessionDrawerContext) ?? workspacePageStateCreate()
   const workspaceActions = signalObjectCreate<WorkspaceNavigationActions | undefined>(undefined)
+  const pendingCommandIntent = signalObjectCreate<CommandIntent | null>(null)
+  const projectCreate = primaryNavigationProjectCreateStateCreate()
+  const commandDispatch = (intent: CommandIntent) => {
+    if (intent.kind === "new-project") {
+      projectCreate.open()
+      return
+    }
+    const actions = workspaceActions.get()
+    if (actions !== undefined) {
+      commandIntentConsume(intent, actions)
+      return
+    }
+    pendingCommandIntent.set(intent)
+    navigate(urlSessions(), { scroll: false })
+  }
+  onMount(() => {
+    const keydown = (event: KeyboardEvent) => {
+      if (!commandShortcutMatch(event)) return
+      event.preventDefault()
+      commandDispatch({ kind: "new-session" })
+    }
+    window.addEventListener("keydown", keydown)
+    onCleanup(() => window.removeEventListener("keydown", keydown))
+  })
   const sessionsIsActive = () => primaryNavigationPathIsActive(pathname(), sessionSidebarDestinationResolve(href()))
   const sessionsActivate = (event: PrimaryNavigationActivationEvent) => {
     const handled = sessionDrawer.sessionDrawerOpen(event.currentTarget)
@@ -28,17 +58,23 @@ export function primaryNavigationStateCreate() {
 
   return {
     settingsIsActive: () => primaryNavigationPathIsActive(pathname(), pageRouteSettings.settings),
+    commandDispatch,
+    projectCreateDialogOpen: projectCreate.dialogOpen,
+    projectCreateDialogOpenChange: projectCreate.dialogOpenChange,
     workspaceActions: {
       folderCreateOpen: () => workspaceActions.get()?.folderCreateOpen(),
       isAvailable: () => workspaceActions.get() !== undefined,
-      projectCreateOpen: () => workspaceActions.get()?.projectCreateOpen(),
+      projectCreateOpen: projectCreate.open,
+      sessionInProject: (projectId: string) => commandDispatch({ kind: "new-session-project", projectId }),
       register: (actions: WorkspaceNavigationActions) => {
         workspaceActions.set(actions)
+        const intent = pendingCommandIntent.get()
+        pendingCommandIntent.set(commandIntentConsume(intent, actions))
         return () => {
           if (workspaceActions.get() === actions) workspaceActions.set(undefined)
         }
       },
-      sessionNew: () => workspaceActions.get()?.sessionNew(),
+      sessionNew: () => commandDispatch({ kind: "new-session" }),
     },
     items: [
       {
@@ -79,5 +115,5 @@ export function primaryNavigationStateCreate() {
 type WorkspaceNavigationActions = {
   folderCreateOpen: () => void
   projectCreateOpen: () => void
-  sessionNew: () => void
+  sessionNew: (projectId?: string) => void
 }

@@ -1,16 +1,10 @@
 import { batch, onCleanup, useContext } from "solid-js"
+import { activeProjectStateCreate } from "../project/ui/activeProjectStateCreate.js"
+import { filesScreenViewCreate } from "../project/ui/filesScreenViewCreate.js"
 import { projectRegistryStateCreate } from "../project/ui/projectRegistryStateCreate.js"
 import { providerModelSelectorStateCreate } from "../providers/ui/providerModelSelectorStateCreate.js"
 import type { SessionDetailSourceFactory } from "../session/client/sessionDetailSourceFactory.js"
-import { activeProjectStateCreate } from "../project/ui/activeProjectStateCreate.js"
-import { applicationAccountContext } from "./applicationAccountContext.js"
-import { applicationNavigationContext } from "./applicationNavigationContext.js"
-import { applicationShellContext } from "./applicationShellContext.js"
-import { applicationShellStateCreate } from "./applicationShellStateCreate.js"
-import { appShellContext } from "./appShellContext.js"
 import { chatCommandCatalogStateCreate } from "../session/ui/chatCommandCatalogStateCreate.js"
-import { eventFeedCoordinatorContext } from "./eventFeedCoordinatorContext.js"
-import { filesScreenViewCreate } from "../project/ui/filesScreenViewCreate.js"
 import { selectedSessionStateCreate } from "../session/ui/selectedSessionStateCreate.js"
 import { sessionDrawerContext } from "../session/ui/sessionDrawerContext.js"
 import { sessionListStateCreate } from "../session/ui/sessionListStateCreate.js"
@@ -24,9 +18,16 @@ import type { SessionProjectTarget } from "../session/ui/sessionProjectTarget.js
 import { sessionResourceSelectorStateCreate } from "../session/ui/sessionResourceSelectorStateCreate.js"
 import type { SessionSidebarRouteState } from "../session/ui/sessionSidebarRouteStateCreate.js"
 import { sessionTargetSelectorStateCreate } from "../session/ui/sessionTargetSelectorStateCreate.js"
+import { applicationAccountContext } from "./applicationAccountContext.js"
+import { applicationNavigationContext } from "./applicationNavigationContext.js"
+import { applicationShellContext } from "./applicationShellContext.js"
+import { applicationShellStateCreate } from "./applicationShellStateCreate.js"
+import { appShellContext } from "./appShellContext.js"
+import { eventFeedCoordinatorContext } from "./eventFeedCoordinatorContext.js"
 import { signalObjectCreate } from "./signalObjectCreate.js"
 import { workspacePageStateCreate } from "./workspacePageStateCreate.js"
 import type { WorkspaceScreenView } from "./workspaceScreenView.js"
+import { workspaceSessionNewOpen } from "./workspaceSessionNewOpen.js"
 
 type WorkspaceScreenStateOptions = {
   eventSourceFactory?: SessionDetailSourceFactory
@@ -172,7 +173,14 @@ export function workspaceScreenStateCreate(
   const workspaceActionsUnregister = applicationNavigation?.workspaceActions.register({
     folderCreateOpen: sessionList.actions.folderCreateOpen,
     projectCreateOpen: () => projectCreateOpenState.set(true),
-    sessionNew: () => newSessionDialogOpenState.set(true),
+    sessionNew: (projectId) => {
+      workspaceSessionNewOpen(projectId, {
+        newSessionDialogOpen: newSessionDialogOpenState,
+        pendingProjectTarget: pendingProjectTargetState,
+        projectIdOverride: projectIdOverrideState,
+        projectPathOverride: projectPathOverrideState,
+      })
+    },
   })
   if (workspaceActionsUnregister !== undefined) onCleanup(workspaceActionsUnregister)
   shell.rightPanelEnable()

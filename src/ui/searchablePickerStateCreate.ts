@@ -9,6 +9,8 @@ type SearchablePickerStateOptions<T extends SearchablePickerItem> = {
   active: () => boolean
   idPrefix: () => string
   items: () => readonly T[]
+  filterItems?: () => boolean
+  onQueryChange?: () => ((query: string) => void) | undefined
   onEnter?: () => ((item: T) => void) | undefined
   onSelect: (item: T) => void
   selectedId: () => string | null
@@ -23,6 +25,7 @@ export function searchablePickerStateCreate<T extends SearchablePickerItem>(opti
   let focusedInput: HTMLInputElement | null = null
 
   const filteredItems = (): readonly T[] => {
+    if (options.filterItems?.() === false) return options.items()
     const normalizedQuery = query.get().trim().toLocaleLowerCase()
     if (normalizedQuery.length === 0) return options.items()
 
@@ -153,6 +156,7 @@ export function searchablePickerStateCreate<T extends SearchablePickerItem>(opti
     query: query.get,
     queryInput: (event: InputEvent & { currentTarget: HTMLInputElement }) => {
       query.set(event.currentTarget.value)
+      options.onQueryChange?.()?.(event.currentTarget.value)
       highlightedIdOverride.set(null)
       highlightedScroll(highlightedItem())
     },

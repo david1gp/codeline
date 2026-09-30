@@ -8,6 +8,7 @@ import { Icon } from "#ui/static/icon/Icon.jsx"
 import { Img } from "#ui/static/img/Img.jsx"
 import { AccountPopover } from "../identity/ui/AccountPopover.js"
 import type { AuthShellView } from "../identity/ui/authShellView.js"
+import { NewProjectDialog } from "../project/ui/NewProjectDialog.js"
 import { sessionDrawerContext } from "../session/ui/sessionDrawerContext.js"
 import { applicationIcon } from "./applicationIcon.js"
 import { applicationNavigationContext } from "./applicationNavigationContext.js"
@@ -15,6 +16,7 @@ import { applicationShellContext } from "./applicationShellContext.js"
 import type { applicationShellStateCreate } from "./applicationShellStateCreate.js"
 import { appShellContext } from "./appShellContext.js"
 import type { AppShellView } from "./appShellView.js"
+import { CommandMenuDialog } from "./CommandMenuDialog.js"
 import { ConnectionStatusIndicator } from "./ConnectionStatusIndicator.js"
 import { urlDashboard } from "./dashboard_url/urlDashboard.js"
 import { urlDemo } from "./demo_url/urlDemo.js"
@@ -155,6 +157,18 @@ export function App(props: {
               </sessionDrawerContext.Provider>
             </applicationNavigationContext.Provider>
           </appShellContext.Provider>
+          <Show when={props.auth && props.state.projectRegistry}>
+            {(projectRegistry) => <CommandMenuDialog navigation={navigation} projectRegistry={projectRegistry()} />}
+          </Show>
+          <NewProjectDialog
+            activeProject={props.state.activeProject}
+            buttonChildren={null}
+            buttonClass="hidden"
+            idPrefix="app-new-project"
+            onOpenChange={navigation.projectCreateDialogOpenChange}
+            open={navigation.projectCreateDialogOpen}
+            projectRegistry={props.state.projectRegistry}
+          />
         </div>
       </pwaStatusContext.Provider>
     </applicationShellContext.Provider>

@@ -9,10 +9,12 @@ export function SearchablePicker<T extends SearchablePickerItem>(props: {
   active?: boolean
   ariaLabel: string
   autofocus?: boolean
-  emptyText: string
+  emptyText: string | null
   idPrefix: string
   inputRef?: (element: HTMLInputElement) => void
   items: readonly T[]
+  filterItems?: boolean
+  onQueryChange?: (query: string) => void
   onEnter?: (item: T) => void
   onSelect: (item: T) => void
   placeholder: string
@@ -23,6 +25,8 @@ export function SearchablePicker<T extends SearchablePickerItem>(props: {
     active: () => props.active !== false,
     idPrefix: () => props.idPrefix,
     items: () => props.items,
+    filterItems: () => props.filterItems !== false,
+    onQueryChange: () => props.onQueryChange,
     onEnter: () => props.onEnter,
     onSelect: (item) => props.onSelect(item),
     selectedId: () => props.selectedId,
@@ -66,9 +70,13 @@ export function SearchablePicker<T extends SearchablePickerItem>(props: {
         <For
           each={state.filteredItems()}
           fallback={
-            <p class="m-0 px-3 py-6 text-center text-sm text-faint" role="status">
-              {props.emptyText}
-            </p>
+            <Show when={props.emptyText}>
+              {(emptyText) => (
+                <p class="m-0 px-3 py-6 text-center text-sm text-faint" role="status">
+                  {emptyText()}
+                </p>
+              )}
+            </Show>
           }
         >
           {(item) => (

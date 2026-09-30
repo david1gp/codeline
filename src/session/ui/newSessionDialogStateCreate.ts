@@ -1,12 +1,12 @@
-import { createEffect, type Accessor, useContext } from "solid-js"
+import { type Accessor, createEffect, useContext } from "solid-js"
 import type { ProjectRegistryApiProject } from "../../project/api/projectRegistryApiProjectSchema.js"
+import type { ActiveProjectState } from "../../project/ui/activeProjectStateCreate.js"
 import type { ProjectRegistryState } from "../../project/ui/projectRegistryState.js"
 import { appShellContext } from "../../ui/appShellContext.js"
-import type { ActiveProjectState } from "../../project/ui/activeProjectStateCreate.js"
+import { signalObjectCreate } from "../../ui/signalObjectCreate.js"
 import type { SessionProjectIdOverride } from "./sessionProjectIdOverride.js"
 import type { SessionProjectPathOverride } from "./sessionProjectPathOverride.js"
 import type { SessionTargetSelectorState } from "./sessionTargetSelectorStateCreate.js"
-import { signalObjectCreate } from "../../ui/signalObjectCreate.js"
 
 export type NewSessionProject =
   | ProjectRegistryApiProject
@@ -150,6 +150,16 @@ export function newSessionDialogStateCreate(options: NewSessionDialogStateOption
       selectedProjectOverrideId.set(null)
       const current = options.activeProject.project()
       const availableList = projects()
+      const requestedId = options.projectIdOverride?.get()
+      const requestedMatch =
+        requestedId === null || requestedId === undefined
+          ? undefined
+          : availableList.find((project) => project.id === requestedId && project.available)
+      if (requestedMatch !== undefined) {
+        options.projectIdOverride?.set(requestedMatch.id)
+        options.projectPathOverride.set(requestedMatch.path ?? null)
+        return
+      }
       const currentMatch = availableList.find(
         (p) => (current.id ? p.id === current.id : p.path === current.path) && p.available,
       )

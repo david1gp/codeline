@@ -6,6 +6,7 @@ import { sessionListSnapshotResponseV3Schema } from "../api/sessionListSnapshotR
 type SessionListPage = v.InferOutput<typeof sessionListSnapshotResponseV3Schema>
 
 type SessionListPageLoadInput = {
+  coalesce?: boolean
   cursor?: string
   includeArchived?: boolean
   limit: number
@@ -18,6 +19,7 @@ export function sessionListPageLoad(
   input: SessionListPageLoadInput,
 ): Promise<Result<SessionListPage>> {
   return client.get({
+    ...(input.coalesce === undefined ? {} : { coalesce: input.coalesce }),
     op: "sessionListPageLoad",
     path: "/api/sessions",
     query: {
