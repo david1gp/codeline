@@ -30,7 +30,8 @@ test("the navbar exposes accessible creation actions through the workspace regis
   expect(navigation).toContain("register: (actions: WorkspaceNavigationActions)")
   expect(workspace).toContain("folderCreateOpen: sessionList.actions.folderCreateOpen")
   expect(workspace).toContain("projectCreateOpen: () => projectCreateOpenState.set(true)")
-  expect(workspace).toContain("sessionNew: () => newSessionDialogOpenState.set(true)")
+  expect(workspace).toContain("sessionNew: (projectId) =>")
+  expect(workspace).toContain("workspaceSessionNewOpen")
 })
 
 test("workspace surfaces share the active project state", async () => {

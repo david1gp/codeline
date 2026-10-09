@@ -46,7 +46,7 @@ test("settings is registered with the settings route page", async () => {
   expect(settingsRoutesSource).toContain("pageRouteSettings")
   expect(settingsRoutesSource).toContain("lazy")
   expect(settingsSource).toContain("SettingsSidebar")
-  expect(settingsSource).toContain("ConfigurationEditor")
+  expect(settingsSource).toContain("GlobalResourceEditor")
   expect(settingsGeneralSource).toContain('<h1 id="settings-title"')
   expect(settingsSidebarSource).toContain("Subagents")
   expect(settingsSidebarSource).toContain("Skills")

@@ -19,7 +19,7 @@ test("the workspace shows the initial composer when execution configuration is r
   )
   // Setup no longer offers resource toggles; existing sessions still inspect their captured resources.
   expect(normalized).toContain(
-    "fallback={ <WorkspaceSetupPanel configuration={props.state.sessionTargetSelector.configurationReadiness()} /> }",
+    "fallback={<WorkspaceSetupPanel configuration={props.state.sessionTargetSelector.configurationReadiness()} />}",
   )
   expect(normalized).toContain(
     "<SelectedSession activeProject={props.state.activeProject} providerModel={props.state.providerModelSelector} resources={props.state.sessionResourceSelector} sessionTarget={props.state.sessionTargetSelector} shell={props.state.shell} state={props.state.selectedSession} />",
