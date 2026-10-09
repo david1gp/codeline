@@ -1,5 +1,5 @@
 PRAGMA foreign_keys=OFF;--> statement-breakpoint
-CREATE TABLE `__new_message` (
+CREATE TABLE IF NOT EXISTS `__new_message` (
 	`id` text PRIMARY KEY NOT NULL,
 	`session_id` text NOT NULL,
 	`agent_id` text NOT NULL,
@@ -19,7 +19,7 @@ INSERT INTO `__new_message`("id", "session_id", "agent_id", "role", "sequence", 
 DROP TABLE `message`;--> statement-breakpoint
 ALTER TABLE `__new_message` RENAME TO `message`;--> statement-breakpoint
 PRAGMA foreign_keys=ON;--> statement-breakpoint
-CREATE INDEX `message_session_sequence_idx` ON `message` (`session_id`,`sequence`);--> statement-breakpoint
-CREATE INDEX `message_role_idx` ON `message` (`role`);--> statement-breakpoint
-CREATE UNIQUE INDEX `message_session_sequence_unique` ON `message` (`session_id`,`sequence`);--> statement-breakpoint
-CREATE UNIQUE INDEX `message_session_client_request_unique` ON `message` (`session_id`,`client_request_id`);
+CREATE INDEX IF NOT EXISTS `message_session_sequence_idx` ON `message` (`session_id`,`sequence`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `message_role_idx` ON `message` (`role`);--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS `message_session_sequence_unique` ON `message` (`session_id`,`sequence`);--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS `message_session_client_request_unique` ON `message` (`session_id`,`client_request_id`);

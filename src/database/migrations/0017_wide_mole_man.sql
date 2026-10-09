@@ -9,4 +9,4 @@ SET `message_role` = CASE
   ELSE NULL
 END
 WHERE `kind` = 'message';--> statement-breakpoint
-CREATE INDEX `session_history_entry_session_kind_message_role_position_idx` ON `session_history_entry` (`session_id`,`kind`,`message_role`,`position`);
+CREATE INDEX IF NOT EXISTS `session_history_entry_session_kind_message_role_position_idx` ON `session_history_entry` (`session_id`,`kind`,`message_role`,`position`);

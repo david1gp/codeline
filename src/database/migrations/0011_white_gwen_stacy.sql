@@ -1,4 +1,4 @@
-CREATE TABLE `session_compaction` (
+CREATE TABLE IF NOT EXISTS `session_compaction` (
 	`id` text PRIMARY KEY NOT NULL,
 	`session_id` text NOT NULL,
 	`schema_version` integer DEFAULT 1 NOT NULL,
@@ -23,6 +23,6 @@ CREATE TABLE `session_compaction` (
       ))
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `session_compaction_session_version_unique` ON `session_compaction` (`session_id`,`compaction_version`);--> statement-breakpoint
-CREATE UNIQUE INDEX `session_compaction_session_running_unique` ON `session_compaction` (`session_id`) WHERE "session_compaction"."status" = 'running';--> statement-breakpoint
-CREATE INDEX `session_compaction_session_version_idx` ON `session_compaction` (`session_id`,`compaction_version`);
+CREATE UNIQUE INDEX IF NOT EXISTS `session_compaction_session_version_unique` ON `session_compaction` (`session_id`,`compaction_version`);--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS `session_compaction_session_running_unique` ON `session_compaction` (`session_id`) WHERE "session_compaction"."status" = 'running';--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `session_compaction_session_version_idx` ON `session_compaction` (`session_id`,`compaction_version`);

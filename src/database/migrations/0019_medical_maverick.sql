@@ -1,4 +1,4 @@
-CREATE TABLE `e2e_sample_sessions` (
+CREATE TABLE IF NOT EXISTS `e2e_sample_sessions` (
 	`run_id` text PRIMARY KEY NOT NULL,
 	`created_at` integer NOT NULL,
 	`user_id` text NOT NULL,

@@ -1,5 +1,5 @@
 PRAGMA foreign_keys=OFF;--> statement-breakpoint
-CREATE TABLE `__new_session` (
+CREATE TABLE IF NOT EXISTS `__new_session` (
 	`id` text PRIMARY KEY NOT NULL,
 	`user_id` text NOT NULL,
 	`server_id` text NOT NULL,
@@ -31,9 +31,9 @@ INSERT INTO `__new_session`("id", "user_id", "server_id", "primary_agent_id", "p
 DROP TABLE `session`;--> statement-breakpoint
 ALTER TABLE `__new_session` RENAME TO `session`;--> statement-breakpoint
 PRAGMA foreign_keys=ON;--> statement-breakpoint
-CREATE INDEX `session_user_updated_idx` ON `session` (`user_id`,`updated_at`);--> statement-breakpoint
-CREATE INDEX `session_user_archived_idx` ON `session` (`user_id`,`archived_at`);--> statement-breakpoint
-CREATE INDEX `session_server_idx` ON `session` (`server_id`);--> statement-breakpoint
-CREATE INDEX `session_parent_idx` ON `session` (`parent_session_id`);--> statement-breakpoint
-CREATE UNIQUE INDEX `session_user_client_request_unique` ON `session` (`user_id`,`client_request_id`);--> statement-breakpoint
-CREATE UNIQUE INDEX `session_user_id_unique` ON `session` (`user_id`,`id`);
+CREATE INDEX IF NOT EXISTS `session_user_updated_idx` ON `session` (`user_id`,`updated_at`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `session_user_archived_idx` ON `session` (`user_id`,`archived_at`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `session_server_idx` ON `session` (`server_id`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `session_parent_idx` ON `session` (`parent_session_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS `session_user_client_request_unique` ON `session` (`user_id`,`client_request_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS `session_user_id_unique` ON `session` (`user_id`,`id`);

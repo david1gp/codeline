@@ -1,4 +1,4 @@
-CREATE TABLE `session_history_entry` (
+CREATE TABLE IF NOT EXISTS `session_history_entry` (
 	`id` text PRIMARY KEY NOT NULL,
 	`user_id` text NOT NULL,
 	`session_id` text NOT NULL,
@@ -24,10 +24,10 @@ CREATE TABLE `session_history_entry` (
 	CONSTRAINT "session_history_entry_change_position_ordered" CHECK("session_history_entry"."change_position" >= "session_history_entry"."position")
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `session_history_entry_session_source_unique` ON `session_history_entry` (`session_id`,`source_type`,`source_id`,`source_detail_id`);--> statement-breakpoint
-CREATE UNIQUE INDEX `session_history_entry_session_position_unique` ON `session_history_entry` (`session_id`,`position`);--> statement-breakpoint
-CREATE INDEX `session_history_entry_session_change_position_idx` ON `session_history_entry` (`session_id`,`change_position`);--> statement-breakpoint
-CREATE TABLE `run_active_state` (
+CREATE UNIQUE INDEX IF NOT EXISTS `session_history_entry_session_source_unique` ON `session_history_entry` (`session_id`,`source_type`,`source_id`,`source_detail_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS `session_history_entry_session_position_unique` ON `session_history_entry` (`session_id`,`position`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `session_history_entry_session_change_position_idx` ON `session_history_entry` (`session_id`,`change_position`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `run_active_state` (
 	`run_id` text PRIMARY KEY NOT NULL,
 	`user_id` text NOT NULL,
 	`session_id` text NOT NULL,
@@ -48,9 +48,9 @@ CREATE TABLE `run_active_state` (
 	CONSTRAINT "run_active_state_change_position_safe" CHECK("run_active_state"."change_position" <= 9007199254740991)
 );
 --> statement-breakpoint
-CREATE INDEX `run_active_state_session_change_position_idx` ON `run_active_state` (`session_id`,`change_position`,`run_id`);--> statement-breakpoint
-CREATE INDEX `run_active_state_user_session_idx` ON `run_active_state` (`user_id`,`session_id`,`run_id`);--> statement-breakpoint
-CREATE TABLE `run_finalized_detail` (
+CREATE INDEX IF NOT EXISTS `run_active_state_session_change_position_idx` ON `run_active_state` (`session_id`,`change_position`,`run_id`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `run_active_state_user_session_idx` ON `run_active_state` (`user_id`,`session_id`,`run_id`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `run_finalized_detail` (
 	`run_id` text PRIMARY KEY NOT NULL,
 	`user_id` text NOT NULL,
 	`session_id` text NOT NULL,
@@ -63,9 +63,9 @@ CREATE TABLE `run_finalized_detail` (
 	CONSTRAINT "run_finalized_detail_tools_json" CHECK(json_valid("run_finalized_detail"."tools"))
 );
 --> statement-breakpoint
-CREATE INDEX `run_finalized_detail_session_idx` ON `run_finalized_detail` (`user_id`,`session_id`,`run_id`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `run_finalized_detail_session_idx` ON `run_finalized_detail` (`user_id`,`session_id`,`run_id`);--> statement-breakpoint
 PRAGMA foreign_keys=OFF;--> statement-breakpoint
-CREATE TABLE `__new_session` (
+CREATE TABLE IF NOT EXISTS `__new_session` (
 	`id` text PRIMARY KEY NOT NULL,
 	`user_id` text NOT NULL,
 	`server_id` text NOT NULL,
@@ -99,9 +99,9 @@ INSERT INTO `__new_session`("id", "user_id", "server_id", "primary_agent_id", "p
 DROP TABLE `session`;--> statement-breakpoint
 ALTER TABLE `__new_session` RENAME TO `session`;--> statement-breakpoint
 PRAGMA foreign_keys=ON;--> statement-breakpoint
-CREATE INDEX `session_user_updated_idx` ON `session` (`user_id`,`updated_at`);--> statement-breakpoint
-CREATE INDEX `session_user_archived_idx` ON `session` (`user_id`,`archived_at`);--> statement-breakpoint
-CREATE INDEX `session_server_idx` ON `session` (`server_id`);--> statement-breakpoint
-CREATE INDEX `session_parent_idx` ON `session` (`parent_session_id`);--> statement-breakpoint
-CREATE UNIQUE INDEX `session_user_client_request_unique` ON `session` (`user_id`,`client_request_id`);--> statement-breakpoint
-CREATE UNIQUE INDEX `session_user_id_unique` ON `session` (`user_id`,`id`);
+CREATE INDEX IF NOT EXISTS `session_user_updated_idx` ON `session` (`user_id`,`updated_at`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `session_user_archived_idx` ON `session` (`user_id`,`archived_at`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `session_server_idx` ON `session` (`server_id`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `session_parent_idx` ON `session` (`parent_session_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS `session_user_client_request_unique` ON `session` (`user_id`,`client_request_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS `session_user_id_unique` ON `session` (`user_id`,`id`);
