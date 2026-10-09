@@ -13,6 +13,7 @@ import type { providerRuntimeAdapterCreate } from "../../providers/runtime/provi
 import { providerExecutionEventFromStreamChunk } from "../../providers/runtime/providerExecutionEventFromStreamChunk.js"
 import type { RunRetryExecutionEvidence } from "../../run/schema/runRetryExecutionEvidenceSchema.js"
 import { executionStreamEventNormalize } from "../../run/actions/executionStreamEventNormalize.js"
+import { compactionToolOutputPrune } from "../../compaction/compactionToolOutputPrune.js"
 import { sessionChatContextPrepare } from "./sessionChatContextPrepare.js"
 
 type SessionChatStreamCreateOptions = {
@@ -154,7 +155,12 @@ async function* sessionChatStreamGenerate(options: SessionChatStreamCreateOption
       }
       history = preparedContext.data.history
       sourceRevision = preparedContext.data.sourceRevision ?? sourceRevision
+      const pruned = compactionToolOutputPrune(history)
+      if (pruned.success) history = pruned.data
       options.onContextPrepared?.(history, sourceRevision)
+    } else {
+      const pruned = compactionToolOutputPrune(history)
+      if (pruned.success) history = pruned.data
     }
 
     try {
