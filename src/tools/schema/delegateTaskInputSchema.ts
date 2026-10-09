@@ -4,6 +4,8 @@ const delegateTaskInputLimit = 100_000
 
 export const delegateTaskInputSchema = v.strictObject({
   agentId: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(200))),
+  background: v.optional(v.boolean()),
+  description: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(200))),
   task: v.pipe(v.string(), v.minLength(1), v.maxLength(delegateTaskInputLimit)),
 })
 

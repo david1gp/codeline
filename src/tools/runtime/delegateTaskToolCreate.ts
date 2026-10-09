@@ -8,6 +8,8 @@ const delegateTaskOutputLimit = 16_384
 
 export type DelegateTaskToolExecute = (input: {
   agentId?: string
+  background?: boolean
+  description?: string
   signal: AbortSignal
   task: string
   toolCallId: string
@@ -20,6 +22,8 @@ export function delegateTaskToolCreate(options: {
     execute: async (context, input): Promise<Result<DelegateTaskOutput>> => {
       const result = await options.execute({
         ...(input.agentId === undefined ? {} : { agentId: input.agentId }),
+        ...(input.background === undefined ? {} : { background: input.background }),
+        ...(input.description === undefined ? {} : { description: input.description }),
         signal: context.signal,
         task: input.task,
         toolCallId: context.toolCallId,

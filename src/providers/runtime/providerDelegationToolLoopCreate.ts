@@ -56,6 +56,12 @@ const delegateTaskProviderInputSchema: SchemaInput = {
         additionalProperties: false,
         properties: {
           agentId: { maxLength: 200, minLength: 1, type: "string" },
+          background: {
+            description:
+              "Run the agent in the background and return immediately. You will be notified when it completes. DO NOT sleep, poll, or proactively check on its progress.",
+            type: "boolean",
+          },
+          description: { maxLength: 200, minLength: 1, type: "string" },
           task: { maxLength: 100_000, minLength: 1, type: "string" },
         },
         required: ["task"],
@@ -412,7 +418,8 @@ function providerDelegationInstructionAdapterCreate(options: {
 
 function providerDelegationToolCreate(registry: ToolRegistry, signal: AbortSignal) {
   return toolDefinition({
-    description: "Run one synchronous delegated coding task and return its text result.",
+    description:
+      "Run one delegated coding task. Foreground is the default and returns its text result. Pass background=true to launch asynchronously and return immediately; you will be notified when it finishes. Use background only for independent work that can run while you continue elsewhere.",
     inputSchema: delegateTaskProviderInputSchema,
     name: "delegate_task",
   }).server(async (rawInput, context) => {

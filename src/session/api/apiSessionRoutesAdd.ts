@@ -54,6 +54,7 @@ import { runActiveRegistryCreate } from "../../run/actions/runActiveRegistryCrea
 import { runCancellationCoordinatorCreate } from "../../run/actions/runCancellationCoordinatorCreate.js"
 import { runChildCreate } from "../../run/actions/runChildCreate.js"
 import { runCreate } from "../../run/actions/runCreate.js"
+import { runDelegationBackgroundHandleCreate } from "../../run/actions/runDelegationBackgroundHandleCreate.js"
 import { runDelegationExecute } from "../../run/actions/runDelegationExecute.js"
 import { runDelegationFinalize } from "../../run/actions/runDelegationFinalize.js"
 import { runExecutionManifestChildResolve } from "../../run/actions/runExecutionManifestChildResolve.js"
@@ -907,6 +908,8 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
     const delegatedTaskExecute = async (
       input: {
         agentId?: string
+        background?: boolean
+        description?: string
         execution?: unknown
         signal: AbortSignal
         task: string
@@ -938,6 +941,99 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
         )
         if (!resolved.success) throw new Error(resolved.errorMessage)
         childSnapshot = resolved.data
+      }
+
+      if (input.background === true) {
+        const backgroundInput = {
+          background: true,
+          delegationKey: input.toolCallId,
+          parentAttempt,
+          parentRun,
+          ...(childSnapshot === undefined ? {} : { childSnapshot }),
+          task: input.task,
+        }
+        void (options.runDelegationExecute ?? runDelegationExecute)(backgroundInput, {
+          attemptStreamCreate: ({ attempt, run, signal, task }) => {
+            const snapshot = v.safeParse(runExecutionSnapshotSchema, run.snapshot)
+            if (!snapshot.success) throw new Error("The child execution snapshot is invalid.")
+            const resolved = providerRuntimeAdapterResolve(snapshot.output.configuration, {
+              environment: options.providerEnvironment ?? Bun.env,
+              ...(options.providerFetch === undefined ? {} : { fetch: options.providerFetch }),
+              instructionContext: sessionInstructionContextCreate(
+                loaded.data.session.projectPath,
+                snapshot.output.executionManifest?.instructions ?? runtimeInstructionContext.snapshot,
+              ),
+              runtimeAdapterCreate: options.providerRuntimeAdapterCreate,
+              systemPrompt: snapshot.output.agentPrompt,
+            })
+            if (!resolved.success) throw new Error(resolved.errorMessage)
+            const adapter = providerDelegationAdapterCreate({
+              adapter: resolved.data,
+              bash: { projectRoot: sessionInstructionProjectRootResolve(loaded.data.session.projectPath) },
+              delegateTask: (nested) => delegatedTaskExecute(nested, { attempt, run }),
+              enabledTools: snapshot.output.executionManifest?.tools.primary.tools ?? [],
+              projectRoot: sessionInstructionProjectRootResolve(loaded.data.session.projectPath),
+              instructionContext: sessionInstructionContextCreate(
+                loaded.data.session.projectPath,
+                snapshot.output.executionManifest?.instructions ?? runtimeInstructionContext.snapshot,
+              ),
+              model: snapshot.output.configuration.model,
+              systemPrompt: snapshot.output.agentPrompt,
+              toolLoopCreate: options.providerDelegationToolLoopCreate,
+              webfetch: {},
+            })
+            return sessionChatChildExecutionStreamCreate({ adapter, run, signal, task })
+          },
+          cancellationRegister: (registration) =>
+            (() => {
+              const unregisterShutdown = options.shutdownCoordinator?.register(registration.controller)
+              try {
+                const unregisterExecution =
+                  options.runActiveRegistry !== undefined
+                    ? (() => {
+                        const registered = options.runActiveRegistry.register(registration)
+                        if (!registered.success) throw new Error(registered.errorMessage)
+                        return registered.data.cleanup
+                      })()
+                    : (options.runCancellationCoordinator?.register(registration) ?? (() => undefined))
+                return () => {
+                  unregisterExecution()
+                  unregisterShutdown?.()
+                }
+              } catch (error: unknown) {
+                unregisterShutdown?.()
+                throw error
+              }
+            })(),
+          childCreate: (childInput) =>
+            runChildCreateAction(options.database, userId, sessionId, childInput, {
+              postCommitPublish: options.journalPostCommitPublish,
+              resolveRecipients: sessionJournalRecipientResolverCreate({ organizationId }),
+            }),
+          delegationFinalize: (delegationId, result) =>
+            runDelegationFinalizeAction(options.database, userId, sessionId, delegationId, result),
+          retryAttemptCreate: (runId, retryOptions) =>
+            runRetryAttemptCreateAction(options.database, userId, sessionId, runId, retryOptions),
+          runTransition: (runId, transition) =>
+            runTransitionAction(options.database, userId, sessionId, runId, transition),
+          providerOutputCreate: ({ runId }) =>
+            runProviderOutputCreate({
+              database: options.database,
+              journalPostCommitPublish: options.journalPostCommitPublish,
+              requestId: `${parsed.data.runId}:child:${runId}`,
+              runId,
+              scheduler: {
+                clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+                setTimeout: (handler, timeoutMs) => setTimeout(handler, timeoutMs),
+              },
+              sessionId,
+              userId,
+            }),
+        }).catch(() => undefined)
+        return runDelegationBackgroundHandleCreate({
+          ...(input.description === undefined ? {} : { description: input.description }),
+          sessionId: input.toolCallId,
+        })
       }
 
       const childExecute = await (options.runDelegationExecute ?? runDelegationExecute)(
