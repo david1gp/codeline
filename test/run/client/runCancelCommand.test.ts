@@ -18,7 +18,7 @@ test("run cancellation command posts the public client run ID and parses success
   })
   expect(requests).toEqual([
     {
-      body: '{"kind":"requested"}',
+      body: '{"kind":"requested","mode":"immediate"}',
       method: "POST",
       url: "/api/sessions/session%2F1/runs/client%2Frun/cancel",
     },

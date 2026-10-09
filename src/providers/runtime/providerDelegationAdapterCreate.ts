@@ -19,6 +19,7 @@ type ProviderDelegationAdapterCreateOptions = {
   enabledTools?: readonly ToolName[]
   instructionContext?: ProviderInstructionContext
   model: string
+  gracefulCancel?: { isRequested: (runId: string) => boolean }
   projectRoot?: string
   skillDescriptionCatalog?: SkillDescriptionCatalog
   skillSnapshots?: readonly SkillSnapshot[]
@@ -120,6 +121,7 @@ export function providerDelegationAdapterCreate(options: ProviderDelegationAdapt
     ...(options.bash === undefined ? {} : { bash: options.bash }),
     ...(options.delegateTask === undefined ? {} : { delegateTask: options.delegateTask }),
     ...(options.enabledTools === undefined ? {} : { enabledTools: options.enabledTools }),
+    ...(options.gracefulCancel === undefined ? {} : { gracefulCancel: options.gracefulCancel }),
     ...(options.instructionContext === undefined ? {} : { instructionContext: options.instructionContext }),
     ...(options.projectRoot === undefined ? {} : { projectRoot: options.projectRoot }),
     ...(options.skillDescriptionCatalog === undefined

@@ -8,6 +8,7 @@ import { runCancelInputSchema } from "../schema/runCancelInputSchema.js"
 type RunCancelCommandOptions = {
   clientRunId: string
   fetcher?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+  mode?: "graceful" | "immediate"
   sessionId: string
 }
 
@@ -19,7 +20,7 @@ export async function runCancelCommand(options: RunCancelCommandOptions): Promis
 
   const client = apiHttpClientCreate({ fetch: options.fetcher ?? globalThis.fetch })
   return client.post({
-    body: {},
+    body: { ...(options.mode === undefined ? {} : { mode: options.mode }) },
     op,
     path: `/api/sessions/${encodeURIComponent(options.sessionId)}/runs/${encodeURIComponent(options.clientRunId)}/cancel`,
     requestSchema: runCancelInputSchema,

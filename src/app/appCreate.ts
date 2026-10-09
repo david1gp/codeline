@@ -37,6 +37,7 @@ import type { ProviderModelDiscoveryOptions } from "../providers/runtime/provide
 import { providerRuntimeAdapterCreate } from "../providers/runtime/providerRuntimeAdapterCreate.js"
 import type { ProviderCatalog } from "../providers/schema/providerCatalogSchema.js"
 import { runActiveRegistryCreate } from "../run/actions/runActiveRegistryCreate.js"
+import { runGracefulCancelRegistryCreate } from "../run/actions/runGracefulCancelRegistryCreate.js"
 import { runCancel } from "../run/actions/runCancel.js"
 import { runCancellationCoordinatorCreate } from "../run/actions/runCancellationCoordinatorCreate.js"
 import { runChildCreate } from "../run/actions/runChildCreate.js"
@@ -102,6 +103,7 @@ export type AppCreateOptions = {
   providerRuntimeAdapterCreate?: typeof providerRuntimeAdapterCreate
   runCreate?: typeof runCreate
   runActiveRegistry?: ReturnType<typeof runActiveRegistryCreate>
+  runGracefulCancelRegistry?: ReturnType<typeof runGracefulCancelRegistryCreate>
   runCancel?: typeof runCancel
   runCancellationCoordinator?: ReturnType<typeof runCancellationCoordinatorCreate>
   runChildCreate?: typeof runChildCreate
@@ -132,6 +134,7 @@ export type AppCreateOptions = {
 export function appCreate(options: AppCreateOptions = {}): App {
   const app = new Hono<AppEnvironment>()
   const runActiveRegistry = options.runActiveRegistry ?? runActiveRegistryCreate()
+  const runGracefulCancelRegistry = options.runGracefulCancelRegistry ?? runGracefulCancelRegistryCreate()
   const shutdownCoordinator = options.shutdownCoordinator
 
   if (shutdownCoordinator !== undefined) {
@@ -226,6 +229,7 @@ export function appCreate(options: AppCreateOptions = {}): App {
     configurationStore: options.configurationStore,
     runCreate: options.runCreate,
     runActiveRegistry,
+    runGracefulCancelRegistry,
     runCancel: options.runCancel,
     runCancellationCoordinator: options.runCancellationCoordinator,
     runChildCreate: options.runChildCreate,

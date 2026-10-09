@@ -155,32 +155,69 @@ export function chatComposerStateCreate(options: ChatComposerOptions) {
     }
   }
 
+  const gracefulStopPending = createSignalObject(false)
+
+  const localStop = () => {
+    manualCompactionHidden.set(true)
+    pendingCommands.length = 0
+    gracefulStopPending.set(false)
+    chat.stop()
+  }
+
   const stop = () => {
     const clientRunId = chat.runId()
-    return chatComposerStop({
-      cancellation: () =>
-        (options.runCancel ?? runCancelCommand)({
-          clientRunId: clientRunId ?? "",
-          fetcher: options.fetcher,
-          sessionId: options.sessionId,
-        }),
-      clientRunId,
-      isBusy: chat.isLoading(),
-      isStopping: stopping.get(),
-      localStop: () => {
-        manualCompactionHidden.set(true)
-        pendingCommands.length = 0
-        chat.stop()
-      },
-      onError: stopError.set,
-      onFinish: () => stopping.set(false),
-      onStart: () => {
-        stopping.set(true)
-        stopError.set(undefined)
-      },
+    const cancel = (mode: "graceful" | "immediate") =>
+      (options.runCancel ?? runCancelCommand)({
+        clientRunId: clientRunId ?? "",
+        fetcher: options.fetcher,
+        mode,
+        sessionId: options.sessionId,
+      })
+    // A second click while a graceful stop is pending escalates to an
+    // immediate abort: the in-flight tool is killed instead of completed.
+    if (stopping.get() && gracefulStopPending.get()) {
+      return chatComposerStop({
+        cancellation: () => cancel("immediate"),
+        clientRunId,
+        isBusy: chat.isLoading(),
+        isStopping: false,
+        localStop,
+        onError: stopError.set,
+        onFinish: () => stopping.set(false),
+        onStart: () => {
+          stopError.set(undefined)
+        },
+      })
+    }
+    if (!chat.isLoading() || stopping.get() || clientRunId === null) return Promise.resolve()
+    stopping.set(true)
+    stopError.set(undefined)
+    return cancel("graceful").then((cancelled) => {
+      if (!cancelled.success) {
+        stopError.set(cancelled.errorMessage)
+        stopping.set(false)
+        return
+      }
+      if (cancelled.data.deferred === true) {
+        // The server finishes the in-flight tool, then ends the stream at
+        // the next safe boundary. The settle effect below clears `stopping`
+        // once the stream actually ends; the queued drain follows.
+        gracefulStopPending.set(true)
+        return
+      }
+      localStop()
+      stopping.set(false)
     })
   }
 
+  createEffect(() => {
+    if (gracefulStopPending.get() && !chat.isLoading()) {
+      gracefulStopPending.set(false)
+      stopping.set(false)
+    }
+  })
+
+  /**
   const queuedContentText = (content: unknown): string => {
     if (typeof content === "string") return content
     try {

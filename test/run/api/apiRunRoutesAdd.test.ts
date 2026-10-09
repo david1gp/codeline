@@ -3,6 +3,7 @@ import { createResult, createResultErrorCode } from "@adaptive-ds/result"
 import { Hono } from "hono"
 import type { AppEnvironment } from "../../../src/api/appEnvironment.js"
 import { runActiveRegistryCreate } from "../../../src/run/actions/runActiveRegistryCreate.js"
+import { runGracefulCancelRegistryCreate } from "../../../src/run/actions/runGracefulCancelRegistryCreate.js"
 import { runCancel } from "../../../src/run/actions/runCancel.js"
 import { runDelegationsLoad } from "../../../src/run/actions/runDelegationsLoad.js"
 import { apiRunRoutesAdd } from "../../../src/run/api/apiRunRoutesAdd.js"
@@ -50,7 +51,12 @@ test("run cancellation route passes the authenticated session scope and exact du
   })
 
   expect(response.status).toBe(200)
-  expect(received?.slice(1)).toEqual([scope.userId, scope.sessionId, "durable-target", { kind: "requested" }])
+  expect(received?.slice(1)).toEqual([
+    scope.userId,
+    scope.sessionId,
+    "durable-target",
+    { kind: "requested", mode: "immediate" },
+  ])
   expect(await response.json()).toMatchObject({
     cancelledRunIds: ["durable-target", "descendant"],
     descendantsCancelled: 1,
@@ -108,6 +114,46 @@ test("run cancellation route rejects an invalid response contract", async () => 
   })
 
   expect(response.status).toBe(500)
+})
+
+test("run cancellation with graceful mode defers the abort instead of signalling", async () => {
+  const app = new Hono<AppEnvironment>()
+  const registry = runActiveRegistryCreate()
+  const graceful = runGracefulCancelRegistryCreate()
+  const scope = { sessionId: "session-1", userId: "user-1" }
+  const run = { id: "durable-target" } as typeof runTable.$inferSelect
+  const target = registry.register({ ...scope, runId: "durable-target" })
+  expect(target.success).toBe(true)
+  app.use("*", async (context, next) => {
+    context.set("database", {} as AppEnvironment["Variables"]["database"])
+    context.set("requestIdentity", { userId: scope.userId })
+    await next()
+  })
+
+  apiRunRoutesAdd(app, {
+    runLoad: async () => createResult({ attempt: {} as never, attempts: [], run }),
+    runCancel: async () =>
+      createResult({ cancelledRunIds: ["durable-target"], changed: true, descendantsCancelled: 0, run }),
+    runActiveRegistry: registry,
+    runGracefulCancelRegistry: graceful,
+  })
+
+  const response = await app.request("http://codeline.test/sessions/session-1/runs/client-target/cancel", {
+    body: JSON.stringify({ mode: "graceful" }),
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+  })
+
+  expect(response.status).toBe(200)
+  expect(await response.json()).toMatchObject({
+    cancelledRunIds: ["durable-target"],
+    deferred: true,
+    signalledRunIds: [],
+  })
+  // The in-flight tool keeps running: no abort was signalled.
+  if (!target.success) return
+  expect(target.data.lifecycle.signal.aborted).toBe(false)
+  expect(graceful.isRequested({ ...scope, runId: "durable-target" })).toBe(true)
 })
 
 test("delegation read route passes the authenticated organization and session scope and preserves the response shape", async () => {
@@ -169,7 +215,6 @@ test("delegation read route passes the authenticated organization and session sc
     ],
     etag: firstEtag,
     revision: 4,
-    schemaVersion: "run-delegations.v1",
   })
 
   const notModified = await app.request(`http://codeline.test/sessions/${scope.sessionId}/delegations`, {

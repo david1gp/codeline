@@ -416,6 +416,57 @@ test("runs delegate_task synchronously and collapses intermediate model lifecycl
   expect(scripted.calls[1]?.some((message) => message.role === "tool" && message.content === "child result")).toBe(true)
 })
 
+test("defers a graceful stop until the in-flight delegate_task completes", async () => {
+  const scripted = scriptedAdapterCreate([
+    delegatedToolScript('{"task":"inspect the project"}'),
+    finalTextScript("Delegated task complete."),
+  ])
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  let requested = false
+  const loop = providerDelegationToolLoopCreate({
+    adapter: scripted.adapter,
+    delegateTask: async () => {
+      await gate
+      return "child result"
+    },
+    gracefulCancel: { isRequested: () => requested },
+  })
+
+  const seen: Array<StreamChunk> = []
+  const run = (async () => {
+    for await (const chunk of loop({
+      messages: [{ content: "Please delegate this task.", role: "user" }],
+      runId: "run-delegation",
+      signal: new AbortController().signal,
+      threadId: "thread-delegation",
+    }))
+      seen.push(chunk)
+  })()
+
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (seen.some((chunk) => chunk.type === EventType.TOOL_CALL_START)) break
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+  expect(seen.some((chunk) => chunk.type === EventType.TOOL_CALL_START)).toBe(true)
+  requested = true
+  // While the tool is gated, no terminal chunk may arrive: the stop waits.
+  await new Promise((resolve) => setTimeout(resolve, 50))
+  expect(seen.some((chunk) => chunk.type === EventType.RUN_FINISHED)).toBe(false)
+  release()
+  await run
+
+  const resultIndex = seen.findIndex((chunk) => chunk.type === EventType.TOOL_CALL_RESULT)
+  const finishIndex = seen.findIndex((chunk) => chunk.type === EventType.RUN_FINISHED)
+  expect(resultIndex).toBeGreaterThanOrEqual(0)
+  expect(finishIndex).toBeGreaterThan(resultIndex)
+  expect(seen[finishIndex]).toMatchObject({ outcome: { type: "interrupt" } })
+  // The follow-up model round never runs: the loop stopped at the boundary.
+  expect(scripted.calls).toHaveLength(1)
+})
+
 test("executes the typed delegate_task definition through the supplied registry", async () => {
   const scripted = scriptedAdapterCreate([
     delegatedToolScript('{"agentId":" explore ","task":"inspect the project"}'),

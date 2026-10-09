@@ -1,4 +1,5 @@
 import { expect, mock, test } from "bun:test"
+import { createResult } from "@adaptive-ds/result"
 import { EventType, type ModelMessage, type StreamChunk, type UIMessage } from "@tanstack/ai"
 import type { ConnectConnectionAdapter, RunAgentInputContext } from "@tanstack/ai-client"
 import { ChatClient } from "@tanstack/ai-client"
@@ -557,6 +558,46 @@ test("keeps ordinary optimistic prompts available for existing reconciliation", 
 })
 
 test("steers a queued message to drain next without aborting the active run", async () => {
+  const release = deferredCreate<void>()
+  const calls: Array<{ messages: Array<UIMessage> | Array<ModelMessage>; runContext: RunAgentInputContext }> = []
+  const connection: ConnectConnectionAdapter = {
+    connect(messages, _data, _signal, runContext) {
+      if (runContext === undefined) throw new Error("run context is required")
+      calls.push({ messages, runContext })
+      if (calls.length === 1) {
+        return (async function* () {
+          yield runStarted(runContext)
+          await release.promise
+          yield {
+            finishReason: "stop",
+            outcome: { type: "success" },
+            runId: runContext.runId,
+            threadId: runContext.threadId,
+            timestamp: 12,
+            type: EventType.RUN_FINISHED,
+          } as StreamChunk
+        })()
+      }
+      return nextRunChunks(runContext)
+    },
+  }
+  imported.setConnection(connection)
+
+  const root = createRoot((dispose) => ({
+    dispose,
+    state: imported.chatComposerStateCreate({ fetcher: async () => new Response(), sessionId: "session-1" }),
+  }))
+
+  root.state.setDraft("start")
+  const firstSubmit = root.state.submit()
+  for (let attempt = 0; attempt < 200 && !root.state.isBusy(); attempt += 1)
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  expect(root.state.isBusy()).toBe(true)
+
+  root.state.setDraft("first queued")
+  await root.state.submit()
+  root.state.setDraft("second queued")
+  await root.state.submit()
   expect(root.state.queuedMessages().map((message) => message.content)).toEqual(["first queued", "second queued"])
 
   const second = root.state.queuedMessages()[1]
@@ -585,4 +626,75 @@ test("steers a queued message to drain next without aborting the active run", as
   ).toBe("first queued")
   root.dispose()
 })
+
+test("graceful stop waits for the server to end the stream instead of aborting locally", async () => {
+  const release = deferredCreate<void>()
+  const cancelModes: Array<string | undefined> = []
+  const connection: ConnectConnectionAdapter = {
+    connect(messages, _data, _signal, runContext) {
+      if (runContext === undefined) throw new Error("run context is required")
+      return (async function* () {
+        yield runStarted(runContext)
+        await release.promise
+        yield {
+          finishReason: "stop",
+          outcome: { type: "success" },
+          runId: runContext.runId,
+          threadId: runContext.threadId,
+          timestamp: 12,
+          type: EventType.RUN_FINISHED,
+        } as StreamChunk
+      })()
+    },
+  }
+  imported.setConnection(connection)
+
+  const root = createRoot((dispose) => ({
+    dispose,
+    state: imported.chatComposerStateCreate({
+      fetcher: async () => new Response(),
+      runCancel: (async () => {
+        cancelModes.push("graceful")
+        return createResult({ cancelledRunIds: ["run-1"], deferred: true, signalledRunIds: [] })
+      }) as never,
+      sessionId: "session-1",
+    }),
+  }))
+
+  root.state.setDraft("start")
+  const run = root.state.submit()
+  for (let attempt = 0; attempt < 200 && !root.state.isBusy(); attempt += 1)
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  expect(root.state.isBusy()).toBe(true)
+
+  await root.state.stop()
+  expect(cancelModes).toEqual(["graceful"])
+  // Still streaming: the server finishes its tool boundary before ending the run.
+  expect(root.state.isStopping()).toBe(true)
+  expect(root.state.isBusy()).toBe(true)
+
+  release.resolve(undefined)
+  await run
+  for (let attempt = 0; attempt < 200 && root.state.isStopping(); attempt += 1)
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  expect(root.state.isStopping()).toBe(false)
+  expect(root.state.isBusy()).toBe(false)
+  root.dispose()
+})
+
+test("sends background continuations as normal turns and rejects empty text", async () => {
+  const calls: Array<{ messages: Array<UIMessage> | Array<ModelMessage>; runContext: RunAgentInputContext }> = []
+  const connection: ConnectConnectionAdapter = {
+    connect(messages, _data, _signal, runContext) {
+      if (runContext === undefined) throw new Error("run context is required")
+      calls.push({ messages, runContext })
+      return nextRunChunks(runContext)
+    },
+  }
+  imported.setConnection(connection)
+
+  const root = createRoot((dispose) => ({
+    dispose,
+    state: imported.chatComposerStateCreate({ fetcher: async () => new Response(), sessionId: "session-1" }),
+  }))
 

@@ -16,6 +16,7 @@ import { runActiveRegistryCreate } from "../actions/runActiveRegistryCreate.js"
 import { runActiveSnapshotLoad } from "../actions/runActiveSnapshotLoad.js"
 import { runCancel } from "../actions/runCancel.js"
 import { runCancellationCoordinatorCreate } from "../actions/runCancellationCoordinatorCreate.js"
+import type { runGracefulCancelRegistryCreate } from "../actions/runGracefulCancelRegistryCreate.js"
 import { runChildConversationLoad } from "../actions/runChildConversationLoad.js"
 import { runDetailLoad } from "../actions/runDetailLoad.js"
 import { runDelegationsLoad } from "../actions/runDelegationsLoad.js"
@@ -43,6 +44,7 @@ type ApiRunRoutesOptions = {
   runActiveSnapshotLoad?: typeof runActiveSnapshotLoad
   runCancel?: typeof runCancel
   runCancellationCoordinator?: RunCancellationCoordinator
+  runGracefulCancelRegistry?: ReturnType<typeof runGracefulCancelRegistryCreate>
   runChildConversationLoad?: typeof runChildConversationLoad
   runDetailLoad?: typeof runDetailLoad
   runDelegationsLoad?: typeof runDelegationsLoad
@@ -265,6 +267,23 @@ export function apiRunRoutesAdd(api: Hono<AppEnvironment>, options: ApiRunRoutes
       parsed.data,
     )
     if (!result.success) return errorResponse(context, result, catalog)
+
+    if (parsed.data.mode === "graceful") {
+      for (const runId of result.data.cancelledRunIds) {
+        options.runGracefulCancelRegistry?.request({
+          runId,
+          sessionId,
+          userId: context.var.requestIdentity.userId,
+        })
+      }
+      const response = v.safeParse(runCancelResponseSchema, {
+        cancelledRunIds: result.data.cancelledRunIds,
+        deferred: true,
+        signalledRunIds: [],
+      })
+      if (!response.success) return internalServerError(context, catalog)
+      return context.json({ ...result.data, deferred: true, signalledRunIds: [] })
+    }
 
     const signalledRunIds =
       options.runActiveRegistry?.cancel({

@@ -35,6 +35,7 @@ import { readToolInputSchema } from "../../tools/schema/readToolInputSchema.js"
 import { type ToolName, toolNameSchema } from "../../tools/schema/toolNameSchema.js"
 import { webfetchToolInputSchema } from "../../tools/schema/webfetchToolInputSchema.js"
 import { writeToolInputSchema } from "../../tools/schema/writeToolInputSchema.js"
+import { deferredAbortControllerCreate } from "./deferredAbortControllerCreate.js"
 import { providerDelegationCompactionAdapterCreate } from "./providerDelegationCompactionAdapterCreate.js"
 import { providerExecutionEventFromStreamChunk } from "./providerExecutionEventFromStreamChunk.js"
 import type { ProviderInstructionContext } from "./providerInstructionContext.js"
@@ -229,6 +230,12 @@ export type ProviderDelegationToolLoopInput = {
 export type ProviderDelegationToolLoopOptions = {
   adapter: AnyTextAdapter
   bash?: BashToolCreateOptions
+  /**
+   * Graceful stop requests observed at safe boundaries. When requested for
+   * the current run, the loop aborts after the in-flight tool completes
+   * instead of killing it mid-execution.
+   */
+  gracefulCancel?: { isRequested: (runId: string) => boolean }
   compaction?: {
     adapter?: AnyTextAdapter
     auto?: boolean
@@ -637,6 +644,7 @@ export function providerDelegationToolLoopCreate(
       {
         adapter: decoratedAdapter,
         bashEnabled: enabledTools?.has("bash") === true,
+        ...(options.gracefulCancel === undefined ? {} : { gracefulCancel: options.gracefulCancel }),
         editEnabled: enabledTools?.has("edit") === true,
         readEnabled: enabledTools?.has("read") === true,
         webfetchEnabled: enabledTools?.has("webfetch") === true,
@@ -655,6 +663,7 @@ async function* providerDelegationToolLoopGenerate(
     bashEnabled: boolean
     declaredWorkingDirectoriesByRun: ProviderDelegationWorkingDirectories
     editEnabled: boolean
+    gracefulCancel?: { isRequested: (runId: string) => boolean }
     readEnabled: boolean
     toolRegistry: ToolRegistry
     webfetchEnabled: boolean
@@ -664,10 +673,11 @@ async function* providerDelegationToolLoopGenerate(
 ): AsyncGenerator<StreamChunk> {
   if (input.signal.aborted) return
 
-  const abortController = new AbortController()
-  const abort = () => abortController.abort(input.signal.reason)
-  input.signal.addEventListener("abort", abort, { once: true })
-  if (input.signal.aborted) abort()
+  const deferred = deferredAbortControllerCreate({
+    isCancelRequested: () => options.gracefulCancel?.isRequested(input.runId) === true,
+    signal: input.signal,
+  })
+  const abortController = deferred.controller
 
   const delegateTask = providerDelegationToolCreate(options.toolRegistry, abortController.signal)
   const bash = providerDelegationBashToolCreate(options.toolRegistry, abortController.signal)
@@ -718,15 +728,18 @@ async function* providerDelegationToolLoopGenerate(
         currentRoundHasToolCalls = false
         currentRoundHasToolResult = false
         continuationText = ""
+        deferred.boundaryCheck()
         continue
       }
       if (chunk.type === EventType.RUN_FINISHED) {
         finalChunk = chunk
+        deferred.boundaryCheck()
         continue
       }
       if (chunk.type === EventType.RUN_ERROR) emittedError = true
       if (chunk.type === EventType.TEXT_MESSAGE_CONTENT) continuationText += chunk.delta
       if (chunk.type === EventType.TOOL_CALL_START) {
+        deferred.toolStart()
         if (hasDelegatedResultRound && (!currentRoundHasToolCalls || currentRoundHasToolResult)) {
           delegatedResults.clear()
           delegatedResultToolCallOrder.length = 0
@@ -744,6 +757,7 @@ async function* providerDelegationToolLoopGenerate(
         }
       }
       if (chunk.type === EventType.TOOL_CALL_RESULT) {
+        deferred.toolEnd()
         const providerEvent = providerExecutionEventFromStreamChunk(chunk)
         if (providerEvent.success && providerEvent.data?.type === "tool_result") {
           if (
@@ -763,7 +777,10 @@ async function* providerDelegationToolLoopGenerate(
             continuationText = ""
           }
 
-          if (delegatedResultEventIds.has(providerEvent.data.toolCallId)) continue
+          if (delegatedResultEventIds.has(providerEvent.data.toolCallId)) {
+            deferred.boundaryCheck()
+            continue
+          }
           delegatedResultEventIds.add(providerEvent.data.toolCallId)
 
           if (providerEvent.data.outcome === "error") {
@@ -777,10 +794,11 @@ async function* providerDelegationToolLoopGenerate(
           }
         }
       }
+      deferred.boundaryCheck()
       yield providerDelegationStreamChunkJsonSafe(chunk)
     }
   } catch {
-    if (!input.signal.aborted) {
+    if (!input.signal.aborted && !deferred.policyAborted()) {
       emittedError = true
       yield {
         code: "provider_delegation_tool_loop_error",
@@ -790,7 +808,7 @@ async function* providerDelegationToolLoopGenerate(
       }
     }
   } finally {
-    input.signal.removeEventListener("abort", abort)
+    deferred.detach()
     options.declaredWorkingDirectoriesByRun.delete(input.runId)
   }
 

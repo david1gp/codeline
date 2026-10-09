@@ -179,10 +179,14 @@ export function SessionChat(props: {
               <button
                 class="flex shrink-0 cursor-pointer items-center gap-1.5 self-end rounded-lg border border-accent-border bg-accent-soft px-3.5 py-1.5 text-[13px] font-semibold text-accent disabled:cursor-not-allowed"
                 type="button"
-                disabled={props.state.isStopping()}
+                title={
+                  props.state.isStopping()
+                    ? "Finishing the current tool, then stopping. Click again to stop immediately."
+                    : "Finish the current tool, then stop"
+                }
                 onClick={props.state.stopHandle}
               >
-                Stop
+                {props.state.isStopping() ? "Stopping…" : "Stop"}
               </button>
             </Show>
           </div>

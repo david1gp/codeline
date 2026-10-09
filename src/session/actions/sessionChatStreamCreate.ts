@@ -37,6 +37,7 @@ type SessionChatStreamCreateOptions = {
   runId: string
   sessionId: string
   signal: AbortSignal
+  gracefulCancel?: { isRequested: (runId: string) => boolean }
   sourceRevision?: number
   systemPrompt?: unknown
   tools?: unknown
@@ -194,6 +195,13 @@ async function* sessionChatStreamGenerate(options: SessionChatStreamCreateOption
         }
         if (chunk.type === EventType.RUN_FINISHED) {
           if (chunk.outcome?.type !== "success") {
+            if (chunk.outcome?.type === "interrupt" && options.gracefulCancel?.isRequested(options.runId) === true) {
+              await eventPersist(chunk)
+              terminalPersisted = true
+              await terminalNotify({ status: "aborted" })
+              yield chunk
+              return
+            }
             await eventPersist(chunk)
             terminalPersisted = true
             await terminalNotify({

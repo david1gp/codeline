@@ -123,7 +123,7 @@ test("run cancellation contracts are closed and default direct requests", () => 
   expect(v.safeParse(runCancellationKindSchema, "requested").success).toBe(true)
   expect(v.safeParse(runCancellationKindSchema, "ancestor").success).toBe(true)
   expect(v.safeParse(runCancellationKindSchema, "deadline").success).toBe(false)
-  expect(v.safeParse(runCancelInputSchema, {}).output).toEqual({ kind: "requested" })
+  expect(v.safeParse(runCancelInputSchema, {}).output).toEqual({ kind: "requested", mode: "immediate" })
   expect(v.safeParse(runCancelInputSchema, { kind: "ancestor" }).success).toBe(false)
   expect(v.safeParse(runCancelInputSchema, { extra: true }).success).toBe(false)
 })

@@ -101,6 +101,9 @@ type ApiRoutesAddOptions = {
   runCreate?: typeof runCreate
   runCancel?: typeof runCancel
   runCancellationCoordinator?: ReturnType<typeof runCancellationCoordinatorCreate>
+  runGracefulCancelRegistry?: ReturnType<
+    typeof import("../run/actions/runGracefulCancelRegistryCreate.js").runGracefulCancelRegistryCreate
+  >
   runChildCreate?: typeof runChildCreate
   runDelegationExecute?: typeof runDelegationExecute
   runDelegationFinalize?: typeof runDelegationFinalize
@@ -229,6 +232,7 @@ export function apiRoutesAdd(
     runActiveRegistry: options.runActiveRegistry,
     runActiveSnapshotLoad: options.runActiveSnapshotLoad,
     runCancellationCoordinator: options.runCancellationCoordinator,
+    runGracefulCancelRegistry: options.runGracefulCancelRegistry,
     runLoad: options.runLoad,
     runSessionSnapshotLoad: options.runSessionSnapshotLoad,
   })

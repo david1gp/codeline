@@ -219,6 +219,9 @@ type ApiSessionRoutesOptions = {
   providerRuntimeAdapterCreate?: typeof providerRuntimeAdapterCreate
   runActiveRegistry?: ReturnType<typeof runActiveRegistryCreate>
   runCancellationCoordinator?: ReturnType<typeof runCancellationCoordinatorCreate>
+  runGracefulCancelRegistry?: ReturnType<
+    typeof import("../../run/actions/runGracefulCancelRegistryCreate.js").runGracefulCancelRegistryCreate
+  >
   runChildCreate?: typeof runChildCreate
   runDelegationExecute?: typeof runDelegationExecute
   runDelegationFinalize?: typeof runDelegationFinalize
@@ -623,6 +626,10 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
 
     const sessionId = context.req.param("sessionId")
     if (parsed.data.threadId !== sessionId) return badRequest(context, "The chat thread must match the session.")
+    const gracefulCancel = {
+      isRequested: (runId: string) =>
+        options.runGracefulCancelRegistry?.isRequested({ runId, sessionId, userId }) === true,
+    }
 
     const finalMessage = parsed.data.messages.at(-1)
     if (finalMessage?.role !== "user" || typeof finalMessage.content !== "string")
@@ -970,6 +977,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
             const adapter = providerDelegationAdapterCreate({
               adapter: resolved.data,
               bash: { projectRoot: sessionInstructionProjectRootResolve(loaded.data.session.projectPath) },
+              gracefulCancel,
               delegateTask: (nested) => delegatedTaskExecute(nested, { attempt, run }),
               enabledTools: snapshot.output.executionManifest?.tools.primary.tools ?? [],
               projectRoot: sessionInstructionProjectRootResolve(loaded.data.session.projectPath),
@@ -1010,8 +1018,22 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
               postCommitPublish: options.journalPostCommitPublish,
               resolveRecipients: sessionJournalRecipientResolverCreate({ organizationId }),
             }),
-          delegationFinalize: (delegationId, result) =>
-            runDelegationFinalizeAction(options.database, userId, sessionId, delegationId, result),
+          delegationFinalize: async (delegationId, result) => {
+            const finalized = await runDelegationFinalizeAction(
+              options.database,
+              userId,
+              sessionId,
+              delegationId,
+              result,
+            )
+            if (finalized.success)
+              options.runGracefulCancelRegistry?.clear({
+                runId: finalized.data.run.id,
+                sessionId,
+                userId,
+              })
+            return finalized
+          },
           retryAttemptCreate: (runId, retryOptions) =>
             runRetryAttemptCreateAction(options.database, userId, sessionId, runId, retryOptions),
           runTransition: (runId, transition) =>
@@ -1068,6 +1090,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
             const adapter = providerDelegationAdapterCreate({
               adapter: resolved.data,
               bash: { projectRoot: sessionInstructionProjectRootResolve(loaded.data.session.projectPath) },
+              gracefulCancel,
               ...(compactionPolicy === undefined ? {} : { compactionPolicy }),
               delegateTask: (input) => delegatedTaskExecute(input, { attempt, run }),
               enabledTools: snapshot.output.executionManifest?.tools.primary.tools ?? [],
@@ -1115,8 +1138,22 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
               postCommitPublish: options.journalPostCommitPublish,
               resolveRecipients: sessionJournalRecipientResolverCreate({ organizationId }),
             }),
-          delegationFinalize: (delegationId, result) =>
-            runDelegationFinalizeAction(options.database, userId, sessionId, delegationId, result),
+          delegationFinalize: async (delegationId, result) => {
+            const finalized = await runDelegationFinalizeAction(
+              options.database,
+              userId,
+              sessionId,
+              delegationId,
+              result,
+            )
+            if (finalized.success)
+              options.runGracefulCancelRegistry?.clear({
+                runId: finalized.data.run.id,
+                sessionId,
+                userId,
+              })
+            return finalized
+          },
           retryAttemptCreate: (runId, retryOptions) =>
             runRetryAttemptCreateAction(options.database, userId, sessionId, runId, retryOptions),
           runTransition: (runId, transition) =>
@@ -1196,6 +1233,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
           ? providerDelegationAdapterCreate({
               adapter: resolved.data,
               bash: { projectRoot: sessionInstructionProjectRootResolve(loaded.data.session.projectPath) },
+              gracefulCancel,
               ...(delegationCompactionPolicy === undefined ? {} : { compactionPolicy: delegationCompactionPolicy }),
               delegateTask: delegatedTaskExecute,
               enabledTools: runtimeToolNames,
@@ -1504,6 +1542,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
           const attemptStream = sessionChatStreamCreate({
             adapter: adapter as NonNullable<typeof adapter>,
             attemptOrdinal: currentAttempt?.ordinal,
+            gracefulCancel,
             compactionConfiguration: compactionAttempted
               ? { ...compactionConfigurationDefaults, auto: false }
               : (runtimeConfiguration?.compaction ?? compactionConfigurationDefaults),
@@ -1516,6 +1555,7 @@ export function apiSessionRoutesAdd(api: Hono<AppEnvironment>, options: ApiSessi
             organizationId,
             onTerminal: async (terminal) => {
               if (activeRun === undefined || currentAttempt === undefined) return
+              options.runGracefulCancelRegistry?.clear({ runId: activeRun.id, sessionId, userId })
               const providerFailureFinalize = async (): Promise<void> => {
                 if (providerOutput === undefined) {
                   if (activeRun === undefined) return
