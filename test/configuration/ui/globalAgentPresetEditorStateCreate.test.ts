@@ -533,15 +533,13 @@ test("FormKit member chips attach after rendering and route transfers through th
 
 test("FormKit catalog set to preset Skill sets assigns the set ID once through both parent callbacks", async () => {
   const server = fixture()
-  server
-    .get()
-    .categories.skills.sets.push({
-      id: "new-skills",
-      name: "New set 1",
-      resourceNames: [],
-      includeNewResources: false,
-      includeAllResources: false,
-    })
+  server.get().categories.skills.sets.push({
+    id: "new-skills",
+    name: "New set 1",
+    resourceNames: [],
+    includeNewResources: false,
+    includeAllResources: false,
+  })
   const root = createRoot((dispose) => ({ dispose, state: presetState(server.client) }))
   try {
     const state = root.state
