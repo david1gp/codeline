@@ -204,7 +204,16 @@ export function runExecutionSnapshotResolve(
       runErrorCodes.executionTargetUnconfigured,
     )
 
-  const configuration = options.configuration ?? entry?.configuration
+  const baseConfiguration = options.configuration ?? entry?.configuration
+  // Project-owned agent configurations (agent table / catalog) rarely carry compaction
+  // budgets. Fall back to the organization-level entry so manual and overflow
+  // compaction use the configured budgets instead of silently reverting to defaults.
+  const entryCompaction = (entry?.configuration as { compaction?: unknown } | undefined)?.compaction
+  const baseCompaction = (baseConfiguration as { compaction?: unknown } | undefined)?.compaction
+  const configuration =
+    baseConfiguration !== undefined && entryCompaction !== undefined && baseCompaction === undefined
+      ? { ...(baseConfiguration as Record<string, unknown>), compaction: entryCompaction }
+      : baseConfiguration
   if (configuration === undefined)
     return runResultCreateError(
       op,
