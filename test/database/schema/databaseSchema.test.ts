@@ -6,6 +6,10 @@ import { databaseSchema } from "../../../src/database/databaseSchema.js"
 const expectedTables = [
   "agent",
   "attempt",
+  "e2e_command_project",
+  "e2e_fixture_diagnostic",
+  "e2e_fixture_run",
+  "e2e_sample_sessions",
   "identity_external_identity",
   "identity_oidc_login_transaction",
   "identity_organization",

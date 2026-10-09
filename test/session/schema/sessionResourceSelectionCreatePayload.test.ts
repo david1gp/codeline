@@ -82,6 +82,7 @@ function stateCreate(options: {
           options.bodies.push(JSON.parse(String(init.body)))
           return response({ created: true, session: { id: "created-session" } }, { status: 201 })
         }
+        if (url.startsWith("/api/project/agents?project=")) return response({ agents: [], projectAgentIds: [] })
         if (url === "/api/servers") return response(servers)
         if (url === "/api/servers/example-server/agents") return response(agents)
         if (url === "/api/servers/example-server/agents/example-agent-primary") return response(agentDetail)
