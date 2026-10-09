@@ -218,6 +218,20 @@ export function chatComposerStateCreate(options: ChatComposerOptions) {
   })
 
   /**
+   * Sends an automatic background-result continuation as a normal queued
+   * turn. Returns false when the send fails so the caller can retry later;
+   * delivery is acknowledged separately via the continuation-ack endpoint.
+   */
+  const sendBackgroundContinuation = async (text: string): Promise<boolean> => {
+    if (text.trim().length === 0) return false
+    try {
+      await chat.sendMessage(text)
+      return true
+    } catch {
+      return false
+    }
+  }
+
   const queuedContentText = (content: unknown): string => {
     if (typeof content === "string") return content
     try {
@@ -280,6 +294,7 @@ export function chatComposerStateCreate(options: ChatComposerOptions) {
     },
     isStopping: stopping.get,
     queuedMessages,
+    sendBackgroundContinuation,
     steerQueuedMessage,
     stop,
     submit,

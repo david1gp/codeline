@@ -52,8 +52,10 @@ export async function runRepositoryDelegationsLoad(
 
       const childAgentId = runDelegationChildAgentIdResolve(childSnapshot)
       delegations.push({
+        background: delegation.background === 1,
         childSessionId,
         childRunId: delegation.childRunId,
+        continuationDelivered: delegation.continuationDeliveredAt !== null,
         delegationId: delegation.id,
         delegationKey: delegation.delegationKey,
         finalizedResult: finalizedResult.output,

@@ -5,6 +5,10 @@ import { apiRevisionSchema } from "../../api/schema/apiRevisionSchema.js"
 import { runDelegationResultSchema } from "../schema/runDelegationResultSchema.js"
 
 const runDelegationResponseSchema = v.strictObject({
+  /** True when the child was launched with background=true (async subagent). */
+  background: v.boolean(),
+  /** True once a parent continuation run has been admitted for the result. */
+  continuationDelivered: v.boolean(),
   /** Child run's immutable target agent, so the UI never has to infer it from live feed rows. */
   childAgentId: v.optional(v.string()),
   childSessionId: v.nullable(apiPublicIdSchema),

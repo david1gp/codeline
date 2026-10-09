@@ -1,1 +1,1 @@
-export const runDelegationsSchemaVersion = "run-delegations.v1"
+export const runDelegationsSchemaVersion = "run-delegations.v2"

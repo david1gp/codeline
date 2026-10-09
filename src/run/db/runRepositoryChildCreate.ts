@@ -706,6 +706,7 @@ export async function runRepositoryChildCreate(
       const [delegation] = await transaction
         .insert(runDelegationTable)
         .values({
+          background: parsedInput.output.background === true ? 1 : 0,
           childRunId,
           createdAt: now,
           delegationKey: parsedInput.output.delegationKey,

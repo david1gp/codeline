@@ -156,6 +156,37 @@ test("run cancellation with graceful mode defers the abort instead of signalling
   expect(graceful.isRequested({ ...scope, runId: "durable-target" })).toBe(true)
 })
 
+test("background continuation ack route validates scope and returns the acknowledgement", async () => {
+  const app = new Hono<AppEnvironment>()
+  const scope = { organizationId: "organization-1", sessionId: "session-1", userId: "user-1" }
+  let received: Array<unknown> | undefined
+  app.use("*", async (context, next) => {
+    context.set("database", {} as AppEnvironment["Variables"]["database"])
+    context.set("requestIdentity", scope)
+    await next()
+  })
+
+  apiRunRoutesAdd(app, {
+    runDelegationContinuationAck: async (...input) => {
+      received = input
+      return createResult({ alreadyDelivered: false, delegationId: "delegation-1", delivered: true })
+    },
+  })
+
+  const response = await app.request(
+    "http://codeline.test/sessions/session-1/delegations/delegation-1/continuation-ack",
+    {
+      body: JSON.stringify({}),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    },
+  )
+
+  expect(response.status).toBe(200)
+  expect(received?.slice(1)).toEqual([scope.userId, scope.sessionId, "delegation-1"])
+  expect(await response.json()).toEqual({ alreadyDelivered: false, delegationId: "delegation-1", delivered: true })
+})
+
 test("delegation read route passes the authenticated organization and session scope and preserves the response shape", async () => {
   const app = new Hono<AppEnvironment>()
   const scope = { organizationId: "organization-1", sessionId: "session-1", userId: "user-1" }
@@ -174,7 +205,9 @@ test("delegation read route passes the authenticated organization and session sc
       return createResult({
         delegations: [
           {
+            background: false,
             childSessionId: "child-session-1",
+            continuationDelivered: false,
             childRunId: "child-1",
             delegationId: "delegation-1",
             delegationKey: "task-1",
@@ -215,6 +248,7 @@ test("delegation read route passes the authenticated organization and session sc
     ],
     etag: firstEtag,
     revision: 4,
+    schemaVersion: "run-delegations.v2",
   })
 
   const notModified = await app.request(`http://codeline.test/sessions/${scope.sessionId}/delegations`, {

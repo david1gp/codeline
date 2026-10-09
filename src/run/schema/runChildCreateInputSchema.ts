@@ -5,6 +5,7 @@ const childIdentifierSchema = v.pipe(v.string(), v.trim(), v.minLength(1), v.max
 const childTaskSchema = v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(100_000))
 
 export const runChildCreateInputSchema = v.strictObject({
+  background: v.optional(v.boolean()),
   delegationKey: childIdentifierSchema,
   parentAttemptId: childIdentifierSchema,
   parentRunId: childIdentifierSchema,

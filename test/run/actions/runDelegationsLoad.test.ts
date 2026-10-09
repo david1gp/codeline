@@ -106,7 +106,9 @@ test.skipIf(!databaseAvailable)("loads only authorized session delegations in cr
       .sort((left, right) => left.id.localeCompare(right.id))
       .map((delegation) => ({
         // The load joins the child run so the UI can label the delegation's target agent.
+        background: false,
         childAgentId: agentId,
+        continuationDelivered: false,
         childSessionId: null,
         childRunId: delegation.childRunId,
         delegationId: delegation.id,

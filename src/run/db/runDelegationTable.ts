@@ -22,6 +22,8 @@ export const runDelegationTable = sqliteTable(
     depth: integer("depth").notNull(),
     task: text("task").notNull(),
     finalizedResult: text("finalized_result", { mode: "json" }).$type<RunDelegationResult | null>(),
+    background: integer("background").notNull().default(0),
+    continuationDeliveredAt: integer("continuation_delivered_at", { mode: "timestamp_ms" }),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).defaultNow().notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" }).defaultNow().notNull(),
   },

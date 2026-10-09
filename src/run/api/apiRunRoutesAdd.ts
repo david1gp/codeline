@@ -19,6 +19,7 @@ import { runCancellationCoordinatorCreate } from "../actions/runCancellationCoor
 import type { runGracefulCancelRegistryCreate } from "../actions/runGracefulCancelRegistryCreate.js"
 import { runChildConversationLoad } from "../actions/runChildConversationLoad.js"
 import { runDetailLoad } from "../actions/runDetailLoad.js"
+import { runDelegationContinuationAck } from "../actions/runDelegationContinuationAck.js"
 import { runDelegationsLoad } from "../actions/runDelegationsLoad.js"
 import { runLoad } from "../actions/runLoad.js"
 import { runSessionSnapshotLoad } from "../actions/runSessionSnapshotLoad.js"
@@ -28,6 +29,7 @@ import { runCancelInputSchema } from "../schema/runCancelInputSchema.js"
 import { runActiveListResponseSchema } from "./runActiveListResponseSchema.js"
 import { runActiveSnapshotResponseSchema } from "./runActiveSnapshotResponseSchema.js"
 import { runCancelResponseSchema } from "./runCancelResponseSchema.js"
+import { runContinuationAckResponseSchema } from "./runContinuationAckResponseSchema.js"
 import { runDelegationsResponseCreate } from "./runDelegationsResponseCreate.js"
 import { runDetailResponseSchema } from "./runDetailResponseSchema.js"
 import { runSessionSnapshotResponseSchema } from "./runSessionSnapshotResponseSchema.js"
@@ -46,6 +48,7 @@ type ApiRunRoutesOptions = {
   runCancellationCoordinator?: RunCancellationCoordinator
   runGracefulCancelRegistry?: ReturnType<typeof runGracefulCancelRegistryCreate>
   runChildConversationLoad?: typeof runChildConversationLoad
+  runDelegationContinuationAck?: typeof runDelegationContinuationAck
   runDetailLoad?: typeof runDetailLoad
   runDelegationsLoad?: typeof runDelegationsLoad
   runLoad?: typeof runLoad
@@ -243,6 +246,22 @@ export function apiRunRoutesAdd(api: Hono<AppEnvironment>, options: ApiRunRoutes
       return new Response(null, { headers, status: 304 })
     headersApply(context, headers)
     return context.json(response.data)
+  })
+
+  api.post("/sessions/:sessionId/delegations/:delegationId/continuation-ack", async (context) => {
+    const organizationId = context.var.requestIdentity.organizationId
+    if (organizationId === undefined) return notFound(context, catalog)
+
+    const result = await (options.runDelegationContinuationAck ?? runDelegationContinuationAck)(
+      context.var.database,
+      context.var.requestIdentity.userId,
+      context.req.param("sessionId"),
+      context.req.param("delegationId"),
+    )
+    if (!result.success) return errorResponse(context, result, catalog)
+    const response = v.safeParse(runContinuationAckResponseSchema, result.data)
+    if (!response.success) return internalServerError(context, catalog)
+    return context.json(response.output)
   })
 
   api.post("/sessions/:sessionId/runs/:runId/cancel", async (context) => {

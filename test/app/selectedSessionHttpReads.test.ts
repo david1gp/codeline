@@ -69,8 +69,10 @@ test("session delegation read uses the typed endpoint and preserves server order
       return Response.json({
         delegations: [
           {
+            background: true,
             childSessionId: null,
             childRunId: "child-2",
+            continuationDelivered: false,
             delegationId: "delegation-2",
             delegationKey: "task-2",
             finalizedResult: { status: "succeeded", text: "completed" },
@@ -81,8 +83,10 @@ test("session delegation read uses the typed endpoint and preserves server order
             task: "second task",
           },
           {
+            background: false,
             childSessionId: null,
             childRunId: "child-1",
+            continuationDelivered: false,
             delegationId: "delegation-1",
             delegationKey: "task-1",
             finalizedResult: null,

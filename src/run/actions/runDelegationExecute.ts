@@ -90,6 +90,7 @@ type RunDelegationExecuteOptions = {
 }
 
 type RunDelegationExecuteInput = {
+  background?: boolean
   delegationKey: string
   parentAttempt: typeof attemptTable.$inferSelect
   parentRun: typeof runTable.$inferSelect
@@ -529,6 +530,7 @@ export async function runDelegationExecute(
 ): Promise<Result<RunDelegationResult>> {
   const op = "runDelegationExecute"
   const parsedInput = v.safeParse(runChildCreateInputSchema, {
+    ...(input.background === undefined ? {} : { background: input.background }),
     delegationKey: input.delegationKey,
     parentAttemptId: input.parentAttempt.id,
     parentRunId: input.parentRun.id,

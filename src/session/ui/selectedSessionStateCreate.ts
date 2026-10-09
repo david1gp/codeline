@@ -2,7 +2,10 @@ import { createResultError } from "@adaptive-ds/result"
 import { type Accessor, createEffect, createMemo, onCleanup, useContext } from "solid-js"
 import { finalizedMessageCopyStateCreate } from "../../message/ui/finalizedMessageCopyStateCreate.js"
 import type { CodelineExecution } from "../../providers/schema/codelineExecutionSchema.js"
+import { runActiveRunsFetch } from "../../run/ui/runActiveRunsFetch.js"
+import { runContinuationAckRequest } from "../../run/ui/runContinuationAckRequest.js"
 import { sessionDelegationsFetch } from "../../run/ui/sessionDelegationsFetch.js"
+import { backgroundContinuationSelect } from "./backgroundContinuationSelect.js"
 import { sessionBoundedHistoryStateCreate } from "../client/sessionBoundedHistoryStateCreate.js"
 import { sessionDetailSemanticStepCreate } from "../client/sessionDetailSemanticStepCreate.js"
 import type { SessionDetailSourceFactory } from "../client/sessionDetailSourceFactory.js"
@@ -361,6 +364,45 @@ export function selectedSessionStateCreate(options: SelectedSessionStateOptions)
     )
       return
     options.navigation().clearSession()
+  })
+
+  // Automatic parent continuation for background subagents. When a
+  // background child finalizes, its result waits in the delegations list
+  // until acknowledged. While this session is open and idle — no local turn,
+  // nothing queued, and no active run anywhere (the parent may still work in
+  // another tab) — the result is delivered as a normal continuation turn.
+  // While busy, this effect simply does not fire, so delivery lands at the
+  // next safe boundary once the current run settles and the queue drains.
+  const continuationInflight = new Set<string>()
+  const continuationAttempts = new Map<string, number>()
+  createEffect(() => {
+    const current = session()
+    if (current === undefined || !isSignedIn() || !isOnline()) return
+    const chat = chatCreate(current.id)
+    if (chat.isBusy() || chat.isStopping()) return
+    if ((chat.queuedMessages?.() ?? []).length > 0) return
+    if (readOnlyReason() !== null) return
+    const pending = backgroundContinuationSelect(delegations() ?? [])
+    if (pending === undefined) return
+    if (continuationInflight.has(pending.delegationId)) return
+    const attempts = continuationAttempts.get(pending.delegationId) ?? 0
+    if (attempts >= 3) return
+    continuationInflight.add(pending.delegationId)
+    continuationAttempts.set(pending.delegationId, attempts + 1)
+    void (async () => {
+      try {
+        const active = await runActiveRunsFetch(current.id, fetcher === undefined ? {} : { fetch: fetcher })
+        if (!active.success) return
+        if (active.data.runs.some((run) => run.status === "accepted" || run.status === "running")) return
+        const sent = await chat.sendBackgroundContinuation?.(pending.message)
+        if (sent !== true) return
+        await runContinuationAckRequest(current.id, pending.delegationId, {
+          ...(fetcher === undefined ? {} : { fetch: fetcher }),
+        })
+      } finally {
+        continuationInflight.delete(pending.delegationId)
+      }
+    })()
   })
 
   return {

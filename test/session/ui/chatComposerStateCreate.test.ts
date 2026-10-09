@@ -698,3 +698,9 @@ test("sends background continuations as normal turns and rejects empty text", as
     state: imported.chatComposerStateCreate({ fetcher: async () => new Response(), sessionId: "session-1" }),
   }))
 
+  expect(await root.state.sendBackgroundContinuation("   ")).toBe(false)
+  expect(calls).toHaveLength(0)
+  expect(await root.state.sendBackgroundContinuation("Background task completed: done")).toBe(true)
+  expect(calls).toHaveLength(1)
+  root.dispose()
+})

@@ -169,6 +169,13 @@
       "when": 1790409876398,
       "tag": "0023_opposite_sway",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1791528364396,
+      "tag": "0024_slow_silver_surfer",
+      "breakpoints": true
     }
   ]
 }
