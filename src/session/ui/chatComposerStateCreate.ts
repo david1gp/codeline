@@ -181,8 +181,51 @@ export function chatComposerStateCreate(options: ChatComposerOptions) {
     })
   }
 
+  const queuedContentText = (content: unknown): string => {
+    if (typeof content === "string") return content
+    try {
+      return JSON.stringify(content) ?? ""
+    } catch {
+      return ""
+    }
+  }
+
+  const queuedMessages = () =>
+    chat.queue().map((entry) => ({
+      content: queuedContentText(entry.content),
+      id: entry.id as string,
+    }))
+
+  const cancelQueuedMessage = (id: string) => {
+    chat.cancelQueued(id)
+  }
+
+  /**
+   * Promote one queued message to drain next without aborting the active
+   * run. Re-queues in the new order so delivery happens at the next safe
+   * boundary; other messages remain queued behind it.
+   */
+  const steerQueuedMessage = async (id: string): Promise<void> => {
+    const current = [...chat.queue()]
+    const index = current.findIndex((entry) => entry.id === id)
+    if (index <= 0) return
+    const target = current[index]
+    if (target === undefined) return
+    const reordered = [target, ...current.slice(0, index), ...current.slice(index + 1)]
+    for (const entry of current) chat.cancelQueued(entry.id)
+    for (const entry of reordered) {
+      try {
+        await chat.sendMessage(entry.content as string)
+      } catch {
+        break
+      }
+      if (!chat.isLoading()) break
+    }
+  }
+
   return {
     activity,
+    cancelQueuedMessage,
     canSubmit: () =>
       draft.get().trim().length > 0 &&
       !stopping.get() &&
@@ -199,6 +242,8 @@ export function chatComposerStateCreate(options: ChatComposerOptions) {
       draft.set(value)
     },
     isStopping: stopping.get,
+    queuedMessages,
+    steerQueuedMessage,
     stop,
     submit,
     transientMessages,

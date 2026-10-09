@@ -58,6 +58,7 @@ const imported = await (async () => {
         isLoading,
         messages,
         queue: () => client?.getQueue() ?? [],
+        cancelQueued: (id: string) => client?.cancelQueued(id),
         runId,
         sendMessage: (content: string, sendOptions?: { whenBusy?: "drop" | "interrupt" | "queue" }) =>
           client?.sendMessage(content, undefined, sendOptions) ?? Promise.resolve(),
@@ -554,3 +555,34 @@ test("keeps ordinary optimistic prompts available for existing reconciliation", 
   expect(root.state.transientMessages().map((message) => message.content)).toEqual(["ordinary prompt"])
   root.dispose()
 })
+
+test("steers a queued message to drain next without aborting the active run", async () => {
+  expect(root.state.queuedMessages().map((message) => message.content)).toEqual(["first queued", "second queued"])
+
+  const second = root.state.queuedMessages()[1]
+  if (second === undefined) throw new Error("second queued message is missing")
+  await root.state.steerQueuedMessage(second.id)
+  // Promoted to the front; the active run was never aborted.
+  expect(root.state.queuedMessages().map((message) => message.content)).toEqual(["second queued", "first queued"])
+  expect(calls).toHaveLength(1)
+
+  release.resolve(undefined)
+  await firstSubmit
+  for (let attempt = 0; attempt < 200 && calls.length < 3; attempt += 1)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  expect(calls).toHaveLength(3)
+  expect(
+    calls[1]?.messages
+      .filter((message) => message.role === "user")
+      .map(textFromMessage)
+      .at(-1),
+  ).toBe("second queued")
+  expect(
+    calls[2]?.messages
+      .filter((message) => message.role === "user")
+      .map(textFromMessage)
+      .at(-1),
+  ).toBe("first queued")
+  root.dispose()
+})
+

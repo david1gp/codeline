@@ -23,6 +23,9 @@ export function sessionChatStateReadOnlyWrap(state: SessionChatState, notice: ()
       event.preventDefault()
     },
     readOnlyNotice: notice,
+    queuedMessages: () => [],
+    steerQueuedMessage: () => Promise.resolve(),
+    cancelQueuedMessage: () => undefined,
     stopHandle: () => undefined,
     submit: async () => undefined,
     submitHandle: (event: Event) => event.preventDefault(),

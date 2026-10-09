@@ -54,6 +54,9 @@ export function sessionChatStateCreate(options: SessionChatStateOptions) {
     errorMessage: composer.errorMessage,
     isBusy: composer.isBusy,
     isStopping: composer.isStopping,
+    queuedMessages: composer.queuedMessages,
+    steerQueuedMessage: composer.steerQueuedMessage,
+    cancelQueuedMessage: composer.cancelQueuedMessage,
     keyDownHandle: (event: KeyboardEvent) => {
       if (command !== undefined && chatCommandKeyDownHandle(event, command)) return
       if (event.key !== "Enter" || event.shiftKey || event.isComposing) return
@@ -76,10 +79,14 @@ export function sessionChatStateCreate(options: SessionChatStateOptions) {
   }
 }
 
-export type SessionChatState = Omit<ReturnType<typeof sessionChatStateCreate>, "command" | "runId"> & {
+export type SessionChatState = Omit<
+  ReturnType<typeof sessionChatStateCreate>,
   /** Slash-command affordance, absent for read-only and fixture composers. */
   command?: ChatCommandComposerView | undefined
   /** Set when the composer is disabled because the session renders read-only from cache. */
   readOnlyNotice?: () => string
   runId?: () => string | null
+  queuedMessages?: () => ReadonlyArray<{ content: string; id: string }>
+  steerQueuedMessage?: (id: string) => Promise<void>
+  cancelQueuedMessage?: (id: string) => void
 }

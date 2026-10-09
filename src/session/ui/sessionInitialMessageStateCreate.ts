@@ -126,6 +126,9 @@ export function sessionInitialMessageStateCreate(options: SessionInitialMessageS
     isAborted: () => false,
     isBusy: () => false,
     isStopping: () => false,
+    queuedMessages: () => [],
+    steerQueuedMessage: () => Promise.resolve(),
+    cancelQueuedMessage: () => undefined,
     isThinking: isPending.get,
     keyDownHandle: (event: KeyboardEvent) => {
       if (command !== undefined && chatCommandKeyDownHandle(event, command)) return

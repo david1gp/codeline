@@ -35,6 +35,39 @@ export function SessionChat(props: {
           grid: props.isFilling !== true,
         }}
       >
+        <Show when={(props.state.queuedMessages?.() ?? []).length > 0}>
+          <ol class="grid max-h-[30vh] list-none gap-2 p-0" aria-label="Queued messages">
+            <For each={props.state.queuedMessages?.() ?? []}>
+              {(queued, index) => (
+                <li class="flex min-w-0 items-center gap-2">
+                  <div class="min-w-0 flex-1 truncate rounded-xl border border-line bg-surface px-3 py-2 text-sm leading-relaxed text-faint">
+                    <span class="mr-2 text-[11px] text-placeholder">Queued {index() + 1}</span>
+                    {queued.content.slice(0, 160)}
+                  </div>
+                  <button
+                    class="flex shrink-0 cursor-pointer items-center justify-center rounded-lg border border-line bg-surface px-2 py-1 text-sm text-accent disabled:cursor-not-allowed disabled:text-disabled"
+                    type="button"
+                    title="Steer: deliver this message next without stopping the current run"
+                    aria-label={`Deliver queued message ${index() + 1} next`}
+                    disabled={index() === 0}
+                    onClick={() => void props.state.steerQueuedMessage?.(queued.id)}
+                  >
+                    ↑
+                  </button>
+                  <button
+                    class="flex shrink-0 cursor-pointer items-center justify-center rounded-lg border border-line bg-surface px-2 py-1 text-xs text-faint"
+                    type="button"
+                    title="Remove this queued message"
+                    aria-label={`Cancel queued message ${index() + 1}`}
+                    onClick={() => props.state.cancelQueuedMessage?.(queued.id)}
+                  >
+                    ✕
+                  </button>
+                </li>
+              )}
+            </For>
+          </ol>
+        </Show>
         <Show when={pendingMessageState.pendingMessages().length > 0}>
           <ol class="grid max-h-[30vh] list-none gap-3 overflow-y-auto p-0" aria-label="In-flight messages">
             <For each={pendingMessageState.pendingMessages()}>

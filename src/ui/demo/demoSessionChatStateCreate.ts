@@ -50,6 +50,9 @@ export function demoSessionChatStateCreate(variant: () => DemoSessionScreenVaria
     errorMessage: () => (variant() === "error" ? "The deterministic provider rejected the last turn." : undefined),
     isBusy: isStreaming,
     isStopping: () => false,
+    queuedMessages: () => [],
+    steerQueuedMessage: () => Promise.resolve(),
+    cancelQueuedMessage: () => undefined,
     keyDownHandle: (event: KeyboardEvent) => {
       if (event.key !== "Enter" || event.shiftKey || event.isComposing) return
       event.preventDefault()
