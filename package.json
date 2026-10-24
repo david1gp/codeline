@@ -118,8 +118,5 @@
   "funding": {
     "type": "individual",
     "url": "https://github.com/sponsors/david1gp"
-  },
-  "engines": {
-    "bun": ">=1.3.0"
   }
 }
