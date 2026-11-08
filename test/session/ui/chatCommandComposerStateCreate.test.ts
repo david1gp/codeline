@@ -156,12 +156,12 @@ test("suggestions carry the metadata the list renders and close once the name is
   setDraft("/rel")
   expect(state.suggestions()[0]).toMatchObject({
     agent: "releaser",
-    isHighlighted: true,
     model: "cliproxyapi/opus",
     name: "release",
     source: "global",
     subtask: true,
   })
+  expect(state.isSuggestionHighlighted("release")).toBe(true)
 
   // Once a separator is typed the detail preview replaces the list.
   setDraft("/release ")
@@ -174,16 +174,17 @@ test("suggestions carry the metadata the list renders and close once the name is
 
 test("keyboard navigation moves, wraps, jumps to edges, and completes the highlighted command", () => {
   const { dispose, draft, setDraft, state } = stateCreate()
+  const highlightedName = () => state.suggestions().find(({ name }) => state.isSuggestionHighlighted(name))?.name
   setDraft("/")
 
-  expect(state.suggestions().find(({ isHighlighted }) => isHighlighted)?.name).toBe("audit")
+  expect(highlightedName()).toBe("audit")
   state.highlightMove(1)
-  expect(state.suggestions().find(({ isHighlighted }) => isHighlighted)?.name).toBe("git/commit")
+  expect(highlightedName()).toBe("git/commit")
   state.highlightMove(-1)
-  expect(state.suggestions().find(({ isHighlighted }) => isHighlighted)?.name).toBe("audit")
+  expect(highlightedName()).toBe("audit")
   // Moving up from the first entry wraps to the last.
   state.highlightMove(-1)
-  expect(state.suggestions().find(({ isHighlighted }) => isHighlighted)?.name).toBe("review")
+  expect(highlightedName()).toBe("review")
 
   state.highlightEdge("first")
   expect(state.highlightedOptionId()).toBe("test-command-option-audit")
@@ -391,6 +392,36 @@ test("listbox and option ids are namespaced by the composer prefix", () => {
   // The highlighted descendant is only advertised while the listbox is open.
   setDraft("/review ")
   expect(state.highlightedOptionId()).toBeUndefined()
+
+  dispose()
+})
+
+test("highlight moves keep every suggestion row identical while the highlight follows", () => {
+  const { dispose, setDraft, state } = stateCreate()
+  setDraft("/")
+
+  const before = state.suggestions()
+  expect(before.map(({ name }) => name)).toEqual(["audit", "git/commit", "release", "review"])
+  expect(state.isSuggestionHighlighted("audit")).toBe(true)
+
+  state.highlightMove(1)
+  const moved = state.suggestions()
+  expect(moved.map(({ name }) => name)).toEqual(["audit", "git/commit", "release", "review"])
+  for (const [index] of moved.entries()) expect(moved[index]).toBe(before[index])
+  expect(state.isSuggestionHighlighted("audit")).toBe(false)
+  expect(state.isSuggestionHighlighted("git/commit")).toBe(true)
+
+  state.highlightSet("review")
+  const pointed = state.suggestions()
+  for (const [index] of pointed.entries()) expect(pointed[index]).toBe(before[index])
+  expect(state.isSuggestionHighlighted("review")).toBe(true)
+
+  // A narrower token reuses the surviving rows instead of rebuilding them.
+  setDraft("/re")
+  const narrowed = state.suggestions()
+  expect(narrowed.map(({ name }) => name)).toEqual(["release", "review"])
+  expect(narrowed[0]).toBe(before.find(({ name }) => name === "release"))
+  expect(narrowed[1]).toBe(before.find(({ name }) => name === "review"))
 
   dispose()
 })

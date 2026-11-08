@@ -25,13 +25,13 @@ export function ChatCommandSuggestions(props: { state: ChatCommandComposerView }
                 <button
                   class="grid w-full cursor-pointer gap-0.5 rounded-lg border-none bg-transparent px-2.5 py-1.5 text-left"
                   classList={{
-                    "bg-accent-soft text-accent": suggestion.isHighlighted,
-                    "text-foreground": !suggestion.isHighlighted,
+                    "bg-accent-soft text-accent": props.state.isSuggestionHighlighted(suggestion.name),
+                    "text-foreground": !props.state.isSuggestionHighlighted(suggestion.name),
                   }}
                   id={props.state.optionId(suggestion.name)}
                   type="button"
                   role="option"
-                  aria-selected={suggestion.isHighlighted}
+                  aria-selected={props.state.isSuggestionHighlighted(suggestion.name)}
                   tabIndex={-1}
                   onMouseEnter={() => props.state.highlightSet(suggestion.name)}
                   // Pointer selection must not blur the textarea before the draft

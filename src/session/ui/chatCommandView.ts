@@ -4,8 +4,6 @@ import type { CommandInvocation } from "../../commands/schema/commandInvocationS
 export type ChatCommandSuggestion = {
   agent?: string
   description?: string
-  /** True while this row is the keyboard/pointer active descendant. */
-  isHighlighted: boolean
   model?: string
   name: string
   source: "global" | "project"
@@ -47,6 +45,8 @@ export type ChatCommandComposerView = {
   highlightEdge: (edge: "first" | "last") => void
   highlightMove: (delta: number) => void
   highlightSet: (name: string) => void
+  /** True while the named suggestion is the keyboard/pointer active descendant. */
+  isSuggestionHighlighted: (name: string) => boolean
   listboxId: () => string
   optionId: (name: string) => string
   preview: () => ChatCommandPreview | undefined

@@ -11,7 +11,7 @@ test("the suggestion list renders as an accessible listbox with identified optio
   expect(suggestions).toContain("id={props.state.listboxId()}")
   expect(suggestions).toContain('role="option"')
   expect(suggestions).toContain("id={props.state.optionId(suggestion.name)}")
-  expect(suggestions).toContain("aria-selected={suggestion.isHighlighted}")
+  expect(suggestions).toContain("aria-selected={props.state.isSuggestionHighlighted(suggestion.name)}")
   expect(suggestions).toContain("tabIndex={-1}")
 })
 

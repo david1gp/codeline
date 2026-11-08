@@ -5,8 +5,14 @@ import type { CommandInspectionSnapshot } from "../../commands/api/commandInspec
 import { type CommandInvocation, commandInvocationSchema } from "../../commands/schema/commandInvocationSchema.js"
 import { commandNameSchema } from "../../commands/schema/commandNameSchema.js"
 import { chatCommandDraftParse } from "./chatCommandDraftParse.js"
-import type { ChatCommandCatalogSource, ChatCommandComposerView, ChatCommandPreview } from "./chatCommandView.js"
+import type {
+  ChatCommandCatalogSource,
+  ChatCommandComposerView,
+  ChatCommandPreview,
+  ChatCommandSuggestion,
+} from "./chatCommandView.js"
 import { signalObjectCreate } from "../../ui/signalObjectCreate.js"
+import { stableListReuse } from "../../ui/stableListReuse.js"
 
 type ChatCommandComposerStateOptions = {
   catalog: ChatCommandCatalogSource
@@ -18,6 +24,17 @@ type ChatCommandComposerStateOptions = {
 
 const suggestionLimit = 30
 const shellInterpolationPattern = /!`([\s\S]*?)`/u
+
+function chatCommandSuggestionEqual(left: ChatCommandSuggestion, right: ChatCommandSuggestion): boolean {
+  return (
+    left.agent === right.agent &&
+    left.description === right.description &&
+    left.model === right.model &&
+    left.name === right.name &&
+    left.source === right.source &&
+    left.subtask === right.subtask
+  )
+}
 
 function chatCommandSuggestionRank(command: CommandInspectionSnapshot, token: string): number | undefined {
   if (token.length === 0) return 2
@@ -170,6 +187,12 @@ export function chatCommandComposerStateCreate(options: ChatCommandComposerState
     options.draftUpdate(args.length === 0 ? `/${target} ` : `/${target} ${args}`)
   }
 
+  // Suggestion rows are keyed by command name and reused while their content
+  // compares equal. Highlighting lives outside the mapped objects (read via
+  // `isSuggestionHighlighted`), so arrow-key and pointer highlight moves never
+  // replace any suggestion row.
+  let suggestionsPrevious: readonly ChatCommandSuggestion[] = []
+
   const highlightMove = (delta: number) => {
     const available = matches()
     if (available.length === 0) return
@@ -214,18 +237,24 @@ export function chatCommandComposerStateCreate(options: ChatCommandComposerState
         return `No command matches "${token()}".`
       return undefined
     },
+    isSuggestionHighlighted: (name: string) => highlighted()?.name === name,
     suggestions: () => {
       if (!isSuggesting()) return []
-      const current = highlighted()
-      return matches().map((command) => ({
+      const fresh = matches().map((command) => ({
         ...(command.agent === undefined ? {} : { agent: command.agent }),
         ...(command.description === undefined ? {} : { description: command.description }),
-        isHighlighted: command.name === current?.name,
         ...(command.model === undefined ? {} : { model: command.model }),
         name: command.name,
         source: command.source,
         subtask: command.subtask === true,
       }))
+      suggestionsPrevious = stableListReuse(
+        suggestionsPrevious,
+        fresh,
+        (suggestion) => suggestion.name,
+        chatCommandSuggestionEqual,
+      )
+      return suggestionsPrevious
     },
   }
 }
