@@ -23,8 +23,13 @@ import type { SessionProjectTarget } from "./sessionProjectTarget.js"
 import type { SessionResourceSelectorAgentTools, SessionResourceSelectorView } from "./sessionResourceSelectorView.js"
 import { sessionResourceSkillCatalogEstimate } from "./sessionResourceSkillCatalogEstimate.js"
 import { sessionResourceSkillSelectionDerive } from "./sessionResourceSkillSelectionDerive.js"
+import type {
+  SessionResourceSkillTreeFolderNode,
+  SessionResourceSkillTreeSkillNode,
+} from "./sessionResourceSkillTreeDerive.js"
 import { sessionResourceSkillTreeDerive } from "./sessionResourceSkillTreeDerive.js"
 import { signalObjectCreate } from "../../ui/signalObjectCreate.js"
+import { stableListReuse } from "../../ui/stableListReuse.js"
 
 type SessionResourceSelectorFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
 
@@ -44,6 +49,52 @@ type SessionResourceSelectorStateOptions = {
 }
 
 const skillOverrideEmpty = { disabledSkills: [] as readonly string[], enabledSkills: [] as readonly string[] }
+
+function skillTreeSkillNodeEqual(
+  left: SessionResourceSkillTreeSkillNode,
+  right: SessionResourceSkillTreeSkillNode,
+): boolean {
+  return (
+    left.bundlePath === right.bundlePath &&
+    left.description === right.description &&
+    left.isActive === right.isActive &&
+    left.isExcluded === right.isExcluded &&
+    left.name === right.name &&
+    left.source === right.source
+  )
+}
+
+function skillTreeFolderNodeEqual(
+  left: SessionResourceSkillTreeFolderNode,
+  right: SessionResourceSkillTreeFolderNode,
+): boolean {
+  if (
+    left.depth !== right.depth ||
+    left.label !== right.label ||
+    left.path !== right.path ||
+    left.selection !== right.selection ||
+    left.source !== right.source ||
+    left.descendantSkillNames.length !== right.descendantSkillNames.length ||
+    left.skills.length !== right.skills.length
+  )
+    return false
+  if (!left.descendantSkillNames.every((name, index) => name === right.descendantSkillNames[index])) return false
+  return left.skills.every((skill, index) => skill === right.skills[index])
+}
+
+function agentToolEqual(left: SessionResourceSelectorAgentTools, right: SessionResourceSelectorAgentTools): boolean {
+  return (
+    left.agentId === right.agentId &&
+    left.bash === right.bash &&
+    left.read === right.read &&
+    left.write === right.write &&
+    left.edit === right.edit &&
+    left.isPrimary === right.isPrimary &&
+    left.name === right.name &&
+    left.role === right.role &&
+    left.webfetch === right.webfetch
+  )
+}
 
 export function sessionResourceSelectorStateCreate(
   options: SessionResourceSelectorStateOptions,
@@ -252,13 +303,38 @@ export function sessionResourceSelectorStateCreate(
 
   const descriptionCatalog = () => sessionResourceSkillCatalogEstimate(activeSkills())
 
-  const folders = () =>
-    sessionResourceSkillTreeDerive({
+  // The tree derive builds fresh folder and skill nodes on every read, which would
+  // make `<For>` rebuild every row on any checkbox toggle. Nodes are reused by
+  // stable id while their content compares equal, so a toggle only replaces the
+  // toggled skill node and the folders whose aggregate selection actually changed.
+  let foldersPrevious: readonly SessionResourceSkillTreeFolderNode[] = []
+  const folders = () => {
+    const fresh = sessionResourceSkillTreeDerive({
       activeSkillNames: derivedSelection().activeSkillNames,
       excludedSkillNames: activePreset()?.excludeSkills ?? [],
       groups: catalogQuery.data()?.groups ?? [],
       skills: catalogSkills(),
     })
+    const previousByPath = new Map(foldersPrevious.map((folder) => [folder.path, folder] as const))
+    const withStableSkills = fresh.map((folder) => {
+      const skills = stableListReuse(
+        previousByPath.get(folder.path)?.skills ?? [],
+        folder.skills,
+        (skill) => skill.name,
+        skillTreeSkillNodeEqual,
+      )
+      if (skills.length === folder.skills.length && skills.every((skill, index) => skill === folder.skills[index]))
+        return folder
+      return { ...folder, skills }
+    })
+    foldersPrevious = stableListReuse(
+      foldersPrevious,
+      withStableSkills,
+      (folder) => folder.path,
+      skillTreeFolderNodeEqual,
+    )
+    return foldersPrevious
+  }
 
   const skillToggle = (name: string, enabled: boolean) => {
     if (isExistingSession() || presetName() === "all") return
@@ -298,10 +374,14 @@ export function sessionResourceSelectorStateCreate(
   // subagents belong to a session's tool selection. Other primary agents on the same
   // server are separate session targets, not delegation targets, and including them
   // would both misrepresent the session and exceed the selection's subagent bound.
+  // Tool checkbox toggles rebuild every agent row today because the mapped tool
+  // objects are fresh on each read. Rows are reused by agent id while their
+  // flags compare equal, so a toggle only replaces the toggled agent's row.
+  let agentToolsPrevious: readonly SessionResourceSelectorAgentTools[] = []
   const agentTools = () => {
     const overrides = toolOverrides.get()
     const primaryAgentId = options.selectedAgentId()
-    return (agentToolsQuery.data() ?? [])
+    const fresh = (agentToolsQuery.data() ?? [])
       .filter((entry) => entry.agentId === primaryAgentId || entry.parentAgentId !== null)
       .map((entry) => {
         const override = overrides[entry.agentId] ?? {}
@@ -323,6 +403,8 @@ export function sessionResourceSelectorStateCreate(
           webfetch: override.webfetch ?? entry.tools.webfetch,
         }
       })
+    agentToolsPrevious = stableListReuse(agentToolsPrevious, fresh, (entry) => entry.agentId, agentToolEqual)
+    return agentToolsPrevious
   }
 
   let lastAgentPromptScope: string | null = null

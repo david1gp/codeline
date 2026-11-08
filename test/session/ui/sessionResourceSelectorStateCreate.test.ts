@@ -568,6 +568,51 @@ test("an individual skill override layers over the recursive folder selection", 
   created.dispose()
 })
 
+test("a single skill toggle only replaces the toggled node and its aggregating folders", async () => {
+  const created = stateCreate({})
+  await effectsSettle()
+
+  created.state.presetSelect("default")
+  await effectsSettle()
+
+  const foldersBefore = created.state.folders()
+  const toolsBefore = created.state.agentTools()
+
+  created.state.skillToggle("commits", false)
+
+  const foldersAfter = created.state.folders()
+  expect(foldersAfter.map(({ path }) => path)).toEqual(foldersBefore.map(({ path }) => path))
+
+  const folderBefore = (path: string) => foldersBefore.find((folder) => folder.path === path)
+  const folderAfter = (path: string) => foldersAfter.find((folder) => folder.path === path)
+
+  // The untouched folder keeps its row and every nested skill node.
+  expect(folderAfter("global/skills/browser")).toBe(folderBefore("global/skills/browser"))
+  expect(folderAfter("global/skills/browser")?.skills[0]).toBe(folderBefore("global/skills/browser")?.skills[0])
+
+  // Folders aggregating the toggled skill are replaced...
+  const codeBefore = folderBefore(".agents/skills/code")
+  const codeAfter = folderAfter(".agents/skills/code")
+  expect(codeAfter).not.toBe(codeBefore)
+  expect(codeAfter?.selection).toBe("partial")
+  // ...but the sibling skill node inside a replaced folder is reused.
+  expect(codeAfter?.skills[0]).toBe(codeBefore?.skills[0])
+
+  const releaseBefore = folderBefore(".agents/skills/code/release")
+  const releaseAfter = folderAfter(".agents/skills/code/release")
+  expect(releaseAfter).not.toBe(releaseBefore)
+  expect(releaseAfter?.selection).toBe("none")
+  expect(releaseAfter?.skills[0]).not.toBe(releaseBefore?.skills[0])
+  expect(releaseAfter?.skills[0]).toMatchObject({ isActive: false, name: "commits" })
+
+  // A skill toggle never touches the tool rows.
+  const toolsAfter = created.state.agentTools()
+  expect(toolsAfter.length).toBe(toolsBefore.length)
+  for (const [index] of toolsAfter.entries()) expect(toolsAfter[index]).toBe(toolsBefore[index])
+
+  created.dispose()
+})
+
 test("changing the preset scope discards pending per-skill overrides", async () => {
   const created = stateCreate({})
   await effectsSettle()
@@ -618,6 +663,30 @@ test("agent tool rows are seeded from agent defaults and toggled into the pendin
     },
     version: 1,
   } as unknown as SessionExecutionSelection)
+  created.dispose()
+})
+
+test("a single tool toggle only replaces the toggled agent row", async () => {
+  const created = stateCreate({})
+  await effectsSettle()
+
+  const foldersBefore = created.state.folders()
+  const toolsBefore = created.state.agentTools()
+  expect(toolsBefore.map(({ agentId }) => agentId)).toEqual(["example-agent-primary", "example-agent-explore"])
+
+  created.state.toolToggle("example-agent-primary", "webfetch", true)
+
+  const toolsAfter = created.state.agentTools()
+  expect(toolsAfter.length).toBe(toolsBefore.length)
+  expect(toolsAfter[0]).not.toBe(toolsBefore[0])
+  expect(toolsAfter[0]).toMatchObject({ agentId: "example-agent-primary", webfetch: true })
+  expect(toolsAfter[1]).toBe(toolsBefore[1])
+
+  // A tool toggle never touches the skill tree rows.
+  const foldersAfter = created.state.folders()
+  expect(foldersAfter.length).toBe(foldersBefore.length)
+  for (const [index] of foldersAfter.entries()) expect(foldersAfter[index]).toBe(foldersBefore[index])
+
   created.dispose()
 })
 
