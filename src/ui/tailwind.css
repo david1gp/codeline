@@ -21,6 +21,8 @@
   --color-line: var(--border);
   --color-line-subtle: var(--border-subtle);
   --color-line-strong: var(--border-strong);
+  --color-border: var(--border);
+  --color-input: var(--border-strong);
   --color-accent: var(--accent);
   --color-accent-soft: var(--accent-soft);
   --color-accent-border: var(--accent-border);
@@ -60,6 +62,10 @@
 }
 
 @layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
   :root {
     --background: #ffffff;
     --foreground: #1a1a1a;

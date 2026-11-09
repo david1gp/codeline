@@ -10,7 +10,7 @@ const selectedSessionSource = await Bun.file(
   new URL("../../../src/session/ui/SelectedSession.tsx", import.meta.url),
 ).text()
 const chatSource = await Bun.file(new URL("../../../src/session/ui/SessionChat.tsx", import.meta.url)).text()
-const stylesSource = await Bun.file(new URL("../../../src/ui/styles.css", import.meta.url)).text()
+const stylesSource = await Bun.file(new URL("../../../src/ui/tailwind.css", import.meta.url)).text()
 const shellStateSource = await Bun.file(
   new URL("../../../src/ui/applicationShellStateCreate.ts", import.meta.url),
 ).text()

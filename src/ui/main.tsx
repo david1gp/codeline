@@ -1,7 +1,7 @@
 import { render } from "solid-js/web"
 import { browserDiagnosticsInstall } from "./diagnostics/browserDiagnosticsInstall.js"
 import { UiRouter } from "./UiRouter.js"
-import "./styles.css"
+import "./tailwind.css"
 
 browserDiagnosticsInstall()
 
