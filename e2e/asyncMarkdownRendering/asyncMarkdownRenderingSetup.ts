@@ -1,6 +1,7 @@
 import type { Browser, BrowserContext } from "@playwright/test"
 import { e2eExampleDataSeedForMember } from "../e2eExampleDataSeedForMember.js"
 import { e2eMemberSessionsIssue } from "../e2eMemberSessionsIssue.js"
+import { e2eOriginGet } from "../e2eOriginGet.js"
 
 export async function asyncMarkdownRenderingSetup(browser: Browser, runId: string) {
   const issued = await e2eMemberSessionsIssue(runId)
@@ -10,7 +11,7 @@ export async function asyncMarkdownRenderingSetup(browser: Browser, runId: strin
     userId: member.userId,
     runId,
   })
-  const baseOrigin = process.env.PUBLIC_ORIGIN ?? "https://preview.codeline.work"
+  const baseOrigin = e2eOriginGet()
   // Playwright cannot route fetches handled by a service worker. Keep the
   // snapshot gate in the test authoritative; module Markdown workers still run.
   const context: BrowserContext = await browser.newContext({ baseURL: baseOrigin, serviceWorkers: "block" })

@@ -1,4 +1,5 @@
 import { type BrowserContext, expect } from "@playwright/test"
+import { e2eOriginGet } from "../e2eOriginGet.js"
 
 export async function lunaDelegationAwait(
   context: BrowserContext,
@@ -9,7 +10,7 @@ export async function lunaDelegationAwait(
   await expect
     .poll(
       async () => {
-        const origin = process.env.PUBLIC_ORIGIN ?? "https://preview.codeline.work"
+        const origin = e2eOriginGet()
         const response = await context.request.get(`${origin}/api/sessions/${simulationSessionId}/delegations`)
         expect(response.ok(), await response.text()).toBe(true)
         const body = (await response.json()) as { delegations: Array<{ childAgentId?: string; childRunId: string }> }

@@ -1,5 +1,6 @@
 import { defineConfig } from "@playwright/test"
 import { e2eEnvironmentFileLoad } from "./e2e/e2eEnvironmentFileLoad.js"
+import { e2eOriginGet } from "./e2e/e2eOriginGet.js"
 
 /**
  * The end-to-end run targets the repository-managed preview services. It never starts
@@ -17,7 +18,7 @@ export default defineConfig({
   retries: 0,
   testDir: "./e2e",
   use: {
-    baseURL: process.env.PUBLIC_ORIGIN ?? "https://preview.codeline.work",
+    baseURL: e2eOriginGet(),
     trace: "off",
   },
   workers: 1,

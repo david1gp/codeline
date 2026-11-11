@@ -1,8 +1,9 @@
 import { type Page, type TestInfo } from "@playwright/test"
 import { e2eBrowserDiagnosticsInstall } from "../e2eBrowserDiagnosticsInstall.js"
+import { e2eOriginGet } from "../e2eOriginGet.js"
 
 export function lunaLowEffortChatDiagnosticsInstall(page: Page, info: TestInfo, sessionId: string) {
-  const baseOrigin = process.env.PUBLIC_ORIGIN ?? "https://preview.codeline.work"
+  const baseOrigin = e2eOriginGet()
   const sessionDetailEventsPath = `/api/sessions/${encodeURIComponent(sessionId)}/events`
   const delegationsPath = `/api/sessions/${encodeURIComponent(sessionId)}/delegations`
   return e2eBrowserDiagnosticsInstall(page, info, {

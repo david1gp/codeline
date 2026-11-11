@@ -1,6 +1,7 @@
 import { type Browser, type BrowserContext, expect, test } from "@playwright/test"
 import { e2eBrowserDiagnosticsInstall } from "../e2eBrowserDiagnosticsInstall.js"
 import { e2eMemberSessionsIssue } from "../e2eMemberSessionsIssue.js"
+import { e2eOriginGet } from "../e2eOriginGet.js"
 
 export async function managedOriginDiagnosticsIngestionSetup(
   browser: Browser,
@@ -13,7 +14,7 @@ export async function managedOriginDiagnosticsIngestionSetup(
   const routePattern = `**${failedPath}**`
   const issued = await e2eMemberSessionsIssue(runId)
   const [member] = issued.members
-  const baseOrigin = process.env.PUBLIC_ORIGIN ?? "https://preview.codeline.work"
+  const baseOrigin = e2eOriginGet()
   const context = await browser.newContext({ baseURL: baseOrigin })
   resources.context = context
   await context.addCookies([

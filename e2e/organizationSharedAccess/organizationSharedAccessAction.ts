@@ -1,7 +1,8 @@
 import { type BrowserContext, expect } from "@playwright/test"
 import { e2eSessionCreate } from "../e2eSessionCreate.js"
+import { e2eOriginGet } from "../e2eOriginGet.js"
 
-const baseOrigin = process.env.PUBLIC_ORIGIN ?? "https://preview.codeline.work"
+const baseOrigin = e2eOriginGet()
 
 export async function organizationSharedAccessAction(
   contextOne: BrowserContext,

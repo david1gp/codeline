@@ -1,5 +1,6 @@
 import { type Browser, type BrowserContext, expect } from "@playwright/test"
 import { e2eMemberSessionsIssue } from "../e2eMemberSessionsIssue.js"
+import { e2eOriginGet } from "../e2eOriginGet.js"
 import { e2eCommandProjectIssue } from "../e2eCommandProjectIssue.js"
 import { e2eRunIdCreate } from "../e2eRunIdCreate.js"
 import { e2eSessionCreate } from "../e2eSessionCreate.js"
@@ -7,7 +8,7 @@ import { chatCommandExpansionCleanup } from "./chatCommandExpansionCleanup.js"
 import { chatCommandExpansionMemberContextOpen } from "./chatCommandExpansionMemberContextOpen.js"
 import { chatCommandExpansionOverridesAssert } from "./chatCommandExpansionOverridesAssert.js"
 
-const baseOrigin = process.env.PUBLIC_ORIGIN ?? "https://preview.codeline.work"
+const baseOrigin = e2eOriginGet()
 const syncTimeout = 45_000
 const scenarioAgentId = "example-agent-simulation-streaming"
 const bashInterpolationMarker = "codeline-command-marker"

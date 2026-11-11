@@ -1,6 +1,7 @@
 import { type Browser, type BrowserContext, expect } from "@playwright/test"
 import { e2eExampleDataSeedForMember } from "../e2eExampleDataSeedForMember.js"
 import { e2eMemberSessionsIssue } from "../e2eMemberSessionsIssue.js"
+import { e2eOriginGet } from "../e2eOriginGet.js"
 import { e2eRepositoryRoot } from "../e2eRepositoryRoot.js"
 import { newProjectFlowMemberContextOpen } from "./newProjectFlowMemberContextOpen.js"
 
@@ -34,7 +35,7 @@ export async function newProjectFlowFirstMessageSetup(
     )
     await route.fulfill({ response, json: body })
   })
-  const baseOrigin = process.env.PUBLIC_ORIGIN ?? "https://preview.codeline.work"
+  const baseOrigin = e2eOriginGet()
   const response = await context.request.post(`${baseOrigin}/api/project/registry/register`, {
     data: { path: e2eRepositoryRoot },
     headers: { origin: baseOrigin },

@@ -1,5 +1,6 @@
 import { expect, type BrowserContext, type Page } from "@playwright/test"
 import { e2eMemberSessionsExpire } from "../e2eMemberSessionsExpire.js"
+import { e2eOriginGet } from "../e2eOriginGet.js"
 import { managedOriginEventFeedStatusRead } from "./managedOriginEventFeedStatusRead.js"
 
 export async function managedOriginAuthExpiryAction(
@@ -18,7 +19,7 @@ export async function managedOriginAuthExpiryAction(
 
   // A reconnect with the expired cookie is rejected, and so is every other authenticated read.
   expect(await managedOriginEventFeedStatusRead(page)).toBe(401)
-  const baseOrigin = process.env.PUBLIC_ORIGIN ?? "https://preview.codeline.work"
+  const baseOrigin = e2eOriginGet()
   const snapshot = await context.request.get(`${baseOrigin}/api/sessions/${settledSessionId}/bounded-snapshot`)
   expect(snapshot.status()).toBe(401)
 

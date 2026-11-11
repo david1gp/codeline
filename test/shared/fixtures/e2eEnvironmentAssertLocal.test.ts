@@ -96,6 +96,13 @@ test("the local guard rejects a non-development or non-preview environment", () 
   expect(e2eEnvironmentAssertLocal().success).toBe(false)
 })
 
+test("the local guard rejects an unset origin instead of assuming the managed preview", () => {
+  environmentApply({ PUBLIC_ORIGIN: undefined })
+  const result = e2eEnvironmentAssertLocal()
+  expect(result.success).toBe(false)
+  if (!result.success) expect(result.errorMessage).toContain("There is no default environment.")
+})
+
 test("the local guard requires an issuer and shared organization identifier", () => {
   environmentApply({ ZITADEL_ISSUER: undefined })
   const issuerResult = e2eEnvironmentAssertLocal()

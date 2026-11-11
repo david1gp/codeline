@@ -2,6 +2,7 @@ import { expect } from "@playwright/test"
 import type { expiredCursorSetup } from "./expiredCursorSetup.js"
 import { expiredCursorSelectedClosedUrlsRead } from "./expiredCursorSelectedClosedUrlsRead.js"
 import { expiredCursorSelectedLiveUrlsRead } from "./expiredCursorSelectedLiveUrlsRead.js"
+import { e2eOriginGet } from "../e2eOriginGet.js"
 
 export async function expiredCursorRecoveryAssert(
   setup: Awaited<ReturnType<typeof expiredCursorSetup>>,
@@ -88,7 +89,7 @@ export async function expiredCursorRecoveryAssert(
   const currentSelectedSource = (await expiredCursorSelectedLiveUrlsRead(page, cachedSessionId))[0]
   if (currentSelectedSource === undefined) throw new Error("The selected-session stream did not remain attached.")
   const selectedClosedAfterSnapshot = (await expiredCursorSelectedClosedUrlsRead(page, cachedSessionId)).length
-  const origin = process.env.PUBLIC_ORIGIN ?? "https://preview.codeline.work"
+  const origin = e2eOriginGet()
   const currentSelectedSourceUrl = new URL(currentSelectedSource, origin)
   const freshSelectedRequest = reconciliation().find(
     (entry) =>

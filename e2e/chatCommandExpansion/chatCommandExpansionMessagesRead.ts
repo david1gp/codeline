@@ -1,4 +1,5 @@
 import { type BrowserContext, expect } from "@playwright/test"
+import { e2eOriginGet } from "../e2eOriginGet.js"
 
 type CommandMessageMetadata = {
   command: {
@@ -16,7 +17,7 @@ export async function chatCommandExpansionMessagesRead(
   context: BrowserContext,
   sessionId: string,
 ): Promise<Array<{ content: string; metadata: CommandMessageMetadata }>> {
-  const baseOrigin = process.env.PUBLIC_ORIGIN ?? "https://preview.codeline.work"
+  const baseOrigin = e2eOriginGet()
   const response = await context.request.get(`${baseOrigin}/api/sessions/${sessionId}/messages`)
   expect(response.ok(), await response.text()).toBe(true)
   const body = (await response.json()) as { messages: Array<{ content: string; metadata: unknown; role: string }> }

@@ -1,8 +1,9 @@
 import { type Browser, type BrowserContext, expect } from "@playwright/test"
 import { oidcEnvironmentConfigurationResolve } from "../../scripts/oidcEnvironmentConfigurationResolve.js"
 import { e2eMemberSessionsIssue } from "../e2eMemberSessionsIssue.js"
+import { e2eOriginGet } from "../e2eOriginGet.js"
 
-const baseOrigin = process.env.PUBLIC_ORIGIN ?? "https://preview.codeline.work"
+const baseOrigin = e2eOriginGet()
 
 export async function organizationSharedAccessSetup(
   browser: Browser,

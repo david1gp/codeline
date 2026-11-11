@@ -1,6 +1,7 @@
 import type { Browser, BrowserContext } from "@playwright/test"
 import { e2eExampleDataSeedForMember } from "../e2eExampleDataSeedForMember.js"
 import { e2eMemberSessionsIssue } from "../e2eMemberSessionsIssue.js"
+import { e2eOriginGet } from "../e2eOriginGet.js"
 
 declare global {
   interface Window {
@@ -10,7 +11,7 @@ declare global {
 }
 
 export async function expiredCursorSetup(browser: Browser, runId: string, contexts: BrowserContext[]) {
-  const origin = process.env.PUBLIC_ORIGIN ?? "https://preview.codeline.work"
+  const origin = e2eOriginGet()
   const issued = await e2eMemberSessionsIssue(runId)
   const [member] = issued.members
   const mapping = await e2eExampleDataSeedForMember({

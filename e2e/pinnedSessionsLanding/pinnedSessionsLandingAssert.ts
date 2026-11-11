@@ -1,5 +1,6 @@
 import { type BrowserContext, expect } from "@playwright/test"
 import type { E2eExampleDataMapping } from "../e2eExampleDataSeedForMember.js"
+import { e2eOriginGet } from "../e2eOriginGet.js"
 
 export async function pinnedSessionsLandingAssert(
   context: BrowserContext,
@@ -11,7 +12,7 @@ export async function pinnedSessionsLandingAssert(
   await expect(page.getByRole("tab", { name: "Pinned" })).toHaveAttribute("aria-selected", "true")
   const conversations = page.getByRole("list", { name: "Active conversations" })
   await expect(conversations.getByText("Build the workspace shell")).toBeVisible()
-  const origin = process.env.PUBLIC_ORIGIN ?? "https://preview.codeline.work"
+  const origin = e2eOriginGet()
   const pinned = await context.request.get(`${origin}/api/sessions/${mapping["session:example-session-active-1"]}`)
   expect(pinned.ok(), await pinned.text()).toBe(true)
   expect((await pinned.json()) as { session: { id: string } }).toMatchObject({

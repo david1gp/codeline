@@ -3,6 +3,7 @@ import type { expiredCursorSetup } from "./expiredCursorSetup.js"
 import { expiredCursorSnapshotRecordsRead } from "./expiredCursorSnapshotRecordsRead.js"
 import { expiredCursorSelectedLiveUrlsRead } from "./expiredCursorSelectedLiveUrlsRead.js"
 import { expiredCursorSessionRename } from "./expiredCursorSessionRename.js"
+import { e2eOriginGet } from "../e2eOriginGet.js"
 
 export async function expiredCursorBaselineAssert(
   setup: Awaited<ReturnType<typeof expiredCursorSetup>>,
@@ -23,7 +24,7 @@ export async function expiredCursorBaselineAssert(
     .toBe(1)
   const initialSelectedSource = (await expiredCursorSelectedLiveUrlsRead(page, cachedSessionId))[0]
   if (initialSelectedSource === undefined) throw new Error("The selected-session stream did not attach.")
-  const origin = process.env.PUBLIC_ORIGIN ?? "https://preview.codeline.work"
+  const origin = e2eOriginGet()
   const initialSelectedSourceUrl = new URL(initialSelectedSource, origin)
   const retainedSelectedCursor = initialSelectedSourceUrl.searchParams.get("after")
   if (retainedSelectedCursor === null) throw new Error("The selected-session stream did not retain a cursor.")

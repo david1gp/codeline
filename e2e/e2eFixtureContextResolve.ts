@@ -1,5 +1,6 @@
 import * as v from "valibot"
 import { e2eCheckpointStoreCreate } from "./e2eCheckpointStoreCreate.js"
+import { e2eOriginGet } from "./e2eOriginGet.js"
 
 const runIdSchema = v.pipe(v.string(), v.regex(/^[0-9a-z]{6,40}$/))
 const targetSchema = v.picklist(["production", "dev"])
@@ -14,7 +15,7 @@ export async function e2eFixtureContextResolve() {
   const parsedTarget = v.safeParse(targetSchema, target)
   if (!parsedRunId.success || !parsedTarget.success || !token || token.length < 32)
     throw new Error("E2E_RUN_ID, E2E_TARGET and E2E_FIXTURE_API_TOKEN are required for API fixtures")
-  const origin = process.env.PUBLIC_ORIGIN
+  const origin = e2eOriginGet()
   const expectedOrigin =
     parsedTarget.output === "production" ? "https://preview.codeline.work" : (process.env.E2E_DEV_ORIGIN ?? origin)
   if (

@@ -1,8 +1,9 @@
 import { type Browser, type BrowserContext, expect } from "@playwright/test"
 import { e2eMemberSessionsIssue } from "../e2eMemberSessionsIssue.js"
+import { e2eOriginGet } from "../e2eOriginGet.js"
 import { e2eSessionCreate } from "../e2eSessionCreate.js"
 
-const baseOrigin = process.env.PUBLIC_ORIGIN ?? "https://preview.codeline.work"
+const baseOrigin = e2eOriginGet()
 const lunaAgentId = "luna-high"
 
 export async function lunaLowEffortChatSetup(browser: Browser, runId: string) {

@@ -1,4 +1,5 @@
 import { type BrowserContext, expect } from "@playwright/test"
+import { e2eOriginGet } from "../e2eOriginGet.js"
 
 export async function organizationSharedAccessAssert(
   contextOne: BrowserContext,
@@ -18,7 +19,7 @@ export async function organizationSharedAccessAssert(
   await expect(conversationsTwo.getByText(data.sharedTitle)).toBeVisible()
   await expect(conversationsTwo.getByText(data.privateTitle)).toHaveCount(0)
 
-  const baseOrigin = process.env.PUBLIC_ORIGIN ?? "https://preview.codeline.work"
+  const baseOrigin = e2eOriginGet()
   const foreignSession = await contextTwo.request.get(`${baseOrigin}/api/sessions/${data.createdSessionId}`)
   expect(foreignSession.status()).toBe(404)
 }

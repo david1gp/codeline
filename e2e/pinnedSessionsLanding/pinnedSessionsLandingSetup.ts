@@ -1,6 +1,7 @@
 import { type Browser } from "@playwright/test"
 import { e2eExampleDataSeedForMember } from "../e2eExampleDataSeedForMember.js"
 import { e2eMemberSessionsIssue } from "../e2eMemberSessionsIssue.js"
+import { e2eOriginGet } from "../e2eOriginGet.js"
 
 export async function pinnedSessionsLandingSetup(browser: Browser, runId: string) {
   const issued = await e2eMemberSessionsIssue(runId)
@@ -10,7 +11,7 @@ export async function pinnedSessionsLandingSetup(browser: Browser, runId: string
     userId: member.userId,
     runId,
   })
-  const origin = process.env.PUBLIC_ORIGIN ?? "https://preview.codeline.work"
+  const origin = e2eOriginGet()
   const context = await browser.newContext({ baseURL: origin })
   await context.addCookies([
     { domain: new URL(origin).hostname, name: "__Host-codeline-session", path: "/", secure: true, value: member.token },

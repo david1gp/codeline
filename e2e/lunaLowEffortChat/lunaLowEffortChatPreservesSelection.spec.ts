@@ -1,5 +1,6 @@
 import { type BrowserContext, test } from "@playwright/test"
 import { e2eBrowserDiagnosticsInstall } from "../e2eBrowserDiagnosticsInstall.js"
+import { e2eOriginGet } from "../e2eOriginGet.js"
 import { e2eRunIdCreate } from "../e2eRunIdCreate.js"
 import { lunaLowEffortChatAction } from "./lunaLowEffortChatAction.js"
 import { lunaLowEffortChatAssert } from "./lunaLowEffortChatAssert.js"
@@ -18,7 +19,7 @@ test("Luna low-effort chat preserves the selected execution and finalizes ping p
     context = setup.context
     const { sessionId } = setup
     const page = await context.newPage()
-    const baseOrigin = process.env.PUBLIC_ORIGIN ?? "https://preview.codeline.work"
+    const baseOrigin = e2eOriginGet()
     const paths = [
       `/api/sessions/${encodeURIComponent(sessionId)}/events`,
       `/api/sessions/${encodeURIComponent(sessionId)}/delegations`,

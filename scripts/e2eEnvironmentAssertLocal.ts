@@ -70,7 +70,13 @@ export function e2eEnvironmentAssertLocal(): Result<E2eLocalEnvironment> {
     return createResultError(op, "DATABASE_URL does not address the repository-managed SQLite database path.")
   }
 
-  const publicOrigin = environmentValueRead("PUBLIC_ORIGIN") ?? managedPublicOrigin
+  const publicOrigin = environmentValueRead("PUBLIC_ORIGIN")
+  if (publicOrigin === undefined) {
+    return createResultError(
+      op,
+      "PUBLIC_ORIGIN is required to run end-to-end identity fixtures. There is no default environment.",
+    )
+  }
   if (publicOrigin !== managedPublicOrigin) {
     return createResultError(op, `End-to-end identity fixtures only run against ${managedPublicOrigin}.`)
   }

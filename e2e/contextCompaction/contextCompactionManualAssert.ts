@@ -2,6 +2,7 @@ import { type BrowserContext, type Page, expect } from "@playwright/test"
 import { contextCompactionChatSubmit } from "./contextCompactionChatSubmit.js"
 import { contextCompactionMessagesRead } from "./contextCompactionMessagesRead.js"
 import { contextCompactionRunSnapshotRead } from "./contextCompactionRunSnapshotRead.js"
+import { e2eOriginGet } from "../e2eOriginGet.js"
 
 export async function contextCompactionManualAssert(
   page: Page,
@@ -17,7 +18,7 @@ export async function contextCompactionManualAssert(
       timeout: 45_000,
     })
     .toBe("succeeded")
-  const origin = process.env.PUBLIC_ORIGIN ?? "https://preview.codeline.work"
+  const origin = e2eOriginGet()
   await expect
     .poll(
       async () => {

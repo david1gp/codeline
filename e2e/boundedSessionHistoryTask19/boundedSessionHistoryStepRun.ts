@@ -1,10 +1,11 @@
 import { type Browser, type BrowserContext, expect, type Page } from "@playwright/test"
 import { e2eExampleDataSeedForMember } from "../e2eExampleDataSeedForMember.js"
 import { e2eMemberSessionsIssue } from "../e2eMemberSessionsIssue.js"
+import { e2eOriginGet } from "../e2eOriginGet.js"
 import { e2eRunIdCreate } from "../e2eRunIdCreate.js"
 import { boundedSessionHistoryCleanup } from "./boundedSessionHistoryCleanup.js"
 
-const baseOrigin = process.env.PUBLIC_ORIGIN ?? "https://preview.codeline.work"
+const baseOrigin = e2eOriginGet()
 const sessionCookieName = "__Host-codeline-session"
 
 type SemanticStep = {

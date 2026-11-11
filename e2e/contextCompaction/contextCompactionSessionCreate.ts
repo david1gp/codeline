@@ -1,13 +1,14 @@
 import { type BrowserContext, expect } from "@playwright/test"
 import type { E2eExampleDataMapping } from "../e2eExampleDataSeedForMember.js"
 import { e2eSessionCreate } from "../e2eSessionCreate.js"
+import { e2eOriginGet } from "../e2eOriginGet.js"
 
 export async function contextCompactionSessionCreate(
   context: BrowserContext,
   runId: string,
   mapping: E2eExampleDataMapping,
 ): Promise<string> {
-  const origin = process.env.PUBLIC_ORIGIN ?? "https://preview.codeline.work"
+  const origin = e2eOriginGet()
   const serverId = "example-server-local"
   const agentId = "example-agent-simulation-compaction-summary"
   const agentResponse = await context.request.get(

@@ -2,11 +2,12 @@ import { type Browser, type BrowserContext, expect, type Page } from "@playwrigh
 import { sessionCacheDatabaseConfig } from "../../src/session/storage/sessionCacheDatabaseConfig.js"
 import { e2eExampleDataSeedForMember } from "../e2eExampleDataSeedForMember.js"
 import { e2eMemberSessionsIssue } from "../e2eMemberSessionsIssue.js"
+import { e2eOriginGet } from "../e2eOriginGet.js"
 import { e2eRunIdCreate } from "../e2eRunIdCreate.js"
 import { settledSessionOfflineBrowsingCleanup } from "./settledSessionOfflineBrowsingCleanup.js"
 
 const sessionCookieName = "__Host-codeline-session"
-const baseOrigin = process.env.PUBLIC_ORIGIN ?? "https://preview.codeline.work"
+const baseOrigin = e2eOriginGet()
 const lastActiveAccountStorageKey = "codeline-last-active-account"
 const serviceWorkerScriptUrl = new URL("/service-worker.js", baseOrigin).href
 const serviceWorkerControllerChangeStorageKey = "codeline-e2e-service-worker-controller-change"

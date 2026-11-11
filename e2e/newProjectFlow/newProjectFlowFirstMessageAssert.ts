@@ -1,4 +1,5 @@
 import { type BrowserContext, expect, type Page } from "@playwright/test"
+import { e2eOriginGet } from "../e2eOriginGet.js"
 
 export async function newProjectFlowFirstMessageAssert(
   context: BrowserContext,
@@ -6,7 +7,7 @@ export async function newProjectFlowFirstMessageAssert(
   sessionId: string,
   prompt: string,
 ): Promise<void> {
-  const baseOrigin = process.env.PUBLIC_ORIGIN ?? "https://preview.codeline.work"
+  const baseOrigin = e2eOriginGet()
   const syncTimeout = 45_000
   await expect
     .poll(

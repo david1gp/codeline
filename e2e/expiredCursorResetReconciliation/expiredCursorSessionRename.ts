@@ -1,11 +1,12 @@
 import { type APIRequestContext, expect } from "@playwright/test"
+import { e2eOriginGet } from "../e2eOriginGet.js"
 
 export async function expiredCursorSessionRename(
   api: APIRequestContext,
   sessionId: string,
   title: string,
 ): Promise<void> {
-  const origin = process.env.PUBLIC_ORIGIN ?? "https://preview.codeline.work"
+  const origin = e2eOriginGet()
   const shell = await api.get(`${origin}/api/sessions/${sessionId}`)
   expect(shell.status()).toBe(200)
   const etag = shell.headers().etag ?? ""
