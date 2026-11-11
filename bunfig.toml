@@ -3,3 +3,6 @@ depth = 5
 
 [install]
 linkWorkspacePackages = true
+
+[test]
+preload = ["./test/bunPreload.ts"]
