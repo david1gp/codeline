@@ -24,7 +24,7 @@ export async function sessionModelDefaultResolve(
   if (model.length === 0 || model.includes("/")) return createResultError(op, "The session model is invalid.")
   const selected = providerAgentCatalogModelResolve(catalog, { ...agent, model, provider })
   if (!selected.success) return createResultError(op, `The session model is invalid: ${selected.errorMessage}`)
-  if (selected.data.provider.id !== "cliproxyapi" && selected.data.provider.id !== "codex-lb")
+  if (selected.data.provider.id !== "cliproxyapi" && selected.data.provider.id !== "multisub")
     return createResultError(op, "The session model provider is unsupported.")
 
   const [configured] = await database

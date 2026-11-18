@@ -13,7 +13,7 @@ import { exampleDataFixture } from "./exampleDataFixture.js"
 type ConfigurationEntry = CodelineConfigurationDocument["agentConfigurations"][number]
 
 const supersededFixtureTargets = new Set([
-  "example-server-local\u0000example-agent-codex-lb-luna",
+  "example-server-local\u0000example-agent-multisub-luna",
   "example-server-local\u0000example-agent-cliproxyapi-luna",
 ])
 

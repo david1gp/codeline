@@ -11,7 +11,7 @@ export const demoSurfaceFixtures = {
         provider: "Local fixture",
         reasoning: "High",
       },
-      { context: "128k", enabled: true, label: "Codex Large", provider: "Codex-LB", reasoning: "Medium" },
+      { context: "128k", enabled: true, label: "Multisub Large", provider: "Multisub", reasoning: "Medium" },
       { context: "64k", enabled: false, label: "Review Fast", provider: "CLIProxyAPI", reasoning: "Low" },
     ],
     subtitle: "Display-only model preferences. Credentials and provider runtimes are not loaded.",

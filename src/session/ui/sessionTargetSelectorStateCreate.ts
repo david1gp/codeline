@@ -34,7 +34,7 @@ type SessionTargetSelectorDataStatus = "offline" | "reconciling" | "ready" | "st
 type SessionTargetSelectorFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
 type SessionTargetServer = ServerListResponse["servers"][number]
 type SessionTargetAgent = AgentListResponse["agents"][number]
-type ConfigurableProvider = "cliproxyapi" | "codex-lb"
+type ConfigurableProvider = "cliproxyapi" | "multisub"
 type AgentDetail = AgentDetailResponse["agent"]
 type AgentDraft = {
   baseUrl: string
@@ -43,7 +43,7 @@ type AgentDraft = {
   name: string
   provider: ConfigurableProvider
   role: string
-  secretReference: "$CLIPROXYAPI_API_KEY" | "$CODEX_LB_API_TOKEN"
+  secretReference: "$CLIPROXYAPI_API_KEY" | "$MULTISUB_API_KEY"
 }
 
 /** Typed command identity forwarded to session creation, mirroring the request schema. */
@@ -82,9 +82,9 @@ const agentDraftEmpty = (): AgentDraft => ({
   baseUrl: "",
   model: "",
   name: "",
-  provider: "codex-lb",
+  provider: "multisub",
   role: "coding",
-  secretReference: "$CODEX_LB_API_TOKEN",
+  secretReference: "$MULTISUB_API_KEY",
 })
 
 const sessionTargetSelectionStorageKey = "codeline.session-target-selection"
@@ -125,7 +125,7 @@ function agentDraftFromDetail(agent: AgentDetail): AgentDraft | null {
     name: agent.name,
     provider: configuration.provider,
     role: agent.role,
-    secretReference: configuration.provider === "codex-lb" ? "$CODEX_LB_API_TOKEN" : "$CLIPROXYAPI_API_KEY",
+    secretReference: configuration.provider === "multisub" ? "$MULTISUB_API_KEY" : "$CLIPROXYAPI_API_KEY",
   }
 }
 
@@ -141,7 +141,7 @@ function agentDraftConfiguration(draft: AgentDraft): AgentConfiguration {
     }
   }
   return {
-    apiKey: "$CODEX_LB_API_TOKEN",
+    apiKey: "$MULTISUB_API_KEY",
     baseUrl: draft.baseUrl,
     model: draft.model,
     provider: draft.provider,
@@ -512,7 +512,7 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
     if (draft !== null) agentDraft.set(draft)
     configurationErrorMessage.set(
       draft === null
-        ? "Deterministic agents can be selected, but only Codex-LB and CLIProxyAPI agents can be edited here."
+        ? "Deterministic agents can be selected, but only Multisub and CLIProxyAPI agents can be edited here."
         : null,
     )
     agentDetailStatus.set("ready")
@@ -837,7 +837,7 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
       draftProviderChange: (provider: ConfigurableProvider) => {
         agentDraftChange({
           provider,
-          secretReference: provider === "codex-lb" ? "$CODEX_LB_API_TOKEN" : "$CLIPROXYAPI_API_KEY",
+          secretReference: provider === "multisub" ? "$MULTISUB_API_KEY" : "$CLIPROXYAPI_API_KEY",
         })
       },
       draftRoleChange: (role: string) => agentDraftChange({ role }),
@@ -845,7 +845,7 @@ export function sessionTargetSelectorStateCreate(options: SessionTargetSelectorS
       isConfigurableAgent:
         agentCreateMode.get() ||
         agentDetail.get()?.configuration.provider === "cliproxyapi" ||
-        agentDetail.get()?.configuration.provider === "codex-lb",
+        agentDetail.get()?.configuration.provider === "multisub",
       isCreatingAgent: agentCreateMode.get(),
       models: models.get(),
       modelsDiscover: () => providerRequestStart("models"),

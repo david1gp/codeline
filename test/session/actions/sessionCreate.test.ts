@@ -510,7 +510,7 @@ test.skipIf(!databaseAvailable)(
       subagentSetIds: ["chosen-agents"],
       subagentNames: ["reviewer"],
       executionAgentId: fixture.agentId,
-      modelId: "codex-lb/gpt-5.6-luna",
+      modelId: "multisub/gpt-6-luna",
     })
     const loadedCatalog = await providerAgentCatalogLoad(path.resolve(import.meta.dir, "../../.."))
     if (!loadedCatalog.success) throw new Error(loadedCatalog.errorMessage)
@@ -573,8 +573,8 @@ test.skipIf(!databaseAvailable)(
       })
       expect(created.data.session.metadata.sessionModelDefault).toEqual({
         agentId: fixture.agentId,
-        provider: "codex-lb",
-        model: "gpt-5.6-luna",
+        provider: "multisub",
+        model: "gpt-6-luna",
       })
       const snapshot = runExecutionSnapshotResolve(
         { agentId: fixture.agentId, serverId: fixture.serverId },
@@ -592,7 +592,7 @@ test.skipIf(!databaseAvailable)(
       )
       expect(snapshot).toMatchObject({
         success: true,
-        data: { configuration: { model: "gpt-5.6-luna", provider: "codex-lb" } },
+        data: { configuration: { model: "gpt-6-luna", provider: "multisub" } },
       })
       const override = await sessionCreate(
         database,
@@ -609,7 +609,7 @@ test.skipIf(!databaseAvailable)(
         },
       })
       if (override.success) await sessionDelete(database, userId, override.data.session.id)
-      for (const modelId of ["cliproxyapi/gpt-5.6-luna", "codex-lb/not-real", "bad-provider/grok-4.5"]) {
+      for (const modelId of ["cliproxyapi/gpt-5.6-luna", "multisub/not-real", "bad-provider/grok-4.5"]) {
         const invalid = await sessionCreate(
           database,
           userId,
@@ -618,7 +618,7 @@ test.skipIf(!databaseAvailable)(
         )
         expect(invalid).toMatchObject({ success: false })
       }
-      document.presets[0]!.modelId = "codex-lb/not-real"
+      document.presets[0]!.modelId = "multisub/not-real"
       const replacedDefault = await sessionCreate(
         database,
         userId,
@@ -630,7 +630,7 @@ test.skipIf(!databaseAvailable)(
         data: { session: { metadata: { sessionModelDefault: { provider: "cliproxyapi", model: "grok-4.5" } } } },
       })
       if (replacedDefault.success) await sessionDelete(database, userId, replacedDefault.data.session.id)
-      document.presets[0]!.modelId = "codex-lb/gpt-5.6-luna"
+      document.presets[0]!.modelId = "multisub/gpt-6-luna"
       expect(
         await sessionCreate(
           database,
@@ -668,11 +668,11 @@ test.skipIf(!databaseAvailable)(
       const conflicting = await sessionCreate(
         database,
         userId,
-        { ...input, modelId: "codex-lb/not-real" },
+        { ...input, modelId: "multisub/not-real" },
         {
           ...options,
           idempotencyKey: input.clientRequestId,
-          requestHash: apiIdempotencyRequestHashCreate({ ...input, modelId: "codex-lb/not-real" }),
+          requestHash: apiIdempotencyRequestHashCreate({ ...input, modelId: "multisub/not-real" }),
         },
       )
       expect(conflicting).toMatchObject({ success: false, code: "idempotency_conflict" })
@@ -707,8 +707,8 @@ test.skipIf(!databaseAvailable)(
           prompt: "global primary",
           tools: { bash: false, webfetch: false },
           mode: "primary",
-          provider: "codex-lb",
-          model: "gpt-5.6-luna",
+          provider: "multisub",
+          model: "gpt-6-luna",
         },
         {
           id: "reviewer",
@@ -716,8 +716,8 @@ test.skipIf(!databaseAvailable)(
           prompt: "global reviewer",
           tools: { bash: false, webfetch: false },
           mode: "subagent",
-          provider: "codex-lb",
-          model: "gpt-5.6-luna",
+          provider: "multisub",
+          model: "gpt-6-luna",
         },
       ],
     }
@@ -726,7 +726,7 @@ test.skipIf(!databaseAvailable)(
       id: "no-subagents",
       name: "No subagents",
       executionAgentId: fixture.agentId,
-      modelId: "codex-lb/gpt-5.6-luna",
+      modelId: "multisub/gpt-6-luna",
       skillSetIds: [],
       commandSetIds: [],
       toolSetIds: [],
@@ -741,7 +741,7 @@ test.skipIf(!databaseAvailable)(
       providerAgentCatalog: catalog,
     }
     const agent = (body: string, mode: string, tools = "") =>
-      `---\nmode: ${mode}\nprovider: codex-lb\nmodel: gpt-5.6-luna\n${tools}---\n${body}\n`
+      `---\nmode: ${mode}\nprovider: multisub\nmodel: gpt-6-luna\n${tools}---\n${body}\n`
     await fs.writeFile(path.join(agentDirectory, `${fixture.agentId}.md`), agent("project primary", "primary"))
     await fs.writeFile(
       path.join(agentDirectory, "reviewer.md"),
@@ -793,7 +793,7 @@ test.skipIf(!databaseAvailable)(
         )
         expect(snapshot).toMatchObject({
           success: true,
-          data: { agentPrompt: "project primary", configuration: { model: "gpt-5.6-luna", provider: "codex-lb" } },
+          data: { agentPrompt: "project primary", configuration: { model: "gpt-6-luna", provider: "multisub" } },
         })
         const child = runExecutionSnapshotResolve({ agentId: "reviewer", serverId: fixture.serverId }, undefined, {
           catalog: saved,
@@ -802,7 +802,7 @@ test.skipIf(!databaseAvailable)(
         })
         expect(child).toMatchObject({
           success: true,
-          data: { agentPrompt: "project reviewer", configuration: { model: "gpt-5.6-luna", provider: "codex-lb" } },
+          data: { agentPrompt: "project reviewer", configuration: { model: "gpt-6-luna", provider: "multisub" } },
         })
       }
       await sessionDelete(database, userId, created.data.session.id)
@@ -857,7 +857,7 @@ test.skipIf(!databaseAvailable)(
     const file = path.join(directory, `${id}.md`)
     await fs.writeFile(
       file,
-      "---\nmode: primary\nprovider: codex-lb\nmodel: gpt-5.6-luna\n---\nOriginal project prompt",
+      "---\nmode: primary\nprovider: multisub\nmodel: gpt-6-luna\n---\nOriginal project prompt",
     )
     try {
       const loadedCatalog = await providerAgentCatalogLoad(path.resolve(import.meta.dir, "../../.."))
@@ -867,7 +867,7 @@ test.skipIf(!databaseAvailable)(
         id: "local-primary",
         name: "Local primary",
         executionAgentId: id,
-        modelId: "codex-lb/gpt-5.6-luna",
+        modelId: "multisub/gpt-6-luna",
         skillSetIds: [],
         commandSetIds: [],
         toolSetIds: [],
@@ -909,7 +909,7 @@ test.skipIf(!databaseAvailable)(
       )
       expect(withoutPreset).toMatchObject({ success: true, data: { session: { primaryAgentId: id } } })
       if (withoutPreset.success) await sessionDelete(database, userId, withoutPreset.data.session.id)
-      await fs.writeFile(file, "---\nmode: subagent\nprovider: codex-lb\nmodel: gpt-5.6-luna\n---\nNot a primary")
+      await fs.writeFile(file, "---\nmode: subagent\nprovider: multisub\nmodel: gpt-6-luna\n---\nNot a primary")
       const subagent = await sessionCreate(
         database,
         userId,
@@ -990,7 +990,7 @@ test.skipIf(!databaseAvailable)(
       subagentSetIds: [],
       subagentNames: [],
       executionAgentId: fixture.agentId,
-      modelId: "codex-lb/gpt-5.6-luna",
+      modelId: "multisub/gpt-6-luna",
     })
     const loadedCatalog = await providerAgentCatalogLoad(path.resolve(import.meta.dir, "../../.."))
     if (!loadedCatalog.success) throw new Error(loadedCatalog.errorMessage)

@@ -1,7 +1,7 @@
 ---
 description: Use for ANYTHING requiring a live browser - never attempt web/UI interaction, visual verification/testing, screenshots, form filling, or scraping yourself. Drives a real browser via agent-browser.
 mode: subagent
-model: codex-lb/gpt-5.6-luna
+model: multisub/gpt-6-luna
 variant: high
 permission:
   task:

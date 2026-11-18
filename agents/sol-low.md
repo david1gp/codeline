@@ -1,7 +1,7 @@
 ---
 description: simple UI design/styling tweaks
 mode: subagent
-model: codex-lb/gpt-5.6-sol
+model: multisub/gpt-6.1-sol
 variant: low
 permission:
   task:

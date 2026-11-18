@@ -15,13 +15,13 @@ test("compiles every real catalog agent with inherited defaults and variant effo
   const byId = new Map(compiledResult.data.map((item) => [item.agent.id, item.configuration]))
 
   expect(byId.get("build")).toMatchObject({
-    model: "gpt-5.6-luna",
-    provider: "codex-lb",
+    model: "gpt-6-luna",
+    provider: "multisub",
     generation: { reasoningEffort: "medium" },
   })
   expect(byId.get("sol-high")).toMatchObject({
-    model: "gpt-5.6-sol",
-    provider: "codex-lb",
+    model: "gpt-6.1-sol",
+    provider: "multisub",
     generation: { reasoningEffort: "high" },
     variant: "high",
   })
@@ -57,8 +57,8 @@ test("keeps rich model metadata and secret references without runtime secret val
   if (configuration.provider === "deterministic") return
 
   expect(v.safeParse(agentConfigurationSchema, configuration).success).toBe(true)
-  expect(configuration.apiKey).toBe("$CODEX_LB_API_TOKEN")
-  expect(configuration.model).toBe("gpt-5.6-sol")
+  expect(configuration.apiKey).toBe("$MULTISUB_API_KEY")
+  expect(configuration.model).toBe("gpt-6.1-sol")
   expect(configuration.modelMetadata?.limit).toEqual({ context: 272000, output: 128000 })
   expect(configuration.modelMetadata?.cost[1]?.tier).toEqual({ type: "context", size: 200000 })
   expect(configuration.modelMetadata?.capabilities.input).toContain("image")

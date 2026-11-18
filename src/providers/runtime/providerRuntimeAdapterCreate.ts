@@ -28,7 +28,7 @@ export function providerRuntimeAdapterCreate(options: ProviderRuntimeAdapterOpti
     environment: options.environment,
     ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
     failure: options.failure,
-    label: options.configuration.provider === "codex-lb" ? "Codex-LB" : "CLIProxyAPI",
+    label: options.configuration.provider === "multisub" ? "Multisub" : "CLIProxyAPI",
     settings: {
       apiKey: options.configuration.apiKey,
       baseUrl: options.configuration.baseUrl,

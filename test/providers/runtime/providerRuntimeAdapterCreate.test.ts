@@ -26,7 +26,7 @@ async function runtimeRequestCapture(
     configuration,
     environment: {
       CLIPROXYAPI_API_KEY: "cliproxy-secret",
-      CODEX_LB_API_TOKEN: "codex-secret",
+      MULTISUB_API_KEY: "multisub-secret",
       SUBS_CONTENTOREN_DE_API_KEY: "cliproxy-secret",
     },
     fetch: async (requestInput, init) => {
@@ -63,10 +63,10 @@ test("provider runtime factory selects the deterministic adapter", async () => {
   ])
 })
 
-test("provider runtime factory selects CLIProxyAPI and Codex-LB adapters", async () => {
+test("provider runtime factory selects CLIProxyAPI and Multisub adapters", async () => {
   for (const [provider, apiKey, label] of [
     ["cliproxyapi", "$CLIPROXYAPI_API_KEY", "CLIProxyAPI"],
-    ["codex-lb", "$CODEX_LB_API_TOKEN", "Codex-LB"],
+    ["multisub", "$MULTISUB_API_KEY", "Multisub"],
   ] as const) {
     const adapter = providerRuntimeAdapterCreate({
       configuration: {
@@ -92,10 +92,10 @@ test("provider runtime factory selects CLIProxyAPI and Codex-LB adapters", async
 test("credentialed provider runtime adapters report unavailable secrets", async () => {
   const adapter = providerRuntimeAdapterCreate({
     configuration: {
-      apiKey: "$CODEX_LB_API_TOKEN",
+      apiKey: "$MULTISUB_API_KEY",
       baseUrl: "https://provider.test/v1",
       model: "provider-model",
-      provider: "codex-lb",
+      provider: "multisub",
     },
     environment: {},
   })
@@ -106,15 +106,15 @@ test("credentialed provider runtime adapters report unavailable secrets", async 
   expect(chunks.some((chunk) => chunk.type === EventType.RUN_FINISHED)).toBe(false)
 })
 
-test("catalog Codex-LB Responses models map provider options into the Responses payload", async () => {
+test("catalog Multisub Responses models map provider options into the Responses payload", async () => {
   const configuration = compiledCatalogResult.data.find(({ agent }) => agent.id === "sol-high")?.configuration
   if (configuration === undefined) throw new Error("Expected the catalog sol-high configuration")
 
   const captured = await runtimeRequestCapture(configuration)
-  expect(String(captured.request.input)).toBe("https://codex.contentoren.de/v1/responses")
+  expect(String(captured.request.input)).toBe("https://multisub.contentoren.de/v1/responses")
   expect(captured.body).toMatchObject({
     include: ["reasoning.encrypted_content"],
-    model: "gpt-5.6-sol",
+    model: "gpt-6.1-sol",
     reasoning: { effort: "high", summary: "detailed" },
     store: false,
     text: { verbosity: "low" },

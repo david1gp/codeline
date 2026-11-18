@@ -5,7 +5,7 @@ export const providerApiConnectionTestResponseSchema = v.strictObject({
   model: v.pipe(v.string(), v.minLength(1), v.maxLength(200)),
   modelAvailable: v.boolean(),
   ok: v.boolean(),
-  provider: v.picklist(["cliproxyapi", "codex-lb", "deterministic"]),
+  provider: v.picklist(["cliproxyapi", "multisub", "deterministic"]),
 })
 
 export type ProviderApiConnectionTestResponse = v.InferOutput<typeof providerApiConnectionTestResponseSchema>

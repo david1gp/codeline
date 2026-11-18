@@ -147,7 +147,7 @@ export function globalAgentPresetEditorStateCreate(
       else if (listing.data.status === 200)
         catalogModels.set(
           listing.data.data.providers
-            .filter((provider) => provider.enabled && (provider.id === "codex-lb" || provider.id === "cliproxyapi"))
+            .filter((provider) => provider.enabled && (provider.id === "multisub" || provider.id === "cliproxyapi"))
             .flatMap((provider) =>
               provider.models
                 .filter((model) => model.selectable && model.providerId === provider.id)

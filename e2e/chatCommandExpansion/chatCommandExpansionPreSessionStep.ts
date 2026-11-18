@@ -31,7 +31,7 @@ export async function chatCommandExpansionPreSessionStep(browser: Browser): Prom
     // pre-session flow uses the default one and asserts the submitted turn rather
     // than a model answer.
     await expect(page.getByLabel("Agent for a new session")).toBeEnabled({ timeout: syncTimeout })
-    await page.getByRole("textbox", { name: "Model", exact: true }).fill("codex-lb/gpt-5.6-luna")
+    await page.getByRole("textbox", { name: "Model", exact: true }).fill("multisub/gpt-6-luna")
 
     const composer = page.getByRole("form", { name: "Chat composer" })
     const input = composer.getByLabel("Message")

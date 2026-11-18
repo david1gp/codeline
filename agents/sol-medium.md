@@ -1,7 +1,7 @@
 ---
 description: complex UI design/styling work
 mode: subagent
-model: codex-lb/gpt-5.6-sol
+model: multisub/gpt-6.1-sol
 variant: medium
 permission:
   task:

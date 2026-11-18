@@ -298,8 +298,8 @@ test.skipIf(!databaseAvailable)(
     expect(created.status).toBe(201)
     const sessionId = ((await created.json()) as { session: { id: string } }).session.id
     expect((await create(input)).status).toBe(200)
-    expect((await create({ ...input, modelId: "codex-lb/gpt-5.6-luna" })).status).toBe(409)
-    expect((await create({ ...input, modelId: "codex-lb/not-real" })).status).toBe(409)
+    expect((await create({ ...input, modelId: "multisub/gpt-6-luna" })).status).toBe(409)
+    expect((await create({ ...input, modelId: "multisub/not-real" })).status).toBe(409)
     expect(
       (await create({ ...input, clientRequestId: `bad-model-${uuidv7()}`, modelId: "cliproxyapi/gpt-5.6-luna" }))
         .status,
@@ -319,7 +319,7 @@ test.skipIf(!databaseAvailable)(
     const overrideRunId = `model-override-run-${uuidv7()}`
     const overrideChat = await modelApp.request(`http://codeline.test/api/sessions/${sessionId}/chat`, {
       body: JSON.stringify({
-        forwardedProps: { codelineExecution: { model: "gpt-5.6-luna", provider: "codex-lb" } },
+        forwardedProps: { codelineExecution: { model: "gpt-6-luna", provider: "multisub" } },
         messages: [{ content: "override", id: overrideRunId, role: "user" }],
         runId: overrideRunId,
         threadId: sessionId,
@@ -329,7 +329,7 @@ test.skipIf(!databaseAvailable)(
     })
     expect(overrideChat.status).toBe(200)
     const [overrideRun] = await database.select().from(runTable).where(eq(runTable.clientRunId, overrideRunId))
-    expect(overrideRun?.snapshot).toMatchObject({ configuration: { model: "gpt-5.6-luna", provider: "codex-lb" } })
+    expect(overrideRun?.snapshot).toMatchObject({ configuration: { model: "gpt-6-luna", provider: "multisub" } })
   },
 )
 
@@ -343,7 +343,7 @@ test.skipIf(!databaseAvailable)(
     const agentPath = path.join(agentsPath, `${agentId}.md`)
     await fs.writeFile(
       agentPath,
-      "---\nprovider: codex-lb\nmodel: gpt-5.6-luna\nmode: primary\n---\nOriginal project agent prompt",
+      "---\nprovider: multisub\nmodel: gpt-6-luna\nmode: primary\n---\nOriginal project agent prompt",
     )
     try {
       const loaded = await providerAgentCatalogLoad(path.resolve(import.meta.dir, "../../.."))
@@ -404,7 +404,7 @@ test.skipIf(!databaseAvailable)(
       const [run] = await database.select().from(runTable).where(eq(runTable.clientRunId, runId))
       expect(run?.snapshot).toMatchObject({
         agentPrompt: "Original project agent prompt",
-        configuration: { model: "gpt-5.6-luna", provider: "codex-lb" },
+        configuration: { model: "gpt-6-luna", provider: "multisub" },
       })
     } finally {
       await fs.rm(root, { force: true, recursive: true })
@@ -492,7 +492,7 @@ test.skipIf(!databaseAvailable)(
     const file = path.join(agents, `${id}.md`)
     await fs.writeFile(
       file,
-      "---\nmode: primary\nprovider: codex-lb\nmodel: gpt-5.6-luna\n---\nCaptured project primary",
+      "---\nmode: primary\nprovider: multisub\nmodel: gpt-6-luna\n---\nCaptured project primary",
     )
     try {
       const registered = await projectRegistryRepositoryUpsert(database, userId, project)
@@ -547,7 +547,7 @@ test.skipIf(!databaseAvailable)(
       const [run] = await database.select().from(runTable).where(eq(runTable.clientRunId, runId))
       expect(run?.snapshot).toMatchObject({
         agentPrompt: "Captured project primary",
-        configuration: { provider: "codex-lb", model: "gpt-5.6-luna" },
+        configuration: { provider: "multisub", model: "gpt-6-luna" },
       })
       const messages = await database.select().from(messageTable).where(eq(messageTable.sessionId, sessionId))
       expect(messages.some(({ agentId: messageAgentId }) => messageAgentId === id)).toBe(true)

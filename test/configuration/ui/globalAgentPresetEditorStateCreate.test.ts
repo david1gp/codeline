@@ -38,7 +38,7 @@ const agentsClient = {
       agents: [
         { id: "reviewer", enabled: true, mode: "subagent" as const },
         { id: "disabled", enabled: false, mode: "subagent" as const },
-        { id: "primary", enabled: true, mode: "primary" as const, provider: "codex-lb", model: "gpt-6" },
+        { id: "primary", enabled: true, mode: "primary" as const, provider: "multisub", model: "gpt-6" },
       ],
     } as ProviderApiAgentsResponse,
   }),
@@ -53,12 +53,12 @@ const catalogFetch = async () =>
         revision: "1",
         providers: [
           {
-            id: "codex-lb",
-            name: "Codex",
+            id: "multisub",
+            name: "Multisub",
             enabled: true,
             models: [
-              { id: "gpt-6", name: "GPT 6", providerId: "codex-lb", selectable: true },
-              { id: "hidden", name: "Hidden", providerId: "codex-lb", selectable: false },
+              { id: "gpt-6", name: "GPT 6", providerId: "multisub", selectable: true },
+              { id: "hidden", name: "Hidden", providerId: "multisub", selectable: false },
             ],
           },
         ],
@@ -138,7 +138,7 @@ test("preset editor persists multiple set references, individual subagents and b
     await presetCreate(state)
     state.nameInput({ currentTarget: { value: "Review" } } as never)
     state.agentInput({ currentTarget: { value: "primary" } } as never)
-    state.modelInput({ currentTarget: { value: "codex-lb/gpt-6" } } as never)
+    state.modelInput({ currentTarget: { value: "multisub/gpt-6" } } as never)
     await state.entryRename()
     await state.presetMembershipChange("skillSetIds", "default-skills", true)
     await state.presetMembershipChange("toolSetIds", "default-tools", true)
@@ -147,7 +147,7 @@ test("preset editor persists multiple set references, individual subagents and b
     expect(state.activePreset()).toMatchObject({
       name: "Review",
       executionAgentId: "primary",
-      modelId: "codex-lb/gpt-6",
+      modelId: "multisub/gpt-6",
       subagentNames: ["reviewer"],
       skillSetIds: ["default-skills"],
       toolSetIds: ["default-tools"],
@@ -172,11 +172,11 @@ test("new presets prefill a selectable catalog model and primary agent without s
     await state.load()
     await state.entryCreate()
     expect(state.executionAgentId()).toBe("primary")
-    expect(state.modelId()).toBe("codex-lb/gpt-6")
-    expect(state.modelOptions()).toEqual([{ id: "codex-lb/gpt-6", label: "Codex / GPT 6", providerId: "codex-lb" }])
+    expect(state.modelId()).toBe("multisub/gpt-6")
+    expect(state.modelOptions()).toEqual([{ id: "multisub/gpt-6", label: "Multisub / GPT 6", providerId: "multisub" }])
     expect(server.get().presets).toEqual([])
     await state.entryRename()
-    expect(server.get().presets[0]).toMatchObject({ executionAgentId: "primary", modelId: "codex-lb/gpt-6" })
+    expect(server.get().presets[0]).toMatchObject({ executionAgentId: "primary", modelId: "multisub/gpt-6" })
   } finally {
     root.dispose()
   }
@@ -219,8 +219,8 @@ test("preset creation and subsequent edits retain explicitly chosen agent, model
       success: true as const,
       data: {
         agents: [
-          { id: "first", enabled: true, mode: "primary" as const, provider: "codex-lb", model: "one" },
-          { id: "second", enabled: true, mode: "primary" as const, provider: "codex-lb", model: "two" },
+          { id: "first", enabled: true, mode: "primary" as const, provider: "multisub", model: "one" },
+          { id: "second", enabled: true, mode: "primary" as const, provider: "multisub", model: "two" },
         ],
       },
     }),
@@ -234,12 +234,12 @@ test("preset creation and subsequent edits retain explicitly chosen agent, model
           revision: "1",
           providers: [
             {
-              id: "codex-lb",
-              name: "Codex",
+              id: "multisub",
+              name: "Multisub",
               enabled: true,
               models: [
-                { id: "one", name: "One", providerId: "codex-lb", selectable: true },
-                { id: "two", name: "Two", providerId: "codex-lb", selectable: true },
+                { id: "one", name: "One", providerId: "multisub", selectable: true },
+                { id: "two", name: "Two", providerId: "multisub", selectable: true },
               ],
             },
           ],
@@ -252,20 +252,20 @@ test("preset creation and subsequent edits retain explicitly chosen agent, model
     await state.load()
     await state.entryCreate()
     state.agentInput({ currentTarget: { value: "second" } } as never)
-    state.modelInput({ currentTarget: { value: "codex-lb/two" } } as never)
+    state.modelInput({ currentTarget: { value: "multisub/two" } } as never)
     await state.entryRename()
     await state.presetMembershipChange("skillSetIds", "default-skills", true)
     expect(server.get().presets[0]).toMatchObject({
       executionAgentId: "second",
-      modelId: "codex-lb/two",
+      modelId: "multisub/two",
       skillSetIds: ["default-skills"],
     })
     state.agentInput({ currentTarget: { value: "first" } } as never)
-    state.modelInput({ currentTarget: { value: "codex-lb/one" } } as never)
+    state.modelInput({ currentTarget: { value: "multisub/one" } } as never)
     await state.entryRename()
     expect(server.get().presets[0]).toMatchObject({
       executionAgentId: "first",
-      modelId: "codex-lb/one",
+      modelId: "multisub/one",
       skillSetIds: ["default-skills"],
     })
   } finally {
@@ -281,7 +281,7 @@ test("preset model choices follow the execution agent provider and reject incomp
       data: {
         agents: [
           { id: "alpha", enabled: true, mode: "primary" as const, provider: "cliproxyapi", model: "a" },
-          { id: "beta", enabled: true, mode: "primary" as const, provider: "codex-lb", model: "b" },
+          { id: "beta", enabled: true, mode: "primary" as const, provider: "multisub", model: "b" },
           { id: "offline", enabled: true, mode: "primary" as const, provider: "missing", model: "nope" },
           { id: "unresolved", enabled: true, mode: "primary" as const },
         ],
@@ -297,10 +297,10 @@ test("preset model choices follow the execution agent provider and reject incomp
           revision: "1",
           providers: [
             {
-              id: "codex-lb",
-              name: "Codex",
+              id: "multisub",
+              name: "Multisub",
               enabled: true,
-              models: [{ id: "b", name: "B", providerId: "codex-lb", selectable: true }],
+              models: [{ id: "b", name: "B", providerId: "multisub", selectable: true }],
             },
             {
               id: "cliproxyapi",
@@ -322,14 +322,14 @@ test("preset model choices follow the execution agent provider and reject incomp
     await state.entryCreate()
     expect(state.modelId()).toBe("cliproxyapi/a")
     expect(state.modelOptions().map((item) => item.id)).toEqual(["cliproxyapi/a"])
-    state.modelInput({ currentTarget: { value: "codex-lb/b" } } as never)
+    state.modelInput({ currentTarget: { value: "multisub/b" } } as never)
     expect(state.fieldsValid()).toBe(false)
     await state.entryRename()
     expect(server.get().presets).toEqual([])
     state.agentInput({ currentTarget: { value: "beta" } } as never)
-    expect(state.modelId()).toBe("codex-lb/b")
+    expect(state.modelId()).toBe("multisub/b")
     await state.entryRename()
-    expect(server.get().presets[0]).toMatchObject({ executionAgentId: "beta", modelId: "codex-lb/b" })
+    expect(server.get().presets[0]).toMatchObject({ executionAgentId: "beta", modelId: "multisub/b" })
     state.agentInput({ currentTarget: { value: "offline" } } as never)
     expect(state.modelOptions()).toEqual([])
     expect(state.modelBlockedReason()).toContain("No selectable models")

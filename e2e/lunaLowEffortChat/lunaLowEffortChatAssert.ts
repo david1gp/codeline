@@ -7,13 +7,13 @@ export async function lunaLowEffortChatAssert(page: Page, sessionId: string, cha
         codelineExecution: {
           agentId: "luna-high",
           model: "gpt-5.6-luna",
-          provider: "codex-lb",
+          provider: "multisub",
           reasoningEffort: "low",
         },
       },
     ],
     forwardedProps: {
-      codelineExecution: { agentId: "luna-high", model: "gpt-5.6-luna", provider: "codex-lb", reasoningEffort: "low" },
+      codelineExecution: { agentId: "luna-high", model: "gpt-5.6-luna", provider: "multisub", reasoningEffort: "low" },
     },
     messages: [{ content: "ping", id: expect.any(String), role: "user" }],
     runId: expect.any(String),

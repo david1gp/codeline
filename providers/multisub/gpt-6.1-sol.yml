@@ -1,13 +1,13 @@
-provider: codex-lb
-providerName: codex-lb - codex.contentoren.de
-model: gpt-5.6-sol
-name: GPT 5.6 Sol (codex-lb)
-family: gpt-5.6
+provider: multisub
+providerName: multisub - multisub.contentoren.de
+model: gpt-6.1-sol
+name: GPT 6.1 Sol (multisub)
+family: gpt-6.1
 status: active
 enabled: true
-baseUrl: https://codex.contentoren.de/v1
-apiKey: $CODEX_LB_API_TOKEN
-env: [$CODEX_LB_API_TOKEN]
+baseUrl: https://multisub.contentoren.de/v1
+apiKey: $MULTISUB_API_KEY
+env: [$MULTISUB_API_KEY]
 transport: openai/responses
 providerOptions:
   npm: '@ai-sdk/openai'

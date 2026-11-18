@@ -5,8 +5,8 @@ import { providerModelSelectionStateCreate } from "../../../src/providers/provid
 import { providerModelSelectionPersistenceSchema } from "../../../src/providers/schema/providerModelSelectionPersistenceSchema.js"
 
 const deterministicConfiguration = (model: string) => ({ provider: "deterministic" as const, model })
-const remoteConfiguration = (provider: "cliproxyapi" | "codex-lb", model: string) => ({
-  apiKey: provider === "cliproxyapi" ? ("$CLIPROXYAPI_API_KEY" as const) : ("$CODEX_LB_API_TOKEN" as const),
+const remoteConfiguration = (provider: "cliproxyapi" | "multisub", model: string) => ({
+  apiKey: provider === "cliproxyapi" ? ("$CLIPROXYAPI_API_KEY" as const) : ("$MULTISUB_API_KEY" as const),
   baseUrl: "https://provider.test/v1",
   model,
   provider,
@@ -48,7 +48,7 @@ test("persisted selections are scoped by provider and invalid choices are reject
     let configuration = remoteConfiguration("cliproxyapi", "configured")
     const initialPersistence = {
       selections: [
-        { model: "codex-model", provider: "codex-lb" as const },
+        { model: "codex-model", provider: "multisub" as const },
         { model: "cli-model", provider: "cliproxyapi" as const },
       ],
     }
@@ -64,12 +64,12 @@ test("persisted selections are scoped by provider and invalid choices are reject
     expect(state.modelSelect("cliproxyapi", "configured")).toBe(true)
     expect(state.persistence()).toEqual({
       selections: [
-        { model: "codex-model", provider: "codex-lb" },
+        { model: "codex-model", provider: "multisub" },
         { model: "configured", provider: "cliproxyapi" },
       ],
       selectedProvider: "cliproxyapi",
     })
-    configuration = remoteConfiguration("codex-lb", "configured")
+    configuration = remoteConfiguration("multisub", "configured")
     expect(state.selectedModel()).toBe("configured")
     expect(state.persistedSelection()).toBeNull()
     return rootDispose

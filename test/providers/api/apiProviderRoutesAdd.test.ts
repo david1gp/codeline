@@ -116,7 +116,7 @@ test("catalog route returns the real catalog in stable grouped order with redact
 
   const body = v.parse(providerApiCatalogResponseSchema, await response.json())
   expect(body.revision).toBeInteger()
-  expect(body.providers.map((provider) => provider.id)).toEqual(["cliproxyapi", "codex-lb"])
+  expect(body.providers.map((provider) => provider.id)).toEqual(["cliproxyapi", "multisub"])
   expect(body.providers[0]?.models.map((model) => model.id)).toEqual([
     "claude-fable-5",
     "claude-opus-4-6-thinking",
@@ -130,18 +130,18 @@ test("catalog route returns the real catalog in stable grouped order with redact
     "grok-4.6",
   ])
 
-  const codex = body.providers.find((provider) => provider.id === "codex-lb")
-  const luna = codex?.models.find((model) => model.id === "gpt-5.6-luna")
+  const multisub = body.providers.find((provider) => provider.id === "multisub")
+  const luna = multisub?.models.find((model) => model.id === "gpt-6-luna")
   expect(luna).toMatchObject({
     capabilities: { input: ["image", "text"], output: ["text"], tools: false },
     cost: [
       { cache: { read: 0.02, write: 1.25 }, input: 0.2, output: 1.2 },
       { cache: { read: 0.2, write: 2.5 }, input: 2, output: 9, tier: { size: 200000, type: "context" } },
     ],
-    family: "gpt-5.6",
-    id: "gpt-5.6-luna",
+    family: "gpt-6",
+    id: "gpt-6-luna",
     limit: { context: 272000, output: 128000 },
-    name: "GPT 5.6 Luna (codex-lb)",
+    name: "GPT 6.0 Luna (multisub)",
     selectable: true,
     status: "active",
     variants: [
@@ -154,10 +154,10 @@ test("catalog route returns the real catalog in stable grouped order with redact
   })
 
   expect(
-    body.providers.flatMap((provider) => provider.models).find((model) => model.id === "gpt-5.6-luna")?.selectable,
-  ).toBe(false)
+    body.providers.flatMap((provider) => provider.models).find((model) => model.id === "gpt-6-luna")?.selectable,
+  ).toBe(true)
   const serialized = JSON.stringify(body)
-  for (const forbidden of ["connection", "options", "agents", "prompt", "permission", "CODEX_LB_API_TOKEN"]) {
+  for (const forbidden of ["connection", "options", "agents", "prompt", "permission", "MULTISUB_API_KEY"]) {
     expect(serialized).not.toContain(forbidden)
   }
 

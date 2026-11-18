@@ -1,6 +1,6 @@
 import { expect, type Page } from "@playwright/test"
 
-const lunaModelSelection = "codex-lb/gpt-5.6-luna"
+const lunaModelSelection = "multisub/gpt-6-luna"
 const syncTimeout = 120_000
 
 export async function lunaLowEffortChatAction(page: Page, sessionId: string) {

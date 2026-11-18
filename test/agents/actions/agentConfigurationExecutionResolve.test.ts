@@ -27,7 +27,7 @@ test("agent configuration execution resolver preserves omitted overrides and rej
   expect(
     agentConfigurationExecutionResolve(configuration, {
       model: "selected-model",
-      provider: "codex-lb",
+      provider: "multisub",
     }),
   ).toMatchObject({
     errorMessage: "The codeline execution override provider must match the agent provider.",

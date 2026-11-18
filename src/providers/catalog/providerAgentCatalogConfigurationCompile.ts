@@ -60,7 +60,7 @@ export function providerAgentCatalogConfigurationCompile(
         "The selected catalog model has no executable provider connection.",
       )
     }
-    if (resolved.data.provider.id !== "cliproxyapi" && resolved.data.provider.id !== "codex-lb") {
+    if (resolved.data.provider.id !== "cliproxyapi" && resolved.data.provider.id !== "multisub") {
       return createResultError(
         "providerAgentCatalogConfigurationCompile",
         "The selected catalog model has an unsupported provider.",
@@ -94,7 +94,7 @@ export function providerAgentCatalogConfigurationCompile(
         : {
             ...sharedConfiguration,
             apiKey: connection.apiKey,
-            provider: "codex-lb" as const,
+            provider: "multisub" as const,
           }
     const validatedConfiguration = v.safeParse(agentConfigurationSchema, configuration)
     if (!validatedConfiguration.success) {

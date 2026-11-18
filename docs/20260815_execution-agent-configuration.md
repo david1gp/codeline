@@ -1,5 +1,7 @@
 # Execution agent configuration
 
+> Historical note (2026-11-18): the `codex-lb` provider referenced below was retired with the codex-lb shutdown and replaced by the `multisub` provider. This plan is preserved as written.
+
 ## Goal
 
 Make Codeline execution agents selectable and configurable from the workspace setup UI, and provide working Luna agents for the existing Codex-LB and CLIProxyAPI gateways.

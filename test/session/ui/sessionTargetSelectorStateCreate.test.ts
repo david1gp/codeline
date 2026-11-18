@@ -96,10 +96,10 @@ const agentDetails: Record<string, unknown> = {
   "example-agent-local": representation({
     agent: {
       configuration: {
-        apiKey: "$CODEX_LB_API_TOKEN",
+        apiKey: "$MULTISUB_API_KEY",
         baseUrl: "https://codex.example.com/v1",
         model: "codex-model",
-        provider: "codex-lb",
+        provider: "multisub",
       },
       id: "example-agent-local",
       name: "Example Coding Agent",
@@ -124,10 +124,10 @@ const agentDetails: Record<string, unknown> = {
   "example-agent-remote": representation({
     agent: {
       configuration: {
-        apiKey: "$CODEX_LB_API_TOKEN",
+        apiKey: "$MULTISUB_API_KEY",
         baseUrl: "https://remote.example.com/v1",
         model: "remote-model",
-        provider: "codex-lb",
+        provider: "multisub",
       },
       id: "example-agent-remote",
       name: "Example Remote Agent",
@@ -1116,7 +1116,7 @@ test("workspace configuration loads an editable agent and uses persisted-agent p
             model: "codex-model",
             modelAvailable: true,
             ok: true,
-            provider: "codex-lb",
+            provider: "multisub",
           })
         }
         return fetchDefaultCreate([])(input, init)
@@ -1132,8 +1132,8 @@ test("workspace configuration loads an editable agent and uses persisted-agent p
     baseUrl: "https://codex.example.com/v1",
     model: "codex-model",
     name: "Example Coding Agent",
-    provider: "codex-lb",
-    secretReference: "$CODEX_LB_API_TOKEN",
+    provider: "multisub",
+    secretReference: "$MULTISUB_API_KEY",
   })
 
   await state?.configurationReadiness().modelsDiscover()
@@ -1286,7 +1286,7 @@ test("an agent-less server exposes creation and surfaces provider API errors", a
 
   await state?.configurationReadiness().save()
   await effectsSettle()
-  expect((createBody as { configuration: { apiKey: string } }).configuration.apiKey).toBe("$CODEX_LB_API_TOKEN")
+  expect((createBody as { configuration: { apiKey: string } }).configuration.apiKey).toBe("$MULTISUB_API_KEY")
   expect(state?.selectedAgentId()).toBe("created-agent")
   expect(state?.configurationReadiness().status).toBe("ready")
   dispose()

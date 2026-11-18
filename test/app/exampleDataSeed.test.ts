@@ -543,8 +543,8 @@ test("reset preserves unrelated data and descendant links", async () => {
   expect(catalogAgents.find((agent) => agent.id === "delegate")?.parentAgentId).toBeNull()
   expect(catalogAgents.find((agent) => agent.id === "luna-high")?.parentAgentId).toBe("delegate")
   expect(catalogAgents.find((agent) => agent.id === "luna-high")?.configuration).toMatchObject({
-    model: "gpt-5.6-luna",
-    provider: "codex-lb",
+    model: "gpt-6-luna",
+    provider: "multisub",
   })
 
   const sessions = await database.select().from(sessionTable).where(inArray(sessionTable.id, sessionIds))

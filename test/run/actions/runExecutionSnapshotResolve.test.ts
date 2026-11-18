@@ -39,11 +39,11 @@ function configuration(model: string): CodelineConfigurationDocument {
       },
       {
         configuration: {
-          apiKey: "$CODEX_LB_API_TOKEN",
+          apiKey: "$MULTISUB_API_KEY",
           baseUrl: "https://provider.example.test/v1",
           generation: { maxTokens: 512, temperature: 0.2 },
           model,
-          provider: "codex-lb",
+          provider: "multisub",
         },
         target: { agentId: "agent-1", serverId: "server-1" },
       },
@@ -71,11 +71,11 @@ test("run execution snapshot resolves the committed target configuration and rev
     success: true,
     data: {
       configuration: {
-        apiKey: "$CODEX_LB_API_TOKEN",
+        apiKey: "$MULTISUB_API_KEY",
         baseUrl: "https://provider.example.test/v1",
         generation: { maxTokens: 512, temperature: 0.2 },
         model: "committed-model",
-        provider: "codex-lb",
+        provider: "multisub",
         tools: { bash: false, webfetch: false },
       },
       configurationRevision: written.data,

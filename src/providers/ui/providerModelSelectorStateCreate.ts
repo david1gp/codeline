@@ -19,7 +19,7 @@ import type { ProviderModelSelection } from "../schema/providerModelSelectionSch
 
 const providerModelSelectionStorageKey = "codeline.provider-model-selection"
 const placeholderConfiguration: AgentConfiguration = { model: "unavailable", provider: "deterministic" }
-const supportedProviders = new Set<ProviderModelSelection["provider"]>(["cliproxyapi", "codex-lb", "deterministic"])
+const supportedProviders = new Set<ProviderModelSelection["provider"]>(["cliproxyapi", "multisub", "deterministic"])
 type ProviderModelSelectorEffort = NonNullable<ProviderModelSelection["reasoningEffort"]>
 const supportedEfforts = new Set<ProviderModelSelectorEffort>(["low", "medium", "high", "xhigh", "max"])
 

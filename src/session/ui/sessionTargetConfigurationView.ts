@@ -11,9 +11,9 @@ type SessionTargetConfigurationDraft = {
   baseUrl: string
   model: string
   name: string
-  provider: "cliproxyapi" | "codex-lb"
+  provider: "cliproxyapi" | "multisub"
   role: string
-  secretReference: "$CLIPROXYAPI_API_KEY" | "$CODEX_LB_API_TOKEN"
+  secretReference: "$CLIPROXYAPI_API_KEY" | "$MULTISUB_API_KEY"
 }
 
 /** Workspace setup contract for selecting, configuring, testing, and starting an execution target. */
@@ -28,7 +28,7 @@ export type SessionTargetConfigurationView = {
   draftBaseUrlChange: (value: string) => void
   draftModelChange: (value: string) => void
   draftNameChange: (value: string) => void
-  draftProviderChange: (value: "cliproxyapi" | "codex-lb") => void
+  draftProviderChange: (value: "cliproxyapi" | "multisub") => void
   draftRoleChange: (value: string) => void
   errorMessage: string | null
   isConfigurableAgent: boolean

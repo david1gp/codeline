@@ -53,12 +53,12 @@ test("reconciles all fixture agents while preserving unrelated configuration ide
       },
       {
         configuration: {
-          apiKey: "$CODEX_LB_API_TOKEN",
+          apiKey: "$MULTISUB_API_KEY",
           baseUrl: "https://codex.provider.test/v1",
-          model: "gpt-5.6-luna",
-          provider: "codex-lb",
+          model: "gpt-6-luna",
+          provider: "multisub",
         },
-        target: { agentId: "example-agent-codex-lb-luna", serverId: "example-server-local" },
+        target: { agentId: "example-agent-multisub-luna", serverId: "example-server-local" },
       },
       {
         configuration: {
@@ -96,11 +96,11 @@ test("reconciles all fixture agents while preserving unrelated configuration ide
   ])
   expect(
     read.data.configuration.agentConfigurations.find(({ target }) => target.agentId === "luna-high")?.configuration,
-  ).toMatchObject({ model: "gpt-5.6-luna", provider: "codex-lb" })
+  ).toMatchObject({ model: "gpt-6-luna", provider: "multisub" })
   expect(
     read.data.configuration.agentConfigurations.some(
       ({ target }) =>
-        target.agentId === "example-agent-codex-lb-luna" || target.agentId === "example-agent-cliproxyapi-luna",
+        target.agentId === "example-agent-multisub-luna" || target.agentId === "example-agent-cliproxyapi-luna",
     ),
   ).toBe(false)
 

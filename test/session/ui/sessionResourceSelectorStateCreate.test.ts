@@ -234,10 +234,10 @@ const agentDetailCreate = (id: string, name: string, role: string, tools: { bash
     agent: {
       ...(id === "example-agent-primary" ? { agentPrompt: "Use the selected agent prompt." } : {}),
       configuration: {
-        apiKey: "$CODEX_LB_API_TOKEN",
+        apiKey: "$MULTISUB_API_KEY",
         baseUrl: "https://codex.example.com/v1",
         model: "codex-model",
-        provider: "codex-lb",
+        provider: "multisub",
         tools,
       },
       id,

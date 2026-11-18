@@ -15,7 +15,7 @@ test("local continuation ignores unrelated cwd but denies a persisted project re
     HOME: fixture,
     XDG_DATA_HOME: join(fixture, "data"),
     CODELINE_PROJECT_ROOTS: JSON.stringify([project]),
-    CODEX_LB_API_TOKEN: "fixture-key",
+    MULTISUB_API_KEY: "fixture-key",
   }
   let initial: Extract<Awaited<ReturnType<typeof cliLocalRuntimeCreate>>, { success: true }>["data"] | undefined
   let allowed: Extract<Awaited<ReturnType<typeof cliBackendAcquire>>, { success: true }>["data"] | undefined

@@ -1,7 +1,7 @@
 ---
 description: default for complex coding tasks; not for UI design work
 mode: subagent
-model: codex-lb/gpt-5.6-luna
+model: multisub/gpt-6-luna
 variant: xhigh
 permission:
   task:

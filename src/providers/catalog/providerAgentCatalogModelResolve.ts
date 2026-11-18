@@ -11,8 +11,8 @@ type ProviderAgentCatalogModelResolution = {
   variant?: CatalogModel["variants"][number]
 }
 
-const defaultProviderId = "codex-lb"
-const defaultModelId = "gpt-5.6-luna"
+const defaultProviderId = "multisub"
+const defaultModelId = "gpt-6-luna"
 
 function catalogModelsFind(
   catalog: ProviderCatalog,

@@ -28,9 +28,9 @@ const cliProxyApiSecretReferenceSchema = v.pipe(
   v.check((value) => value === "$CLIPROXYAPI_API_KEY" || value === "$SUBS_CONTENTOREN_DE_API_KEY"),
 )
 
-const codexLbSecretReferenceSchema = v.pipe(
+const multisubSecretReferenceSchema = v.pipe(
   secretReferenceSchema,
-  v.check((value) => value === "$CODEX_LB_API_TOKEN"),
+  v.check((value) => value === "$MULTISUB_API_KEY"),
 )
 
 const catalogAgentMetadataSchema = v.strictObject({
@@ -66,12 +66,12 @@ const cliproxyapiAgentConfigurationSchema = v.strictObject({
   variant: v.optional(agentModelSchema),
 })
 
-const codexLbAgentConfigurationSchema = v.strictObject({
+const multisubAgentConfigurationSchema = v.strictObject({
   compaction: v.optional(compactionConfigurationSchema),
-  provider: v.literal("codex-lb"),
+  provider: v.literal("multisub"),
   model: agentModelSchema,
   baseUrl: providerBaseUrlSchema,
-  apiKey: codexLbSecretReferenceSchema,
+  apiKey: multisubSecretReferenceSchema,
   catalogAgent: v.optional(catalogAgentMetadataSchema),
   catalogRevision: v.optional(v.pipe(v.string(), v.regex(/^sha256-[a-f0-9]{64}$/))),
   generation: v.optional(providerGenerationSchema),
@@ -85,7 +85,7 @@ const codexLbAgentConfigurationSchema = v.strictObject({
 const agentConfigurationVariantSchema = v.variant("provider", [
   deterministicAgentConfigurationSchema,
   cliproxyapiAgentConfigurationSchema,
-  codexLbAgentConfigurationSchema,
+  multisubAgentConfigurationSchema,
 ])
 
 export const agentConfigurationSchema = v.pipe(

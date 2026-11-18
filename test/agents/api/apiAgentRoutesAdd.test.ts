@@ -41,11 +41,11 @@ const cliproxyConfiguration = {
   provider: "cliproxyapi",
   tools: { bash: false, webfetch: false },
 } as const
-const codexConfiguration = {
-  apiKey: "$CODEX_LB_API_TOKEN",
+const multisubConfiguration = {
+  apiKey: "$MULTISUB_API_KEY",
   baseUrl: "https://provider.test/v1",
   model: "gpt-test",
-  provider: "codex-lb",
+  provider: "multisub",
   tools: { bash: false, webfetch: false },
 } as const
 
@@ -105,7 +105,7 @@ function appForUser(
   apiAgentRoutesAdd(app, {
     environment: {
       CLIPROXYAPI_API_KEY: "cliproxy-secret",
-      CODEX_LB_API_TOKEN: "codex-secret",
+      MULTISUB_API_KEY: "multisub-secret",
     },
     fetch: async (_input, init) => {
       authorizationValues.push(new Headers(init?.headers).get("authorization") ?? "")
@@ -195,14 +195,14 @@ test.skipIf(!databaseAvailable)(
     expect(v.safeParse(providerApiConnectionTestResponseSchema, await proposedConnection.json()).success).toBe(true)
 
     const updated = await app.request(`http://codeline.test/servers/${serverId}/agents/${createdAgentId}`, {
-      body: JSON.stringify({ configuration: codexConfiguration }),
+      body: JSON.stringify({ configuration: multisubConfiguration }),
       headers: { "content-type": "application/json" },
       method: "PATCH",
     })
     expect(updated.status).toBe(200)
     const updatedBody = await updated.json()
     expect(v.safeParse(agentDetailResponseSchema, updatedBody).success).toBe(true)
-    expect(updatedBody.agent.configuration).toEqual(codexConfiguration)
+    expect(updatedBody.agent.configuration).toEqual(multisubConfiguration)
 
     const persistedModels = await app.request(
       `http://codeline.test/servers/${serverId}/agents/${createdAgentId}/models`,
@@ -214,7 +214,7 @@ test.skipIf(!databaseAvailable)(
     )
     expect(persistedModels.status).toBe(200)
     expect(v.safeParse(providerApiModelsResponseSchema, await persistedModels.json()).success).toBe(true)
-    expect(authorizationValues.at(-1)).toBe("Bearer codex-secret")
+    expect(authorizationValues.at(-1)).toBe("Bearer multisub-secret")
 
     const persistedConnection = await app.request(
       `http://codeline.test/servers/${serverId}/agents/${createdAgentId}/connection-test`,

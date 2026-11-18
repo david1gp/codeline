@@ -503,7 +503,7 @@ describe("local one-shot command", () => {
       HOME: fixture.directory,
       XDG_DATA_HOME: join(fixture.directory, "data"),
       CODELINE_PROJECT_ROOTS: JSON.stringify([fixture.directory]),
-      CODEX_LB_API_TOKEN: "fixture-key",
+      MULTISUB_API_KEY: "fixture-key",
     }
     const responses: { path: string; headers: Headers; body: string }[] = []
     let shutdowns = 0

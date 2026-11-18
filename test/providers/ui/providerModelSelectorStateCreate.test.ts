@@ -60,13 +60,13 @@ const sessionDetail = (sessionId: string) => ({
     updatedAt: "2026-08-22T00:00:00.000Z",
   },
 })
-const agentDetail = (provider: "cliproxyapi" | "codex-lb" | "deterministic", model: string, revision = 2) => ({
+const agentDetail = (provider: "cliproxyapi" | "multisub" | "deterministic", model: string, revision = 2) => ({
   agent: {
     configuration:
       provider === "deterministic"
         ? { model, provider }
         : {
-            apiKey: provider === "codex-lb" ? "$CODEX_LB_API_TOKEN" : "$CLIPROXYAPI_API_KEY",
+            apiKey: provider === "multisub" ? "$MULTISUB_API_KEY" : "$CLIPROXYAPI_API_KEY",
             baseUrl: "https://provider.test/v1",
             model,
             provider,
@@ -111,14 +111,14 @@ test("catalog selection groups and sorts providers and models while excluding un
       fetch: async (input, init) => {
         requests.push(String(input))
         return routedFetch({
-          agent: () => response(agentDetail("codex-lb", "shared")),
+          agent: () => response(agentDetail("multisub", "shared")),
           catalog: () =>
             response({
               providers: [
-                catalogProvider("codex-lb", [
-                  catalogModel("codex-lb", "zeta"),
-                  catalogModel("codex-lb", "shared", { efforts: ["high", "medium"] }),
-                  catalogModel("codex-lb", "disabled", { enabled: false, selectable: false }),
+                catalogProvider("multisub", [
+                  catalogModel("multisub", "zeta"),
+                  catalogModel("multisub", "shared", { efforts: ["high", "medium"] }),
+                  catalogModel("multisub", "disabled", { enabled: false, selectable: false }),
                 ]),
                 catalogProvider("unsupported", [catalogModel("unsupported", "hidden")]),
                 catalogProvider("cliproxyapi", [catalogModel("cliproxyapi", "shared")]),
@@ -133,10 +133,10 @@ test("catalog selection groups and sorts providers and models while excluding un
     void effectsSettle().then(() => {
       expect(state.status()).toBe("ready")
       expect(state.dataStatus()).toBe("ready")
-      expect(state.groups().map((group) => group.id)).toEqual(["cliproxyapi", "codex-lb"])
+      expect(state.groups().map((group) => group.id)).toEqual(["cliproxyapi", "multisub"])
       expect(state.groups()[1]?.models.map((model) => model.id)).toEqual(["shared", "zeta"])
       expect(state.models().filter((model) => model.id === "shared")).toHaveLength(2)
-      expect(state.selectedProvider()).toBe("codex-lb")
+      expect(state.selectedProvider()).toBe("multisub")
       expect(state.selectedModel()).toBe("shared")
       expect(state.effortOptions()).toEqual(["high", "medium"])
       expect(state.codelineExecution()).toBeNull()
@@ -158,7 +158,7 @@ test("a conditional catalog revalidation retains the cached representation on 30
   let conditionalHeader: string | null = null
   let catalogRequests = 0
   const catalogBody = {
-    providers: [catalogProvider("codex-lb", [catalogModel("codex-lb", "shared")])],
+    providers: [catalogProvider("multisub", [catalogModel("multisub", "shared")])],
     revision: catalogRevision,
   }
   const fetcher = async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -172,7 +172,7 @@ test("a conditional catalog revalidation retains the cached representation on 30
       }
       return response(catalogBody, 200, { ETag: etag("catalog-1") })
     }
-    if (url.includes("/agents/")) return response(agentDetail("codex-lb", "shared"))
+    if (url.includes("/agents/")) return response(agentDetail("multisub", "shared"))
     return response(sessionDetail("session-1"))
   }
 
@@ -212,14 +212,14 @@ test("a failed revalidation keeps retained models and reports the stale data sta
           if (catalogRequests > 1) return response({ error: "unavailable" }, 500)
           return response(
             {
-              providers: [catalogProvider("codex-lb", [catalogModel("codex-lb", "shared")])],
+              providers: [catalogProvider("multisub", [catalogModel("multisub", "shared")])],
               revision: catalogRevision,
             },
             200,
             { ETag: etag("catalog-1") },
           )
         }
-        if (url.includes("/agents/")) return response(agentDetail("codex-lb", "shared"))
+        if (url.includes("/agents/")) return response(agentDetail("multisub", "shared"))
         return response(sessionDetail("session-1"))
       },
       isOnline: () => true,
@@ -244,10 +244,10 @@ test("offline reporting wins over an in-flight revalidation", async () => {
     const state = providerModelSelectorStateCreate({
       accountId: accountIdCreate(),
       fetch: routedFetch({
-        agent: () => response(agentDetail("codex-lb", "shared")),
+        agent: () => response(agentDetail("multisub", "shared")),
         catalog: () =>
           response({
-            providers: [catalogProvider("codex-lb", [catalogModel("codex-lb", "shared")])],
+            providers: [catalogProvider("multisub", [catalogModel("multisub", "shared")])],
             revision: catalogRevision,
           }),
       }),
@@ -271,14 +271,14 @@ test("model changes preserve valid effort and choose a deterministic declared fa
     const state = providerModelSelectorStateCreate({
       accountId: accountIdCreate(),
       fetch: routedFetch({
-        agent: () => response(agentDetail("codex-lb", "alpha")),
+        agent: () => response(agentDetail("multisub", "alpha")),
         catalog: () =>
           response({
             providers: [
-              catalogProvider("codex-lb", [
-                catalogModel("codex-lb", "alpha", { efforts: ["medium", "high"] }),
-                catalogModel("codex-lb", "beta", { efforts: ["low", "high"] }),
-                catalogModel("codex-lb", "gamma", { efforts: ["low"] }),
+              catalogProvider("multisub", [
+                catalogModel("multisub", "alpha", { efforts: ["medium", "high"] }),
+                catalogModel("multisub", "beta", { efforts: ["low", "high"] }),
+                catalogModel("multisub", "gamma", { efforts: ["low"] }),
               ]),
             ],
             revision: catalogRevision,
@@ -290,15 +290,15 @@ test("model changes preserve valid effort and choose a deterministic declared fa
     })
     void effectsSettle().then(() => {
       state.reasoningEffortSelect("high")
-      state.modelSelect("codex-lb", "beta")
+      state.modelSelect("multisub", "beta")
       expect(state.selectedReasoningEffort()).toBe("high")
-      state.modelSelect("codex-lb", "gamma")
+      state.modelSelect("multisub", "gamma")
       expect(state.selectedReasoningEffort()).toBe("low")
       state.reasoningEffortSelect("xhigh")
       expect(state.selectedReasoningEffort()).toBe("low")
       expect(JSON.parse(values.get("codeline.provider-model-selection") ?? "null")).toEqual({
-        selectedProvider: "codex-lb",
-        selections: [{ model: "gamma", provider: "codex-lb", reasoningEffort: "low" }],
+        selectedProvider: "multisub",
+        selections: [{ model: "gamma", provider: "multisub", reasoningEffort: "low" }],
       })
     })
     return rootDispose
@@ -311,7 +311,7 @@ test("legacy provider persistence migrates without losing exact provider and mod
   const values = new Map<string, string>([
     [
       "codeline.provider-model-selection",
-      JSON.stringify({ selections: [{ model: "shared", provider: "codex-lb", reasoningEffort: "high" }] }),
+      JSON.stringify({ selections: [{ model: "shared", provider: "multisub", reasoningEffort: "high" }] }),
     ],
   ])
   const storage = {
@@ -322,12 +322,12 @@ test("legacy provider persistence migrates without losing exact provider and mod
     const state = providerModelSelectorStateCreate({
       accountId: accountIdCreate(),
       fetch: routedFetch({
-        agent: () => response(agentDetail("codex-lb", "configured")),
+        agent: () => response(agentDetail("multisub", "configured")),
         catalog: () =>
           response({
             providers: [
               catalogProvider("cliproxyapi", [catalogModel("cliproxyapi", "shared", { efforts: ["high"] })]),
-              catalogProvider("codex-lb", [catalogModel("codex-lb", "shared", { efforts: ["high"] })]),
+              catalogProvider("multisub", [catalogModel("multisub", "shared", { efforts: ["high"] })]),
             ],
             revision: catalogRevision,
           }),
@@ -337,12 +337,12 @@ test("legacy provider persistence migrates without losing exact provider and mod
       storage,
     })
     void effectsSettle().then(() => {
-      expect(state.selectedProvider()).toBe("codex-lb")
+      expect(state.selectedProvider()).toBe("multisub")
       expect(state.selectedModel()).toBe("shared")
       expect(state.codelineExecution()).toEqual({
         agentId: "agent-1",
         model: "shared",
-        provider: "codex-lb",
+        provider: "multisub",
         reasoningEffort: "high",
       })
     })
@@ -357,11 +357,11 @@ test("catalog fallback chooses the first sorted selectable model when configurat
     const state = providerModelSelectorStateCreate({
       accountId: accountIdCreate(),
       fetch: routedFetch({
-        agent: () => response(agentDetail("codex-lb", "missing")),
+        agent: () => response(agentDetail("multisub", "missing")),
         catalog: () =>
           response({
             providers: [
-              catalogProvider("codex-lb", [catalogModel("codex-lb", "zeta")]),
+              catalogProvider("multisub", [catalogModel("multisub", "zeta")]),
               catalogProvider("cliproxyapi", [catalogModel("cliproxyapi", "alpha")]),
             ],
             revision: catalogRevision,
@@ -399,7 +399,7 @@ test("selector reports an error when the catalog is unavailable", async () => {
   dispose()
 })
 
-test("a cloned deterministic session never receives a persisted codex-lb override while details are pending or resolved", async () => {
+test("a cloned deterministic session never receives a persisted multisub override while details are pending or resolved", async () => {
   let resolveSession!: (value: Response) => void
   let resolveAgent!: (value: Response) => void
   const session = new Promise<Response>((resolve) => {
@@ -418,7 +418,7 @@ test("a cloned deterministic session never receives a persisted codex-lb overrid
         if (url.includes("/api/providers/catalog"))
           return response({
             providers: [
-              catalogProvider("codex-lb", [catalogModel("codex-lb", "persisted")]),
+              catalogProvider("multisub", [catalogModel("multisub", "persisted")]),
               catalogProvider("deterministic", [catalogModel("deterministic", "fixture")]),
             ],
             revision: catalogRevision,
@@ -432,8 +432,8 @@ test("a cloned deterministic session never receives a persisted codex-lb overrid
       storage: {
         getItem: () =>
           JSON.stringify({
-            selectedProvider: "codex-lb",
-            selections: [{ model: "persisted", provider: "codex-lb", reasoningEffort: "medium" }],
+            selectedProvider: "multisub",
+            selections: [{ model: "persisted", provider: "multisub", reasoningEffort: "medium" }],
           }),
         setItem: () => {},
       },
@@ -441,7 +441,7 @@ test("a cloned deterministic session never receives a persisted codex-lb overrid
   }))
   await effectsSettle()
   expect(state.status()).toBe("ready")
-  expect(state.selectedProvider()).toBe("codex-lb")
+  expect(state.selectedProvider()).toBe("multisub")
   expect(state.codelineExecution()).toBeNull()
 
   resolveSession(response(sessionDetail("cloned-session")))
@@ -451,7 +451,7 @@ test("a cloned deterministic session never receives a persisted codex-lb overrid
   resolveAgent(response(agentDetail("deterministic", "fixture")))
   await effectsSettle()
   expect(state.provider()).toBe("deterministic")
-  expect(state.selectedProvider()).toBe("codex-lb")
+  expect(state.selectedProvider()).toBe("multisub")
   expect(state.codelineExecution()).toBeNull()
   state.modelSelect("deterministic", "fixture")
   expect(state.codelineExecution()).toEqual({

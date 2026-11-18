@@ -25,7 +25,7 @@ function commandModelReferenceResolve(
   const provider = parts.length === 1 ? defaultProvider : parts[0]
   const model = parts.length === 1 ? parts[0] : parts.slice(1).join("/")
   if (
-    (provider !== "cliproxyapi" && provider !== "codex-lb" && provider !== "deterministic") ||
+    (provider !== "cliproxyapi" && provider !== "multisub" && provider !== "deterministic") ||
     model === undefined ||
     model.length === 0 ||
     parts.length > 2

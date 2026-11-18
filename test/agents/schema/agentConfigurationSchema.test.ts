@@ -33,10 +33,10 @@ test("agent configuration accepts strict deterministic and CLIProxyAPI variants"
   ).toBe(true)
   expect(
     v.safeParse(agentConfigurationSchema, {
-      apiKey: "$CODEX_LB_API_TOKEN",
+      apiKey: "$MULTISUB_API_KEY",
       baseUrl: "https://codex.provider.test/v1",
       model: "gpt-test",
-      provider: "codex-lb",
+      provider: "multisub",
     }).success,
   ).toBe(true)
 })
@@ -110,8 +110,8 @@ test("agent configuration compaction settings have conservative defaults and bou
 test("agent configuration rejects literal credentials, unknown providers, bad URLs, and limits", () => {
   for (const input of [
     { provider: "cliproxyapi", model: "gpt-test", baseUrl: "https://provider.test/v1", apiKey: "literal-secret" },
-    { provider: "cliproxyapi", model: "gpt-test", baseUrl: "https://provider.test/v1", apiKey: "$CODEX_LB_API_TOKEN" },
-    { provider: "codex-lb", model: "gpt-test", baseUrl: "https://provider.test/v1", apiKey: "$CLIPROXYAPI_API_KEY" },
+    { provider: "cliproxyapi", model: "gpt-test", baseUrl: "https://provider.test/v1", apiKey: "$MULTISUB_API_KEY" },
+    { provider: "multisub", model: "gpt-test", baseUrl: "https://provider.test/v1", apiKey: "$CLIPROXYAPI_API_KEY" },
     { provider: "unknown", model: "gpt-test" },
     { provider: "cliproxyapi", model: "gpt-test", baseUrl: "ftp://provider.test/v1", apiKey: "$CLIPROXYAPI_API_KEY" },
     {
@@ -149,7 +149,7 @@ test("CLIProxyAPI settings parse only validated runtime values", () => {
   ).toBe(false)
   expect(
     cliProxyApiSettingsParse({
-      apiKey: "$CODEX_LB_API_TOKEN",
+      apiKey: "$MULTISUB_API_KEY",
       baseUrl: "https://provider.test/v1",
       maxTokens: 1024,
       model: "gpt-test",

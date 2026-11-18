@@ -1,13 +1,13 @@
-provider: codex-lb
-providerName: codex-lb - codex.contentoren.de
-model: gpt-5.6-luna
-name: GPT 5.6 Luna (codex-lb)
-family: gpt-5.6
+provider: multisub
+providerName: multisub - multisub.contentoren.de
+model: gpt-6.1-terra
+name: GPT 6.1 Terra (multisub)
+family: gpt-6.1
 status: active
 enabled: true
-baseUrl: https://codex.contentoren.de/v1
-apiKey: $CODEX_LB_API_TOKEN
-env: [$CODEX_LB_API_TOKEN]
+baseUrl: https://multisub.contentoren.de/v1
+apiKey: $MULTISUB_API_KEY
+env: [$MULTISUB_API_KEY]
 transport: openai/responses
 providerOptions:
   npm: '@ai-sdk/openai'
@@ -24,17 +24,17 @@ modalities:
   input: [text, image]
   output: [text]
 cost:
-  - input: 0.2
-    output: 1.2
-    cacheRead: 0.02
-    cacheWrite: 1.25
+  - input: 2
+    output: 12
+    cacheRead: 0.2
+    cacheWrite: 3.125
   - tier:
       type: context
       size: 200000
-    input: 2
-    output: 9
-    cacheRead: 0.2
-    cacheWrite: 2.5
+    input: 5
+    output: 22.5
+    cacheRead: 0.5
+    cacheWrite: 6.25
 variants:
   - id: low
     effort: low

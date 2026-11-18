@@ -8,10 +8,10 @@ if (!catalogResult.success) throw new Error(catalogResult.errorMessage)
 const catalog = catalogResult.data
 
 const legacyConfiguration = {
-  apiKey: "$CODEX_LB_API_TOKEN",
+  apiKey: "$MULTISUB_API_KEY",
   baseUrl: "https://legacy.example.test/v1",
   model: "legacy-model",
-  provider: "codex-lb" as const,
+  provider: "multisub" as const,
 }
 
 test("resolves an exact cross-provider model override from the catalog", () => {
@@ -50,9 +50,9 @@ test("rejects disabled models, unsupported transports, and unavailable effort va
   })
 
   const unsupportedCatalog = structuredClone(catalog)
-  const codex = unsupportedCatalog.providers.find(({ id }) => id === "codex-lb")
-  const model = codex?.models.find(({ id }) => id === "gpt-5.6-luna")
-  if (model === undefined) throw new Error("Expected the codex model")
+  const multisub = unsupportedCatalog.providers.find(({ id }) => id === "multisub")
+  const model = multisub?.models.find(({ id }) => id === "gpt-6-luna")
+  if (model === undefined) throw new Error("Expected the multisub model")
   model.enabled = true
   model.connection.transport = "vendor/custom"
   const unsupported = providerAgentCatalogExecutionResolve(unsupportedCatalog, "build", legacyConfiguration)

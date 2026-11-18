@@ -37,10 +37,10 @@ const agents = representation({
 const agentDetail = representation({
   agent: {
     configuration: {
-      apiKey: "$CODEX_LB_API_TOKEN",
+      apiKey: "$MULTISUB_API_KEY",
       baseUrl: "https://codex.example.com/v1",
       model: "codex-model",
-      provider: "codex-lb",
+      provider: "multisub",
     },
     id: "example-agent-primary",
     name: "Primary Agent",

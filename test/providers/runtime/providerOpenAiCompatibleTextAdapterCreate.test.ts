@@ -5,7 +5,7 @@ import { providerOpenAiCompatibleTextAdapterCreate } from "../../../src/provider
 
 type AdapterInput = Parameters<ReturnType<typeof providerOpenAiCompatibleTextAdapterCreate>["chatStream"]>[0]
 
-const secretReference = "$CODEX_LB_API_TOKEN"
+const secretReference = "$MULTISUB_API_KEY"
 const secretValue = "provider-secret-value-123"
 
 function testLogger(): InstanceType<typeof InternalLogger> {
@@ -64,8 +64,8 @@ const tool = {
   name: "lookup_value",
 }
 
-test("CLIProxyAPI and Codex-LB stream split tool-call fragments sequentially", async () => {
-  for (const provider of ["cliproxyapi", "codex-lb"] as const) {
+test("CLIProxyAPI and Multisub stream split tool-call fragments sequentially", async () => {
+  for (const provider of ["cliproxyapi", "multisub"] as const) {
     const requests: Array<{ init?: RequestInit; input: RequestInfo | URL }> = []
     const controller = new AbortController()
     const adapter = providerOpenAiCompatibleTextAdapterCreate({
@@ -140,8 +140,8 @@ test("CLIProxyAPI and Codex-LB stream split tool-call fragments sequentially", a
   }
 })
 
-test("CLIProxyAPI and Codex-LB preserve UTF-8 text across arbitrary SSE chunk boundaries", async () => {
-  for (const provider of ["cliproxyapi", "codex-lb"] as const) {
+test("CLIProxyAPI and Multisub preserve UTF-8 text across arbitrary SSE chunk boundaries", async () => {
+  for (const provider of ["cliproxyapi", "multisub"] as const) {
     const controller = new AbortController()
     const adapter = providerOpenAiCompatibleTextAdapterCreate({
       baseUrl: "https://provider.test/v1",
@@ -186,7 +186,7 @@ test("CLIProxyAPI and Codex-LB preserve UTF-8 text across arbitrary SSE chunk bo
 })
 
 test("OpenAI-compatible SSE usage reaches the completed TanStack stream chunk", async () => {
-  for (const provider of ["cliproxyapi", "codex-lb"] as const) {
+  for (const provider of ["cliproxyapi", "multisub"] as const) {
     const adapter = providerOpenAiCompatibleTextAdapterCreate({
       baseUrl: "https://provider.test/v1",
       fetch: async () =>
@@ -227,7 +227,7 @@ test("OpenAI-compatible SSE usage reaches the completed TanStack stream chunk", 
 })
 
 test("OpenAI-compatible Responses SSE usage reaches the completed TanStack stream chunk", async () => {
-  for (const provider of ["cliproxyapi", "codex-lb"] as const) {
+  for (const provider of ["cliproxyapi", "multisub"] as const) {
     const adapter = providerOpenAiCompatibleTextAdapterCreate({
       baseUrl: "https://provider.test/v1",
       fetch: async () =>
@@ -265,7 +265,7 @@ test("OpenAI-compatible Responses SSE usage reaches the completed TanStack strea
 })
 
 test("invalid provider SSE JSON becomes a bounded canonical error", async () => {
-  for (const provider of ["cliproxyapi", "codex-lb"] as const) {
+  for (const provider of ["cliproxyapi", "multisub"] as const) {
     const adapter = providerOpenAiCompatibleTextAdapterCreate({
       baseUrl: "https://provider.test/v1",
       fetch: async () =>
@@ -311,7 +311,7 @@ test("invalid provider SSE JSON becomes a bounded canonical error", async () => 
 })
 
 test("truncated provider terminal frame becomes a bounded canonical error", async () => {
-  for (const provider of ["cliproxyapi", "codex-lb"] as const) {
+  for (const provider of ["cliproxyapi", "multisub"] as const) {
     const adapter = providerOpenAiCompatibleTextAdapterCreate({
       baseUrl: "https://provider.test/v1",
       fetch: async () =>
@@ -350,7 +350,7 @@ test("truncated provider terminal frame becomes a bounded canonical error", asyn
 })
 
 test("provider HTTP failures are canonical, classified, and redacted for both providers", async () => {
-  for (const provider of ["cliproxyapi", "codex-lb"] as const) {
+  for (const provider of ["cliproxyapi", "multisub"] as const) {
     for (const [status, code] of [
       [429, "provider_rate_limited"],
       [503, "provider_unavailable"],
@@ -384,7 +384,7 @@ test("provider HTTP failures are canonical, classified, and redacted for both pr
 })
 
 test("overlapping provider streams retain their own terminal failure codes", async () => {
-  for (const provider of ["cliproxyapi", "codex-lb"] as const) {
+  for (const provider of ["cliproxyapi", "multisub"] as const) {
     let fetchCalls = 0
     let releaseFirstBody!: () => void
     let releaseSecondBody!: () => void
@@ -441,7 +441,7 @@ test("overlapping provider streams retain their own terminal failure codes", asy
 })
 
 test("provider HTTP structured error envelopes classify context overflow from known fields", async () => {
-  for (const provider of ["cliproxyapi", "codex-lb"] as const) {
+  for (const provider of ["cliproxyapi", "multisub"] as const) {
     for (const error of [
       {
         code: "context_length_exceeded",
@@ -481,7 +481,7 @@ test("provider HTTP structured error envelopes classify context overflow from kn
 })
 
 test("provider structured error fields avoid false-positive context overflow classification", async () => {
-  for (const provider of ["cliproxyapi", "codex-lb"] as const) {
+  for (const provider of ["cliproxyapi", "multisub"] as const) {
     const adapter = providerOpenAiCompatibleTextAdapterCreate({
       baseUrl: "https://provider.test/v1",
       fetch: async () =>
@@ -512,7 +512,7 @@ test("provider structured error fields avoid false-positive context overflow cla
 })
 
 test("normalized streamed provider errors classify structured context overflow", async () => {
-  for (const provider of ["cliproxyapi", "codex-lb"] as const) {
+  for (const provider of ["cliproxyapi", "multisub"] as const) {
     const adapter = providerOpenAiCompatibleTextAdapterCreate({
       baseUrl: "https://provider.test/v1",
       fetch: async () =>
@@ -545,7 +545,7 @@ test("normalized streamed provider errors classify structured context overflow",
 })
 
 test("provider aborts are canonical and redacted for both providers", async () => {
-  for (const provider of ["cliproxyapi", "codex-lb"] as const) {
+  for (const provider of ["cliproxyapi", "multisub"] as const) {
     const controller = new AbortController()
     const adapter = providerOpenAiCompatibleTextAdapterCreate({
       baseUrl: "https://provider.test/v1",

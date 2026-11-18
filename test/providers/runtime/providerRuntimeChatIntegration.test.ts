@@ -9,9 +9,9 @@ import { providerRuntimeAdapterResolve } from "../../../src/providers/runtime/pr
 const secretReference = "$CLIPROXYAPI_API_KEY"
 const secretValue = "runtime-chat-secret-456"
 
-function providerConfiguration(provider: "cliproxyapi" | "codex-lb") {
+function providerConfiguration(provider: "cliproxyapi" | "multisub") {
   return {
-    apiKey: provider === "cliproxyapi" ? "$CLIPROXYAPI_API_KEY" : "$CODEX_LB_API_TOKEN",
+    apiKey: provider === "cliproxyapi" ? "$CLIPROXYAPI_API_KEY" : "$MULTISUB_API_KEY",
     baseUrl: "https://provider.test/v1",
     generation: { maxTokens: 777, temperature: 0.25 },
     model: "runtime-chat-model",
@@ -107,7 +107,7 @@ async function collect(stream: AsyncIterable<StreamChunk>): Promise<Array<Stream
 }
 
 test("remote runtime chat delegates sequentially with durable history for both provider kinds", async () => {
-  for (const provider of ["cliproxyapi", "codex-lb"] as const) {
+  for (const provider of ["cliproxyapi", "multisub"] as const) {
     const requests: Array<Record<string, unknown>> = []
     const fetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>
@@ -120,7 +120,7 @@ test("remote runtime chat delegates sequentially with durable history for both p
     const rawAdapter = providerRuntimeAdapterCreate({
       configuration,
       environment: {
-        ...(provider === "cliproxyapi" ? { CLIPROXYAPI_API_KEY: secretValue } : { CODEX_LB_API_TOKEN: secretValue }),
+        ...(provider === "cliproxyapi" ? { CLIPROXYAPI_API_KEY: secretValue } : { MULTISUB_API_KEY: secretValue }),
       },
       fetch,
     })
@@ -297,10 +297,10 @@ test("remote runtime composes the immutable instruction baseline and scoped dele
 })
 
 test("remote runtime chat classifies failures and cancellation canonically without leaking secrets", async () => {
-  for (const provider of ["cliproxyapi", "codex-lb"] as const) {
+  for (const provider of ["cliproxyapi", "multisub"] as const) {
     const configuration = providerConfiguration(provider)
     const environment = {
-      ...(provider === "cliproxyapi" ? { CLIPROXYAPI_API_KEY: secretValue } : { CODEX_LB_API_TOKEN: secretValue }),
+      ...(provider === "cliproxyapi" ? { CLIPROXYAPI_API_KEY: secretValue } : { MULTISUB_API_KEY: secretValue }),
     }
     const failing = providerRuntimeAdapterCreate({
       configuration,
@@ -365,7 +365,7 @@ test("remote runtime chat classifies failures and cancellation canonically witho
 test("remote runtime aborts after partial provider output without leaking late chunks", async () => {
   const encoder = new TextEncoder()
 
-  for (const provider of ["cliproxyapi", "codex-lb"] as const) {
+  for (const provider of ["cliproxyapi", "multisub"] as const) {
     const controller = new AbortController()
     let responseController: ReadableStreamDefaultController<Uint8Array> | undefined
     const partialOutput = "partial provider output"
@@ -374,7 +374,7 @@ test("remote runtime aborts after partial provider output without leaking late c
     const cancelled = providerRuntimeAdapterCreate({
       configuration,
       environment: {
-        ...(provider === "cliproxyapi" ? { CLIPROXYAPI_API_KEY: secretValue } : { CODEX_LB_API_TOKEN: secretValue }),
+        ...(provider === "cliproxyapi" ? { CLIPROXYAPI_API_KEY: secretValue } : { MULTISUB_API_KEY: secretValue }),
       },
       fetch: async () => {
         const body = new ReadableStream<Uint8Array>({

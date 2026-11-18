@@ -1,7 +1,7 @@
 ---
 description: planning/architecture; implementation of architecturally tricky changes spanning UI and non-UI work
 mode: subagent
-model: codex-lb/gpt-5.6-sol
+model: multisub/gpt-6.1-sol
 variant: high
 permission:
   task:

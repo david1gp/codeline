@@ -261,11 +261,11 @@ test("loads the root catalog with two primary agents and all remaining subagents
   const providers = result.data.providers
   expect(providers).toHaveLength(2)
   const cliproxy = providers.find((p) => p.id === "cliproxyapi")
-  const codexLb = providers.find((p) => p.id === "codex-lb")
+  const multisub = providers.find((p) => p.id === "multisub")
   expect(cliproxy).toBeDefined()
-  expect(codexLb).toBeDefined()
+  expect(multisub).toBeDefined()
   expect(cliproxy?.models).toHaveLength(10)
-  expect(codexLb?.models).toHaveLength(3)
+  expect(multisub?.models).toHaveLength(3)
 
   // Blacklisted models in cliproxyapi are disabled
   const blacklisted = ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]
@@ -289,8 +289,8 @@ test("loads the root catalog with two primary agents and all remaining subagents
     expect(m?.enabled).toBe(true)
   }
 
-  // All codex-lb models are enabled
-  for (const m of codexLb?.models ?? []) {
+  // All multisub models are enabled
+  for (const m of multisub?.models ?? []) {
     expect(m.enabled).toBe(true)
   }
 })

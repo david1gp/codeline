@@ -8,7 +8,7 @@ Fix resource loading and persistent update prompts, add reproducible Luna low-ef
 
 - Treat disabled or keyless resource queries as idle, not loading.
 - Activate a waiting service worker before reloading and reload once on controller change.
-- Use the enabled `codex-lb/gpt-5.6-luna` model with `low` reasoning effort in the real chat E2E.
+- Use the enabled `multisub/gpt-6-luna` model with `low` reasoning effort in the real chat E2E.
 - Capture Playwright console, page errors, and failed requests with actionable test failures.
 - Add an authenticated same-origin batched client-log endpoint with strict validation, bounded payloads, sanitization, recursion prevention, and structured journal output.
 - Keep raw client logs out of SQLite and never forward credentials, bodies, query strings, or fragments.

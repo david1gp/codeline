@@ -143,7 +143,7 @@ test("shared API composition forwards the loaded provider catalog route", async 
   expect(response.status).toBe(200)
   expect((await response.json()).providers.map((provider: { id: string }) => provider.id)).toEqual([
     "cliproxyapi",
-    "codex-lb",
+    "multisub",
   ])
 })
 

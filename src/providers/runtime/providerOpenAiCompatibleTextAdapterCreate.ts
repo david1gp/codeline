@@ -1,7 +1,7 @@
 import { EventType, type StreamChunk } from "@tanstack/ai"
 import { openaiCompatibleText } from "@tanstack/ai-openai/compatible"
 
-type ProviderLabel = "cliproxyapi" | "codex-lb"
+type ProviderLabel = "cliproxyapi" | "multisub"
 type ProviderFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
 type ProviderFailureCode =
   | "chat_interrupted"
@@ -254,7 +254,7 @@ function providerOpenAiCompatibleTextAdapterWithStateCreate(
     baseURL: options.baseUrl,
     fetch: providerFetchCreate(options, state),
     maxRetries: 0,
-    name: options.provider === "cliproxyapi" ? "CLIProxyAPI" : "Codex-LB",
+    name: options.provider === "cliproxyapi" ? "CLIProxyAPI" : "Multisub",
   })
 }
 

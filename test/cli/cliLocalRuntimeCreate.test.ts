@@ -21,7 +21,7 @@ test("local factory migrates private XDG SQLite and reuses identity, secret and 
       HOME: fixture,
       XDG_DATA_HOME: dataHome,
       CODELINE_PROJECT_ROOTS: JSON.stringify([fixture]),
-      CODEX_LB_API_TOKEN: "fixture-key",
+      MULTISUB_API_KEY: "fixture-key",
     }
     first = await cliLocalRuntimeCreate({ cwd: project, environment })
     if (!first.success) throw new Error(first.errorMessage)
@@ -67,7 +67,7 @@ test("a fresh isolated local runtime admits a catalog-backed chat with prompt an
     HOME: fixture,
     XDG_DATA_HOME: join(fixture, "data"),
     CODELINE_PROJECT_ROOTS: JSON.stringify([fixture]),
-    CODEX_LB_API_TOKEN: "stub-only-token",
+    MULTISUB_API_KEY: "stub-only-token",
   }
   const resolutions: Array<ReturnType<typeof runExecutionSnapshotResolve>> = []
   const adapterOptions: Array<Parameters<typeof providerRuntimeAdapterCreate>[0]> = []
@@ -141,7 +141,7 @@ test("a fresh isolated local runtime admits a catalog-backed chat with prompt an
     expect(resolution.data.agentPrompt).toContain("## build")
     expect(resolution.data.configurationRevision).toBeDefined()
     expect(resolution.data.executionManifest?.tools.primary.tools).toContain("read")
-    expect(adapterOptions[0]?.environment.CODEX_LB_API_TOKEN).toBe("stub-only-token")
+    expect(adapterOptions[0]?.environment.MULTISUB_API_KEY).toBe("stub-only-token")
     expect(adapterOptions[0]?.systemPrompt).toContain("## build")
   } finally {
     if (runtime?.success) expect((await runtime.data.shutdown()).success).toBe(true)

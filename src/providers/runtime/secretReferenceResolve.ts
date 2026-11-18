@@ -4,7 +4,7 @@ import { secretReferenceSchema } from "../schema/secretReferenceSchema.js"
 
 const providerSecretEnvironmentNames = [
   "CLIPROXYAPI_API_KEY",
-  "CODEX_LB_API_TOKEN",
+  "MULTISUB_API_KEY",
   "SUBS_CONTENTOREN_DE_API_KEY",
 ] as const
 

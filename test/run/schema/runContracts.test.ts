@@ -13,10 +13,10 @@ import { sessionExecutionSelectionSchema } from "../../../src/session/schema/ses
 
 const snapshot = {
   configuration: {
-    apiKey: "$CODEX_LB_API_TOKEN",
+    apiKey: "$MULTISUB_API_KEY",
     baseUrl: "https://provider.example.test",
     model: "coding-model",
-    provider: "codex-lb" as const,
+    provider: "multisub" as const,
   },
   configurationRevision: "configuration-revision-1",
   target: { agentId: "agent-1", serverId: "server-1" },

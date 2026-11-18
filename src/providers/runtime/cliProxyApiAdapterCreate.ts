@@ -234,7 +234,7 @@ function cliProxyApiRequestModelOptionsResolve(options: {
       ...modelOptions,
       ...(options.maxTokens === undefined ? {} : { max_output_tokens: options.maxTokens }),
       ...(options.temperature === undefined ? {} : { temperature: options.temperature }),
-      ...(options.provider === "codex-lb"
+      ...(options.provider === "multisub"
         ? cliProxyApiCodexResponsesOptionsResolve(
             options.modelOptions,
             options.providerOptions,
@@ -284,7 +284,7 @@ async function* cliProxyApiAdapterProviderGenerate(
     baseUrl: options.settings.baseUrl,
     fetch: options.fetch,
     model: options.settings.model,
-    provider: options.label === "Codex-LB" ? "codex-lb" : "cliproxyapi",
+    provider: options.label === "Multisub" ? "multisub" : "cliproxyapi",
     resolvedBearerSecret: secret,
     ...(options.settings.transport === undefined ? {} : { transport: options.settings.transport }),
   })
@@ -297,7 +297,7 @@ async function* cliProxyApiAdapterProviderGenerate(
       ...cliProxyApiRequestModelOptionsResolve({
         maxTokens: options.settings.maxTokens,
         modelOptions: modelOptions.data as Record<string, unknown>,
-        provider: options.label === "Codex-LB" ? "codex-lb" : "cliproxyapi",
+        provider: options.label === "Multisub" ? "multisub" : "cliproxyapi",
         providerOptions: providerOptions.data as Record<string, unknown>,
         reasoningEffort: options.settings.reasoningEffort,
         temperature: options.settings.temperature,
